@@ -3,7 +3,7 @@ import { Noto_Sans_JP } from 'next/font/google';
 import './globals.css';
 
 const notoSansJp = Noto_Sans_JP({
-  subsets: ['latin', 'japanese'],
+  subsets: ['latin'],
   weight: ['400', '500', '600', '700', '900'],
   variable: '--font-noto-sans-jp',
   preload: true,

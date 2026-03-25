@@ -216,4 +216,3 @@ export function getContextualizedPrompt(diagnosisCode: string): string {
 このコード情報を念頭に置きながら、クライアントに最適なコーチングを提供してください。
 `;
 }
-`;
