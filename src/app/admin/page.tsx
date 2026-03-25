@@ -1,0 +1,185 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+import AdminGuard from '@/components/AdminGuard';
+import { createClient } from '@/lib/supabase';
+
+interface DashboardStats {
+  totalUsers: number;
+  totalResults: number;
+  botEnabled: boolean;
+}
+
+export default function AdminDashboard() {
+  const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const router = useRouter();
+  const supabase = createClient();
+
+  useEffect(() => {
+    const fetchStats = async () => {
+      try {
+        setLoading(true);
+
+        // Fetch total users count
+        const { count: usersCount, error: usersError } = await supabase
+          .from('profiles')
+          .select('*', { count: 'exact', head: true });
+
+        if (usersError) throw usersError;
+
+        // Fetch total diagnosis results count
+        const { count: resultsCount, error: resultsError } = await supabase
+          .from('diagnosis_results')
+          .select('*', { count: 'exact', head: true });
+
+        if (resultsError) throw resultsError;
+
+        // Fetch site settings
+        const { data: settings, error: settingsError } = await supabase
+          .from('site_settings')
+          .select('bot_enabled')
+          .limit(1)
+          .single();
+
+        if (settingsError && settingsError.code !== 'PGRST116') throw settingsError;
+
+        setStats({
+          totalUsers: usersCount || 0,
+          totalResults: resultsCount || 0,
+          botEnabled: settings?.bot_enabled ?? true,
+        });
+        setError(null);
+      } catch (err) {
+        console.error('Failed to fetch stats:', err);
+        setError('統計情報の取得に失敗しました');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchStats();
+  }, [supabase]);
+
+  return (
+    <AdminGuard>
+      <div className="min-h-screen bg-gradient-to-br from-indigo-950 via-purple-950 to-slate-900">
+        <div className="container mx-auto px-4 py-8">
+          {/* Header */}
+          <div className="mb-8">
+            <h1 className="text-4xl font-bold text-white mb-2">管理者ダッシュボード</h1>
+            <p className="text-gray-400">サイト統計情報と設定管理</p>
+          </div>
+
+          {/* Error Message */}
+          {error && (
+            <div className="mb-6 p-4 bg-red-900/50 border border-red-700 rounded-lg text-red-300">
+              {error}
+            </div>
+          )}
+
+          {/* Loading State */}
+          {loading && (
+            <div className="flex justify-center items-center py-16">
+              <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-400"></div>
+            </div>
+          )}
+
+          {/* Stats Cards */}
+          {!loading && stats && (
+            <>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                {/* Total Users Card */}
+                <div className="bg-gradient-to-br from-indigo-900/40 to-purple-900/40 border border-indigo-700/50 rounded-lg p-6 shadow-xl hover:shadow-2xl transition-shadow">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <p className="text-gray-400 text-sm font-medium">ユーザー数</p>
+                      <p className="text-4xl font-bold text-white mt-2">{stats.totalUsers}</p>
+                      <p className="text-gray-500 text-xs mt-1">登録済みユーザー</p>
+                    </div>
+                    <div className="text-indigo-400 text-3xl">👥</div>
+                  </div>
+                </div>
+
+                {/* Total Results Card */}
+                <div className="bg-gradient-to-br from-purple-900/40 to-indigo-900/40 border border-purple-700/50 rounded-lg p-6 shadow-xl hover:shadow-2xl transition-shadow">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <p className="text-gray-400 text-sm font-medium">診断結果数</p>
+                      <p className="text-4xl font-bold text-white mt-2">{stats.totalResults}</p>
+                      <p className="text-gray-500 text-xs mt-1">合計診断数</p>
+                    </div>
+                    <div className="text-purple-400 text-3xl">📊</div>
+                  </div>
+                </div>
+
+                {/* Bot Status Card */}
+                <div className="bg-gradient-to-br from-slate-900/40 to-indigo-900/40 border border-slate-700/50 rounded-lg p-6 shadow-xl hover:shadow-2xl transition-shadow">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <p className="text-gray-400 text-sm font-medium">AIコーチングボット</p>
+                      <div className="flex items-center gap-2 mt-2">
+                        <div
+                          className={`h-3 w-3 rounded-full ${
+                            stats.botEnabled ? 'bg-green-500' : 'bg-gray-500'
+                          }`}
+                        ></div>
+                        <p className="text-2xl font-bold text-white">
+                          {stats.botEnabled ? 'ON' : 'OFF'}
+                        </p>
+                      </div>
+                      <p className="text-gray-500 text-xs mt-1">
+                        {stats.botEnabled ? '有効' : '無効'}
+                      </p>
+                    </div>
+                    <div className="text-slate-400 text-3xl">🤖</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Navigation Links */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* User Management Link */}
+                <Link
+                  href="/admin/users"
+                  className="bg-gradient-to-br from-indigo-900/30 to-purple-900/30 border border-indigo-700/50 rounded-lg p-6 hover:from-indigo-900/50 hover:to-purple-900/50 hover:border-indigo-600/70 transition-all cursor-pointer group"
+                >
+                  <div className="flex items-start justify-between mb-4">
+                    <h2 className="text-xl font-semibold text-white group-hover:text-indigo-300 transition-colors">
+                      ユーザー管理
+                    </h2>
+                    <span className="text-2xl">👤</span>
+                  </div>
+                  <p className="text-gray-400 text-sm mb-4">
+                    ユーザーアカウントの管理、役割変更、アクティベーション/デアクティベーション
+                  </p>
+                  <p className="text-indigo-400 text-sm font-medium">詳細を表示 →</p>
+                </Link>
+
+                {/* Settings Link */}
+                <Link
+                  href="/admin/settings"
+                  className="bg-gradient-to-br from-purple-900/30 to-slate-900/30 border border-purple-700/50 rounded-lg p-6 hover:from-purple-900/50 hover:to-slate-900/50 hover:border-purple-600/70 transition-all cursor-pointer group"
+                >
+                  <div className="flex items-start justify-between mb-4">
+                    <h2 className="text-xl font-semibold text-white group-hover:text-purple-300 transition-colors">
+                      サイト設定
+                    </h2>
+                    <span className="text-2xl">⚙️</span>
+                  </div>
+                  <p className="text-gray-400 text-sm mb-4">
+                    AIボット、メンテナンスモード、その他のサイト設定を管理
+                  </p>
+                  <p className="text-purple-400 text-sm font-medium">詳細を表示 →</p>
+                </Link>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </AdminGuard>
+  );
+}
