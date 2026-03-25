@@ -51,7 +51,7 @@ export default function RootLayout({
     <html lang="ja" suppressHydrationWarning>
       <head>
         <meta charSet="utf-8" />
-        <meta name="theme-color" content="#3f0f5c" />
+        <meta name="theme-color" content="#dbeafe" />
       </head>
       <body className={`${notoSansJp.variable} font-sans antialiased`}>
         {children}

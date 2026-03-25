@@ -216,19 +216,19 @@ export default function AdminPeoplePage() {
   return (
     <AdminGuard>
       <Header />
-      <div className="min-h-screen bg-gradient-to-br from-indigo-950 via-purple-950 to-slate-900">
+      <div className="min-h-screen">
         <div className="container mx-auto px-4 py-8">
           {/* ヘッダー */}
           <div className="mb-8 flex items-start justify-between">
             <div>
               <Link
                 href="/admin"
-                className="text-indigo-400 hover:text-indigo-300 text-sm mb-4 inline-block"
+                className="text-blue-600 hover:text-blue-700 text-sm mb-4 inline-block"
               >
                 ← ダッシュボードに戻る
               </Link>
-              <h1 className="text-4xl font-bold text-white">人材管理</h1>
-              <p className="text-gray-400 mt-1">
+              <h1 className="text-4xl font-bold text-gray-900">人材管理</h1>
+              <p className="text-gray-600 mt-1">
                 {people.length}/100名 登録済み
               </p>
             </div>
@@ -236,7 +236,7 @@ export default function AdminPeoplePage() {
               <button
                 onClick={() => setShowAddForm(true)}
                 disabled={people.length >= 100}
-                className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-700 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-colors"
+                className="px-6 py-3 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-400 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-colors"
               >
                 新規追加
               </button>
@@ -245,36 +245,36 @@ export default function AdminPeoplePage() {
 
           {/* メッセージ */}
           {successMessage && (
-            <div className="mb-6 p-4 bg-green-900/50 border border-green-700 rounded-lg text-green-300">
+            <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg text-green-900">
               {successMessage}
             </div>
           )}
           {error && (
-            <div className="mb-6 p-4 bg-red-900/50 border border-red-700 rounded-lg text-red-300">
+            <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-900">
               {error}
             </div>
           )}
 
           {/* 追加/編集フォーム */}
           {showAddForm && (
-            <div className="bg-gradient-to-br from-indigo-900/30 to-purple-900/30 border border-indigo-700/50 rounded-xl p-6 mb-8">
-              <h2 className="text-xl font-semibold text-white mb-4">
+            <div className="bg-white border border-blue-200 rounded-xl p-6 mb-8">
+              <h2 className="text-xl font-semibold text-gray-900 mb-4">
                 {editingId ? '人物を編集' : '新規追加'}
               </h2>
               <form onSubmit={handleSubmit} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-1">名前</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">名前</label>
                   <input
                     type="text"
                     value={formData.name}
                     onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                     placeholder="山田太郎"
                     required
-                    className="w-full px-4 py-2 bg-indigo-950/50 border border-indigo-700/50 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500"
+                    className="w-full px-4 py-2 bg-white border border-blue-200 rounded-lg text-gray-900 placeholder-gray-500 focus:outline-none focus:border-blue-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-1">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
                     タイプコード (3文字)
                   </label>
                   <input
@@ -286,11 +286,11 @@ export default function AdminPeoplePage() {
                     placeholder="SVA"
                     maxLength={3}
                     required
-                    className="w-full px-4 py-2 bg-indigo-950/50 border border-indigo-700/50 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500 uppercase"
+                    className="w-full px-4 py-2 bg-white border border-blue-200 rounded-lg text-gray-900 placeholder-gray-500 focus:outline-none focus:border-blue-500 uppercase"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-1">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
                     意識レベル (1-6)
                   </label>
                   <select
@@ -298,7 +298,7 @@ export default function AdminPeoplePage() {
                     onChange={(e) =>
                       setFormData({ ...formData, consciousness_level: parseInt(e.target.value) })
                     }
-                    className="w-full px-4 py-2 bg-indigo-950/50 border border-indigo-700/50 rounded-lg text-white focus:outline-none focus:border-indigo-500"
+                    className="w-full px-4 py-2 bg-white border border-blue-200 rounded-lg text-gray-900 focus:outline-none focus:border-blue-500"
                   >
                     {[1, 2, 3, 4, 5, 6].map((level) => (
                       <option key={level} value={level}>
@@ -308,36 +308,36 @@ export default function AdminPeoplePage() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-1">日付</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">日付</label>
                   <input
                     type="date"
                     value={formData.date}
                     onChange={(e) => setFormData({ ...formData, date: e.target.value })}
                     required
-                    className="w-full px-4 py-2 bg-indigo-950/50 border border-indigo-700/50 rounded-lg text-white focus:outline-none focus:border-indigo-500"
+                    className="w-full px-4 py-2 bg-white border border-blue-200 rounded-lg text-gray-900 focus:outline-none focus:border-blue-500"
                   />
                 </div>
                 <div className="sm:col-span-2">
-                  <label className="block text-sm font-medium text-gray-300 mb-1">メモ</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">メモ</label>
                   <input
                     type="text"
                     value={formData.notes}
                     onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
                     placeholder="自由記入"
-                    className="w-full px-4 py-2 bg-indigo-950/50 border border-indigo-700/50 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500"
+                    className="w-full px-4 py-2 bg-white border border-blue-200 rounded-lg text-gray-900 placeholder-gray-500 focus:outline-none focus:border-blue-500"
                   />
                 </div>
                 <div className="sm:col-span-2 lg:col-span-3 flex gap-3">
                   <button
                     type="submit"
-                    className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-lg transition-colors"
+                    className="px-6 py-2 bg-blue-500 hover:bg-blue-600 text-white font-semibold rounded-lg transition-colors"
                   >
                     {editingId ? '更新' : '追加'}
                   </button>
                   <button
                     type="button"
                     onClick={handleCancelEdit}
-                    className="px-6 py-2 bg-gray-700 hover:bg-gray-600 text-gray-300 font-semibold rounded-lg transition-colors"
+                    className="px-6 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 font-semibold rounded-lg transition-colors"
                   >
                     キャンセル
                   </button>
@@ -353,78 +353,78 @@ export default function AdminPeoplePage() {
               placeholder="名前・タイプ・メモで検索..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full px-4 py-2 bg-indigo-950/50 border border-indigo-700/50 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/30"
+              className="w-full px-4 py-2 bg-white border border-blue-200 rounded-lg text-gray-900 placeholder-gray-500 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-400/50"
             />
           </div>
 
           {/* テーブル */}
           {loading ? (
             <div className="flex justify-center items-center py-16">
-              <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-400"></div>
+              <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-400"></div>
             </div>
           ) : (
             <>
-              <div className="bg-indigo-950/30 border border-indigo-700/50 rounded-lg overflow-hidden shadow-xl">
+              <div className="bg-white border border-blue-200 rounded-lg overflow-hidden shadow">
                 <div className="overflow-x-auto">
                   <table className="w-full">
-                    <thead className="bg-indigo-950/50 border-b border-indigo-700/50">
+                    <thead className="bg-blue-50 border-b border-blue-200">
                       <tr>
-                        <th className="px-6 py-3 text-left text-xs font-semibold text-indigo-300 uppercase">
+                        <th className="px-6 py-3 text-left text-xs font-semibold text-blue-900 uppercase">
                           名前
                         </th>
-                        <th className="px-6 py-3 text-left text-xs font-semibold text-indigo-300 uppercase">
+                        <th className="px-6 py-3 text-left text-xs font-semibold text-blue-900 uppercase">
                           タイプ
                         </th>
-                        <th className="px-6 py-3 text-left text-xs font-semibold text-indigo-300 uppercase">
+                        <th className="px-6 py-3 text-left text-xs font-semibold text-blue-900 uppercase">
                           意識レベル
                         </th>
-                        <th className="px-6 py-3 text-left text-xs font-semibold text-indigo-300 uppercase">
+                        <th className="px-6 py-3 text-left text-xs font-semibold text-blue-900 uppercase">
                           日付
                         </th>
-                        <th className="px-6 py-3 text-left text-xs font-semibold text-indigo-300 uppercase">
+                        <th className="px-6 py-3 text-left text-xs font-semibold text-blue-900 uppercase">
                           メモ
                         </th>
-                        <th className="px-6 py-3 text-left text-xs font-semibold text-indigo-300 uppercase">
+                        <th className="px-6 py-3 text-left text-xs font-semibold text-blue-900 uppercase">
                           操作
                         </th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-indigo-700/30">
+                    <tbody className="divide-y divide-blue-200">
                       {paginatedPeople.length > 0 ? (
                         paginatedPeople.map((person) => (
-                          <tr key={person.id} className="hover:bg-indigo-900/20 transition-colors">
-                            <td className="px-6 py-4 text-sm text-white font-medium">
+                          <tr key={person.id} className="hover:bg-blue-50 transition-colors">
+                            <td className="px-6 py-4 text-sm text-gray-900 font-medium">
                               {person.name}
                             </td>
                             <td className="px-6 py-4">
-                              <span className="text-lg font-bold text-transparent bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text">
+                              <span className="text-lg font-bold text-transparent bg-gradient-to-r from-blue-600 via-pink-500 to-blue-500 bg-clip-text">
                                 {person.type_code}
                               </span>
-                              <p className="text-xs text-gray-400">
+                              <p className="text-xs text-gray-600">
                                 {typeNames[person.type_code] || ''}
                               </p>
                             </td>
                             <td className="px-6 py-4">
-                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-indigo-900/50 text-indigo-300">
+                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-900">
                                 Lv.{person.consciousness_level} {levelNames[person.consciousness_level]}
                               </span>
                             </td>
-                            <td className="px-6 py-4 text-sm text-gray-400">
+                            <td className="px-6 py-4 text-sm text-gray-600">
                               {person.date}
                             </td>
-                            <td className="px-6 py-4 text-sm text-gray-400 max-w-[200px] truncate">
+                            <td className="px-6 py-4 text-sm text-gray-600 max-w-[200px] truncate">
                               {person.notes || '-'}
                             </td>
                             <td className="px-6 py-4 text-sm flex gap-2">
                               <button
                                 onClick={() => handleEdit(person)}
-                                className="px-2 py-1 rounded bg-indigo-900/50 hover:bg-indigo-900 text-indigo-300 text-xs font-medium transition-colors"
+                                className="px-2 py-1 rounded bg-blue-100 hover:bg-blue-200 text-blue-900 text-xs font-medium transition-colors"
                               >
                                 編集
                               </button>
                               <button
                                 onClick={() => handleDelete(person.id)}
-                                className="px-2 py-1 rounded bg-red-900/50 hover:bg-red-900 text-red-300 text-xs font-medium transition-colors"
+                                className="px-2 py-1 rounded bg-red-100 hover:bg-red-200 text-red-900 text-xs font-medium transition-colors"
                               >
                                 削除
                               </button>
@@ -433,7 +433,7 @@ export default function AdminPeoplePage() {
                         ))
                       ) : (
                         <tr>
-                          <td colSpan={6} className="px-6 py-8 text-center text-gray-400">
+                          <td colSpan={6} className="px-6 py-8 text-center text-gray-600">
                             {people.length === 0 ? 'まだ人物が登録されていません' : '検索結果がありません'}
                           </td>
                         </tr>
@@ -449,7 +449,7 @@ export default function AdminPeoplePage() {
                   <button
                     onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
                     disabled={currentPage === 1}
-                    className="px-4 py-2 bg-indigo-900/50 hover:bg-indigo-900 text-indigo-300 rounded disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    className="px-4 py-2 bg-blue-100 hover:bg-blue-200 text-blue-900 rounded disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   >
                     前へ
                   </button>
@@ -459,8 +459,8 @@ export default function AdminPeoplePage() {
                       onClick={() => setCurrentPage(page)}
                       className={`px-3 py-2 rounded transition-colors ${
                         currentPage === page
-                          ? 'bg-indigo-600 text-white'
-                          : 'bg-indigo-900/50 hover:bg-indigo-900 text-indigo-300'
+                          ? 'bg-blue-500 text-white'
+                          : 'bg-blue-100 hover:bg-blue-200 text-blue-900'
                       }`}
                     >
                       {page}
@@ -469,14 +469,14 @@ export default function AdminPeoplePage() {
                   <button
                     onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
                     disabled={currentPage === totalPages}
-                    className="px-4 py-2 bg-indigo-900/50 hover:bg-indigo-900 text-indigo-300 rounded disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    className="px-4 py-2 bg-blue-100 hover:bg-blue-200 text-blue-900 rounded disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   >
                     次へ
                   </button>
                 </div>
               )}
 
-              <div className="mt-4 text-center text-gray-400 text-sm">
+              <div className="mt-4 text-center text-gray-600 text-sm">
                 {filteredPeople.length > 0 && (
                   <>
                     {(currentPage - 1) * ITEMS_PER_PAGE + 1}～

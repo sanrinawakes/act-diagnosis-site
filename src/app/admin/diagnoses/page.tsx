@@ -132,22 +132,22 @@ export default function AdminDiagnosesPage() {
   return (
     <AdminGuard>
       <Header />
-      <div className="min-h-screen bg-gradient-to-br from-indigo-950 via-purple-950 to-slate-900">
+      <div className="min-h-screen">
         <div className="container mx-auto px-4 py-8">
           {/* ヘッダー */}
           <div className="mb-8">
             <Link
               href="/admin"
-              className="text-indigo-400 hover:text-indigo-300 text-sm mb-4 inline-block"
+              className="text-blue-600 hover:text-blue-700 text-sm mb-4 inline-block"
             >
               ← ダッシュボードに戻る
             </Link>
-            <h1 className="text-4xl font-bold text-white">診断データ</h1>
-            <p className="text-gray-400 mt-1">全ユーザーの診断結果を閲覧</p>
+            <h1 className="text-4xl font-bold text-gray-900">診断データ</h1>
+            <p className="text-gray-600 mt-1">全ユーザーの診断結果を閲覧</p>
           </div>
 
           {error && (
-            <div className="mb-6 p-4 bg-red-900/50 border border-red-700 rounded-lg text-red-300">
+            <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
               {error}
             </div>
           )}
@@ -155,23 +155,23 @@ export default function AdminDiagnosesPage() {
           {/* 統計サマリー */}
           {!loading && diagnoses.length > 0 && (
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
-              <div className="bg-indigo-900/30 border border-indigo-700/50 rounded-lg p-4">
-                <p className="text-gray-400 text-xs">総診断数</p>
-                <p className="text-3xl font-bold text-white mt-1">{diagnoses.length}</p>
+              <div className="bg-white/80 border border-blue-200/50 rounded-lg p-4">
+                <p className="text-gray-600 text-xs">総診断数</p>
+                <p className="text-3xl font-bold text-gray-900 mt-1">{diagnoses.length}</p>
               </div>
-              <div className="bg-purple-900/30 border border-purple-700/50 rounded-lg p-4">
-                <p className="text-gray-400 text-xs">タイプ数</p>
-                <p className="text-3xl font-bold text-white mt-1">{uniqueTypes.length}</p>
+              <div className="bg-white/80 border border-blue-200/50 rounded-lg p-4">
+                <p className="text-gray-600 text-xs">タイプ数</p>
+                <p className="text-3xl font-bold text-gray-900 mt-1">{uniqueTypes.length}</p>
               </div>
-              <div className="bg-pink-900/30 border border-pink-700/50 rounded-lg p-4">
-                <p className="text-gray-400 text-xs">最多タイプ</p>
-                <p className="text-2xl font-bold text-white mt-1">
+              <div className="bg-white/80 border border-pink-200/50 rounded-lg p-4">
+                <p className="text-gray-600 text-xs">最多タイプ</p>
+                <p className="text-2xl font-bold text-gray-900 mt-1">
                   {Object.entries(typeStats).sort(([, a], [, b]) => b - a)[0]?.[0] || '-'}
                 </p>
               </div>
-              <div className="bg-slate-900/30 border border-slate-700/50 rounded-lg p-4">
-                <p className="text-gray-400 text-xs">平均レベル</p>
-                <p className="text-3xl font-bold text-white mt-1">
+              <div className="bg-white/80 border border-blue-200/50 rounded-lg p-4">
+                <p className="text-gray-600 text-xs">平均レベル</p>
+                <p className="text-3xl font-bold text-gray-900 mt-1">
                   {diagnoses.length > 0
                     ? (
                         diagnoses.reduce((sum, d) => sum + d.consciousness_level, 0) /
@@ -185,8 +185,8 @@ export default function AdminDiagnosesPage() {
 
           {/* レベル分布 */}
           {!loading && diagnoses.length > 0 && (
-            <div className="bg-indigo-900/20 border border-indigo-700/50 rounded-lg p-6 mb-8">
-              <h3 className="text-lg font-semibold text-white mb-4">意識レベル分布</h3>
+            <div className="bg-white/80 border border-blue-200/50 rounded-lg p-6 mb-8">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">意識レベル分布</h3>
               <div className="grid grid-cols-6 gap-2">
                 {[1, 2, 3, 4, 5, 6].map((level) => {
                   const count = levelStats[level] || 0;
@@ -195,13 +195,13 @@ export default function AdminDiagnosesPage() {
                     <div key={level} className="text-center">
                       <div className="h-24 flex items-end justify-center mb-2">
                         <div
-                          className="w-full max-w-[40px] bg-gradient-to-t from-indigo-600 to-purple-500 rounded-t"
+                          className="w-full max-w-[40px] bg-gradient-to-t from-blue-600 to-blue-500 rounded-t"
                           style={{ height: `${Math.max(percentage, 5)}%` }}
                         ></div>
                       </div>
-                      <p className="text-white font-semibold text-sm">Lv.{level}</p>
-                      <p className="text-gray-400 text-xs">{count}件</p>
-                      <p className="text-gray-500 text-xs">{percentage.toFixed(0)}%</p>
+                      <p className="text-gray-900 font-semibold text-sm">Lv.{level}</p>
+                      <p className="text-gray-600 text-xs">{count}件</p>
+                      <p className="text-gray-600 text-xs">{percentage.toFixed(0)}%</p>
                     </div>
                   );
                 })}
@@ -216,12 +216,12 @@ export default function AdminDiagnosesPage() {
               placeholder="メール・名前・タイプで検索..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="flex-1 px-4 py-2 bg-indigo-950/50 border border-indigo-700/50 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/30"
+              className="flex-1 px-4 py-2 bg-white border border-blue-200 rounded-lg text-gray-900 placeholder-gray-500 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/30"
             />
             <select
               value={filterType}
               onChange={(e) => setFilterType(e.target.value)}
-              className="px-4 py-2 bg-indigo-950/50 border border-indigo-700/50 rounded-lg text-white focus:outline-none focus:border-indigo-500"
+              className="px-4 py-2 bg-white border border-blue-200 rounded-lg text-gray-900 focus:outline-none focus:border-blue-500"
             >
               <option value="">全タイプ</option>
               {uniqueTypes.map((type) => (
@@ -233,7 +233,7 @@ export default function AdminDiagnosesPage() {
             <select
               value={filterLevel}
               onChange={(e) => setFilterLevel(e.target.value)}
-              className="px-4 py-2 bg-indigo-950/50 border border-indigo-700/50 rounded-lg text-white focus:outline-none focus:border-indigo-500"
+              className="px-4 py-2 bg-white border border-blue-200 rounded-lg text-gray-900 focus:outline-none focus:border-blue-500"
             >
               <option value="">全レベル</option>
               {[1, 2, 3, 4, 5, 6].map((level) => (
@@ -247,53 +247,53 @@ export default function AdminDiagnosesPage() {
           {/* テーブル */}
           {loading ? (
             <div className="flex justify-center items-center py-16">
-              <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-400"></div>
+              <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-400"></div>
             </div>
           ) : (
             <>
-              <div className="bg-indigo-950/30 border border-indigo-700/50 rounded-lg overflow-hidden shadow-xl">
+              <div className="bg-white border border-blue-100 rounded-lg overflow-hidden shadow-sm">
                 <div className="overflow-x-auto">
                   <table className="w-full">
-                    <thead className="bg-indigo-950/50 border-b border-indigo-700/50">
+                    <thead className="bg-blue-50 border-b border-blue-100">
                       <tr>
-                        <th className="px-6 py-3 text-left text-xs font-semibold text-indigo-300 uppercase">
+                        <th className="px-6 py-3 text-left text-xs font-semibold text-gray-900 uppercase">
                           ユーザー
                         </th>
-                        <th className="px-6 py-3 text-left text-xs font-semibold text-indigo-300 uppercase">
+                        <th className="px-6 py-3 text-left text-xs font-semibold text-gray-900 uppercase">
                           タイプ
                         </th>
-                        <th className="px-6 py-3 text-left text-xs font-semibold text-indigo-300 uppercase">
+                        <th className="px-6 py-3 text-left text-xs font-semibold text-gray-900 uppercase">
                           意識レベル
                         </th>
-                        <th className="px-6 py-3 text-left text-xs font-semibold text-indigo-300 uppercase">
+                        <th className="px-6 py-3 text-left text-xs font-semibold text-gray-900 uppercase">
                           診断日
                         </th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-indigo-700/30">
+                    <tbody className="divide-y divide-blue-100">
                       {paginatedDiagnoses.length > 0 ? (
                         paginatedDiagnoses.map((d) => (
-                          <tr key={d.id} className="hover:bg-indigo-900/20 transition-colors">
+                          <tr key={d.id} className="hover:bg-blue-50/50 transition-colors">
                             <td className="px-6 py-4">
-                              <p className="text-sm text-gray-300 font-mono">{d.user_email}</p>
+                              <p className="text-sm text-gray-700 font-mono">{d.user_email}</p>
                               {d.user_display_name && (
-                                <p className="text-xs text-gray-500">{d.user_display_name}</p>
+                                <p className="text-xs text-gray-600">{d.user_display_name}</p>
                               )}
                             </td>
                             <td className="px-6 py-4">
-                              <span className="text-lg font-bold text-transparent bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text">
+                              <span className="text-lg font-bold text-transparent bg-gradient-to-r from-blue-600 to-blue-500 bg-clip-text">
                                 {d.type_code}
                               </span>
-                              <p className="text-xs text-gray-400">
+                              <p className="text-xs text-gray-600">
                                 {typeNames[d.type_code] || ''}
                               </p>
                             </td>
                             <td className="px-6 py-4">
-                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-indigo-900/50 text-indigo-300">
+                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
                                 Lv.{d.consciousness_level} {levelNames[d.consciousness_level]}
                               </span>
                             </td>
-                            <td className="px-6 py-4 text-sm text-gray-400">
+                            <td className="px-6 py-4 text-sm text-gray-600">
                               {new Date(d.created_at).toLocaleDateString('ja-JP', {
                                 year: 'numeric',
                                 month: '2-digit',
@@ -306,7 +306,7 @@ export default function AdminDiagnosesPage() {
                         ))
                       ) : (
                         <tr>
-                          <td colSpan={4} className="px-6 py-8 text-center text-gray-400">
+                          <td colSpan={4} className="px-6 py-8 text-center text-gray-600">
                             診断データが見つかりません
                           </td>
                         </tr>
@@ -322,7 +322,7 @@ export default function AdminDiagnosesPage() {
                   <button
                     onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
                     disabled={currentPage === 1}
-                    className="px-4 py-2 bg-indigo-900/50 hover:bg-indigo-900 text-indigo-300 rounded disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   >
                     前へ
                   </button>
@@ -343,8 +343,8 @@ export default function AdminDiagnosesPage() {
                         onClick={() => setCurrentPage(page)}
                         className={`px-3 py-2 rounded transition-colors ${
                           currentPage === page
-                            ? 'bg-indigo-600 text-white'
-                            : 'bg-indigo-900/50 hover:bg-indigo-900 text-indigo-300'
+                            ? 'bg-blue-600 text-white'
+                            : 'bg-blue-50 hover:bg-blue-100 text-blue-600'
                         }`}
                       >
                         {page}
@@ -354,14 +354,14 @@ export default function AdminDiagnosesPage() {
                   <button
                     onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
                     disabled={currentPage === totalPages}
-                    className="px-4 py-2 bg-indigo-900/50 hover:bg-indigo-900 text-indigo-300 rounded disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   >
                     次へ
                   </button>
                 </div>
               )}
 
-              <div className="mt-4 text-center text-gray-400 text-sm">
+              <div className="mt-4 text-center text-gray-600 text-sm">
                 {filteredDiagnoses.length > 0 && (
                   <>
                     {(currentPage - 1) * ITEMS_PER_PAGE + 1}～

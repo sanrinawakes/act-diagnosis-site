@@ -77,13 +77,13 @@ export default function Header() {
   };
 
   return (
-    <header className="sticky top-0 z-50 bg-white bg-opacity-10 backdrop-blur-xl border-b border-white border-opacity-20">
+    <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-xl border-b border-blue-200/60 shadow-sm">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between items-center h-16">
           {/* Logo */}
           <Link
             href="/"
-            className="flex items-center gap-2 text-2xl font-bold text-white hover:text-indigo-300 transition-colors"
+            className="flex items-center gap-2 text-2xl font-bold text-gray-900 hover:text-blue-600 transition-colors"
           >
             <span>🎯</span>
             <span>ACT診断</span>
@@ -95,31 +95,31 @@ export default function Header() {
               <>
                 <Link
                   href="/dashboard"
-                  className="px-4 py-2 text-gray-300 hover:text-white hover:bg-white hover:bg-opacity-10 rounded-lg transition-all"
+                  className="px-4 py-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
                 >
                   マイページ
                 </Link>
                 <Link
                   href="/diagnosis"
-                  className="px-4 py-2 text-gray-300 hover:text-white hover:bg-white hover:bg-opacity-10 rounded-lg transition-all"
+                  className="px-4 py-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
                 >
                   診断
                 </Link>
                 <Link
                   href="/results"
-                  className="px-4 py-2 text-gray-300 hover:text-white hover:bg-white hover:bg-opacity-10 rounded-lg transition-all"
+                  className="px-4 py-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
                 >
                   結果
                 </Link>
                 <Link
                   href="/coaching"
-                  className="px-4 py-2 text-gray-300 hover:text-white hover:bg-white hover:bg-opacity-10 rounded-lg transition-all"
+                  className="px-4 py-2 text-gray-600 hover:text-pink-500 hover:bg-pink-50 rounded-lg transition-all"
                 >
                   AIコーチング
                 </Link>
                 <Link
                   href="/profile"
-                  className="px-4 py-2 text-gray-300 hover:text-white hover:bg-white hover:bg-opacity-10 rounded-lg transition-all"
+                  className="px-4 py-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
                 >
                   プロフィール
                 </Link>
@@ -127,7 +127,7 @@ export default function Header() {
                 {profile?.role === 'admin' && (
                   <Link
                     href="/admin"
-                    className="px-4 py-2 text-amber-300 hover:text-amber-200 hover:bg-white hover:bg-opacity-10 rounded-lg transition-all font-semibold"
+                    className="px-4 py-2 text-pink-500 hover:text-pink-600 hover:bg-pink-50 rounded-lg transition-all font-semibold"
                   >
                     管理画面
                   </Link>
@@ -135,7 +135,7 @@ export default function Header() {
 
                 <button
                   onClick={handleLogout}
-                  className="px-4 py-2 text-gray-300 hover:text-white hover:bg-red-500 hover:bg-opacity-20 rounded-lg transition-all"
+                  className="px-4 py-2 text-gray-500 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
                 >
                   ログアウト
                 </button>
@@ -144,13 +144,13 @@ export default function Header() {
               <>
                 <Link
                   href="/login"
-                  className="px-4 py-2 text-gray-300 hover:text-white hover:bg-white hover:bg-opacity-10 rounded-lg transition-all"
+                  className="px-4 py-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
                 >
                   ログイン
                 </Link>
                 <Link
                   href="/register"
-                  className="px-4 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-lg transition-colors"
+                  className="px-4 py-3 bg-blue-500 hover:bg-blue-600 text-white font-semibold rounded-lg transition-colors"
                 >
                   新規登録
                 </Link>
@@ -161,10 +161,10 @@ export default function Header() {
           {/* Mobile Menu Button */}
           <button
             onClick={() => setIsMenuOpen(!isMenuOpen)}
-            className="md:hidden p-2 hover:bg-white hover:bg-opacity-10 rounded-lg transition-all"
+            className="md:hidden p-2 hover:bg-blue-50 rounded-lg transition-all"
           >
             <svg
-              className="w-6 h-6 text-white"
+              className="w-6 h-6 text-gray-700"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
@@ -195,35 +195,35 @@ export default function Header() {
               <>
                 <Link
                   href="/dashboard"
-                  className="block px-4 py-2 text-gray-300 hover:text-white hover:bg-white hover:bg-opacity-10 rounded-lg transition-all"
+                  className="block px-4 py-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
                   onClick={() => setIsMenuOpen(false)}
                 >
                   マイページ
                 </Link>
                 <Link
                   href="/diagnosis"
-                  className="block px-4 py-2 text-gray-300 hover:text-white hover:bg-white hover:bg-opacity-10 rounded-lg transition-all"
+                  className="block px-4 py-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
                   onClick={() => setIsMenuOpen(false)}
                 >
                   診断
                 </Link>
                 <Link
                   href="/results"
-                  className="block px-4 py-2 text-gray-300 hover:text-white hover:bg-white hover:bg-opacity-10 rounded-lg transition-all"
+                  className="block px-4 py-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
                   onClick={() => setIsMenuOpen(false)}
                 >
                   結果
                 </Link>
                 <Link
                   href="/coaching"
-                  className="block px-4 py-2 text-gray-300 hover:text-white hover:bg-white hover:bg-opacity-10 rounded-lg transition-all"
+                  className="block px-4 py-2 text-gray-600 hover:text-pink-500 hover:bg-pink-50 rounded-lg transition-all"
                   onClick={() => setIsMenuOpen(false)}
                 >
                   AIコーチング
                 </Link>
                 <Link
                   href="/profile"
-                  className="block px-4 py-2 text-gray-300 hover:text-white hover:bg-white hover:bg-opacity-10 rounded-lg transition-all"
+                  className="block px-4 py-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
                   onClick={() => setIsMenuOpen(false)}
                 >
                   プロフィール
@@ -232,7 +232,7 @@ export default function Header() {
                 {profile?.role === 'admin' && (
                   <Link
                     href="/admin"
-                    className="block px-4 py-2 text-amber-300 hover:text-amber-200 hover:bg-white hover:bg-opacity-10 rounded-lg transition-all font-semibold"
+                    className="block px-4 py-2 text-pink-500 hover:text-pink-600 hover:bg-pink-50 rounded-lg transition-all font-semibold"
                     onClick={() => setIsMenuOpen(false)}
                   >
                     管理画面
@@ -241,7 +241,7 @@ export default function Header() {
 
                 <button
                   onClick={handleLogout}
-                  className="w-full text-left px-4 py-2 text-gray-300 hover:text-white hover:bg-red-500 hover:bg-opacity-20 rounded-lg transition-all"
+                  className="w-full text-left px-4 py-2 text-gray-500 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
                 >
                   ログアウト
                 </button>
@@ -250,14 +250,14 @@ export default function Header() {
               <>
                 <Link
                   href="/login"
-                  className="block px-4 py-2 text-gray-300 hover:text-white hover:bg-white hover:bg-opacity-10 rounded-lg transition-all"
+                  className="block px-4 py-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
                   onClick={() => setIsMenuOpen(false)}
                 >
                   ログイン
                 </Link>
                 <Link
                   href="/register"
-                  className="block px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-lg transition-colors"
+                  className="block px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white font-semibold rounded-lg transition-colors"
                   onClick={() => setIsMenuOpen(false)}
                 >
                   新規登録

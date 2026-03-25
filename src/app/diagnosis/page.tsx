@@ -329,10 +329,10 @@ function DiagnosisContent() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-indigo-900 to-purple-900 flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">
-          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-400"></div>
-          <p className="text-gray-300">診断結果を保存中...</p>
+          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-400"></div>
+          <p className="text-gray-700">診断結果を保存中...</p>
         </div>
       </div>
     );
@@ -346,20 +346,20 @@ function CopyrightStage({ onAgree }: { onAgree: () => void }) {
   const [agreed, setAgreed] = useState(false);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-indigo-900 to-purple-900 flex items-center justify-center p-4">
-      <div className="bg-white bg-opacity-5 backdrop-blur-xl border border-indigo-500 border-opacity-30 rounded-2xl p-8 max-w-2xl w-full">
-        <h1 className="text-3xl font-bold text-white mb-6">ACT診断テスト</h1>
+    <div className="min-h-screen flex items-center justify-center p-4">
+      <div className="bg-white bg-opacity-80 border border-blue-200 rounded-2xl p-8 max-w-2xl w-full">
+        <h1 className="text-3xl font-bold text-gray-900 mb-6">ACT診断テスト</h1>
         <div className="space-y-4 mb-8">
-          <p className="text-gray-200 text-lg">
+          <p className="text-gray-700 text-lg">
             このテストは、あなたの現在の意識レベルと性格タイプを診断するものです。
           </p>
-          <div className="bg-indigo-900 bg-opacity-40 border border-indigo-400 border-opacity-20 rounded-lg p-6 space-y-4 max-h-96 overflow-y-auto">
-            <p className="text-gray-300 font-semibold">著作権表示：</p>
-            <p className="text-gray-400 text-sm leading-relaxed">
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-6 space-y-4 max-h-96 overflow-y-auto">
+            <p className="text-gray-900 font-semibold">著作権表示：</p>
+            <p className="text-gray-700 text-sm leading-relaxed">
               本診断テストの内容、デザイン、システムは著作権で保護されています。このテストの結果は個人利用のみを目的としており、
               商業的な利用、無断複製、配布は禁止されています。
             </p>
-            <p className="text-gray-400 text-sm leading-relaxed">
+            <p className="text-gray-700 text-sm leading-relaxed">
               このテストを受けることで、あなたはこの利用条件に同意したものとみなされます。
             </p>
           </div>
@@ -371,9 +371,9 @@ function CopyrightStage({ onAgree }: { onAgree: () => void }) {
             id="copyright-agree"
             checked={agreed}
             onChange={(e) => setAgreed(e.target.checked)}
-            className="mt-1 w-5 h-5 cursor-pointer accent-indigo-400"
+            className="mt-1 w-5 h-5 cursor-pointer accent-blue-500"
           />
-          <label htmlFor="copyright-agree" className="text-gray-300 cursor-pointer flex-1">
+          <label htmlFor="copyright-agree" className="text-gray-700 cursor-pointer flex-1">
             著作権表示に同意し、テストを開始します
           </label>
         </div>
@@ -381,7 +381,7 @@ function CopyrightStage({ onAgree }: { onAgree: () => void }) {
         <button
           onClick={onAgree}
           disabled={!agreed}
-          className="w-full py-3 px-6 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-all duration-300"
+          className="w-full py-3 px-6 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-all duration-300"
         >
           テストを開始
         </button>
@@ -394,9 +394,9 @@ function CopyrightStage({ onAgree }: { onAgree: () => void }) {
 function ProgressBar({ current, total }: { current: number; total: number }) {
   const percentage = ((current + 1) / total) * 100;
   return (
-    <div className="w-full bg-gray-700 bg-opacity-40 rounded-full h-2 overflow-hidden">
+    <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
       <div
-        className="h-full bg-gradient-to-r from-indigo-400 to-purple-500 rounded-full transition-all duration-500 ease-out"
+        className="h-full bg-gradient-to-r from-blue-400 to-pink-500 rounded-full transition-all duration-500 ease-out"
         style={{ width: `${percentage}%` }}
       >
         <div className="h-full bg-white opacity-20 animate-pulse"></div>
@@ -428,24 +428,24 @@ function ConsciousnessStage({
   canPrevious: boolean;
 }) {
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-indigo-900 to-purple-900 flex items-center justify-center p-4">
-      <div className="bg-white bg-opacity-5 backdrop-blur-xl border border-indigo-500 border-opacity-30 rounded-2xl p-8 max-w-2xl w-full">
+    <div className="min-h-screen flex items-center justify-center p-4">
+      <div className="bg-white bg-opacity-80 border border-blue-200 rounded-2xl p-8 max-w-2xl w-full">
         {/* Progress Bar */}
         <div className="mb-6">
           <ProgressBar current={questionIndex} total={totalQuestions} />
         </div>
 
         {/* Question Counter */}
-        <div className="text-sm text-indigo-300 font-semibold mb-6">
+        <div className="text-sm text-blue-600 font-semibold mb-6">
           質問 {questionIndex + 1} / {totalQuestions}
         </div>
 
         {/* Question Text */}
-        <h2 className="text-2xl font-bold text-white mb-4">{question.text}</h2>
+        <h2 className="text-2xl font-bold text-gray-900 mb-4">{question.text}</h2>
 
         {/* Supplement if exists */}
         {question.supplement && (
-          <p className="text-gray-300 mb-6 italic">{question.supplement}</p>
+          <p className="text-gray-700 mb-6 italic">{question.supplement}</p>
         )}
 
         {/* Choices */}
@@ -456,8 +456,8 @@ function ConsciousnessStage({
               onClick={() => onAnswer(index)}
               className={`w-full text-left p-4 rounded-lg border-2 transition-all duration-300 ${
                 selectedChoiceIndex === index
-                  ? 'border-indigo-400 bg-indigo-500 bg-opacity-30 text-white'
-                  : 'border-indigo-400 border-opacity-20 bg-indigo-900 bg-opacity-20 text-gray-300 hover:bg-indigo-900 hover:bg-opacity-40'
+                  ? 'border-blue-400 bg-blue-50 text-gray-900'
+                  : 'border-blue-200 bg-white text-gray-700 hover:bg-blue-50'
               }`}
             >
               {choice.text}
@@ -470,14 +470,14 @@ function ConsciousnessStage({
           <button
             onClick={onPrevious}
             disabled={!canPrevious}
-            className="flex-1 py-3 px-4 bg-gray-700 bg-opacity-40 hover:bg-opacity-60 disabled:opacity-30 disabled:cursor-not-allowed text-gray-300 font-semibold rounded-lg transition-all duration-300"
+            className="flex-1 py-3 px-4 bg-gray-100 hover:bg-gray-200 disabled:opacity-30 disabled:cursor-not-allowed text-gray-600 font-semibold rounded-lg transition-all duration-300"
           >
             戻る
           </button>
           <button
             onClick={onNext}
             disabled={!canNext}
-            className="flex-1 py-3 px-4 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-all duration-300"
+            className="flex-1 py-3 px-4 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-all duration-300"
           >
             次へ
           </button>
@@ -490,21 +490,21 @@ function ConsciousnessStage({
 // Interstitial Stage Component
 function InterstitialStage({ onContinue }: { onContinue: () => void }) {
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-indigo-900 to-purple-900 flex items-center justify-center p-4">
-      <div className="bg-white bg-opacity-5 backdrop-blur-xl border border-indigo-500 border-opacity-30 rounded-2xl p-8 max-w-2xl w-full">
-        <h2 className="text-4xl font-bold text-white mb-8 text-center">
-          次は、あなたの<span className="text-indigo-300">【ふだんの行動や好み】</span>について
+    <div className="min-h-screen flex items-center justify-center p-4">
+      <div className="bg-white bg-opacity-80 border border-blue-200 rounded-2xl p-8 max-w-2xl w-full">
+        <h2 className="text-4xl font-bold text-gray-900 mb-8 text-center">
+          次は、あなたの<span className="text-blue-600">【ふだんの行動や好み】</span>について
         </h2>
 
         <div className="space-y-6 mb-12">
-          <p className="text-gray-300 text-lg leading-relaxed">
+          <p className="text-gray-700 text-lg leading-relaxed">
             ここからは、あなたのふだんの行動パターンや好みについてお聞きします。
           </p>
-          <p className="text-gray-400 text-base leading-relaxed">
+          <p className="text-gray-600 text-base leading-relaxed">
             正解や不正解はありません。あなたの実際の傾向を素直にお答えください。
           </p>
-          <div className="bg-indigo-900 bg-opacity-40 border border-indigo-400 border-opacity-20 rounded-lg p-6">
-            <p className="text-indigo-200 text-sm font-semibold">
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
+            <p className="text-blue-900 text-sm font-semibold">
               このセクションでは、122個の質問があります。各質問では「どちらが正しいか」ではなく、「あなたが普段どちらを選びがちか」でお答えください。
             </p>
           </div>
@@ -512,7 +512,7 @@ function InterstitialStage({ onContinue }: { onContinue: () => void }) {
 
         <button
           onClick={onContinue}
-          className="w-full py-3 px-6 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white font-semibold rounded-lg transition-all duration-300"
+          className="w-full py-3 px-6 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-semibold rounded-lg transition-all duration-300"
         >
           性格診断を開始
         </button>
@@ -544,11 +544,11 @@ function PersonalityStage({
   canPrevious: boolean;
 }) {
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-indigo-900 to-purple-900 flex items-center justify-center p-4">
-      <div className="bg-white bg-opacity-5 backdrop-blur-xl border border-indigo-500 border-opacity-30 rounded-2xl p-8 max-w-2xl w-full">
+    <div className="min-h-screen flex items-center justify-center p-4">
+      <div className="bg-white bg-opacity-80 border border-blue-200 rounded-2xl p-8 max-w-2xl w-full">
         {/* Guidance Banner */}
-        <div className="bg-amber-900 bg-opacity-40 border border-amber-400 border-opacity-30 rounded-lg p-4 mb-6">
-          <p className="text-amber-200 text-sm font-semibold">
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-6">
+          <p className="text-amber-900 text-sm font-semibold">
             ※「どちらが正しいか」ではなく、「普段どちらを選びがちか」で答えてください。
           </p>
         </div>
@@ -559,12 +559,12 @@ function PersonalityStage({
         </div>
 
         {/* Question Counter */}
-        <div className="text-sm text-indigo-300 font-semibold mb-6">
+        <div className="text-sm text-blue-600 font-semibold mb-6">
           質問 {questionIndex + 1} / {totalQuestions}
         </div>
 
         {/* Question Text */}
-        <h2 className="text-2xl font-bold text-white mb-8">{question.text}</h2>
+        <h2 className="text-2xl font-bold text-gray-900 mb-8">{question.text}</h2>
 
         {/* Choices */}
         <div className="space-y-3 mb-8">
@@ -574,8 +574,8 @@ function PersonalityStage({
               onClick={() => onAnswer(index)}
               className={`w-full text-left p-4 rounded-lg border-2 transition-all duration-300 ${
                 selectedChoiceIndex === index
-                  ? 'border-indigo-400 bg-indigo-500 bg-opacity-30 text-white'
-                  : 'border-indigo-400 border-opacity-20 bg-indigo-900 bg-opacity-20 text-gray-300 hover:bg-indigo-900 hover:bg-opacity-40'
+                  ? 'border-blue-400 bg-blue-50 text-gray-900'
+                  : 'border-blue-200 bg-white text-gray-700 hover:bg-blue-50'
               }`}
             >
               {choice.text}
@@ -588,14 +588,14 @@ function PersonalityStage({
           <button
             onClick={onPrevious}
             disabled={!canPrevious}
-            className="flex-1 py-3 px-4 bg-gray-700 bg-opacity-40 hover:bg-opacity-60 disabled:opacity-30 disabled:cursor-not-allowed text-gray-300 font-semibold rounded-lg transition-all duration-300"
+            className="flex-1 py-3 px-4 bg-gray-100 hover:bg-gray-200 disabled:opacity-30 disabled:cursor-not-allowed text-gray-600 font-semibold rounded-lg transition-all duration-300"
           >
             戻る
           </button>
           <button
             onClick={onNext}
             disabled={!canNext}
-            className="flex-1 py-3 px-4 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-all duration-300"
+            className="flex-1 py-3 px-4 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-all duration-300"
           >
             {questionIndex === totalQuestions - 1 ? '完了' : '次へ'}
           </button>
@@ -618,10 +618,10 @@ function GrowthStage({
   onSubmit: () => void;
 }) {
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-indigo-900 to-purple-900 flex items-center justify-center p-4">
-      <div className="bg-white bg-opacity-5 backdrop-blur-xl border border-indigo-500 border-opacity-30 rounded-2xl p-8 max-w-2xl w-full">
-        <h2 className="text-2xl font-bold text-white mb-4">成長経験について</h2>
-        <p className="text-gray-300 mb-8">
+    <div className="min-h-screen flex items-center justify-center p-4">
+      <div className="bg-white bg-opacity-80 border border-blue-200 rounded-2xl p-8 max-w-2xl w-full">
+        <h2 className="text-2xl font-bold text-gray-900 mb-4">成長経験について</h2>
+        <p className="text-gray-700 mb-8">
           以下の8つの選択肢から、あなたが最も成長を感じたものを<span className="font-semibold">2つ選んでください</span>。
         </p>
 
@@ -633,16 +633,16 @@ function GrowthStage({
               onClick={() => onToggle(choice.key)}
               className={`w-full text-left p-4 rounded-lg border-2 transition-all duration-300 ${
                 selected.includes(choice.key)
-                  ? 'border-indigo-400 bg-indigo-500 bg-opacity-30 text-white'
-                  : 'border-indigo-400 border-opacity-20 bg-indigo-900 bg-opacity-20 text-gray-300 hover:bg-indigo-900 hover:bg-opacity-40'
+                  ? 'border-blue-400 bg-blue-50 text-gray-900'
+                  : 'border-blue-200 bg-white text-gray-700 hover:bg-blue-50'
               }`}
             >
               <div className="flex items-start gap-3">
                 <div
                   className={`w-6 h-6 rounded border-2 flex-shrink-0 mt-0.5 flex items-center justify-center ${
                     selected.includes(choice.key)
-                      ? 'border-indigo-400 bg-indigo-500'
-                      : 'border-indigo-400 border-opacity-30'
+                      ? 'border-blue-400 bg-blue-500'
+                      : 'border-blue-200'
                   }`}
                 >
                   {selected.includes(choice.key) && <span className="text-white font-bold">✓</span>}
@@ -654,7 +654,7 @@ function GrowthStage({
         </div>
 
         {/* Selected count */}
-        <p className="text-sm text-indigo-300 mb-8 text-center">
+        <p className="text-sm text-blue-600 mb-8 text-center">
           選択中: {selected.length} / 2
         </p>
 
@@ -662,7 +662,7 @@ function GrowthStage({
         <button
           onClick={onSubmit}
           disabled={selected.length !== 2}
-          className="w-full py-3 px-6 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-all duration-300"
+          className="w-full py-3 px-6 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-all duration-300"
         >
           次へ進む
         </button>
@@ -684,10 +684,10 @@ function ImmaturityStage({
   onSubmit: () => void;
 }) {
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-indigo-900 to-purple-900 flex items-center justify-center p-4">
-      <div className="bg-white bg-opacity-5 backdrop-blur-xl border border-indigo-500 border-opacity-30 rounded-2xl p-8 max-w-2xl w-full">
-        <h2 className="text-2xl font-bold text-white mb-4">未熟さへの気づき</h2>
-        <p className="text-gray-300 mb-8">
+    <div className="min-h-screen flex items-center justify-center p-4">
+      <div className="bg-white bg-opacity-80 border border-blue-200 rounded-2xl p-8 max-w-2xl w-full">
+        <h2 className="text-2xl font-bold text-gray-900 mb-4">未熟さへの気づき</h2>
+        <p className="text-gray-700 mb-8">
           以下の6つの選択肢から、あなたが最も当てはまるものを<span className="font-semibold">1つ選んでください</span>。
         </p>
 
@@ -699,16 +699,16 @@ function ImmaturityStage({
               onClick={() => onSelect(choice.key)}
               className={`w-full text-left p-4 rounded-lg border-2 transition-all duration-300 ${
                 selected === choice.key
-                  ? 'border-indigo-400 bg-indigo-500 bg-opacity-30 text-white'
-                  : 'border-indigo-400 border-opacity-20 bg-indigo-900 bg-opacity-20 text-gray-300 hover:bg-indigo-900 hover:bg-opacity-40'
+                  ? 'border-blue-400 bg-blue-50 text-gray-900'
+                  : 'border-blue-200 bg-white text-gray-700 hover:bg-blue-50'
               }`}
             >
               <div className="flex items-start gap-3">
                 <div
                   className={`w-6 h-6 rounded-full border-2 flex-shrink-0 mt-0.5 flex items-center justify-center ${
                     selected === choice.key
-                      ? 'border-indigo-400 bg-indigo-500'
-                      : 'border-indigo-400 border-opacity-30'
+                      ? 'border-blue-400 bg-blue-500'
+                      : 'border-blue-200'
                   }`}
                 >
                   {selected === choice.key && <span className="text-white font-bold text-sm">✓</span>}
@@ -723,7 +723,7 @@ function ImmaturityStage({
         <button
           onClick={onSubmit}
           disabled={!selected}
-          className="w-full py-3 px-6 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-all duration-300"
+          className="w-full py-3 px-6 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-all duration-300"
         >
           診断を完了
         </button>

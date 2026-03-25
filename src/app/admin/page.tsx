@@ -68,17 +68,17 @@ export default function AdminDashboard() {
   return (
     <AdminGuard>
       <Header />
-      <div className="min-h-screen bg-gradient-to-br from-indigo-950 via-purple-950 to-slate-900">
+      <div className="min-h-screen">
         <div className="container mx-auto px-4 py-8">
           {/* Header */}
           <div className="mb-8">
-            <h1 className="text-4xl font-bold text-white mb-2">管理者ダッシュボード</h1>
-            <p className="text-gray-400">サイト統計情報と設定管理</p>
+            <h1 className="text-4xl font-bold text-gray-900 mb-2">管理者ダッシュボード</h1>
+            <p className="text-gray-600">サイト統計情報と設定管理</p>
           </div>
 
           {/* Error Message */}
           {error && (
-            <div className="mb-6 p-4 bg-red-900/50 border border-red-700 rounded-lg text-red-300">
+            <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
               {error}
             </div>
           )}
@@ -86,7 +86,7 @@ export default function AdminDashboard() {
           {/* Loading State */}
           {loading && (
             <div className="flex justify-center items-center py-16">
-              <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-400"></div>
+              <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-400"></div>
             </div>
           )}
 
@@ -95,49 +95,49 @@ export default function AdminDashboard() {
             <>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
                 {/* Total Users Card */}
-                <div className="bg-gradient-to-br from-indigo-900/40 to-purple-900/40 border border-indigo-700/50 rounded-lg p-6 shadow-xl hover:shadow-2xl transition-shadow">
+                <div className="bg-white/80 border border-blue-200/50 rounded-lg p-6 shadow-sm hover:shadow-md transition-shadow">
                   <div className="flex items-start justify-between">
                     <div>
-                      <p className="text-gray-400 text-sm font-medium">ユーザー数</p>
-                      <p className="text-4xl font-bold text-white mt-2">{stats.totalUsers}</p>
-                      <p className="text-gray-500 text-xs mt-1">登録済みユーザー</p>
+                      <p className="text-gray-600 text-sm font-medium">ユーザー数</p>
+                      <p className="text-4xl font-bold text-gray-900 mt-2">{stats.totalUsers}</p>
+                      <p className="text-gray-600 text-xs mt-1">登録済みユーザー</p>
                     </div>
-                    <div className="text-indigo-400 text-3xl">👥</div>
+                    <div className="text-blue-500 text-3xl">👥</div>
                   </div>
                 </div>
 
                 {/* Total Results Card */}
-                <div className="bg-gradient-to-br from-purple-900/40 to-indigo-900/40 border border-purple-700/50 rounded-lg p-6 shadow-xl hover:shadow-2xl transition-shadow">
+                <div className="bg-white/80 border border-blue-200/50 rounded-lg p-6 shadow-sm hover:shadow-md transition-shadow">
                   <div className="flex items-start justify-between">
                     <div>
-                      <p className="text-gray-400 text-sm font-medium">診断結果数</p>
-                      <p className="text-4xl font-bold text-white mt-2">{stats.totalResults}</p>
-                      <p className="text-gray-500 text-xs mt-1">合計診断数</p>
+                      <p className="text-gray-600 text-sm font-medium">診断結果数</p>
+                      <p className="text-4xl font-bold text-gray-900 mt-2">{stats.totalResults}</p>
+                      <p className="text-gray-600 text-xs mt-1">合計診断数</p>
                     </div>
-                    <div className="text-purple-400 text-3xl">📊</div>
+                    <div className="text-blue-600 text-3xl">📊</div>
                   </div>
                 </div>
 
                 {/* Bot Status Card */}
-                <div className="bg-gradient-to-br from-slate-900/40 to-indigo-900/40 border border-slate-700/50 rounded-lg p-6 shadow-xl hover:shadow-2xl transition-shadow">
+                <div className="bg-white/80 border border-blue-200/50 rounded-lg p-6 shadow-sm hover:shadow-md transition-shadow">
                   <div className="flex items-start justify-between">
                     <div>
-                      <p className="text-gray-400 text-sm font-medium">AIコーチングボット</p>
+                      <p className="text-gray-600 text-sm font-medium">AIコーチングボット</p>
                       <div className="flex items-center gap-2 mt-2">
                         <div
                           className={`h-3 w-3 rounded-full ${
                             stats.botEnabled ? 'bg-green-500' : 'bg-gray-500'
                           }`}
                         ></div>
-                        <p className="text-2xl font-bold text-white">
+                        <p className="text-2xl font-bold text-gray-900">
                           {stats.botEnabled ? 'ON' : 'OFF'}
                         </p>
                       </div>
-                      <p className="text-gray-500 text-xs mt-1">
+                      <p className="text-gray-600 text-xs mt-1">
                         {stats.botEnabled ? '有効' : '無効'}
                       </p>
                     </div>
-                    <div className="text-slate-400 text-3xl">🤖</div>
+                    <div className="text-blue-500 text-3xl">🤖</div>
                   </div>
                 </div>
               </div>
@@ -147,69 +147,69 @@ export default function AdminDashboard() {
                 {/* User Management Link */}
                 <Link
                   href="/admin/users"
-                  className="bg-gradient-to-br from-indigo-900/30 to-purple-900/30 border border-indigo-700/50 rounded-lg p-6 hover:from-indigo-900/50 hover:to-purple-900/50 hover:border-indigo-600/70 transition-all cursor-pointer group"
+                  className="bg-white/80 border border-blue-200/50 rounded-lg p-6 hover:border-blue-300 hover:shadow-md transition-all cursor-pointer group"
                 >
                   <div className="flex items-start justify-between mb-4">
-                    <h2 className="text-xl font-semibold text-white group-hover:text-indigo-300 transition-colors">
+                    <h2 className="text-xl font-semibold text-gray-900 group-hover:text-blue-600 transition-colors">
                       ユーザー管理
                     </h2>
                     <span className="text-2xl">👤</span>
                   </div>
-                  <p className="text-gray-400 text-sm mb-4">
+                  <p className="text-gray-600 text-sm mb-4">
                     ユーザーアカウントの管理、役割変更、アクティベーション/デアクティベーション
                   </p>
-                  <p className="text-indigo-400 text-sm font-medium">詳細を表示 →</p>
+                  <p className="text-blue-600 text-sm font-medium">詳細を表示 →</p>
                 </Link>
 
                 {/* Diagnosis Data Link */}
                 <Link
                   href="/admin/diagnoses"
-                  className="bg-gradient-to-br from-purple-900/30 to-pink-900/30 border border-purple-700/50 rounded-lg p-6 hover:from-purple-900/50 hover:to-pink-900/50 hover:border-purple-600/70 transition-all cursor-pointer group"
+                  className="bg-white/80 border border-pink-200/50 rounded-lg p-6 hover:border-pink-300 hover:shadow-md transition-all cursor-pointer group"
                 >
                   <div className="flex items-start justify-between mb-4">
-                    <h2 className="text-xl font-semibold text-white group-hover:text-purple-300 transition-colors">
+                    <h2 className="text-xl font-semibold text-gray-900 group-hover:text-pink-600 transition-colors">
                       診断データ
                     </h2>
                     <span className="text-2xl">📊</span>
                   </div>
-                  <p className="text-gray-400 text-sm mb-4">
+                  <p className="text-gray-600 text-sm mb-4">
                     全ユーザーの診断結果を閲覧、タイプ・レベル分布の統計
                   </p>
-                  <p className="text-purple-400 text-sm font-medium">詳細を表示 →</p>
+                  <p className="text-pink-600 text-sm font-medium">詳細を表示 →</p>
                 </Link>
 
                 {/* People Management Link */}
                 <Link
                   href="/admin/people"
-                  className="bg-gradient-to-br from-pink-900/30 to-indigo-900/30 border border-pink-700/50 rounded-lg p-6 hover:from-pink-900/50 hover:to-indigo-900/50 hover:border-pink-600/70 transition-all cursor-pointer group"
+                  className="bg-white/80 border border-pink-200/50 rounded-lg p-6 hover:border-pink-300 hover:shadow-md transition-all cursor-pointer group"
                 >
                   <div className="flex items-start justify-between mb-4">
-                    <h2 className="text-xl font-semibold text-white group-hover:text-pink-300 transition-colors">
+                    <h2 className="text-xl font-semibold text-gray-900 group-hover:text-pink-600 transition-colors">
                       人材管理
                     </h2>
                     <span className="text-2xl">👥</span>
                   </div>
-                  <p className="text-gray-400 text-sm mb-4">
+                  <p className="text-gray-600 text-sm mb-4">
                     人物情報の登録・管理（名前、タイプコード、意識レベル、最大100名）
                   </p>
-                  <p className="text-pink-400 text-sm font-medium">詳細を表示 →</p>
+                  <p className="text-pink-600 text-sm font-medium">詳細を表示 →</p>
                 </Link>
 
                 {/* Settings Link */}
                 <Link
                   href="/admin/settings"
-                  className="bg-gradient-to-br from-slate-900/30 to-indigo-900/30 border border-slate-700/50 rounded-lg p-6 hover:from-slate-900/50 hover:to-indigo-900/50 hover:border-slate-600/70 transition-all cursor-pointer group"
+                  className="bg-white/80 border border-blue-200/50 rounded-lg p-6 hover:border-blue-300 hover:shadow-md transition-all cursor-pointer group"
                 >
                   <div className="flex items-start justify-between mb-4">
-                    <h2 className="text-xl font-semibold text-white group-hover:text-slate-300 transition-colors">
+                    <h2 className="text-xl font-semibold text-gray-900 group-hover:text-blue-600 transition-colors">
                       サイト設定
                     </h2>
                     <span className="text-2xl">⚙️</span>
                   </div>
-                  <p className="text-gray-400 text-sm mb-4">
+                  <p className="text-gray-600 text-sm mb-4">
                     AIボット、メンテナンスモード、その他のサイト設定を管理
                   </p>
-                  <p className="text-slate-400 text-sm font-medium">詳細を表示 →</p>
+                  <p className="text-blue-600 text-sm font-medium">詳細を表示 →</p>
                 </Link>
               </div>
             </>

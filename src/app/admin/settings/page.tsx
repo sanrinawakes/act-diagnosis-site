@@ -89,30 +89,30 @@ export default function SiteSettings() {
   return (
     <AdminGuard>
       <Header />
-      <div className="min-h-screen bg-gradient-to-br from-indigo-950 via-purple-950 to-slate-900">
+      <div className="min-h-screen">
         <div className="container mx-auto px-4 py-8">
           {/* Header */}
           <div className="mb-8">
             <Link
               href="/admin"
-              className="text-indigo-400 hover:text-indigo-300 text-sm mb-4 inline-block"
+              className="text-blue-600 hover:text-blue-700 text-sm mb-4 inline-block"
             >
               ← ダッシュボードに戻る
             </Link>
-            <h1 className="text-4xl font-bold text-white">サイト設定</h1>
-            <p className="text-gray-400 mt-1">グローバルサイト設定の管理</p>
+            <h1 className="text-4xl font-bold text-gray-900">サイト設定</h1>
+            <p className="text-gray-600 mt-1">グローバルサイト設定の管理</p>
           </div>
 
           {/* Success Message */}
           {successMessage && (
-            <div className="mb-6 p-4 bg-green-900/50 border border-green-700 rounded-lg text-green-300">
+            <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg text-green-700">
               {successMessage}
             </div>
           )}
 
           {/* Error Message */}
           {error && (
-            <div className="mb-6 p-4 bg-red-900/50 border border-red-700 rounded-lg text-red-300">
+            <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
               {error}
             </div>
           )}
@@ -120,7 +120,7 @@ export default function SiteSettings() {
           {/* Loading State */}
           {loading && (
             <div className="flex justify-center items-center py-16">
-              <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-400"></div>
+              <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-400"></div>
             </div>
           )}
 
@@ -130,25 +130,25 @@ export default function SiteSettings() {
               {/* Settings Cards */}
               <div className="lg:col-span-1 space-y-6">
                 {/* Bot Setting */}
-                <div className="bg-gradient-to-br from-indigo-900/30 to-purple-900/30 border border-indigo-700/50 rounded-lg p-6 shadow-xl">
+                <div className="bg-white/80 border border-blue-200/50 rounded-lg p-6 shadow-sm">
                   <div className="flex items-start justify-between mb-4">
                     <div>
-                      <h2 className="text-xl font-semibold text-white">AIコーチングボット</h2>
-                      <p className="text-gray-400 text-sm mt-1">
+                      <h2 className="text-xl font-semibold text-gray-900">AIコーチングボット</h2>
+                      <p className="text-gray-600 text-sm mt-1">
                         ユーザーがAIコーチングボットを使用できるかどうかを制御します
                       </p>
                     </div>
                     <span className="text-2xl">🤖</span>
                   </div>
 
-                  <div className="bg-indigo-950/40 border border-indigo-700/30 rounded p-4 mb-4">
+                  <div className="bg-blue-50 border border-blue-200 rounded p-4 mb-4">
                     <div className="flex items-center gap-4">
                       <button
                         onClick={() => setBotEnabled(true)}
                         className={`flex-1 px-4 py-3 rounded font-medium transition-all ${
                           botEnabled
                             ? 'bg-green-600 text-white shadow-lg'
-                            : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                            : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
                         }`}
                       >
                         ON
@@ -158,7 +158,7 @@ export default function SiteSettings() {
                         className={`flex-1 px-4 py-3 rounded font-medium transition-all ${
                           !botEnabled
                             ? 'bg-red-600 text-white shadow-lg'
-                            : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                            : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
                         }`}
                       >
                         OFF
@@ -172,32 +172,32 @@ export default function SiteSettings() {
                         botEnabled ? 'bg-green-500' : 'bg-gray-500'
                       }`}
                     ></div>
-                    <p className="text-sm text-gray-400">
-                      現在: <span className="text-white font-medium">{botEnabled ? '有効' : '無効'}</span>
+                    <p className="text-sm text-gray-600">
+                      現在: <span className="text-gray-900 font-medium">{botEnabled ? '有効' : '無効'}</span>
                     </p>
                   </div>
                 </div>
 
                 {/* Maintenance Mode Setting */}
-                <div className="bg-gradient-to-br from-purple-900/30 to-slate-900/30 border border-purple-700/50 rounded-lg p-6 shadow-xl">
+                <div className="bg-white/80 border border-blue-200/50 rounded-lg p-6 shadow-sm">
                   <div className="flex items-start justify-between mb-4">
                     <div>
-                      <h2 className="text-xl font-semibold text-white">メンテナンスモード</h2>
-                      <p className="text-gray-400 text-sm mt-1">
+                      <h2 className="text-xl font-semibold text-gray-900">メンテナンスモード</h2>
+                      <p className="text-gray-600 text-sm mt-1">
                         有効にするとサイトをメンテナンス中にできます
                       </p>
                     </div>
                     <span className="text-2xl">🔧</span>
                   </div>
 
-                  <div className="bg-purple-950/40 border border-purple-700/30 rounded p-4 mb-4">
+                  <div className="bg-blue-50 border border-blue-200 rounded p-4 mb-4">
                     <div className="flex items-center gap-4">
                       <button
                         onClick={() => setMaintenanceMode(false)}
                         className={`flex-1 px-4 py-3 rounded font-medium transition-all ${
                           !maintenanceMode
                             ? 'bg-green-600 text-white shadow-lg'
-                            : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                            : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
                         }`}
                       >
                         運用中
@@ -207,7 +207,7 @@ export default function SiteSettings() {
                         className={`flex-1 px-4 py-3 rounded font-medium transition-all ${
                           maintenanceMode
                             ? 'bg-orange-600 text-white shadow-lg'
-                            : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                            : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
                         }`}
                       >
                         メンテナンス中
@@ -221,8 +221,8 @@ export default function SiteSettings() {
                         maintenanceMode ? 'bg-orange-500' : 'bg-green-500'
                       }`}
                     ></div>
-                    <p className="text-sm text-gray-400">
-                      現在: <span className="text-white font-medium">
+                    <p className="text-sm text-gray-600">
+                      現在: <span className="text-gray-900 font-medium">
                         {maintenanceMode ? 'メンテナンス中' : '運用中'}
                       </span>
                     </p>
@@ -233,13 +233,13 @@ export default function SiteSettings() {
               {/* Info and Save Section */}
               <div className="lg:col-span-1">
                 {/* Current Settings Info */}
-                <div className="bg-gradient-to-br from-slate-900/40 to-indigo-900/40 border border-slate-700/50 rounded-lg p-6 shadow-xl mb-6">
-                  <h3 className="text-lg font-semibold text-white mb-4">設定情報</h3>
+                <div className="bg-white/80 border border-blue-200/50 rounded-lg p-6 shadow-sm mb-6">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4">設定情報</h3>
 
                   <div className="space-y-4">
-                    <div className="border-b border-slate-700/30 pb-3">
-                      <p className="text-gray-500 text-xs uppercase">最終更新日時</p>
-                      <p className="text-white mt-1">
+                    <div className="border-b border-blue-100 pb-3">
+                      <p className="text-gray-600 text-xs uppercase">最終更新日時</p>
+                      <p className="text-gray-900 mt-1">
                         {settings.updated_at
                           ? new Date(settings.updated_at).toLocaleString('ja-JP')
                           : '未更新'}
@@ -247,8 +247,8 @@ export default function SiteSettings() {
                     </div>
 
                     <div>
-                      <p className="text-gray-500 text-xs uppercase">最終更新者</p>
-                      <p className="text-white mt-1">
+                      <p className="text-gray-600 text-xs uppercase">最終更新者</p>
+                      <p className="text-gray-900 mt-1">
                         {settings.updated_by || '未設定'}
                       </p>
                     </div>
@@ -262,23 +262,23 @@ export default function SiteSettings() {
                     disabled={!hasChanges || saving}
                     className={`w-full px-6 py-3 rounded-lg font-semibold transition-all ${
                       hasChanges && !saving
-                        ? 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg'
-                        : 'bg-gray-700 text-gray-400 cursor-not-allowed'
+                        ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-lg'
+                        : 'bg-gray-200 text-gray-600 cursor-not-allowed'
                     }`}
                   >
                     {saving ? '保存中...' : hasChanges ? '設定を保存' : '変更なし'}
                   </button>
 
                   {!hasChanges && (
-                    <p className="text-center text-gray-500 text-sm">
+                    <p className="text-center text-gray-600 text-sm">
                       すべての設定は変更されていません
                     </p>
                   )}
                 </div>
 
                 {/* Info Box */}
-                <div className="mt-6 bg-indigo-950/50 border border-indigo-700/30 rounded-lg p-4">
-                  <p className="text-indigo-300 text-sm">
+                <div className="mt-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <p className="text-blue-900 text-sm">
                     <span className="font-semibold">💡 ヒント:</span> 設定を変更してから保存ボタンをクリックしてください。確認ダイアログが表示されます。
                   </p>
                 </div>

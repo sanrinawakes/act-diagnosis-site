@@ -171,32 +171,32 @@ export default function UserManagement() {
   return (
     <AdminGuard>
       <Header />
-      <div className="min-h-screen bg-gradient-to-br from-indigo-950 via-purple-950 to-slate-900">
+      <div className="min-h-screen">
         <div className="container mx-auto px-4 py-8">
           {/* Header */}
           <div className="mb-8 flex items-center justify-between">
             <div>
               <Link
                 href="/admin"
-                className="text-indigo-400 hover:text-indigo-300 text-sm mb-4 inline-block"
+                className="text-blue-600 hover:text-blue-700 text-sm mb-4 inline-block"
               >
                 ← ダッシュボードに戻る
               </Link>
-              <h1 className="text-4xl font-bold text-white">ユーザー管理</h1>
-              <p className="text-gray-400 mt-1">登録ユーザーの管理と設定</p>
+              <h1 className="text-4xl font-bold text-gray-900">ユーザー管理</h1>
+              <p className="text-gray-600 mt-1">登録ユーザーの管理と設定</p>
             </div>
           </div>
 
           {/* Success Message */}
           {successMessage && (
-            <div className="mb-6 p-4 bg-green-900/50 border border-green-700 rounded-lg text-green-300">
+            <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg text-green-700">
               {successMessage}
             </div>
           )}
 
           {/* Error Message */}
           {error && (
-            <div className="mb-6 p-4 bg-red-900/50 border border-red-700 rounded-lg text-red-300">
+            <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
               {error}
             </div>
           )}
@@ -208,67 +208,67 @@ export default function UserManagement() {
               placeholder="メールアドレスで検索..."
               value={searchEmail}
               onChange={(e) => setSearchEmail(e.target.value)}
-              className="w-full px-4 py-2 bg-indigo-950/50 border border-indigo-700/50 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/30"
+              className="w-full px-4 py-2 bg-white border border-blue-200 rounded-lg text-gray-900 placeholder-gray-500 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/30"
             />
           </div>
 
           {/* Loading State */}
           {loading && (
             <div className="flex justify-center items-center py-16">
-              <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-400"></div>
+              <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-400"></div>
             </div>
           )}
 
           {/* Users Table */}
           {!loading && (
             <>
-              <div className="bg-indigo-950/30 border border-indigo-700/50 rounded-lg overflow-hidden shadow-xl">
+              <div className="bg-white border border-blue-100 rounded-lg overflow-hidden shadow-sm">
                 <div className="overflow-x-auto">
                   <table className="w-full">
-                    <thead className="bg-indigo-950/50 border-b border-indigo-700/50">
+                    <thead className="bg-blue-50 border-b border-blue-100">
                       <tr>
-                        <th className="px-6 py-3 text-left text-xs font-semibold text-indigo-300 uppercase">
+                        <th className="px-6 py-3 text-left text-xs font-semibold text-gray-900 uppercase">
                           メールアドレス
                         </th>
-                        <th className="px-6 py-3 text-left text-xs font-semibold text-indigo-300 uppercase">
+                        <th className="px-6 py-3 text-left text-xs font-semibold text-gray-900 uppercase">
                           表示名
                         </th>
-                        <th className="px-6 py-3 text-left text-xs font-semibold text-indigo-300 uppercase">
+                        <th className="px-6 py-3 text-left text-xs font-semibold text-gray-900 uppercase">
                           役割
                         </th>
-                        <th className="px-6 py-3 text-left text-xs font-semibold text-indigo-300 uppercase">
+                        <th className="px-6 py-3 text-left text-xs font-semibold text-gray-900 uppercase">
                           ステータス
                         </th>
-                        <th className="px-6 py-3 text-left text-xs font-semibold text-indigo-300 uppercase">
+                        <th className="px-6 py-3 text-left text-xs font-semibold text-gray-900 uppercase">
                           診断数
                         </th>
-                        <th className="px-6 py-3 text-left text-xs font-semibold text-indigo-300 uppercase">
+                        <th className="px-6 py-3 text-left text-xs font-semibold text-gray-900 uppercase">
                           登録日
                         </th>
-                        <th className="px-6 py-3 text-left text-xs font-semibold text-indigo-300 uppercase">
+                        <th className="px-6 py-3 text-left text-xs font-semibold text-gray-900 uppercase">
                           操作
                         </th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-indigo-700/30">
+                    <tbody className="divide-y divide-blue-100">
                       {paginatedUsers.length > 0 ? (
                         paginatedUsers.map((user) => (
                           <tr
                             key={user.id}
-                            className="hover:bg-indigo-900/20 transition-colors"
+                            className="hover:bg-blue-50/50 transition-colors"
                           >
-                            <td className="px-6 py-4 text-sm text-gray-300 font-mono">
+                            <td className="px-6 py-4 text-sm text-gray-700 font-mono">
                               {user.email}
                             </td>
-                            <td className="px-6 py-4 text-sm text-gray-300">
+                            <td className="px-6 py-4 text-sm text-gray-700">
                               {user.display_name || '未設定'}
                             </td>
                             <td className="px-6 py-4 text-sm">
                               <span
                                 className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
                                   user.role === 'admin'
-                                    ? 'bg-red-900/50 text-red-300'
-                                    : 'bg-blue-900/50 text-blue-300'
+                                    ? 'bg-red-100 text-red-800'
+                                    : 'bg-blue-100 text-blue-800'
                                 }`}
                               >
                                 {user.role === 'admin' ? '管理者' : 'メンバー'}
@@ -278,31 +278,31 @@ export default function UserManagement() {
                               <span
                                 className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
                                   user.is_active
-                                    ? 'bg-green-900/50 text-green-300'
-                                    : 'bg-gray-900/50 text-gray-300'
+                                    ? 'bg-green-100 text-green-800'
+                                    : 'bg-gray-100 text-gray-800'
                                 }`}
                               >
                                 {user.is_active ? '有効' : '無効'}
                               </span>
                             </td>
-                            <td className="px-6 py-4 text-sm text-gray-300">
+                            <td className="px-6 py-4 text-sm text-gray-700">
                               {user.diagnosis_count}
                             </td>
-                            <td className="px-6 py-4 text-sm text-gray-400">
+                            <td className="px-6 py-4 text-sm text-gray-600">
                               {new Date(user.created_at).toLocaleDateString('ja-JP')}
                             </td>
                             <td className="px-6 py-4 text-sm flex gap-2">
                               <button
                                 onClick={() => toggleUserActive(user.id, user.is_active)}
                                 disabled={updating === user.id}
-                                className="px-2 py-1 rounded bg-indigo-900/50 hover:bg-indigo-900 text-indigo-300 text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                className="px-2 py-1 rounded bg-blue-500 hover:bg-blue-600 text-white text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                               >
                                 {user.is_active ? '無効化' : '有効化'}
                               </button>
                               <button
                                 onClick={() => toggleUserRole(user.id, user.role)}
                                 disabled={updating === user.id}
-                                className="px-2 py-1 rounded bg-purple-900/50 hover:bg-purple-900 text-purple-300 text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                className="px-2 py-1 rounded bg-pink-500 hover:bg-pink-600 text-white text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                               >
                                 {user.role === 'admin' ? 'メンバーに' : '管理者に'}
                               </button>
@@ -311,7 +311,7 @@ export default function UserManagement() {
                         ))
                       ) : (
                         <tr>
-                          <td colSpan={7} className="px-6 py-8 text-center text-gray-400">
+                          <td colSpan={7} className="px-6 py-8 text-center text-gray-600">
                             ユーザーが見つかりません
                           </td>
                         </tr>
@@ -327,7 +327,7 @@ export default function UserManagement() {
                   <button
                     onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
                     disabled={currentPage === 1}
-                    className="px-4 py-2 bg-indigo-900/50 hover:bg-indigo-900 text-indigo-300 rounded disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   >
                     前へ
                   </button>
@@ -338,8 +338,8 @@ export default function UserManagement() {
                       onClick={() => setCurrentPage(page)}
                       className={`px-3 py-2 rounded transition-colors ${
                         currentPage === page
-                          ? 'bg-indigo-600 text-white'
-                          : 'bg-indigo-900/50 hover:bg-indigo-900 text-indigo-300'
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-blue-50 hover:bg-blue-100 text-blue-600'
                       }`}
                     >
                       {page}
@@ -349,7 +349,7 @@ export default function UserManagement() {
                   <button
                     onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
                     disabled={currentPage === totalPages}
-                    className="px-4 py-2 bg-indigo-900/50 hover:bg-indigo-900 text-indigo-300 rounded disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   >
                     次へ
                   </button>
@@ -357,7 +357,7 @@ export default function UserManagement() {
               )}
 
               {/* Summary */}
-              <div className="mt-6 text-center text-gray-400 text-sm">
+              <div className="mt-6 text-center text-gray-600 text-sm">
                 {filteredUsers.length > 0 && (
                   <>
                     {(currentPage - 1) * ITEMS_PER_PAGE + 1}から

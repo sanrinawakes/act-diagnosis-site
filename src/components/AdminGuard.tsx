@@ -53,10 +53,10 @@ export default function AdminGuard({ children }: AdminGuardProps) {
 
   if (isAdmin === null) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-indigo-950 via-purple-950 to-slate-900 flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">
-          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-400"></div>
-          <p className="text-gray-300">読み込み中...</p>
+          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-400"></div>
+          <p className="text-gray-500">読み込み中...</p>
         </div>
       </div>
     );
@@ -64,10 +64,10 @@ export default function AdminGuard({ children }: AdminGuardProps) {
 
   if (!isAdmin) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-indigo-950 via-purple-950 to-slate-900 flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
-          <p className="text-xl text-red-400 font-semibold mb-4">管理者権限が必要です</p>
-          <p className="text-gray-400">このページにアクセスする権限がありません。</p>
+          <p className="text-xl text-red-500 font-semibold mb-4">管理者権限が必要です</p>
+          <p className="text-gray-500">このページにアクセスする権限がありません。</p>
         </div>
       </div>
     );

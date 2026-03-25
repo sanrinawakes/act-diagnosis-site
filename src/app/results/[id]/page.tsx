@@ -55,10 +55,10 @@ export default function ResultDetailPage() {
   if (loading) {
     return (
       <AuthGuard>
-        <div className="min-h-screen bg-gradient-to-br from-slate-900 via-indigo-900 to-purple-900 flex items-center justify-center">
+        <div className="min-h-screen flex items-center justify-center">
           <div className="flex flex-col items-center gap-4">
-            <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-400"></div>
-            <p className="text-gray-300">読み込み中...</p>
+            <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-400"></div>
+            <p className="text-gray-700">読み込み中...</p>
           </div>
         </div>
       </AuthGuard>
@@ -68,14 +68,14 @@ export default function ResultDetailPage() {
   if (error || !result) {
     return (
       <AuthGuard>
-        <div className="min-h-screen bg-gradient-to-br from-slate-900 via-indigo-900 to-purple-900 p-6 sm:p-8">
+        <div className="min-h-screen p-6 sm:p-8">
           <div className="max-w-4xl mx-auto">
-            <div className="bg-red-900/30 border border-red-700 text-red-200 p-6 rounded-lg mb-6">
+            <div className="bg-red-50 border border-red-200 text-red-900 p-6 rounded-lg mb-6">
               {error || '診断結果が見つかりません'}
             </div>
             <Link
               href="/results"
-              className="text-indigo-400 hover:text-indigo-300 font-semibold transition-colors"
+              className="text-blue-600 hover:text-blue-700 font-semibold transition-colors"
             >
               ← 結果一覧に戻る
             </Link>
@@ -93,34 +93,34 @@ export default function ResultDetailPage() {
   return (
     <AuthGuard>
       <Header />
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-indigo-900 to-purple-900 p-6 sm:p-8">
+      <div className="min-h-screen p-6 sm:p-8">
         <div className="max-w-4xl mx-auto">
           {/* Header with type code and level */}
           <div className="mb-8">
             <Link
               href="/results"
-              className="text-indigo-400 hover:text-indigo-300 font-semibold transition-colors mb-6 inline-block"
+              className="text-blue-600 hover:text-blue-700 font-semibold transition-colors mb-6 inline-block"
             >
               ← 結果一覧に戻る
             </Link>
 
-            <div className="bg-gradient-to-br from-indigo-900/50 to-purple-900/50 border border-indigo-700/50 rounded-lg p-8 mb-8">
+            <div className="bg-white border border-blue-200 rounded-lg p-8 mb-8">
               <div className="flex flex-col gap-6">
                 <div className="flex items-end gap-6">
                   <div>
-                    <p className="text-gray-400 text-sm mb-2">タイプコード</p>
-                    <div className="text-7xl font-bold text-transparent bg-gradient-to-r from-indigo-400 via-purple-400 to-pink-400 bg-clip-text">
+                    <p className="text-gray-500 text-sm mb-2">タイプコード</p>
+                    <div className="text-7xl font-bold text-transparent bg-gradient-to-r from-blue-600 via-pink-500 to-blue-500 bg-clip-text">
                       {typeCode}
                     </div>
                   </div>
 
                   <div>
-                    <p className="text-gray-400 text-sm mb-2">意識レベル</p>
+                    <p className="text-gray-500 text-sm mb-2">意識レベル</p>
                     <div className="flex items-center gap-3">
-                      <div className="text-5xl font-bold text-transparent bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text">
+                      <div className="text-5xl font-bold text-transparent bg-gradient-to-r from-blue-600 to-pink-500 bg-clip-text">
                         {result.consciousness_level}
                       </div>
-                      <div className="bg-gradient-to-r from-indigo-600 to-purple-600 text-white px-4 py-2 rounded-lg font-semibold">
+                      <div className="bg-gradient-to-r from-blue-500 to-blue-600 text-white px-4 py-2 rounded-lg font-semibold">
                         {levelNames[result.consciousness_level]}
                       </div>
                     </div>
@@ -128,10 +128,10 @@ export default function ResultDetailPage() {
                 </div>
 
                 <div>
-                  <p className="text-2xl font-semibold text-indigo-300 mb-2">
+                  <p className="text-2xl font-semibold text-blue-600 mb-2">
                     {typeNames[typeCode] || typeCode}
                   </p>
-                  <p className="text-gray-400">
+                  <p className="text-gray-600">
                     {new Date(result.created_at).toLocaleDateString('ja-JP', {
                       year: 'numeric',
                       month: '2-digit',
@@ -147,25 +147,25 @@ export default function ResultDetailPage() {
 
           {/* Axis Explanations */}
           <div className="mb-8">
-            <h2 className="text-2xl font-bold text-white mb-6">3つの軸の説明</h2>
+            <h2 className="text-2xl font-bold text-gray-900 mb-6">3つの軸の説明</h2>
 
             <div className="grid gap-4 md:grid-cols-3">
               {/* Axis 1 */}
-              <div className="bg-gradient-to-br from-indigo-900/40 to-purple-900/40 border border-indigo-700/50 rounded-lg p-6">
-                <p className="text-indigo-300 font-semibold mb-2">
+              <div className="bg-white border border-blue-200 rounded-lg p-6">
+                <p className="text-blue-600 font-semibold mb-2">
                   1文字目: {axisDescriptions.axis1.description}
                 </p>
-                <p className="text-3xl font-bold text-transparent bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text mb-3">
+                <p className="text-3xl font-bold text-transparent bg-gradient-to-r from-blue-600 to-pink-500 bg-clip-text mb-3">
                   {axis1}
                 </p>
-                <p className="text-gray-300">
+                <p className="text-gray-700">
                   {axis1 === 'S'
                     ? axisDescriptions.axis1.S
                     : axis1 === 'P'
                       ? axisDescriptions.axis1.P
                       : axisDescriptions.axis1.M}
                 </p>
-                <p className="text-gray-400 text-sm mt-3">
+                <p className="text-gray-600 text-sm mt-3">
                   {axis1 === 'S'
                     ? 'あなたは内向的なエネルギーを持つ人です。深い思考と内省を重視します。'
                     : axis1 === 'P'
@@ -175,21 +175,21 @@ export default function ResultDetailPage() {
               </div>
 
               {/* Axis 2 */}
-              <div className="bg-gradient-to-br from-indigo-900/40 to-purple-900/40 border border-indigo-700/50 rounded-lg p-6">
-                <p className="text-indigo-300 font-semibold mb-2">
+              <div className="bg-white border border-blue-200 rounded-lg p-6">
+                <p className="text-blue-600 font-semibold mb-2">
                   2文字目: {axisDescriptions.axis2.description}
                 </p>
-                <p className="text-3xl font-bold text-transparent bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text mb-3">
+                <p className="text-3xl font-bold text-transparent bg-gradient-to-r from-blue-600 to-pink-500 bg-clip-text mb-3">
                   {axis2}
                 </p>
-                <p className="text-gray-300">
+                <p className="text-gray-700">
                   {axis2 === 'V'
                     ? axisDescriptions.axis2.V
                     : axis2 === 'G'
                       ? axisDescriptions.axis2.G
                       : axisDescriptions.axis2.M}
                 </p>
-                <p className="text-gray-400 text-sm mt-3">
+                <p className="text-gray-600 text-sm mt-3">
                   {axis2 === 'V'
                     ? 'あなたは理想や価値観を大切にする理想型です。'
                     : axis2 === 'G'
@@ -199,21 +199,21 @@ export default function ResultDetailPage() {
               </div>
 
               {/* Axis 3 */}
-              <div className="bg-gradient-to-br from-indigo-900/40 to-purple-900/40 border border-indigo-700/50 rounded-lg p-6">
-                <p className="text-indigo-300 font-semibold mb-2">
+              <div className="bg-white border border-blue-200 rounded-lg p-6">
+                <p className="text-blue-600 font-semibold mb-2">
                   3文字目: {axisDescriptions.axis3.description}
                 </p>
-                <p className="text-3xl font-bold text-transparent bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text mb-3">
+                <p className="text-3xl font-bold text-transparent bg-gradient-to-r from-blue-600 to-pink-500 bg-clip-text mb-3">
                   {axis3}
                 </p>
-                <p className="text-gray-300">
+                <p className="text-gray-700">
                   {axis3 === 'A'
                     ? axisDescriptions.axis3.A
                     : axis3 === 'E'
                       ? axisDescriptions.axis3.E
                       : axisDescriptions.axis3.M}
                 </p>
-                <p className="text-gray-400 text-sm mt-3">
+                <p className="text-gray-600 text-sm mt-3">
                   {axis3 === 'A'
                     ? 'あなたは論理的で客観的な判断を重視する論理型です。'
                     : axis3 === 'E'
@@ -226,14 +226,14 @@ export default function ResultDetailPage() {
 
           {/* Consciousness Level Details */}
           <div className="mb-8">
-            <h2 className="text-2xl font-bold text-white mb-6">意識レベルについて</h2>
+            <h2 className="text-2xl font-bold text-gray-900 mb-6">意識レベルについて</h2>
 
-            <div className="bg-gradient-to-br from-indigo-900/40 to-purple-900/40 border border-indigo-700/50 rounded-lg p-6">
-              <p className="text-indigo-300 font-semibold mb-3 text-lg">
+            <div className="bg-white border border-blue-200 rounded-lg p-6">
+              <p className="text-blue-600 font-semibold mb-3 text-lg">
                 レベル {result.consciousness_level}: {levelNames[result.consciousness_level]}
               </p>
 
-              <p className="text-gray-300 leading-relaxed">
+              <p className="text-gray-700 leading-relaxed">
                 {result.consciousness_level === 1
                   ? '防衛レベルでは、あなたは困難や脅威から身を守ることに集中しています。安全と安心を最優先とし、変化よりも現状維持を好みます。'
                   : result.consciousness_level === 2
@@ -253,14 +253,14 @@ export default function ResultDetailPage() {
           <div className="flex flex-col gap-4 sm:flex-row">
             <Link
               href={`/chat?code=${typeCode}-${result.consciousness_level}`}
-              className="flex-1 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-semibold py-3 px-6 rounded-lg text-center transition-all duration-200 transform hover:scale-105 shadow-lg hover:shadow-xl hover:shadow-indigo-500/30"
+              className="flex-1 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-semibold py-3 px-6 rounded-lg text-center transition-all duration-200 transform hover:scale-105 shadow-lg"
             >
               AIコーチングを受ける
             </Link>
 
             <Link
               href="/diagnosis"
-              className="flex-1 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-semibold py-3 px-6 rounded-lg text-center transition-all duration-200 transform hover:scale-105 shadow-lg hover:shadow-xl hover:shadow-purple-500/30"
+              className="flex-1 bg-white border border-blue-200 hover:bg-blue-50 text-blue-600 font-semibold py-3 px-6 rounded-lg text-center transition-all duration-200 transform hover:scale-105"
             >
               もう一度診断する
             </Link>

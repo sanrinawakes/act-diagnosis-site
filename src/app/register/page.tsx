@@ -72,26 +72,26 @@ export default function RegisterPage() {
   };
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-slate-900 via-indigo-900 to-purple-900 flex items-center justify-center px-4">
+    <main className="min-h-screen flex items-center justify-center px-4">
       <div className="w-full max-w-md">
-        <div className="bg-white bg-opacity-10 backdrop-blur-xl rounded-2xl p-8 border border-white border-opacity-20 shadow-2xl">
+        <div className="bg-white/80 backdrop-blur-xl rounded-2xl p-8 border border-blue-200/60 shadow-xl">
           {/* Header */}
           <div className="text-center mb-8">
-            <h1 className="text-3xl font-bold text-white mb-2">新規登録</h1>
-            <p className="text-gray-300">ACT診断を始めましょう</p>
+            <h1 className="text-3xl font-bold text-gray-900 mb-2">新規登録</h1>
+            <p className="text-gray-600">ACT診断を始めましょう</p>
           </div>
 
           {/* Error Message */}
           {error && (
-            <div className="mb-6 p-4 bg-red-500 bg-opacity-20 border border-red-500 border-opacity-40 rounded-lg">
-              <p className="text-red-200 text-sm">{error}</p>
+            <div className="mb-6 p-4 bg-red-100 border border-red-400 rounded-lg">
+              <p className="text-red-700 text-sm">{error}</p>
             </div>
           )}
 
           {/* Success Message */}
           {success && (
-            <div className="mb-6 p-4 bg-green-500 bg-opacity-20 border border-green-500 border-opacity-40 rounded-lg">
-              <p className="text-green-200 text-sm">確認メールを送信しました。メールのリンクをクリックしてアカウントを有効化してください。</p>
+            <div className="mb-6 p-4 bg-green-100 border border-green-400 rounded-lg">
+              <p className="text-green-700 text-sm">確認メールを送信しました。メールのリンクをクリックしてアカウントを有効化してください。</p>
             </div>
           )}
 
@@ -100,7 +100,7 @@ export default function RegisterPage() {
             <form onSubmit={handleRegister} className="space-y-5">
               {/* Display Name Field */}
               <div>
-                <label htmlFor="displayName" className="block text-sm font-medium text-gray-200 mb-2">
+                <label htmlFor="displayName" className="block text-sm font-medium text-gray-700 mb-2">
                   お名前 (任意)
                 </label>
                 <input
@@ -109,13 +109,13 @@ export default function RegisterPage() {
                   value={displayName}
                   onChange={(e) => setDisplayName(e.target.value)}
                   placeholder="山田太郎"
-                  className="w-full px-4 py-3 bg-white bg-opacity-10 border border-white border-opacity-20 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
+                  className="w-full px-4 py-3 bg-white border border-blue-200 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-transparent transition-all"
                 />
               </div>
 
               {/* Email Field */}
               <div>
-                <label htmlFor="email" className="block text-sm font-medium text-gray-200 mb-2">
+                <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
                   メールアドレス
                 </label>
                 <input
@@ -125,13 +125,13 @@ export default function RegisterPage() {
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="your@email.com"
                   required
-                  className="w-full px-4 py-3 bg-white bg-opacity-10 border border-white border-opacity-20 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
+                  className="w-full px-4 py-3 bg-white border border-blue-200 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-transparent transition-all"
                 />
               </div>
 
               {/* Password Field */}
               <div>
-                <label htmlFor="password" className="block text-sm font-medium text-gray-200 mb-2">
+                <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
                   パスワード (8文字以上)
                 </label>
                 <input
@@ -142,7 +142,7 @@ export default function RegisterPage() {
                   placeholder="••••••••"
                   minLength={8}
                   required
-                  className="w-full px-4 py-3 bg-white bg-opacity-10 border border-white border-opacity-20 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
+                  className="w-full px-4 py-3 bg-white border border-blue-200 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-transparent transition-all"
                 />
               </div>
 
@@ -150,7 +150,7 @@ export default function RegisterPage() {
               <button
                 type="submit"
                 disabled={isLoading}
-                className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-800 disabled:opacity-50 text-white font-semibold rounded-lg transition-colors duration-200 mt-6"
+                className="w-full py-3 bg-blue-500 hover:bg-blue-600 disabled:bg-blue-300 disabled:opacity-50 text-white font-semibold rounded-lg transition-colors duration-200 mt-6"
               >
                 {isLoading ? '登録中...' : '新規登録'}
               </button>
@@ -159,15 +159,15 @@ export default function RegisterPage() {
 
           {/* Divider */}
           <div className="my-6 flex items-center gap-4">
-            <div className="flex-1 h-px bg-white bg-opacity-20"></div>
-            <span className="text-gray-400 text-sm">または</span>
-            <div className="flex-1 h-px bg-white bg-opacity-20"></div>
+            <div className="flex-1 h-px bg-blue-200"></div>
+            <span className="text-gray-500 text-sm">または</span>
+            <div className="flex-1 h-px bg-blue-200"></div>
           </div>
 
           {/* Login Link */}
-          <p className="text-center text-gray-300">
+          <p className="text-center text-gray-600">
             既にアカウントをお持ちですか？
-            <Link href="/login" className="text-indigo-400 hover:text-indigo-300 font-semibold ml-1">
+            <Link href="/login" className="text-blue-500 hover:text-blue-600 font-semibold ml-1">
               ログイン
             </Link>
           </p>

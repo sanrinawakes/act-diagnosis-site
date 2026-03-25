@@ -206,10 +206,10 @@ function CoachingContent() {
     return (
       <AuthGuard>
         <Header />
-        <div className="min-h-screen bg-gradient-to-br from-slate-900 via-indigo-900 to-purple-900 flex items-center justify-center">
+        <div className="min-h-screen flex items-center justify-center">
           <div className="flex flex-col items-center gap-4">
-            <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-400"></div>
-            <p className="text-gray-300">読み込み中...</p>
+            <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-400"></div>
+            <p className="text-gray-700">読み込み中...</p>
           </div>
         </div>
       </AuthGuard>
@@ -220,19 +220,19 @@ function CoachingContent() {
     <AuthGuard>
       <Header />
       <div className="flex flex-col" style={{ height: 'calc(100vh - 64px)' }}>
-        <div className="bg-gradient-to-br from-slate-900 via-indigo-900 to-purple-900 flex flex-col flex-1">
+        <div className="flex flex-col flex-1">
           {/* チャットヘッダー */}
-          <div className="bg-indigo-900/50 border-b border-indigo-700/50 px-4 sm:px-6 py-3 flex items-center justify-between">
+          <div className="bg-white border-b border-blue-200 px-4 sm:px-6 py-3 flex items-center justify-between">
             <div>
-              <h1 className="text-xl font-bold text-white">AIコーチング</h1>
+              <h1 className="text-xl font-bold text-gray-900">AIコーチング</h1>
               {diagnosisCode && (
-                <p className="text-indigo-300 text-sm">タイプ: {diagnosisCode}</p>
+                <p className="text-blue-600 text-sm">タイプ: {diagnosisCode}</p>
               )}
             </div>
             {!diagnosisCode && (
               <Link
                 href="/diagnosis"
-                className="text-sm px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors"
+                className="text-sm px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors"
               >
                 まず診断を受ける
               </Link>
@@ -242,7 +242,7 @@ function CoachingContent() {
           {/* メッセージエリア */}
           <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">
             {botDisabled && (
-              <div className="bg-yellow-900/30 border border-yellow-700 text-yellow-200 p-4 rounded-lg text-center">
+              <div className="bg-yellow-50 border border-yellow-200 text-yellow-900 p-4 rounded-lg text-center">
                 <p className="font-semibold">ボットは現在停止中です</p>
                 <p className="text-sm mt-1">
                   申し訳ございません。AIコーチングは現在利用できません。
@@ -253,8 +253,8 @@ function CoachingContent() {
             {messages.length === 0 && !botDisabled && !diagnosisCode && (
               <div className="flex flex-col items-center justify-center h-full text-center">
                 <div className="text-6xl mb-4">🤖</div>
-                <p className="text-xl text-gray-300 mb-2">AIコーチングへようこそ</p>
-                <p className="text-gray-400 mb-6">
+                <p className="text-xl text-gray-900 mb-2">AIコーチングへようこそ</p>
+                <p className="text-gray-600 mb-6">
                   診断結果に基づいたパーソナライズされたコーチングを受けられます。
                   <br />
                   まだ診断を受けていない場合は、先に診断を受けることをおすすめします。
@@ -262,7 +262,7 @@ function CoachingContent() {
                 <div className="flex gap-3">
                   <Link
                     href="/diagnosis"
-                    className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors"
+                    className="px-6 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors"
                   >
                     診断を受ける
                   </Link>
@@ -271,7 +271,7 @@ function CoachingContent() {
             )}
 
             {messages.length === 0 && !botDisabled && diagnosisCode && (
-              <div className="flex items-center justify-center h-full text-gray-400">
+              <div className="flex items-center justify-center h-full text-gray-600">
                 <p>コーチングを準備中...</p>
               </div>
             )}
@@ -286,8 +286,8 @@ function CoachingContent() {
                 <div
                   className={`max-w-xs sm:max-w-md lg:max-w-lg px-4 py-3 rounded-lg ${
                     message.role === 'user'
-                      ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white'
-                      : 'bg-indigo-900/40 border border-indigo-700/50 text-gray-200'
+                      ? 'bg-blue-500 text-white'
+                      : 'bg-white border border-blue-200 text-gray-900'
                   }`}
                 >
                   <p className="text-sm sm:text-base leading-relaxed whitespace-pre-wrap">
@@ -295,7 +295,7 @@ function CoachingContent() {
                   </p>
                   <p
                     className={`text-xs mt-2 ${
-                      message.role === 'user' ? 'text-indigo-100' : 'text-gray-400'
+                      message.role === 'user' ? 'text-blue-100' : 'text-gray-500'
                     }`}
                   >
                     {new Date(message.createdAt).toLocaleTimeString('ja-JP', {
@@ -309,15 +309,15 @@ function CoachingContent() {
 
             {loading && (
               <div className="flex justify-start">
-                <div className="bg-indigo-900/40 border border-indigo-700/50 text-gray-200 px-4 py-3 rounded-lg">
+                <div className="bg-white border border-blue-200 text-gray-900 px-4 py-3 rounded-lg">
                   <div className="flex gap-2">
-                    <div className="h-2 w-2 bg-indigo-400 rounded-full animate-bounce"></div>
+                    <div className="h-2 w-2 bg-blue-400 rounded-full animate-bounce"></div>
                     <div
-                      className="h-2 w-2 bg-indigo-400 rounded-full animate-bounce"
+                      className="h-2 w-2 bg-blue-400 rounded-full animate-bounce"
                       style={{ animationDelay: '0.1s' }}
                     ></div>
                     <div
-                      className="h-2 w-2 bg-indigo-400 rounded-full animate-bounce"
+                      className="h-2 w-2 bg-blue-400 rounded-full animate-bounce"
                       style={{ animationDelay: '0.2s' }}
                     ></div>
                   </div>
@@ -330,7 +330,7 @@ function CoachingContent() {
 
           {/* 入力エリア */}
           {!botDisabled && (
-            <div className="border-t border-indigo-700/50 bg-indigo-900/20 p-4 sm:p-6">
+            <div className="border-t border-blue-200 bg-white p-4 sm:p-6">
               <div className="max-w-4xl mx-auto flex gap-3">
                 <input
                   type="text"
@@ -343,13 +343,13 @@ function CoachingContent() {
                     }
                   }}
                   placeholder="メッセージを入力..."
-                  className="flex-1 bg-indigo-900/40 border border-indigo-700/50 text-white placeholder-gray-500 rounded-lg px-4 py-3 focus:outline-none focus:border-indigo-600 focus:ring-2 focus:ring-indigo-500/50 transition-all"
+                  className="flex-1 bg-white border border-blue-200 text-gray-900 placeholder-gray-500 rounded-lg px-4 py-3 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-400/50 transition-all"
                   disabled={loading}
                 />
                 <button
                   onClick={sendMessage}
                   disabled={loading || !input.trim()}
-                  className="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 disabled:from-gray-700 disabled:to-gray-700 text-white font-semibold py-3 px-6 rounded-lg transition-all duration-200 disabled:cursor-not-allowed"
+                  className="bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 disabled:from-gray-400 disabled:to-gray-400 text-white font-semibold py-3 px-6 rounded-lg transition-all duration-200 disabled:cursor-not-allowed"
                 >
                   {loading ? '送信中...' : '送信'}
                 </button>
@@ -366,10 +366,10 @@ export default function CoachingPage() {
   return (
     <Suspense
       fallback={
-        <div className="min-h-screen bg-gradient-to-br from-slate-900 via-indigo-900 to-purple-900 flex items-center justify-center">
+        <div className="min-h-screen flex items-center justify-center">
           <div className="flex flex-col items-center gap-4">
-            <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-400"></div>
-            <p className="text-gray-300">読み込み中...</p>
+            <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-400"></div>
+            <p className="text-gray-700">読み込み中...</p>
           </div>
         </div>
       }

@@ -129,10 +129,10 @@ export default function ProfilePage() {
     return (
       <AuthGuard>
         <Header />
-        <div className="min-h-screen bg-gradient-to-br from-slate-900 via-indigo-900 to-purple-900 flex items-center justify-center">
+        <div className="min-h-screen flex items-center justify-center">
           <div className="flex flex-col items-center gap-4">
-            <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-400"></div>
-            <p className="text-gray-300">読み込み中...</p>
+            <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-400"></div>
+            <p className="text-gray-700">読み込み中...</p>
           </div>
         </div>
       </AuthGuard>
@@ -142,41 +142,41 @@ export default function ProfilePage() {
   return (
     <AuthGuard>
       <Header />
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-indigo-900 to-purple-900">
+      <div className="min-h-screen">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <h1 className="text-3xl font-bold text-white mb-8">プロフィール設定</h1>
+          <h1 className="text-3xl font-bold text-gray-900 mb-8">プロフィール設定</h1>
 
           {/* プロフィール情報 */}
-          <div className="bg-gradient-to-br from-indigo-900/30 to-purple-900/30 border border-indigo-700/50 rounded-xl p-6 mb-6">
-            <h2 className="text-xl font-semibold text-white mb-4">基本情報</h2>
+          <div className="bg-white border border-blue-200 rounded-xl p-6 mb-6">
+            <h2 className="text-xl font-semibold text-gray-900 mb-4">基本情報</h2>
 
             {successMessage && (
-              <div className="mb-4 p-3 bg-green-900/50 border border-green-700 rounded-lg text-green-300 text-sm">
+              <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg text-green-900 text-sm">
                 {successMessage}
               </div>
             )}
             {error && (
-              <div className="mb-4 p-3 bg-red-900/50 border border-red-700 rounded-lg text-red-300 text-sm">
+              <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-900 text-sm">
                 {error}
               </div>
             )}
 
             <form onSubmit={handleSaveProfile} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
                   メールアドレス
                 </label>
                 <input
                   type="email"
                   value={profile?.email || ''}
                   disabled
-                  className="w-full px-4 py-3 bg-white bg-opacity-5 border border-white border-opacity-10 rounded-lg text-gray-400 cursor-not-allowed"
+                  className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-lg text-gray-500 cursor-not-allowed"
                 />
                 <p className="text-gray-500 text-xs mt-1">メールアドレスは変更できません</p>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
                   表示名
                 </label>
                 <input
@@ -184,20 +184,20 @@ export default function ProfilePage() {
                   value={displayName}
                   onChange={(e) => setDisplayName(e.target.value)}
                   placeholder="お名前を入力"
-                  className="w-full px-4 py-3 bg-white bg-opacity-10 border border-white border-opacity-20 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
+                  className="w-full px-4 py-3 bg-white border border-blue-200 rounded-lg text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent transition-all"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
                   アカウント種別
                 </label>
-                <div className="px-4 py-3 bg-white bg-opacity-5 border border-white border-opacity-10 rounded-lg">
+                <div className="px-4 py-3 bg-gray-50 border border-gray-200 rounded-lg">
                   <span
                     className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${
                       profile?.role === 'admin'
-                        ? 'bg-red-900/50 text-red-300'
-                        : 'bg-blue-900/50 text-blue-300'
+                        ? 'bg-red-100 text-red-900'
+                        : 'bg-blue-100 text-blue-900'
                     }`}
                   >
                     {profile?.role === 'admin' ? '管理者' : '会員'}
@@ -206,7 +206,7 @@ export default function ProfilePage() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
                   登録日
                 </label>
                 <input
@@ -221,14 +221,14 @@ export default function ProfilePage() {
                       : ''
                   }
                   disabled
-                  className="w-full px-4 py-3 bg-white bg-opacity-5 border border-white border-opacity-10 rounded-lg text-gray-400 cursor-not-allowed"
+                  className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-lg text-gray-500 cursor-not-allowed"
                 />
               </div>
 
               <button
                 type="submit"
                 disabled={saving}
-                className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-800 disabled:opacity-50 text-white font-semibold rounded-lg transition-colors"
+                className="w-full py-3 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-400 disabled:opacity-50 text-white font-semibold rounded-lg transition-colors"
               >
                 {saving ? '保存中...' : 'プロフィールを保存'}
               </button>
@@ -236,23 +236,23 @@ export default function ProfilePage() {
           </div>
 
           {/* パスワード変更 */}
-          <div className="bg-gradient-to-br from-purple-900/30 to-slate-900/30 border border-purple-700/50 rounded-xl p-6">
-            <h2 className="text-xl font-semibold text-white mb-4">パスワード変更</h2>
+          <div className="bg-white border border-blue-200 rounded-xl p-6">
+            <h2 className="text-xl font-semibold text-gray-900 mb-4">パスワード変更</h2>
 
             {passwordSuccess && (
-              <div className="mb-4 p-3 bg-green-900/50 border border-green-700 rounded-lg text-green-300 text-sm">
+              <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg text-green-900 text-sm">
                 {passwordSuccess}
               </div>
             )}
             {passwordError && (
-              <div className="mb-4 p-3 bg-red-900/50 border border-red-700 rounded-lg text-red-300 text-sm">
+              <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-900 text-sm">
                 {passwordError}
               </div>
             )}
 
             <form onSubmit={handleChangePassword} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
                   新しいパスワード
                 </label>
                 <input
@@ -264,12 +264,12 @@ export default function ProfilePage() {
                   placeholder="8文字以上"
                   minLength={8}
                   required
-                  className="w-full px-4 py-3 bg-white bg-opacity-10 border border-white border-opacity-20 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
+                  className="w-full px-4 py-3 bg-white border border-blue-200 rounded-lg text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent transition-all"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
                   新しいパスワード（確認）
                 </label>
                 <input
@@ -281,14 +281,14 @@ export default function ProfilePage() {
                   placeholder="もう一度入力"
                   minLength={8}
                   required
-                  className="w-full px-4 py-3 bg-white bg-opacity-10 border border-white border-opacity-20 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
+                  className="w-full px-4 py-3 bg-white border border-blue-200 rounded-lg text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent transition-all"
                 />
               </div>
 
               <button
                 type="submit"
                 disabled={passwordSaving}
-                className="w-full py-3 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-800 disabled:opacity-50 text-white font-semibold rounded-lg transition-colors"
+                className="w-full py-3 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-400 disabled:opacity-50 text-white font-semibold rounded-lg transition-colors"
               >
                 {passwordSaving ? '変更中...' : 'パスワードを変更'}
               </button>
