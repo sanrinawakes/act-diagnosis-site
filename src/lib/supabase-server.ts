@@ -1,8 +1,8 @@
-import { createClient as createServerSideClient } from '@supabase/ssr';
+import { createServerClient as createSSRServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
 if (!supabaseUrl || !supabaseAnonKey) {
   throw new Error('Missing Supabase environment variables');
@@ -14,7 +14,7 @@ if (!supabaseUrl || !supabaseAnonKey) {
 export async function createServerClient() {
   const cookieStore = await cookies();
 
-  return createServerSideClient(
+  return createSSRServerClient(
     supabaseUrl,
     supabaseAnonKey,
     {
@@ -22,7 +22,7 @@ export async function createServerClient() {
         getAll() {
           return cookieStore.getAll();
         },
-        setAll(cookiesToSet) {
+        setAll(cookiesToSet: { name: string; value: string; options?: Record<string, unknown> }[]) {
           try {
             cookiesToSet.forEach(({ name, value, options }) =>
               cookieStore.set(name, value, options)
