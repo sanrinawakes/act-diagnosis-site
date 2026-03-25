@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import AuthGuard from '@/components/AuthGuard';
+import Header from '@/components/Header';
 import { createClient } from '@/lib/supabase';
 import { DiagnosisResult } from '@/lib/types';
 import { typeNames, levelNames } from '@/data/type-names';
@@ -62,6 +63,7 @@ export default function ResultsPage() {
 
   return (
     <AuthGuard>
+      <Header />
       <div className="min-h-screen bg-gradient-to-br from-slate-900 via-indigo-900 to-purple-900 p-6 sm:p-8">
         <div className="max-w-6xl mx-auto">
           <h1 className="text-4xl font-bold text-white mb-8">診断結果一覧</h1>

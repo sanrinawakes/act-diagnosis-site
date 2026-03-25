@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase';
+import Header from '@/components/Header';
 import type { User } from '@supabase/supabase-js';
 
 export default function Home() {
@@ -39,6 +40,7 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-slate-900 via-indigo-900 to-purple-900">
+      <Header />
       {/* Hero Section */}
       <div className="relative overflow-hidden">
         {/* Background decorative elements */}
@@ -64,16 +66,16 @@ export default function Home() {
               // Logged in state
               <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
                 <Link
-                  href="/diagnosis"
+                  href="/dashboard"
                   className="px-8 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-lg transition-colors duration-200 shadow-lg"
                 >
-                  診断を受ける
+                  マイページへ
                 </Link>
                 <Link
-                  href="/results"
+                  href="/diagnosis"
                   className="px-8 py-3 bg-purple-600 hover:bg-purple-700 text-white font-semibold rounded-lg transition-colors duration-200 shadow-lg"
                 >
-                  結果を見る
+                  診断を受ける
                 </Link>
                 <Link
                   href="/coaching"

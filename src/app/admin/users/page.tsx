@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import AdminGuard from '@/components/AdminGuard';
+import Header from '@/components/Header';
 import { createClient } from '@/lib/supabase';
 import type { Profile } from '@/lib/types';
 
@@ -169,6 +170,7 @@ export default function UserManagement() {
 
   return (
     <AdminGuard>
+      <Header />
       <div className="min-h-screen bg-gradient-to-br from-indigo-950 via-purple-950 to-slate-900">
         <div className="container mx-auto px-4 py-8">
           {/* Header */}

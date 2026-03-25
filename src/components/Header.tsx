@@ -94,6 +94,12 @@ export default function Header() {
             {user ? (
               <>
                 <Link
+                  href="/dashboard"
+                  className="px-4 py-2 text-gray-300 hover:text-white hover:bg-white hover:bg-opacity-10 rounded-lg transition-all"
+                >
+                  マイページ
+                </Link>
+                <Link
                   href="/diagnosis"
                   className="px-4 py-2 text-gray-300 hover:text-white hover:bg-white hover:bg-opacity-10 rounded-lg transition-all"
                 >
@@ -110,6 +116,12 @@ export default function Header() {
                   className="px-4 py-2 text-gray-300 hover:text-white hover:bg-white hover:bg-opacity-10 rounded-lg transition-all"
                 >
                   AIコーチング
+                </Link>
+                <Link
+                  href="/profile"
+                  className="px-4 py-2 text-gray-300 hover:text-white hover:bg-white hover:bg-opacity-10 rounded-lg transition-all"
+                >
+                  プロフィール
                 </Link>
 
                 {profile?.role === 'admin' && (
@@ -182,6 +194,13 @@ export default function Header() {
             {user ? (
               <>
                 <Link
+                  href="/dashboard"
+                  className="block px-4 py-2 text-gray-300 hover:text-white hover:bg-white hover:bg-opacity-10 rounded-lg transition-all"
+                  onClick={() => setIsMenuOpen(false)}
+                >
+                  マイページ
+                </Link>
+                <Link
                   href="/diagnosis"
                   className="block px-4 py-2 text-gray-300 hover:text-white hover:bg-white hover:bg-opacity-10 rounded-lg transition-all"
                   onClick={() => setIsMenuOpen(false)}
@@ -201,6 +220,13 @@ export default function Header() {
                   onClick={() => setIsMenuOpen(false)}
                 >
                   AIコーチング
+                </Link>
+                <Link
+                  href="/profile"
+                  className="block px-4 py-2 text-gray-300 hover:text-white hover:bg-white hover:bg-opacity-10 rounded-lg transition-all"
+                  onClick={() => setIsMenuOpen(false)}
+                >
+                  プロフィール
                 </Link>
 
                 {profile?.role === 'admin' && (

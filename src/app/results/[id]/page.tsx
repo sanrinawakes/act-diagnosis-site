@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
 import AuthGuard from '@/components/AuthGuard';
+import Header from '@/components/Header';
 import { createClient } from '@/lib/supabase';
 import { DiagnosisResult } from '@/lib/types';
 import { typeNames, levelNames, axisDescriptions } from '@/data/type-names';
@@ -91,6 +92,7 @@ export default function ResultDetailPage() {
 
   return (
     <AuthGuard>
+      <Header />
       <div className="min-h-screen bg-gradient-to-br from-slate-900 via-indigo-900 to-purple-900 p-6 sm:p-8">
         <div className="max-w-4xl mx-auto">
           {/* Header with type code and level */}

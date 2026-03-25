@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import AdminGuard from '@/components/AdminGuard';
+import Header from '@/components/Header';
 import { createClient } from '@/lib/supabase';
 
 interface DashboardStats {
@@ -66,6 +67,7 @@ export default function AdminDashboard() {
 
   return (
     <AdminGuard>
+      <Header />
       <div className="min-h-screen bg-gradient-to-br from-indigo-950 via-purple-950 to-slate-900">
         <div className="container mx-auto px-4 py-8">
           {/* Header */}
@@ -159,13 +161,47 @@ export default function AdminDashboard() {
                   <p className="text-indigo-400 text-sm font-medium">詳細を表示 →</p>
                 </Link>
 
-                {/* Settings Link */}
+                {/* Diagnosis Data Link */}
                 <Link
-                  href="/admin/settings"
-                  className="bg-gradient-to-br from-purple-900/30 to-slate-900/30 border border-purple-700/50 rounded-lg p-6 hover:from-purple-900/50 hover:to-slate-900/50 hover:border-purple-600/70 transition-all cursor-pointer group"
+                  href="/admin/diagnoses"
+                  className="bg-gradient-to-br from-purple-900/30 to-pink-900/30 border border-purple-700/50 rounded-lg p-6 hover:from-purple-900/50 hover:to-pink-900/50 hover:border-purple-600/70 transition-all cursor-pointer group"
                 >
                   <div className="flex items-start justify-between mb-4">
                     <h2 className="text-xl font-semibold text-white group-hover:text-purple-300 transition-colors">
+                      診断データ
+                    </h2>
+                    <span className="text-2xl">📊</span>
+                  </div>
+                  <p className="text-gray-400 text-sm mb-4">
+                    全ユーザーの診断結果を閲覧、タイプ・レベル分布の統計
+                  </p>
+                  <p className="text-purple-400 text-sm font-medium">詳細を表示 →</p>
+                </Link>
+
+                {/* People Management Link */}
+                <Link
+                  href="/admin/people"
+                  className="bg-gradient-to-br from-pink-900/30 to-indigo-900/30 border border-pink-700/50 rounded-lg p-6 hover:from-pink-900/50 hover:to-indigo-900/50 hover:border-pink-600/70 transition-all cursor-pointer group"
+                >
+                  <div className="flex items-start justify-between mb-4">
+                    <h2 className="text-xl font-semibold text-white group-hover:text-pink-300 transition-colors">
+                      人材管理
+                    </h2>
+                    <span className="text-2xl">👥</span>
+                  </div>
+                  <p className="text-gray-400 text-sm mb-4">
+                    人物情報の登録・管理（名前、タイプコード、意識レベル、最大100名）
+                  </p>
+                  <p className="text-pink-400 text-sm font-medium">詳細を表示 →</p>
+                </Link>
+
+                {/* Settings Link */}
+                <Link
+                  href="/admin/settings"
+                  className="bg-gradient-to-br from-slate-900/30 to-indigo-900/30 border border-slate-700/50 rounded-lg p-6 hover:from-slate-900/50 hover:to-indigo-900/50 hover:border-slate-600/70 transition-all cursor-pointer group"
+                >
+                  <div className="flex items-start justify-between mb-4">
+                    <h2 className="text-xl font-semibold text-white group-hover:text-slate-300 transition-colors">
                       サイト設定
                     </h2>
                     <span className="text-2xl">⚙️</span>
@@ -173,7 +209,7 @@ export default function AdminDashboard() {
                   <p className="text-gray-400 text-sm mb-4">
                     AIボット、メンテナンスモード、その他のサイト設定を管理
                   </p>
-                  <p className="text-purple-400 text-sm font-medium">詳細を表示 →</p>
+                  <p className="text-slate-400 text-sm font-medium">詳細を表示 →</p>
                 </Link>
               </div>
             </>

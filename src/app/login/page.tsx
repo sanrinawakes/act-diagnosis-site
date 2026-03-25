@@ -33,7 +33,7 @@ export default function LoginPage() {
         return;
       }
 
-      router.push('/');
+      router.push('/dashboard');
     } catch (err) {
       setError('ログインに失敗しました');
       console.error('Login error:', err);
