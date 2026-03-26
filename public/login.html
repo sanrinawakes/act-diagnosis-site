@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ログイン - ACT診断</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #e0f2fe, #f0f9ff, #e8f4fd);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+    .card {
+      background: rgba(255,255,255,0.85);
+      backdrop-filter: blur(20px);
+      border-radius: 16px;
+      padding: 32px;
+      border: 1px solid rgba(147,197,253,0.6);
+      box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+      width: 100%;
+      max-width: 400px;
+    }
+    h1 { text-align: center; font-size: 28px; color: #111; margin-bottom: 8px; }
+    .subtitle { text-align: center; color: #666; margin-bottom: 32px; font-size: 14px; }
+    label { display: block; font-size: 14px; font-weight: 500; color: #374151; margin-bottom: 8px; }
+    input[type="email"], input[type="password"] {
+      width: 100%;
+      padding: 12px 16px;
+      border: 1px solid #bfdbfe;
+      border-radius: 8px;
+      font-size: 16px;
+      color: #111;
+      background: #fff;
+      outline: none;
+      transition: border-color 0.2s, box-shadow 0.2s;
+      margin-bottom: 20px;
+    }
+    input:focus {
+      border-color: #93c5fd;
+      box-shadow: 0 0 0 3px rgba(147,197,253,0.4);
+    }
+    button {
+      width: 100%;
+      padding: 12px;
+      background: #3b82f6;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+      margin-top: 8px;
+    }
+    button:hover { background: #2563eb; }
+    button:active { background: #1d4ed8; }
+    .divider {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      margin: 24px 0;
+    }
+    .divider-line { flex: 1; height: 1px; background: #bfdbfe; }
+    .divider-text { color: #6b7280; font-size: 14px; }
+    .register-link {
+      text-align: center;
+      color: #666;
+      font-size: 14px;
+    }
+    .register-link a { color: #3b82f6; font-weight: 600; text-decoration: none; }
+    .register-link a:hover { color: #2563eb; }
+    .error {
+      background: #fef2f2;
+      border: 1px solid #fca5a5;
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 20px;
+      color: #dc2626;
+      font-size: 14px;
+    }
+    .debug { font-size: 11px; color: #999; text-align: center; margin-top: 16px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>ログイン</h1>
+    <p class="subtitle">ACT診断へようこそ</p>
+
+    <div id="error-container"></div>
+
+    <form id="loginForm" action="/api/auth/login" method="POST">
+      <label for="email">メールアドレス</label>
+      <input id="email" name="email" type="email" placeholder="your@email.com" required autocomplete="email">
+
+      <label for="password">パスワード</label>
+      <input id="password" name="password" type="password" placeholder="••••••••" required autocomplete="current-password">
+
+      <input type="hidden" name="redirect" value="/dashboard">
+
+      <button type="submit" id="loginBtn">ログイン</button>
+    </form>
+
+    <div class="divider">
+      <div class="divider-line"></div>
+      <span class="divider-text">または</span>
+      <div class="divider-line"></div>
+    </div>
+
+    <p class="register-link">
+      アカウントをお持ちでないですか？ <a href="/register">新規登録</a>
+    </p>
+
+    <p class="debug" id="debug-info">Static HTML login (no React)</p>
+  </div>
+
+  <script>
+    // Show URL error parameters if any
+    var params = new URLSearchParams(window.location.search);
+    var err = params.get('error');
+    if (err) {
+      var container = document.getElementById('error-container');
+      var div = document.createElement('div');
+      div.className = 'error';
+      div.textContent = err;
+      container.appendChild(div);
+    }
+
+    // Debug: confirm JS is running
+    document.getElementById('debug-info').textContent = 'JS loaded OK - ' + new Date().toLocaleTimeString();
+
+    // Add click feedback
+    var btn = document.getElementById('loginBtn');
+    btn.addEventListener('click', function() {
+      document.getElementById('debug-info').textContent = 'Button clicked at ' + new Date().toLocaleTimeString();
+    });
+
+    var form = document.getElementById('loginForm');
+    form.addEventListener('submit', function() {
+      btn.textContent = 'ログイン中...';
+      btn.disabled = true;
+      document.getElementById('debug-info').textContent = 'Form submitting...';
+    });
+  </script>
+</body>
+</html>
