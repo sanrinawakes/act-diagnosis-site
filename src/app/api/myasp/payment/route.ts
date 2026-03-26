@@ -96,6 +96,14 @@ export async function POST(request: NextRequest) {
 
     const adminClient = createAdminClient();
 
+    // Always upsert into pending_activations for future account creation
+    await adminClient
+      .from('pending_activations')
+      .upsert(
+        { email, source: 'myasp', activated: false, created_at: new Date().toISOString() },
+        { onConflict: 'email' }
+      );
+
     // Check if a user with this email already exists
     const { data: existingProfile } = await adminClient
       .from('profiles')
@@ -121,6 +129,12 @@ export async function POST(request: NextRequest) {
         console.error('Failed to update existing user:', updateError);
         throw updateError;
       }
+
+      // Mark pending_activation as used
+      await adminClient
+        .from('pending_activations')
+        .update({ activated: true, activated_at: new Date().toISOString() })
+        .eq('email', email);
 
       console.log(`Activated existing user: ${email}`);
       return NextResponse.json({
@@ -175,6 +189,12 @@ export async function POST(request: NextRequest) {
       console.error('Failed to update new user profile:', profileError);
       // Don't throw - the user was created, just the profile update failed
     }
+
+    // Mark pending_activation as used
+    await adminClient
+      .from('pending_activations')
+      .update({ activated: true, activated_at: new Date().toISOString() })
+      .eq('email', email);
 
     // Send welcome email with login credentials
     const emailResult = await sendWelcomeEmail({
