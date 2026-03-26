@@ -63,31 +63,42 @@ export async function POST(request: NextRequest) {
       return NextResponse.redirect(loginUrl, { status: 303 });
     }
 
-    // Set Supabase auth cookies and redirect to dashboard
-    const redirectUrl = new URL(redirect, baseUrl);
-    const response = NextResponse.redirect(redirectUrl, { status: 303 });
-
-    // Set the access token and refresh token as cookies
-    // Supabase JS client reads these cookies to restore the session
+    // Set Supabase auth cookies
     const projectRef = supabaseUrl.replace('https://', '').replace('.supabase.co', '');
     const cookieName = `sb-${projectRef}-auth-token`;
-
-    response.cookies.set(cookieName, JSON.stringify({
+    const cookieValue = JSON.stringify({
       access_token: authData.access_token,
       refresh_token: authData.refresh_token,
       expires_at: Math.floor(Date.now() / 1000) + authData.expires_in,
       expires_in: authData.expires_in,
       token_type: authData.token_type,
       user: authData.user,
-    }), {
-      path: '/',
-      httpOnly: false,
-      secure: true,
-      sameSite: 'lax',
-      maxAge: authData.expires_in,
     });
 
-    return response;
+    const redirectUrl = new URL(redirect, baseUrl).toString();
+
+    // Return an HTML page that sets the cookie and redirects client-side.
+    // This avoids timing issues with 303 redirect + Set-Cookie where the
+    // middleware may not see the cookie on the redirected request.
+    const html = `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>ログイン中...</title></head>
+<body>
+<p>ログイン中...</p>
+<script>
+document.cookie = ${JSON.stringify(`${cookieName}=${encodeURIComponent(cookieValue)};path=/;max-age=${authData.expires_in};secure;samesite=lax`)};
+window.location.replace(${JSON.stringify(redirectUrl)});
+</script>
+<noscript><meta http-equiv="refresh" content="0;url=${redirectUrl}"></noscript>
+</body>
+</html>`;
+
+    return new NextResponse(html, {
+      status: 200,
+      headers: {
+        'Content-Type': 'text/html; charset=utf-8',
+      },
+    });
   } catch (error) {
     console.error('[AUTH/LOGIN] Error:', error);
     const loginUrl = new URL('/login.html', baseUrl);
