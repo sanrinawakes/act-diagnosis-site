@@ -264,11 +264,17 @@ export default function FreeCoachingPage() {
           <div className="border-t border-blue-200 bg-white p-4 sm:p-6">
             <div className="max-w-4xl mx-auto">
               {remainingMessages <= 0 && (
-                <div className="bg-yellow-50 border border-yellow-200 text-yellow-900 p-4 rounded-lg mb-4 text-center">
-                  <p className="font-semibold">本日の無料相談回数を使い切りました</p>
-                  <p className="text-sm mt-2">
-                    明日また来るか、フルバージョンにアップグレードしてください。
+                <div className="bg-gradient-to-r from-purple-50 to-pink-50 border-2 border-purple-300 text-gray-900 p-4 rounded-lg mb-4 text-center">
+                  <p className="font-bold text-lg">本日の無料相談回数を使い切りました</p>
+                  <p className="text-sm mt-2 text-gray-700">
+                    無料勉強会に参加すれば、2週間AIコーチング無制限＋フルテスト（120問以上）がすべて無料！
                   </p>
+                  <a
+                    href="https://example.com/study-session"
+                    className="inline-block mt-3 py-2 px-6 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white font-bold rounded-lg transition-all duration-300 shadow-lg text-sm"
+                  >
+                    無料勉強会に申し込む →
+                  </a>
                 </div>
               )}
               <div className="flex gap-3">
@@ -308,26 +314,61 @@ export default function FreeCoachingPage() {
       {/* Rate Limit Modal */}
       {rateLimitModal.isOpen && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl p-8 max-w-md w-full shadow-xl">
-            <h2 className="text-2xl font-bold text-gray-900 mb-4">
-              本日の無料相談回数を使い切りました
+          <div className="bg-white rounded-2xl p-8 max-w-lg w-full shadow-xl max-h-[90vh] overflow-y-auto">
+            <div className="text-center mb-4">
+              <span className="inline-block bg-red-500 text-white text-sm font-bold px-4 py-1 rounded-full">期間限定・完全無料</span>
+            </div>
+            <h2 className="text-2xl font-bold text-gray-900 mb-3 text-center">
+              もっと深い対話がしたくないですか？
             </h2>
-            <p className="text-gray-700 mb-8">
-              フルバージョンでは無制限にAIコーチングが利用できます。まずは無料オンライン勉強会に参加して、2週間の無料体験をゲットしませんか？
+            <p className="text-gray-700 mb-4 text-center">
+              今日の無料相談3回分を使い切りました。でも、もっと自分を深く知りたいと思いませんか？
             </p>
+
+            <div className="bg-purple-50 border-2 border-purple-300 rounded-xl p-5 mb-5">
+              <h3 className="font-bold text-purple-900 mb-3 text-center">無料勉強会に参加するだけで全部もらえる</h3>
+              <div className="space-y-2 mb-4">
+                <div className="flex gap-2 items-start">
+                  <span className="text-green-500 text-lg flex-shrink-0">✓</span>
+                  <p className="text-gray-700 text-sm"><span className="font-bold">フルテスト（120問以上）</span>で27種類の性格タイプ×6段階の意識レベルを正確判定</p>
+                </div>
+                <div className="flex gap-2 items-start">
+                  <span className="text-green-500 text-lg flex-shrink-0">✓</span>
+                  <p className="text-gray-700 text-sm"><span className="font-bold">2週間AIコーチング無制限</span>で回数を気にせず毎日深い対話</p>
+                </div>
+                <div className="flex gap-2 items-start">
+                  <span className="text-green-500 text-lg flex-shrink-0">✓</span>
+                  <p className="text-gray-700 text-sm"><span className="font-bold">勉強会で意識レベルの仕組みを学べる</span>から診断結果の理解が深まる</p>
+                </div>
+                <div className="flex gap-2 items-start">
+                  <span className="text-green-500 text-lg flex-shrink-0">✓</span>
+                  <p className="text-gray-700 text-sm"><span className="font-bold">すべて完全無料</span>。費用は一切かかりません</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Testimonial */}
+            <div className="bg-gray-50 rounded-lg p-4 mb-5 border border-gray-200">
+              <div className="flex items-center gap-2 mb-2">
+                <div className="w-7 h-7 bg-pink-100 rounded-full flex items-center justify-center text-pink-600 font-bold text-xs">M</div>
+                <p className="font-semibold text-gray-900 text-xs">M.K. さん（30代・女性）</p>
+              </div>
+              <p className="text-gray-700 text-xs leading-relaxed">「簡易版ではレベル2だったのが、フルテストではレベル3・SMA型と判明。AIコーチとの深い対話で人間関係が劇的に改善しました！」</p>
+            </div>
+
             <div className="space-y-3">
               <button
                 onClick={() => {
-                  // Navigate to study session signup
                   window.location.href = 'https://example.com/study-session';
                 }}
-                className="w-full py-3 px-6 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-semibold rounded-lg transition-all duration-300"
+                className="w-full py-4 px-6 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white font-bold rounded-lg transition-all duration-300 shadow-lg text-lg animate-pulse"
               >
-                無料勉強会に申し込む
+                無料勉強会に今すぐ申し込む →
               </button>
+              <p className="text-center text-xs text-gray-500">※ 申し込みは30秒で完了します</p>
               <button
                 onClick={() => setRateLimitModal({ isOpen: false })}
-                className="w-full py-3 px-6 bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold rounded-lg transition-all duration-300"
+                className="w-full py-2 px-6 text-gray-400 text-sm hover:text-gray-500 transition-all duration-300"
               >
                 明日また来る
               </button>

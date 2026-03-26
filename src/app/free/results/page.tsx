@@ -127,54 +127,105 @@ export default function FreeResultsPage() {
               </div>
             </div>
 
-            {/* Teaser Section */}
+            {/* Urgent CTA Section */}
             <div
               id="study-session"
-              className="bg-gradient-to-r from-purple-50 to-pink-50 border-2 border-purple-200 rounded-2xl p-8 sm:p-12"
+              className="bg-gradient-to-r from-purple-50 to-pink-50 border-2 border-purple-300 rounded-2xl p-8 sm:p-12"
             >
-              <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-6">
-                フルテストを試してみませんか？
-              </h2>
+              <div className="text-center mb-6">
+                <span className="inline-block bg-red-500 text-white text-sm font-bold px-4 py-1 rounded-full mb-4">期間限定・無料</span>
+                <h2 className="text-2xl sm:text-3xl font-bold text-gray-900">
+                  もっと深い自分を知りたくないですか？
+                </h2>
+                <p className="text-gray-600 mt-2">簡易版ではわからなかった、あなたの「本当のタイプ」が明らかに</p>
+              </div>
 
-              <div className="space-y-6 mb-8">
-                <div className="flex gap-4">
-                  <div className="text-3xl flex-shrink-0">📊</div>
-                  <div>
-                    <h3 className="font-semibold text-gray-900 mb-2">27種類の性格タイプ</h3>
-                    <p className="text-gray-700">
-                      フルテスト（42問）では、より詳細な性格タイプ診断ができます。
-                    </p>
+              <div className="bg-white rounded-xl p-6 mb-6 border border-purple-200">
+                <h3 className="font-bold text-gray-900 mb-4 text-center">簡易版とフルテストの違い</h3>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div className="text-center p-3 bg-gray-50 rounded-lg">
+                    <p className="text-gray-500 font-semibold">簡易版</p>
+                    <p className="text-2xl font-bold text-gray-400">15問</p>
+                    <p className="text-gray-500">意識レベル2段階</p>
+                    <p className="text-gray-500">タイプ判定なし</p>
+                    <p className="text-gray-500">AIコーチング3回/日</p>
                   </div>
-                </div>
-
-                <div className="flex gap-4">
-                  <div className="text-3xl flex-shrink-0">📈</div>
-                  <div>
-                    <h3 className="font-semibold text-gray-900 mb-2">6段階の意識レベル</h3>
-                    <p className="text-gray-700">
-                      より正確な意識レベルの判定が可能になります。
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex gap-4">
-                  <div className="text-3xl flex-shrink-0">🎁</div>
-                  <div>
-                    <h3 className="font-semibold text-gray-900 mb-2">無料プレゼント</h3>
-                    <p className="text-gray-700 font-semibold text-purple-600">
-                      無料オンライン勉強会に参加すると、フルテスト＋2週間のAIコーチング無制限利用がプレゼントされます！
-                    </p>
+                  <div className="text-center p-3 bg-purple-50 rounded-lg border-2 border-purple-300">
+                    <p className="text-purple-600 font-bold">フルテスト</p>
+                    <p className="text-2xl font-bold text-purple-600">120問以上</p>
+                    <p className="text-purple-700 font-semibold">意識レベル6段階</p>
+                    <p className="text-purple-700 font-semibold">27種類の性格タイプ</p>
+                    <p className="text-purple-700 font-semibold">AIコーチング無制限</p>
                   </div>
                 </div>
               </div>
 
-              <button className="w-full py-4 px-6 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white font-semibold rounded-lg transition-all duration-300 shadow-lg">
-                無料勉強会に申し込む
-              </button>
+              <div className="space-y-4 mb-8">
+                <div className="flex gap-3 items-start">
+                  <span className="text-green-500 text-xl flex-shrink-0">✓</span>
+                  <p className="text-gray-700"><span className="font-bold">フルテスト（120問以上）</span>であなたの本当の性格タイプと意識レベルを正確に判定</p>
+                </div>
+                <div className="flex gap-3 items-start">
+                  <span className="text-green-500 text-xl flex-shrink-0">✓</span>
+                  <p className="text-gray-700"><span className="font-bold">2週間のAIコーチング無制限</span>で回数を気にせず深い対話ができる</p>
+                </div>
+                <div className="flex gap-3 items-start">
+                  <span className="text-green-500 text-xl flex-shrink-0">✓</span>
+                  <p className="text-gray-700"><span className="font-bold">勉強会で意識レベルの仕組みを学べる</span>から、診断結果の理解が深まる</p>
+                </div>
+                <div className="flex gap-3 items-start">
+                  <span className="text-green-500 text-xl flex-shrink-0">✓</span>
+                  <p className="text-gray-700"><span className="font-bold">すべて無料</span>。勉強会の参加費もフルテストも0円</p>
+                </div>
+              </div>
+
+              <a
+                href="https://example.com/study-session"
+                className="block w-full py-5 px-6 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white font-bold rounded-lg transition-all duration-300 shadow-lg text-center text-lg animate-pulse"
+              >
+                無料勉強会に今すぐ申し込む →
+              </a>
+              <p className="text-center text-sm text-gray-500 mt-3">※ 申し込みは30秒で完了します</p>
+            </div>
+
+            {/* Testimonials */}
+            <div className="mt-8 space-y-4">
+              <h3 className="text-xl font-bold text-gray-900 text-center mb-4">勉強会参加者の声</h3>
+              <div className="bg-white rounded-xl p-5 border border-blue-200 shadow-sm">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="w-8 h-8 bg-pink-100 rounded-full flex items-center justify-center text-pink-600 font-bold text-sm">M</div>
+                  <p className="font-semibold text-gray-900 text-sm">M.K. さん（30代・女性）</p>
+                </div>
+                <p className="text-gray-700 text-sm leading-relaxed">「簡易版では"レベル2"だったのが、フルテストでは"レベル3・SMA型"と判明。AIコーチとの深い対話で、人間関係が劇的に改善しました！」</p>
+              </div>
+              <div className="bg-white rounded-xl p-5 border border-blue-200 shadow-sm">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 font-bold text-sm">T</div>
+                  <p className="font-semibold text-gray-900 text-sm">T.S. さん（40代・男性）</p>
+                </div>
+                <p className="text-gray-700 text-sm leading-relaxed">「フルテストで自分がPVA型だとわかって衝撃。2週間の無料期間だけでキャリアの方向性が明確になりました。」</p>
+              </div>
+              <div className="bg-white rounded-xl p-5 border border-blue-200 shadow-sm">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center text-green-600 font-bold text-sm">Y</div>
+                  <p className="font-semibold text-gray-900 text-sm">Y.N. さん（20代・女性）</p>
+                </div>
+                <p className="text-gray-700 text-sm leading-relaxed">「AIコーチングが回数無制限だから、毎日自分と向き合えて、2週間で"あ、私変わった"と実感。周りにも勧めてます！」</p>
+              </div>
+            </div>
+
+            {/* Final CTA */}
+            <div className="mt-8 text-center">
+              <a
+                href="https://example.com/study-session"
+                className="inline-block py-4 px-10 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white font-bold rounded-lg transition-all duration-300 shadow-lg text-lg"
+              >
+                あなたも勉強会に参加する →
+              </a>
             </div>
 
             {/* Continue Coaching */}
-            <div className="mt-8 text-center">
+            <div className="mt-6 text-center">
               <Link
                 href="/free/coaching"
                 className="inline-block text-blue-600 hover:text-blue-700 font-semibold"
