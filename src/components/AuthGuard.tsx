@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase';
+import { restoreSessionFromCookie } from '@/lib/restore-session';
 
 interface AuthGuardProps {
   children: React.ReactNode;
@@ -16,9 +17,19 @@ export default function AuthGuard({ children }: AuthGuardProps) {
   useEffect(() => {
     const checkAuth = async () => {
       try {
-        const {
+        let {
           data: { user },
         } = await supabase.auth.getUser();
+
+        // If no user found in localStorage, try restoring from cookie
+        // (handles login via /api/auth/login which sets cookie but not localStorage)
+        if (!user) {
+          const restored = await restoreSessionFromCookie(supabase);
+          if (restored) {
+            const { data } = await supabase.auth.getUser();
+            user = data.user;
+          }
+        }
 
         if (user) {
           setIsAuthenticated(true);

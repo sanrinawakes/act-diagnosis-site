@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase';
+import { restoreSessionFromCookie } from '@/lib/restore-session';
 
 /**
  * Hook that checks subscription status on the client-side
@@ -18,9 +19,18 @@ export function useSubscriptionGuard() {
     const checkSubscription = async () => {
       try {
         // Get current user
-        const {
+        let {
           data: { user },
         } = await supabase.auth.getUser();
+
+        // If no user found in localStorage, try restoring from cookie
+        if (!user) {
+          const restored = await restoreSessionFromCookie(supabase);
+          if (restored) {
+            const { data } = await supabase.auth.getUser();
+            user = data.user;
+          }
+        }
 
         if (!user) {
           // Not logged in - redirect to login
