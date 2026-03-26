@@ -7,10 +7,12 @@ import AuthGuard from '@/components/AuthGuard';
 import Header from '@/components/Header';
 import { createClient } from '@/lib/supabase';
 import { useI18n } from '@/lib/i18n';
+import { useSubscriptionGuard } from '@/hooks/useSubscriptionGuard';
 import { DiagnosisResult } from '@/lib/types';
 import { typeNames, levelNames } from '@/data/type-names';
 
 export default function ResultsPage() {
+  const { loading: subscriptionLoading, allowed } = useSubscriptionGuard();
   const [results, setResults] = useState<DiagnosisResult[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -18,7 +20,12 @@ export default function ResultsPage() {
   const supabase = createClient();
   const { t } = useI18n();
 
+  // Wait for subscription check before loading results
+  const isReady = !subscriptionLoading && allowed;
+
   useEffect(() => {
+    if (!isReady) return;
+
     const fetchResults = async () => {
       try {
         const {
@@ -48,7 +55,24 @@ export default function ResultsPage() {
     };
 
     fetchResults();
-  }, [router, supabase]);
+  }, [router, supabase, isReady, t]);
+
+  if (subscriptionLoading) {
+    return (
+      <AuthGuard>
+        <div className="min-h-screen flex items-center justify-center">
+          <div className="flex flex-col items-center gap-4">
+            <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-400"></div>
+            <p className="text-gray-700">{t('common.loading')}</p>
+          </div>
+        </div>
+      </AuthGuard>
+    );
+  }
+
+  if (!allowed) {
+    return null;
+  }
 
   if (loading) {
     return (

@@ -8,6 +8,7 @@ import { consciousnessQuestions } from '@/data/consciousness-questions';
 import { personalityQuestions } from '@/data/personality-questions';
 import { determineLevel, determineType } from '@/data/scoring';
 import { createClient } from '@/lib/supabase';
+import { useSubscriptionGuard } from '@/hooks/useSubscriptionGuard';
 import type { CLQuestion, PersonalityQuestion } from '@/lib/types';
 
 interface GrowthAnswers {
@@ -19,6 +20,25 @@ interface ImmaturityAnswers {
 }
 
 export default function DiagnosisPage() {
+  const { loading, allowed } = useSubscriptionGuard();
+
+  if (loading) {
+    return (
+      <AuthGuard>
+        <div className="min-h-screen flex items-center justify-center">
+          <div className="flex flex-col items-center gap-4">
+            <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-400"></div>
+            <p className="text-gray-700">Loading...</p>
+          </div>
+        </div>
+      </AuthGuard>
+    );
+  }
+
+  if (!allowed) {
+    return null;
+  }
+
   return (
     <AuthGuard>
       <DiagnosisContent />

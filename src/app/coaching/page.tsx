@@ -7,6 +7,7 @@ import AuthGuard from '@/components/AuthGuard';
 import Header from '@/components/Header';
 import { createClient } from '@/lib/supabase';
 import { useI18n } from '@/lib/i18n';
+import { useSubscriptionGuard } from '@/hooks/useSubscriptionGuard';
 import type { DiagnosisResult } from '@/lib/types';
 import { typeNames } from '@/data/type-names';
 
@@ -18,6 +19,7 @@ interface Message {
 }
 
 function CoachingContent() {
+  const { loading: subscriptionLoading, allowed } = useSubscriptionGuard();
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -32,6 +34,9 @@ function CoachingContent() {
   const supabase = createClient();
   const { t } = useI18n();
 
+  // Wait for subscription check before initializing
+  const isReady = !subscriptionLoading && allowed;
+
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
@@ -41,6 +46,8 @@ function CoachingContent() {
   }, [messages]);
 
   useEffect(() => {
+    if (!isReady) return;
+
     const initializeChat = async () => {
       try {
         const {
@@ -109,7 +116,7 @@ function CoachingContent() {
     };
 
     initializeChat();
-  }, [router, supabase, searchParams]);
+  }, [router, supabase, searchParams, isReady]);
 
   const sendInitialMessage = async (sid: string, code: string) => {
     try {
@@ -207,6 +214,24 @@ function CoachingContent() {
       setLoading(false);
     }
   };
+
+  if (subscriptionLoading) {
+    return (
+      <AuthGuard>
+        <Header />
+        <div className="min-h-screen flex items-center justify-center">
+          <div className="flex flex-col items-center gap-4">
+            <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-400"></div>
+            <p className="text-gray-700">{t('common.loading')}</p>
+          </div>
+        </div>
+      </AuthGuard>
+    );
+  }
+
+  if (!allowed) {
+    return null;
+  }
 
   if (!initialized) {
     return (
