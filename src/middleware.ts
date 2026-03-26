@@ -6,7 +6,7 @@ import type { NextRequest } from 'next/server';
 const PROTECTED_ROUTES = ['/diagnosis', '/results', '/coaching', '/profile'];
 
 // Routes that are always public
-const PUBLIC_ROUTES = ['/', '/login', '/register', '/subscription-required', '/api'];
+const PUBLIC_ROUTES = ['/', '/free', '/login', '/register', '/subscription-required', '/api'];
 
 // Admin routes - require admin role, handled by AdminGuard component
 const ADMIN_ROUTES = ['/admin'];

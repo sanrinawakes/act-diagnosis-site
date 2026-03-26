@@ -93,6 +93,12 @@ export default function Home() {
               // Not logged in state
               <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
                 <Link
+                  href="/free"
+                  className="px-8 py-3 bg-green-500 hover:bg-green-600 text-white font-semibold rounded-lg transition-colors duration-200 shadow-lg"
+                >
+                  無料で試す
+                </Link>
+                <Link
                   href="/login"
                   className="px-8 py-3 bg-blue-500 hover:bg-blue-600 text-white font-semibold rounded-lg transition-colors duration-200 shadow-lg"
                 >

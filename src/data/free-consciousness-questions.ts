@@ -1,0 +1,196 @@
+import { CLQuestion } from '../lib/types';
+
+/**
+ * Free version consciousness questions - simplified 15-question subset
+ * These are the first 15 questions from the full consciousness questions set.
+ */
+export const freeConsciousnessQuestions: CLQuestion[] = [
+  {
+    id: 1,
+    text: "朝起きたとき、直近の自分に一番近いものを選んでください（1ヶ月を振り返って）",
+    text_en: "When you wake up in the morning, which best describes you? (Reflect on the past month)",
+    choices: [
+      { text: "毎朝すっと前向きな気持ちで目覚めている", text_en: "I wake up feeling positive and refreshed every morning", score: 1 },
+      { text: "年齢や体調、環境、メンタルが原因で、どうも朝がしんどい", text_en: "Due to age, health, environment, or mental state, mornings are tough for me", score: -2 },
+      { text: "毎日が忙しくて急いで起きて慌ただしく支度する", text_en: "I'm busy every day and rush to get ready in a hectic manner", score: -2 },
+      { text: "その日の予定や体調次第で気持ちよく起きられる日とそうでない日がある", text_en: "How well I wake up depends on the day's schedule or my physical condition", score: -1 },
+      { text: "今日は何があるかな、と楽しみに思って起きられる日が多い", text_en: "I often wake up looking forward to what the day will bring", score: 1 },
+      { text: "「またキツイ1日がはじまる」とあまり乗り気ではない", text_en: "I feel reluctant, thinking 'Here comes another tough day'", score: -2 },
+      { text: "特に辛さは感じず、普通に起きている", text_en: "I don't feel any particular struggle and wake up normally", score: 0 },
+    ],
+  },
+  {
+    id: 2,
+    text: "他人のSNSや知人の成功・成長を見たとき",
+    text_en: "When you see someone's success or growth on social media or hear about it from acquaintances",
+    choices: [
+      { text: "とても嬉しくなり、いいねを押したりお祝いのメッセージを送る", text_en: "I feel genuinely happy and like their post or send congratulations", score: 1 },
+      { text: "あまり自慢するのは承認欲求だし、よくないと思う", text_en: "I think showing off is driven by the need for approval and isn't good", score: -2 },
+      { text: "正直、ちょっと失敗してくれたら安心する", text_en: "Honestly, I'd feel more relieved if they failed a bit", score: -2 },
+      { text: "特に何も思わない/あまり興味がない", text_en: "I don't think much about it or don't find it interesting", score: 0 },
+      { text: "今が良いだけであとで失敗するのでは？と感じる", text_en: "I feel they might fail later despite their current success", score: -2 },
+      { text: "他人の成長や成功が自分のことのようにうれしい", text_en: "Their growth and success feels like my own, and I'm genuinely happy for them", score: 1, isHighLevel: true },
+      { text: "少し心がざわつくが自分は自分と思えている", text_en: "My heart stirs a bit, but I remind myself that I'm on my own path", score: -1 },
+    ],
+  },
+  {
+    id: 3,
+    text: "理不尽・納得いかないことをされたとき",
+    text_en: "When someone treats you unfairly or does something you disagree with",
+    choices: [
+      { text: "そんな理不尽なことに巻き込まれたことはほぼ記憶にない", text_en: "I barely remember being caught up in unfair situations", score: 1 },
+      { text: "ちゃんと指摘するか言い返すようにしている", text_en: "I make a point to address it or speak up about it", score: -1 },
+      { text: "「これも自分の学びかも」と受け止めて実際に自分の人生に活かすことが多い", text_en: "I see it as a learning opportunity and often apply the lesson to my life", score: 1 },
+      { text: "嫌な気持ちにはなるが仕方ないと納得することが多い", text_en: "It bothers me, but I usually accept it as unavoidable", score: 0 },
+      { text: "理不尽なことをしてくる人とは縁を持ちたくないので離れる", text_en: "I distance myself from people who treat me unfairly because I don't want to be connected to them", score: -1 },
+      { text: "配慮や思いやりが足りない人のせいで、自分が損な役回りになることが多い", text_en: "Due to people's lack of consideration or empathy, I often end up in disadvantageous positions", score: -2 },
+    ],
+  },
+  {
+    id: 4,
+    text: "仕事以外で「ありがとう」を言う回数",
+    text_en: "How often do you say 'thank you' in non-work situations?",
+    choices: [
+      { text: "1週間に数回はあると思う", text_en: "A few times a week", score: -1 },
+      { text: "自然と「ありがとう」をたくさん言っている（1日10回以上）", text_en: "I naturally say 'thank you' frequently (more than 10 times a day)", score: 1 },
+      { text: "言う機会がない日もある", text_en: "Some days I don't have the opportunity to say it", score: -1 },
+      { text: "感謝したくても環境や状況的にする機会が少ない", text_en: "Even though I'd like to express gratitude, my environment or situation doesn't give me many opportunities", score: -2 },
+      { text: "1日3~5回", text_en: "About 3-5 times a day", score: 0 },
+    ],
+  },
+  {
+    id: 5,
+    text: "困難な状況・失敗・トラブルに遭遇した時",
+    text_en: "When you encounter difficult situations, failures, or problems",
+    choices: [
+      { text: "全てではないが何か意味があったと思えることもある", text_en: "Not always, but sometimes I can find meaning in what happened", score: 0 },
+      { text: "運が悪かったり環境が味方しないことも多く、自分のせいではないので意味なんて考えない方が楽だと感じる", text_en: "I often feel luck is against me or circumstances aren't in my favor, so it's easier not to look for meaning since it's not my fault", score: -2 },
+      { text: "どんな経験にも深い意味と感謝を感じ、必ず糧にする", text_en: "I feel deep meaning and gratitude in every experience and always use it as nourishment for growth", score: 1 },
+      { text: "前向きな意味を見つけられないことが多い", text_en: "I often can't find a positive meaning in it", score: -1 },
+      { text: "困難からも学びや成長の機会を見つけ、人生をよりよくするヒントにしている", text_en: "I find learning and growth opportunities in difficulties and use them as hints to improve my life", score: 1, isHighLevel: true },
+    ],
+  },
+  {
+    id: 6,
+    text: "誰かのために自分から行動した経験",
+    text_en: "Your experience of taking initiative to help someone else",
+    choices: [
+      { text: "頼まれれば協力する", text_en: "I help when asked", score: 0 },
+      { text: "人助けをしても損をすることが多い", text_en: "Helping others often results in loss for me", score: -2 },
+      { text: "人をサポートし喜んでもらえることが自分の喜びだから実践している", text_en: "I actively help others because their joy becomes my joy", score: 1 },
+      { text: "思えば誰かのために見返りなく行動することが少ない", text_en: "Thinking about it, I rarely do things for others without expecting something in return", score: -1 },
+      { text: "困っている人には自分から声をかけて手伝うことが多い", text_en: "I often approach people who seem to be struggling and offer to help", score: 1 },
+    ],
+  },
+  {
+    id: 7,
+    text: "グループや集団の中での自分",
+    text_en: "Your role within a group or team",
+    choices: [
+      { text: "自分からグループやチームのために動くことは少ない", text_en: "I rarely take initiative for the group or team", score: -1 },
+      { text: "特に何も考えず、みんなと同じくらい協力している", text_en: "I contribute about the same as everyone else without much thought", score: 0 },
+      { text: "チームの成長や幸せが自分の幸せだと感じるので積極的に動く", text_en: "I actively contribute because the team's growth and happiness feel like my own", score: 1 },
+      { text: "立場や環境的に自分の意見や行動が活かされにくいので、積極的にはなりたいがあまり積極的になれない", text_en: "Due to my position or environment, my opinions and actions aren't utilized well, so I'd like to be more active but can't", score: -2 },
+      { text: "そもそも集団やグループに所属していない", text_en: "I don't belong to any group or team in the first place", score: 0 },
+    ],
+  },
+  {
+    id: 8,
+    text: "自分の存在が周囲に与えている影響",
+    text_en: "The impact your existence has on those around you",
+    choices: [
+      { text: "「前向きな言動で雰囲気を良くしてくれる」と言われることがある", text_en: "People sometimes tell me I create a positive atmosphere through my words and actions", score: 1 },
+      { text: "可もなく不可もなく。もっとできることはあるのかもしれないが思いつかない", text_en: "Neither particularly positive nor negative. Maybe I could do more, but I can't think of what", score: 0 },
+      { text: "環境的に結局自分が何をやってもマイナスの反応が返ってくることが多い", text_en: "Due to my environment, my efforts often receive negative responses no matter what I do", score: -2 },
+      { text: "周囲の変化や挑戦のきっかけになることが多い", text_en: "I often become the catalyst for change and new challenges around me", score: 1 },
+      { text: "事実、自分が頑張ってもあまり評価や感謝が返ってこない環境にいる", text_en: "In reality, even when I work hard, I don't receive much appreciation or gratitude from my environment", score: -1 },
+    ],
+  },
+  {
+    id: 9,
+    text: "世の中や周囲とのつながり",
+    text_en: "Your sense of connection with the world and those around you",
+    choices: [
+      { text: "「人は人、自分は自分」と割り切れることが多い", text_en: "I often separate myself from others, thinking 'you are you, I am me'", score: -1 },
+      { text: "いつも「すべてはつながっている」と実感している", text_en: "I always feel that everything is interconnected", score: 1 },
+      { text: "今の世の中は理不尽だと気づき、心を痛めている", text_en: "I'm aware of the unfairness in the world and it deeply troubles me", score: -2 },
+      { text: "特に意識していない", text_en: "I don't really think about it", score: 0 },
+      { text: "つながっていることはつながっているが、つながっていないこともあると感じる", text_en: "I feel some things are connected and others aren't", score: 0 },
+      { text: "「自分と周り、世界はお互いに深いところでつながっている」と感じる", text_en: "I feel that I, those around me, and the world are deeply connected at a fundamental level", score: 1 },
+    ],
+  },
+  {
+    id: 10,
+    text: "人生の目的や生きる意味",
+    text_en: "Your sense of life purpose and meaning",
+    choices: [
+      { text: "なんとなくは意識している", text_en: "I'm somewhat aware of it", score: 0 },
+      { text: "生きる意味や目的を探している", text_en: "I'm searching for my life's meaning and purpose", score: -1 },
+      { text: "はっきりした使命感やビジョンで日々動いている", text_en: "I move forward daily with a clear sense of mission and vision", score: 1 },
+      { text: "環境や周囲がゆるさず、やりたいことがあっても物事がなかなか思い通りにできない", text_en: "My environment and surroundings don't allow it; even though I have desires, things rarely go as planned", score: -2 },
+      { text: "そんなことはほとんど考えない", text_en: "I barely think about such things", score: -2 },
+      { text: "目標やテーマをもち、日々進化しながら毎日を過ごしている", text_en: "I have goals and themes, and I spend each day evolving and growing", score: 1 },
+    ],
+  },
+  {
+    id: 11,
+    text: "家族や身近な人との意見の違い",
+    text_en: "When you have differences of opinion with family or close people",
+    choices: [
+      { text: "違うこと自体が発見と気づきの連続なのでありがたいと受け止めている", text_en: "I appreciate disagreement as a continuous source of discovery and insight", score: 1 },
+      { text: "言いたいことはあるけど我慢してあげている", text_en: "I have things to say, but I hold back for their sake", score: -1 },
+      { text: "意見の違いは気になるが仕方ないので妥協している", text_en: "Disagreements bother me, but I compromise because it's unavoidable", score: 0 },
+      { text: "周囲の都合や無理解に振り回されることが多い", text_en: "I'm often swayed by others' circumstances and lack of understanding", score: -2 },
+      { text: "話し合い、理解し合えている", text_en: "We talk things through and understand each other", score: 1 },
+    ],
+  },
+  {
+    id: 12,
+    text: "日々どのような過ごし方をしているか？",
+    text_en: "How do you spend your days?",
+    choices: [
+      { text: "とても元気。毎日新鮮な気持ちで生きていて楽しい", text_en: "I'm very energetic and live each day with a fresh spirit—it's enjoyable", score: 1 },
+      { text: "日々を楽しめていない、どんよりした気持ちで過ごすことが多い", text_en: "I often can't enjoy my days and spend them with a gloomy feeling", score: -2 },
+      { text: "楽しい瞬間はあるが落ち込んだり嫌な気持ちになることもある", text_en: "I have enjoyable moments, but I also experience sadness and unpleasant feelings", score: 0 },
+      { text: "毎日がとても幸せだ", text_en: "Every day is very happy", score: 1 },
+      { text: "楽しいことよりやるべきことを優先している", text_en: "I prioritize what I need to do over what's enjoyable", score: -1 },
+    ],
+  },
+  {
+    id: 13,
+    text: "他人からの指摘やフィードバック",
+    text_en: "When you receive feedback or criticism from others",
+    choices: [
+      { text: "必要なものは受け入れてあとは気にしないようにしている", text_en: "I accept what's useful and try not to worry about the rest", score: 0 },
+      { text: "どんな指摘も感謝して受け止め、人生に活かし、状況を改善している", text_en: "I gratefully accept all feedback, apply it to my life, and improve the situation", score: 1 },
+      { text: "いいアドバイスならありがたいが、上から目線や的外れな意見もあり、腹がたつこともある", text_en: "Good advice is helpful, but condescending or off-base opinions make me angry", score: -1 },
+      { text: "環境的に評価されづらく、指摘や批判ばかりされてしまうので辛い", text_en: "Due to my environment, I'm rarely appreciated and constantly criticized—it's painful", score: -2 },
+      { text: "前向きに活かし、財産としている。おかげでものごとが好転することも多い", text_en: "I use it constructively and treasure it. Because of this, things often improve", score: 1 },
+    ],
+  },
+  {
+    id: 14,
+    text: "意見や価値観が違う人と接する時",
+    text_en: "When interacting with people who have different opinions or values",
+    choices: [
+      { text: "多様性そのものを面白いと感じ、実際に状況を好転させたりより良い環境づくりに努めている", text_en: "I find diversity itself fascinating and actively work to improve situations and create better environments", score: 1 },
+      { text: "世の中分かり合えない人がいるので、最初から諦めた方が賢い", text_en: "Since some people will never understand each other, it's smarter to give up from the start", score: -2 },
+      { text: "お互いの違いを尊重したいが難しさを感じる", text_en: "I want to respect our differences, but I find it difficult", score: 0 },
+      { text: "波風を立てたくないので合わせることが多い", text_en: "I often go along with them to avoid causing ripples", score: -1 },
+      { text: "違いを学びや成長のきっかけにし、より良いものを生み出せている", text_en: "I use differences as opportunities for learning and growth, and create better things as a result", score: 1 },
+    ],
+  },
+  {
+    id: 15,
+    text: "本や講座などで得た知識を、日常でどう扱っていますか？",
+    text_en: "How do you use knowledge gained from books, courses, and other learning in your daily life?",
+    choices: [
+      { text: "学んでも忙しくてあまり活かせていない", text_en: "I learn but am too busy to apply it much", score: -1 },
+      { text: "自分のために使うことがほとんど", text_en: "I mostly use it for my own benefit", score: 0 },
+      { text: "学びたくてもお金や時間がなく諦めることが多い", text_en: "I often give up on learning because I lack money or time", score: -2 },
+      { text: "そもそも大人になってからあまり自ら進んで新しいことを学んでいない", text_en: "I haven't been proactively learning new things since I became an adult", score: -2 },
+      { text: "学んだことを実践して、他人の人生に良い影響を与えている", text_en: "I practice what I learn and positively impact others' lives", score: 1, isHighLevel: true },
+      { text: "自分が学ぶのは、たくさんの方の幸せに貢献したいから", text_en: "I learn so I can contribute to the happiness of many people", score: 1, isLevel5Check: true },
+    ],
+  },
+];
