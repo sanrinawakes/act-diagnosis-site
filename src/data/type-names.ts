@@ -66,3 +66,72 @@ export const axisDescriptions = {
     E: '感情型',
   },
 };
+
+/**
+ * Type names mapping - English versions of all 27 ACT subtypes
+ */
+export const typeNamesEn: Record<string, string> = {
+  SVA: 'Reflective Seeker',
+  SVM: 'Cautious Coordinator',
+  SVE: 'Empathic Leader',
+  SMA: 'Introspective Strategist',
+  SMM: 'Peaceful Harmonizer',
+  SME: 'Sensitive Healer',
+  SGA: 'Meticulous Realist',
+  SGM: 'Stability-Oriented Balancer',
+  SGE: 'On-the-Ground Empathic Practitioner',
+  MVA: 'Bridge Between Ideals and Reality',
+  MVM: 'Balanced Thinker & Mediator',
+  MVE: 'Co-Creator of Sensitivity and Vision',
+  MMA: 'Precision Architect of Logic and Execution',
+  MMM: 'Centered Equilibrium Type',
+  MME: 'Gentle Empathic Mediator',
+  MGA: 'Grounded Steady Executor',
+  MGM: 'Solid Stability Builder',
+  MGE: 'Down-to-Earth Emotional Regulator',
+  PVA: 'Innovative Idea Generator',
+  PVM: 'Field-Oriented Driver',
+  PVE: 'Passionate Expressionist',
+  PMA: 'Logic-Driven Challenger',
+  PMM: 'Action-Oriented Stabilizer',
+  PME: 'Emotion & Creativity Experimenter',
+  PGA: 'Results-Focused Executor',
+  PGM: 'Efficient Reality Builder',
+  PGE: 'Emotion-Fueled Achiever',
+};
+
+/**
+ * Consciousness level names - English versions
+ */
+export const levelNamesEn: Record<number, string> = {
+  1: 'Defense',
+  2: 'Significant Inner Conflict',
+  3: 'Independence',
+  4: 'Harmony',
+  5: 'Creation',
+  6: 'Liberation (Transcendence of Perspective)',
+};
+
+/**
+ * Axis descriptions - English versions for the 3-letter type code
+ */
+export const axisDescriptionsEn = {
+  axis1: {
+    description: 'Behavioral Energy',
+    S: 'Introverted',
+    M: 'Balanced',
+    P: 'Extroverted',
+  },
+  axis2: {
+    description: 'Thinking Style',
+    V: 'Idealistic',
+    M: 'Balanced',
+    G: 'Realistic',
+  },
+  axis3: {
+    description: 'Evaluation Criteria',
+    A: 'Logic-Oriented',
+    M: 'Balanced',
+    E: 'Emotion-Oriented',
+  },
+};

@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase';
+import { useI18n } from '@/lib/i18n';
 import Header from '@/components/Header';
 import type { User } from '@supabase/supabase-js';
 
@@ -12,6 +13,7 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(true);
   const router = useRouter();
   const supabase = createClient();
+  const { t } = useI18n();
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -54,12 +56,15 @@ export default function Home() {
         <div className="relative z-10 px-4 sm:px-6 lg:px-8 py-20 sm:py-32 lg:py-40">
           <div className="max-w-4xl mx-auto text-center">
             <h1 className="text-5xl sm:text-6xl lg:text-7xl font-bold text-gray-900 mb-6 drop-shadow-lg">
-              ACT診断
+              {t('home.title')}
             </h1>
             <p className="text-lg sm:text-xl text-gray-600 mb-12 max-w-2xl mx-auto drop-shadow">
-              あなたの意識レベルと行動パターンを診断し、
-              <br />
-              AI コーチングで自己成長をサポートします
+              {t('home.subtitle').split('\n').map((line, i) => (
+                <span key={i}>
+                  {line}
+                  {i === 0 && <br />}
+                </span>
+              ))}
             </p>
 
             {user ? (
@@ -69,19 +74,19 @@ export default function Home() {
                   href="/dashboard"
                   className="px-8 py-3 bg-blue-500 hover:bg-blue-600 text-white font-semibold rounded-lg transition-colors duration-200 shadow-lg"
                 >
-                  マイページへ
+                  {t('home.toMypage')}
                 </Link>
                 <Link
                   href="/diagnosis"
                   className="px-8 py-3 bg-pink-500 hover:bg-pink-600 text-white font-semibold rounded-lg transition-colors duration-200 shadow-lg"
                 >
-                  診断を受ける
+                  {t('home.takeDiagnosis')}
                 </Link>
                 <Link
                   href="/coaching"
                   className="px-8 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition-colors duration-200 shadow-lg"
                 >
-                  AIコーチング
+                  {t('home.aiCoaching')}
                 </Link>
               </div>
             ) : (
@@ -91,13 +96,13 @@ export default function Home() {
                   href="/login"
                   className="px-8 py-3 bg-blue-500 hover:bg-blue-600 text-white font-semibold rounded-lg transition-colors duration-200 shadow-lg"
                 >
-                  ログイン
+                  {t('nav.login')}
                 </Link>
                 <Link
                   href="/register"
                   className="px-8 py-3 bg-white hover:bg-gray-100 text-blue-500 font-semibold rounded-lg transition-colors duration-200 shadow-lg"
                 >
-                  新規登録
+                  {t('nav.register')}
                 </Link>
               </div>
             )}
@@ -114,10 +119,9 @@ export default function Home() {
               <div className="w-12 h-12 bg-blue-500 rounded-lg flex items-center justify-center mb-4">
                 <span className="text-white text-xl">📋</span>
               </div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">詳細診断</h3>
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">{t('home.feature1.title')}</h3>
               <p className="text-gray-600 text-sm">
-                27 種類の ACT タイプと 6 つの意識レベルから、
-                あなたの特性を正確に診断します
+                {t('home.feature1.desc')}
               </p>
             </div>
 
@@ -126,10 +130,9 @@ export default function Home() {
               <div className="w-12 h-12 bg-pink-500 rounded-lg flex items-center justify-center mb-4">
                 <span className="text-white text-xl">🤖</span>
               </div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">AI コーチング</h3>
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">{t('home.feature2.title')}</h3>
               <p className="text-gray-600 text-sm">
-                あなたの診断結果に基づいて、
-                AI コーチが個別にサポートします
+                {t('home.feature2.desc')}
               </p>
             </div>
 
@@ -138,10 +141,9 @@ export default function Home() {
               <div className="w-12 h-12 bg-cyan-500 rounded-lg flex items-center justify-center mb-4">
                 <span className="text-white text-xl">📊</span>
               </div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">進捗管理</h3>
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">{t('home.feature3.title')}</h3>
               <p className="text-gray-600 text-sm">
-                診断結果を記録して、
-                あなたの成長を可視化できます
+                {t('home.feature3.desc')}
               </p>
             </div>
           </div>

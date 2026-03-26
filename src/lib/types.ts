@@ -78,6 +78,7 @@ export interface SiteSettings {
  */
 export interface CLChoice {
   text: string;
+  text_en?: string;
   score: number; // -2, -1, 0, 1
   isHighLevel?: boolean;
   isLevel4Check?: boolean;
@@ -93,7 +94,9 @@ export interface CLChoice {
 export interface CLQuestion {
   id: number;
   text: string;
+  text_en?: string;
   supplement?: string;
+  supplement_en?: string;
   choices: CLChoice[];
 }
 
@@ -102,6 +105,7 @@ export interface CLQuestion {
  */
 export interface PersonalityChoice {
   text: string;
+  text_en?: string;
   scores: Record<string, number>;
 }
 
@@ -111,5 +115,6 @@ export interface PersonalityChoice {
 export interface PersonalityQuestion {
   id: number;
   text: string;
+  text_en?: string;
   choices: PersonalityChoice[];
 }

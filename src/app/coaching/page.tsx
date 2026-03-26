@@ -6,6 +6,7 @@ import Link from 'next/link';
 import AuthGuard from '@/components/AuthGuard';
 import Header from '@/components/Header';
 import { createClient } from '@/lib/supabase';
+import { useI18n } from '@/lib/i18n';
 import type { DiagnosisResult } from '@/lib/types';
 import { typeNames } from '@/data/type-names';
 
@@ -29,6 +30,7 @@ function CoachingContent() {
   const searchParams = useSearchParams();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const supabase = createClient();
+  const { t } = useI18n();
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -209,7 +211,7 @@ function CoachingContent() {
         <div className="min-h-screen flex items-center justify-center">
           <div className="flex flex-col items-center gap-4">
             <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-400"></div>
-            <p className="text-gray-700">読み込み中...</p>
+            <p className="text-gray-700">{t('common.loading')}</p>
           </div>
         </div>
       </AuthGuard>
@@ -224,7 +226,7 @@ function CoachingContent() {
           {/* チャットヘッダー */}
           <div className="bg-white border-b border-blue-200 px-4 sm:px-6 py-3 flex items-center justify-between">
             <div>
-              <h1 className="text-xl font-bold text-gray-900">AIコーチング</h1>
+              <h1 className="text-xl font-bold text-gray-900">{t('coaching.title')}</h1>
               {diagnosisCode && (
                 <p className="text-blue-600 text-sm">タイプ: {diagnosisCode}</p>
               )}
@@ -234,7 +236,7 @@ function CoachingContent() {
                 href="/diagnosis"
                 className="text-sm px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors"
               >
-                まず診断を受ける
+                {t('coaching.takeDiagnosis')}
               </Link>
             )}
           </div>
@@ -243,28 +245,23 @@ function CoachingContent() {
           <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">
             {botDisabled && (
               <div className="bg-yellow-50 border border-yellow-200 text-yellow-900 p-4 rounded-lg text-center">
-                <p className="font-semibold">ボットは現在停止中です</p>
-                <p className="text-sm mt-1">
-                  申し訳ございません。AIコーチングは現在利用できません。
-                </p>
+                <p className="font-semibold">{t('coaching.botDisabled')}</p>
               </div>
             )}
 
             {messages.length === 0 && !botDisabled && !diagnosisCode && (
               <div className="flex flex-col items-center justify-center h-full text-center">
                 <div className="text-6xl mb-4">🤖</div>
-                <p className="text-xl text-gray-900 mb-2">AIコーチングへようこそ</p>
+                <p className="text-xl text-gray-900 mb-2">{t('coaching.title')}</p>
                 <p className="text-gray-600 mb-6">
-                  診断結果に基づいたパーソナライズされたコーチングを受けられます。
-                  <br />
-                  まだ診断を受けていない場合は、先に診断を受けることをおすすめします。
+                  {t('coaching.noDiagnosis')}
                 </p>
                 <div className="flex gap-3">
                   <Link
                     href="/diagnosis"
                     className="px-6 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors"
                   >
-                    診断を受ける
+                    {t('coaching.takeDiagnosis')}
                   </Link>
                 </div>
               </div>
@@ -342,7 +339,7 @@ function CoachingContent() {
                       sendMessage();
                     }
                   }}
-                  placeholder="メッセージを入力..."
+                  placeholder={t('coaching.placeholder')}
                   className="flex-1 bg-white border border-blue-200 text-gray-900 placeholder-gray-500 rounded-lg px-4 py-3 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-400/50 transition-all"
                   disabled={loading}
                 />
@@ -351,7 +348,7 @@ function CoachingContent() {
                   disabled={loading || !input.trim()}
                   className="bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 disabled:from-gray-400 disabled:to-gray-400 text-white font-semibold py-3 px-6 rounded-lg transition-all duration-200 disabled:cursor-not-allowed"
                 >
-                  {loading ? '送信中...' : '送信'}
+                  {loading ? '送信中...' : t('coaching.send')}
                 </button>
               </div>
             </div>
@@ -363,13 +360,15 @@ function CoachingContent() {
 }
 
 export default function CoachingPage() {
+  const { t } = useI18n();
+
   return (
     <Suspense
       fallback={
         <div className="min-h-screen flex items-center justify-center">
           <div className="flex flex-col items-center gap-4">
             <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-400"></div>
-            <p className="text-gray-700">読み込み中...</p>
+            <p className="text-gray-700">{t('common.loading')}</p>
           </div>
         </div>
       }

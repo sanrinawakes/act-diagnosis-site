@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useI18n } from '@/lib/i18n';
 import AuthGuard from '@/components/AuthGuard';
 import { consciousnessQuestions } from '@/data/consciousness-questions';
 import { personalityQuestions } from '@/data/personality-questions';
@@ -28,6 +29,7 @@ export default function DiagnosisPage() {
 function DiagnosisContent() {
   const router = useRouter();
   const supabase = createClient();
+  const { t } = useI18n();
 
   // Stage: 'copyright' | 'consciousness' | 'interstitial' | 'personality' | 'growth' | 'immaturity' | 'loading'
   const [stage, setStage] = useState<string>('copyright');
@@ -53,24 +55,24 @@ function DiagnosisContent() {
 
   // Growth question choices
   const growthChoices = [
-    { key: 'A', text: '自分の未熟さを受け入れ行動を変えたとき。' },
-    { key: 'B', text: 'まわりの反応が肯定的なものに変わったとき。' },
-    { key: 'C', text: '冷静に中庸に物事を見られていると確信が持てたとき。' },
-    { key: 'D', text: '他者や状況をコントロールしていたことに気づいたとき。' },
-    { key: 'E', text: '他人や社会の反応に動じず、自分の価値基準で判断できたとき。' },
-    { key: 'F', text: 'つい反応してしまった自分に気づいたとき。' },
-    { key: 'G', text: '自分の影響力が広がったとき。' },
-    { key: 'H', text: '他人を見下していたことに気づいたとき。' },
+    { key: 'A', text: '自分の未熟さを受け入れ行動を変えたとき。', text_en: 'When I accepted my immaturity and changed my actions.' },
+    { key: 'B', text: 'まわりの反応が肯定的なものに変わったとき。', text_en: 'When those around me started responding more positively.' },
+    { key: 'C', text: '冷静に中庸に物事を見られていると確信が持てたとき。', text_en: 'When I became confident in viewing things calmly and with balance.' },
+    { key: 'D', text: '他者や状況をコントロールしていたことに気づいたとき。', text_en: 'When I realized I had been trying to control others or situations.' },
+    { key: 'E', text: '他人や社会の反応に動じず、自分の価値基準で判断できたとき。', text_en: 'When I could judge things by my own values without being swayed by others\' reactions.' },
+    { key: 'F', text: 'つい反応してしまった自分に気づいたとき。', text_en: 'When I realized I had been reacting impulsively.' },
+    { key: 'G', text: '自分の影響力が広がったとき。', text_en: 'When my influence expanded.' },
+    { key: 'H', text: '他人を見下していたことに気づいたとき。', text_en: 'When I realized I had been looking down on others.' },
   ];
 
   // Immaturity question choices
   const immaturityChoices = [
-    { key: 'A', text: '結果的に人間関係を悪くしてしまった時' },
-    { key: 'B', text: '自分が"正しく伝えた"と思っていたことが、相手にとってはただの支配だったと気づいたとき' },
-    { key: 'C', text: '私の話をまだ受け取れるレベルではない人に伝えようとしてしまったとき' },
-    { key: 'D', text: '相手から誤解されてしまったとき' },
-    { key: 'E', text: 'そもそも全ては完璧なのでまだまだも未熟もない' },
-    { key: 'F', text: '誰かが苦しんでいるのを前に、自分には何もできないと痛感したとき' },
+    { key: 'A', text: '結果的に人間関係を悪くしてしまった時', text_en: 'When I ended up damaging my relationships' },
+    { key: 'B', text: '自分が"正しく伝えた"と思っていたことが、相手にとってはただの支配だったと気づいたとき', text_en: 'When I realized that what I thought was "communicating clearly" was actually controlling to the other person' },
+    { key: 'C', text: '私の話をまだ受け取れるレベルではない人に伝えようとしてしまったとき', text_en: 'When I tried to share with someone who wasn\'t ready to receive it' },
+    { key: 'D', text: '相手から誤解されてしまったとき', text_en: 'When I was misunderstood by the other person' },
+    { key: 'E', text: 'そもそも全ては完璧なのでまだまだも未熟もない', text_en: 'Everything is already perfect, so there\'s no such thing as incompleteness or immaturity' },
+    { key: 'F', text: '誰かが苦しんでいるのを前に、自分には何もできないと痛感したとき', text_en: 'When facing someone\'s suffering, I painfully realized I could do nothing to help' },
   ];
 
   // Handle copyright agreement
@@ -245,9 +247,13 @@ function DiagnosisContent() {
     }
   };
 
+  const handleCancel = () => {
+    router.push('/');
+  };
+
   // Render stages
   if (stage === 'copyright') {
-    return <CopyrightStage onAgree={handleCopyrightAgree} />;
+    return <CopyrightStage onAgree={handleCopyrightAgree} onCancel={handleCancel} />;
   }
 
   if (stage === 'consciousness') {
@@ -269,6 +275,7 @@ function DiagnosisContent() {
         onPrevious={handleConsciousnessPrevious}
         canNext={consciousnessAnswers[currentQuestionIndex] !== -999}
         canPrevious={currentQuestionIndex > 0}
+        onCancel={handleCancel}
       />
     );
   }
@@ -280,6 +287,7 @@ function DiagnosisContent() {
           setCurrentQuestionIndex(0);
           setStage('personality');
         }}
+        onCancel={handleCancel}
       />
     );
   }
@@ -301,6 +309,7 @@ function DiagnosisContent() {
         onPrevious={handlePersonalityPrevious}
         canNext={personalityAnswers[question.id] !== -999}
         canPrevious={currentQuestionIndex > 0}
+        onCancel={handleCancel}
       />
     );
   }
@@ -312,6 +321,7 @@ function DiagnosisContent() {
         selected={growthAnswers.selected}
         onToggle={handleGrowthToggle}
         onSubmit={handleGrowthSubmit}
+        onCancel={handleCancel}
       />
     );
   }
@@ -323,6 +333,7 @@ function DiagnosisContent() {
         selected={immaturityAnswers.selected}
         onSelect={(key) => setImmaturityAnswers({ selected: key })}
         onSubmit={handleImmaturitySubmit}
+        onCancel={handleCancel}
       />
     );
   }
@@ -332,7 +343,7 @@ function DiagnosisContent() {
       <div className="min-h-screen flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">
           <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-400"></div>
-          <p className="text-gray-700">診断結果を保存中...</p>
+          <p className="text-gray-700">{t('diagnosis.saving')}</p>
         </div>
       </div>
     );
@@ -342,25 +353,30 @@ function DiagnosisContent() {
 }
 
 // Copyright Stage Component
-function CopyrightStage({ onAgree }: { onAgree: () => void }) {
+function CopyrightStage({ onAgree, onCancel }: { onAgree: () => void; onCancel: () => void }) {
+  const { t } = useI18n();
   const [agreed, setAgreed] = useState(false);
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4">
       <div className="bg-white bg-opacity-80 border border-blue-200 rounded-2xl p-8 max-w-2xl w-full">
-        <h1 className="text-3xl font-bold text-gray-900 mb-6">ACT診断テスト</h1>
+        <div className="flex justify-between items-start mb-6">
+          <h1 className="text-3xl font-bold text-gray-900">{t('diagnosis.title')}</h1>
+          <button onClick={onCancel} className="text-gray-400 hover:text-red-500 transition-colors text-sm flex items-center gap-1">
+            <span>✕</span><span>{t('diagnosis.cancel')}</span>
+          </button>
+        </div>
         <div className="space-y-4 mb-8">
           <p className="text-gray-700 text-lg">
-            このテストは、あなたの現在の意識レベルと性格タイプを診断するものです。
+            {t('diagnosis.description')}
           </p>
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-6 space-y-4 max-h-96 overflow-y-auto">
-            <p className="text-gray-900 font-semibold">著作権表示：</p>
+            <p className="text-gray-900 font-semibold">{t('diagnosis.copyright.title')}</p>
             <p className="text-gray-700 text-sm leading-relaxed">
-              本診断テストの内容、デザイン、システムは著作権で保護されています。このテストの結果は個人利用のみを目的としており、
-              商業的な利用、無断複製、配布は禁止されています。
+              {t('diagnosis.copyright.text1')}
             </p>
             <p className="text-gray-700 text-sm leading-relaxed">
-              このテストを受けることで、あなたはこの利用条件に同意したものとみなされます。
+              {t('diagnosis.copyright.text2')}
             </p>
           </div>
         </div>
@@ -374,7 +390,7 @@ function CopyrightStage({ onAgree }: { onAgree: () => void }) {
             className="mt-1 w-5 h-5 cursor-pointer accent-blue-500"
           />
           <label htmlFor="copyright-agree" className="text-gray-700 cursor-pointer flex-1">
-            著作権表示に同意し、テストを開始します
+            {t('diagnosis.copyright.agree')}
           </label>
         </div>
 
@@ -383,7 +399,7 @@ function CopyrightStage({ onAgree }: { onAgree: () => void }) {
           disabled={!agreed}
           className="w-full py-3 px-6 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-all duration-300"
         >
-          テストを開始
+          {t('diagnosis.startTest')}
         </button>
       </div>
     </div>
@@ -416,6 +432,7 @@ function ConsciousnessStage({
   onPrevious,
   canNext,
   canPrevious,
+  onCancel,
 }: {
   question: CLQuestion;
   questionIndex: number;
@@ -426,10 +443,24 @@ function ConsciousnessStage({
   onPrevious: () => void;
   canNext: boolean;
   canPrevious: boolean;
+  onCancel: () => void;
 }) {
+  const { t, locale } = useI18n();
+
+  const getLocalizedText = (item: { text: string; text_en?: string }) => {
+    return locale === 'en' && item.text_en ? item.text_en : item.text;
+  };
+
   return (
     <div className="min-h-screen flex items-center justify-center p-4">
       <div className="bg-white bg-opacity-80 border border-blue-200 rounded-2xl p-8 max-w-2xl w-full">
+        {/* Cancel Button */}
+        <div className="flex justify-end mb-4">
+          <button onClick={onCancel} className="text-gray-400 hover:text-red-500 transition-colors text-sm flex items-center gap-1">
+            <span>✕</span><span>{t('diagnosis.cancel')}</span>
+          </button>
+        </div>
+
         {/* Progress Bar */}
         <div className="mb-6">
           <ProgressBar current={questionIndex} total={totalQuestions} />
@@ -437,15 +468,17 @@ function ConsciousnessStage({
 
         {/* Question Counter */}
         <div className="text-sm text-blue-600 font-semibold mb-6">
-          質問 {questionIndex + 1} / {totalQuestions}
+          {t('diagnosis.question')} {questionIndex + 1} / {totalQuestions}
         </div>
 
         {/* Question Text */}
-        <h2 className="text-2xl font-bold text-gray-900 mb-4">{question.text}</h2>
+        <h2 className="text-2xl font-bold text-gray-900 mb-4">{getLocalizedText(question)}</h2>
 
         {/* Supplement if exists */}
         {question.supplement && (
-          <p className="text-gray-700 mb-6 italic">{question.supplement}</p>
+          <p className="text-gray-700 mb-6 italic">
+            {locale === 'en' && question.supplement_en ? question.supplement_en : question.supplement}
+          </p>
         )}
 
         {/* Choices */}
@@ -460,7 +493,7 @@ function ConsciousnessStage({
                   : 'border-blue-200 bg-white text-gray-700 hover:bg-blue-50'
               }`}
             >
-              {choice.text}
+              {getLocalizedText(choice)}
             </button>
           ))}
         </div>
@@ -472,14 +505,14 @@ function ConsciousnessStage({
             disabled={!canPrevious}
             className="flex-1 py-3 px-4 bg-gray-100 hover:bg-gray-200 disabled:opacity-30 disabled:cursor-not-allowed text-gray-600 font-semibold rounded-lg transition-all duration-300"
           >
-            戻る
+            {t('diagnosis.back')}
           </button>
           <button
             onClick={onNext}
             disabled={!canNext}
             className="flex-1 py-3 px-4 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-all duration-300"
           >
-            次へ
+            {t('diagnosis.next')}
           </button>
         </div>
       </div>
@@ -488,24 +521,31 @@ function ConsciousnessStage({
 }
 
 // Interstitial Stage Component
-function InterstitialStage({ onContinue }: { onContinue: () => void }) {
+function InterstitialStage({ onContinue, onCancel }: { onContinue: () => void; onCancel: () => void }) {
+  const { t } = useI18n();
+
   return (
     <div className="min-h-screen flex items-center justify-center p-4">
       <div className="bg-white bg-opacity-80 border border-blue-200 rounded-2xl p-8 max-w-2xl w-full">
+        <div className="flex justify-end mb-4">
+          <button onClick={onCancel} className="text-gray-400 hover:text-red-500 transition-colors text-sm flex items-center gap-1">
+            <span>✕</span><span>{t('diagnosis.cancel')}</span>
+          </button>
+        </div>
         <h2 className="text-4xl font-bold text-gray-900 mb-8 text-center">
-          次は、あなたの<span className="text-blue-600">【ふだんの行動や好み】</span>について
+          {t('diagnosis.interstitial.title')}<span className="text-blue-600">【{t('diagnosis.interstitial.highlight')}】</span>{t('diagnosis.interstitial.about')}
         </h2>
 
         <div className="space-y-6 mb-12">
           <p className="text-gray-700 text-lg leading-relaxed">
-            ここからは、あなたのふだんの行動パターンや好みについてお聞きします。
+            {t('diagnosis.interstitial.desc1')}
           </p>
           <p className="text-gray-600 text-base leading-relaxed">
-            正解や不正解はありません。あなたの実際の傾向を素直にお答えください。
+            {t('diagnosis.interstitial.desc2')}
           </p>
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
             <p className="text-blue-900 text-sm font-semibold">
-              このセクションでは、122個の質問があります。各質問では「どちらが正しいか」ではなく、「あなたが普段どちらを選びがちか」でお答えください。
+              {t('diagnosis.interstitial.note')}
             </p>
           </div>
         </div>
@@ -514,7 +554,7 @@ function InterstitialStage({ onContinue }: { onContinue: () => void }) {
           onClick={onContinue}
           className="w-full py-3 px-6 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-semibold rounded-lg transition-all duration-300"
         >
-          性格診断を開始
+          {t('diagnosis.interstitial.start')}
         </button>
       </div>
     </div>
@@ -532,6 +572,7 @@ function PersonalityStage({
   onPrevious,
   canNext,
   canPrevious,
+  onCancel,
 }: {
   question: PersonalityQuestion;
   questionIndex: number;
@@ -542,14 +583,28 @@ function PersonalityStage({
   onPrevious: () => void;
   canNext: boolean;
   canPrevious: boolean;
+  onCancel: () => void;
 }) {
+  const { t, locale } = useI18n();
+
+  const getLocalizedText = (item: { text: string; text_en?: string }) => {
+    return locale === 'en' && item.text_en ? item.text_en : item.text;
+  };
+
   return (
     <div className="min-h-screen flex items-center justify-center p-4">
       <div className="bg-white bg-opacity-80 border border-blue-200 rounded-2xl p-8 max-w-2xl w-full">
+        {/* Cancel Button */}
+        <div className="flex justify-end mb-4">
+          <button onClick={onCancel} className="text-gray-400 hover:text-red-500 transition-colors text-sm flex items-center gap-1">
+            <span>✕</span><span>{t('diagnosis.cancel')}</span>
+          </button>
+        </div>
+
         {/* Guidance Banner */}
         <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-6">
           <p className="text-amber-900 text-sm font-semibold">
-            ※「どちらが正しいか」ではなく、「普段どちらを選びがちか」で答えてください。
+            {t('diagnosis.personality.guidance')}
           </p>
         </div>
 
@@ -560,11 +615,11 @@ function PersonalityStage({
 
         {/* Question Counter */}
         <div className="text-sm text-blue-600 font-semibold mb-6">
-          質問 {questionIndex + 1} / {totalQuestions}
+          {t('diagnosis.question')} {questionIndex + 1} / {totalQuestions}
         </div>
 
         {/* Question Text */}
-        <h2 className="text-2xl font-bold text-gray-900 mb-8">{question.text}</h2>
+        <h2 className="text-2xl font-bold text-gray-900 mb-8">{getLocalizedText(question)}</h2>
 
         {/* Choices */}
         <div className="space-y-3 mb-8">
@@ -578,7 +633,7 @@ function PersonalityStage({
                   : 'border-blue-200 bg-white text-gray-700 hover:bg-blue-50'
               }`}
             >
-              {choice.text}
+              {getLocalizedText(choice)}
             </button>
           ))}
         </div>
@@ -590,14 +645,14 @@ function PersonalityStage({
             disabled={!canPrevious}
             className="flex-1 py-3 px-4 bg-gray-100 hover:bg-gray-200 disabled:opacity-30 disabled:cursor-not-allowed text-gray-600 font-semibold rounded-lg transition-all duration-300"
           >
-            戻る
+            {t('diagnosis.back')}
           </button>
           <button
             onClick={onNext}
             disabled={!canNext}
             className="flex-1 py-3 px-4 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-all duration-300"
           >
-            {questionIndex === totalQuestions - 1 ? '完了' : '次へ'}
+            {questionIndex === totalQuestions - 1 ? t('diagnosis.complete') : t('diagnosis.next')}
           </button>
         </div>
       </div>
@@ -611,18 +666,31 @@ function GrowthStage({
   selected,
   onToggle,
   onSubmit,
+  onCancel,
 }: {
-  choices: Array<{ key: string; text: string }>;
+  choices: Array<{ key: string; text: string; text_en?: string }>;
   selected: string[];
   onToggle: (key: string) => void;
   onSubmit: () => void;
+  onCancel: () => void;
 }) {
+  const { t, locale } = useI18n();
+
+  const getLocalizedText = (item: { text: string; text_en?: string }) => {
+    return locale === 'en' && item.text_en ? item.text_en : item.text;
+  };
+
   return (
     <div className="min-h-screen flex items-center justify-center p-4">
       <div className="bg-white bg-opacity-80 border border-blue-200 rounded-2xl p-8 max-w-2xl w-full">
-        <h2 className="text-2xl font-bold text-gray-900 mb-4">成長経験について</h2>
+        <div className="flex justify-between items-start mb-4">
+          <h2 className="text-2xl font-bold text-gray-900">{t('diagnosis.growth.title')}</h2>
+          <button onClick={onCancel} className="text-gray-400 hover:text-red-500 transition-colors text-sm flex items-center gap-1">
+            <span>✕</span><span>{t('diagnosis.cancel')}</span>
+          </button>
+        </div>
         <p className="text-gray-700 mb-8">
-          以下の8つの選択肢から、あなたが最も成長を感じたものを<span className="font-semibold">2つ選んでください</span>。
+          {t('diagnosis.growth.desc')}<span className="font-semibold">{t('diagnosis.growth.count')}</span>。
         </p>
 
         {/* Choices */}
@@ -647,7 +715,7 @@ function GrowthStage({
                 >
                   {selected.includes(choice.key) && <span className="text-white font-bold">✓</span>}
                 </div>
-                <span>{choice.text}</span>
+                <span>{getLocalizedText(choice)}</span>
               </div>
             </button>
           ))}
@@ -655,7 +723,7 @@ function GrowthStage({
 
         {/* Selected count */}
         <p className="text-sm text-blue-600 mb-8 text-center">
-          選択中: {selected.length} / 2
+          {t('diagnosis.growth.selected')}: {selected.length} / 2
         </p>
 
         {/* Submit Button */}
@@ -664,7 +732,7 @@ function GrowthStage({
           disabled={selected.length !== 2}
           className="w-full py-3 px-6 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-all duration-300"
         >
-          次へ進む
+          {t('diagnosis.growth.submit')}
         </button>
       </div>
     </div>
@@ -677,18 +745,31 @@ function ImmaturityStage({
   selected,
   onSelect,
   onSubmit,
+  onCancel,
 }: {
-  choices: Array<{ key: string; text: string }>;
+  choices: Array<{ key: string; text: string; text_en?: string }>;
   selected: string | null;
   onSelect: (key: string) => void;
   onSubmit: () => void;
+  onCancel: () => void;
 }) {
+  const { t, locale } = useI18n();
+
+  const getLocalizedText = (item: { text: string; text_en?: string }) => {
+    return locale === 'en' && item.text_en ? item.text_en : item.text;
+  };
+
   return (
     <div className="min-h-screen flex items-center justify-center p-4">
       <div className="bg-white bg-opacity-80 border border-blue-200 rounded-2xl p-8 max-w-2xl w-full">
-        <h2 className="text-2xl font-bold text-gray-900 mb-4">未熟さへの気づき</h2>
+        <div className="flex justify-between items-start mb-4">
+          <h2 className="text-2xl font-bold text-gray-900">{t('diagnosis.immaturity.title')}</h2>
+          <button onClick={onCancel} className="text-gray-400 hover:text-red-500 transition-colors text-sm flex items-center gap-1">
+            <span>✕</span><span>{t('diagnosis.cancel')}</span>
+          </button>
+        </div>
         <p className="text-gray-700 mb-8">
-          以下の6つの選択肢から、あなたが最も当てはまるものを<span className="font-semibold">1つ選んでください</span>。
+          {t('diagnosis.immaturity.desc')}<span className="font-semibold">{t('diagnosis.immaturity.count')}</span>。
         </p>
 
         {/* Choices */}
@@ -713,7 +794,7 @@ function ImmaturityStage({
                 >
                   {selected === choice.key && <span className="text-white font-bold text-sm">✓</span>}
                 </div>
-                <span>{choice.text}</span>
+                <span>{getLocalizedText(choice)}</span>
               </div>
             </button>
           ))}
@@ -725,7 +806,7 @@ function ImmaturityStage({
           disabled={!selected}
           className="w-full py-3 px-6 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-all duration-300"
         >
-          診断を完了
+          {t('diagnosis.immaturity.submit')}
         </button>
       </div>
     </div>

@@ -4,10 +4,12 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase';
+import { useI18n } from '@/lib/i18n';
 import type { User } from '@supabase/supabase-js';
 import type { Profile } from '@/lib/types';
 
 export default function Header() {
+  const { locale, setLocale, t } = useI18n();
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -86,76 +88,57 @@ export default function Header() {
             className="flex items-center gap-2 text-2xl font-bold text-gray-900 hover:text-blue-600 transition-colors"
           >
             <span>🎯</span>
-            <span>ACT診断</span>
+            <span>{t('nav.siteName')}</span>
           </Link>
 
           {/* Desktop Navigation */}
           <nav className="hidden md:flex items-center gap-1">
             {user ? (
               <>
-                <Link
-                  href="/dashboard"
-                  className="px-4 py-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
-                >
-                  マイページ
+                <Link href="/dashboard" className="px-4 py-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all">
+                  {t('nav.mypage')}
                 </Link>
-                <Link
-                  href="/diagnosis"
-                  className="px-4 py-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
-                >
-                  診断
+                <Link href="/diagnosis" className="px-4 py-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all">
+                  {t('nav.diagnosis')}
                 </Link>
-                <Link
-                  href="/results"
-                  className="px-4 py-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
-                >
-                  結果
+                <Link href="/results" className="px-4 py-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all">
+                  {t('nav.results')}
                 </Link>
-                <Link
-                  href="/coaching"
-                  className="px-4 py-2 text-gray-600 hover:text-pink-500 hover:bg-pink-50 rounded-lg transition-all"
-                >
-                  AIコーチング
+                <Link href="/coaching" className="px-4 py-2 text-gray-600 hover:text-pink-500 hover:bg-pink-50 rounded-lg transition-all">
+                  {t('nav.coaching')}
                 </Link>
-                <Link
-                  href="/profile"
-                  className="px-4 py-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
-                >
-                  プロフィール
+                <Link href="/profile" className="px-4 py-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all">
+                  {t('nav.profile')}
                 </Link>
 
                 {profile?.role === 'admin' && (
-                  <Link
-                    href="/admin"
-                    className="px-4 py-2 text-pink-500 hover:text-pink-600 hover:bg-pink-50 rounded-lg transition-all font-semibold"
-                  >
-                    管理画面
+                  <Link href="/admin" className="px-4 py-2 text-pink-500 hover:text-pink-600 hover:bg-pink-50 rounded-lg transition-all font-semibold">
+                    {t('nav.admin')}
                   </Link>
                 )}
 
-                <button
-                  onClick={handleLogout}
-                  className="px-4 py-2 text-gray-500 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
-                >
-                  ログアウト
+                <button onClick={handleLogout} className="px-4 py-2 text-gray-500 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all">
+                  {t('nav.logout')}
                 </button>
               </>
             ) : (
               <>
-                <Link
-                  href="/login"
-                  className="px-4 py-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
-                >
-                  ログイン
+                <Link href="/login" className="px-4 py-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all">
+                  {t('nav.login')}
                 </Link>
-                <Link
-                  href="/register"
-                  className="px-4 py-3 bg-blue-500 hover:bg-blue-600 text-white font-semibold rounded-lg transition-colors"
-                >
-                  新規登録
+                <Link href="/register" className="px-4 py-3 bg-blue-500 hover:bg-blue-600 text-white font-semibold rounded-lg transition-colors">
+                  {t('nav.register')}
                 </Link>
               </>
             )}
+
+            {/* Language Toggle */}
+            <button
+              onClick={() => setLocale(locale === 'ja' ? 'en' : 'ja')}
+              className="ml-2 px-3 py-1.5 text-sm font-medium border border-blue-200 rounded-lg hover:bg-blue-50 transition-all text-gray-600"
+            >
+              {locale === 'ja' ? 'EN' : 'JA'}
+            </button>
           </nav>
 
           {/* Mobile Menu Button */}
@@ -198,35 +181,35 @@ export default function Header() {
                   className="block px-4 py-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
                   onClick={() => setIsMenuOpen(false)}
                 >
-                  マイページ
+                  {t('nav.mypage')}
                 </Link>
                 <Link
                   href="/diagnosis"
                   className="block px-4 py-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
                   onClick={() => setIsMenuOpen(false)}
                 >
-                  診断
+                  {t('nav.diagnosis')}
                 </Link>
                 <Link
                   href="/results"
                   className="block px-4 py-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
                   onClick={() => setIsMenuOpen(false)}
                 >
-                  結果
+                  {t('nav.results')}
                 </Link>
                 <Link
                   href="/coaching"
                   className="block px-4 py-2 text-gray-600 hover:text-pink-500 hover:bg-pink-50 rounded-lg transition-all"
                   onClick={() => setIsMenuOpen(false)}
                 >
-                  AIコーチング
+                  {t('nav.coaching')}
                 </Link>
                 <Link
                   href="/profile"
                   className="block px-4 py-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
                   onClick={() => setIsMenuOpen(false)}
                 >
-                  プロフィール
+                  {t('nav.profile')}
                 </Link>
 
                 {profile?.role === 'admin' && (
@@ -235,7 +218,7 @@ export default function Header() {
                     className="block px-4 py-2 text-pink-500 hover:text-pink-600 hover:bg-pink-50 rounded-lg transition-all font-semibold"
                     onClick={() => setIsMenuOpen(false)}
                   >
-                    管理画面
+                    {t('nav.admin')}
                   </Link>
                 )}
 
@@ -243,7 +226,7 @@ export default function Header() {
                   onClick={handleLogout}
                   className="w-full text-left px-4 py-2 text-gray-500 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
                 >
-                  ログアウト
+                  {t('nav.logout')}
                 </button>
               </>
             ) : (
@@ -253,17 +236,25 @@ export default function Header() {
                   className="block px-4 py-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
                   onClick={() => setIsMenuOpen(false)}
                 >
-                  ログイン
+                  {t('nav.login')}
                 </Link>
                 <Link
                   href="/register"
                   className="block px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white font-semibold rounded-lg transition-colors"
                   onClick={() => setIsMenuOpen(false)}
                 >
-                  新規登録
+                  {t('nav.register')}
                 </Link>
               </>
             )}
+
+            {/* Mobile Language Toggle */}
+            <button
+              onClick={() => setLocale(locale === 'ja' ? 'en' : 'ja')}
+              className="w-full text-left px-4 py-2 text-sm font-medium text-gray-600 hover:bg-blue-50 rounded-lg transition-all"
+            >
+              {locale === 'ja' ? '🌐 Switch to English' : '🌐 日本語に切り替え'}
+            </button>
           </nav>
         )}
       </div>

@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase';
+import { useI18n } from '@/lib/i18n';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -12,6 +13,7 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
   const supabase = createClient();
+  const { t } = useI18n();
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -26,7 +28,7 @@ export default function LoginPage() {
 
       if (error) {
         if (error.message.includes('Invalid login credentials')) {
-          setError('メールアドレスまたはパスワードが正しくありません');
+          setError(t('login.error.invalid'));
         } else {
           setError(error.message);
         }
@@ -35,7 +37,7 @@ export default function LoginPage() {
 
       router.push('/dashboard');
     } catch (err) {
-      setError('ログインに失敗しました');
+      setError(t('login.error.failed'));
       console.error('Login error:', err);
     } finally {
       setIsLoading(false);
@@ -48,8 +50,8 @@ export default function LoginPage() {
         <div className="bg-white/80 backdrop-blur-xl rounded-2xl p-8 border border-blue-200/60 shadow-xl">
           {/* Header */}
           <div className="text-center mb-8">
-            <h1 className="text-3xl font-bold text-gray-900 mb-2">ログイン</h1>
-            <p className="text-gray-600">ACT診断へようこそ</p>
+            <h1 className="text-3xl font-bold text-gray-900 mb-2">{t('login.title')}</h1>
+            <p className="text-gray-600">{t('login.welcome')}</p>
           </div>
 
           {/* Error Message */}
@@ -64,7 +66,7 @@ export default function LoginPage() {
             {/* Email Field */}
             <div>
               <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
-                メールアドレス
+                {t('login.email')}
               </label>
               <input
                 id="email"
@@ -80,7 +82,7 @@ export default function LoginPage() {
             {/* Password Field */}
             <div>
               <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
-                パスワード
+                {t('login.password')}
               </label>
               <input
                 id="password"
@@ -99,22 +101,22 @@ export default function LoginPage() {
               disabled={isLoading}
               className="w-full py-3 bg-blue-500 hover:bg-blue-600 disabled:bg-blue-300 disabled:opacity-50 text-white font-semibold rounded-lg transition-colors duration-200 mt-6"
             >
-              {isLoading ? 'ログイン中...' : 'ログイン'}
+              {isLoading ? t('login.loading') : t('login.submit')}
             </button>
           </form>
 
           {/* Divider */}
           <div className="my-6 flex items-center gap-4">
             <div className="flex-1 h-px bg-blue-200"></div>
-            <span className="text-gray-500 text-sm">または</span>
+            <span className="text-gray-500 text-sm">{t('login.or')}</span>
             <div className="flex-1 h-px bg-blue-200"></div>
           </div>
 
           {/* Register Link */}
           <p className="text-center text-gray-600">
-            アカウントをお持ちでないですか？
+            {t('login.noAccount')}
             <Link href="/register" className="text-blue-500 hover:text-blue-600 font-semibold ml-1">
-              新規登録
+              {t('login.register')}
             </Link>
           </p>
         </div>

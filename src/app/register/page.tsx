@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase';
+import { useI18n } from '@/lib/i18n';
 
 export default function RegisterPage() {
   const [email, setEmail] = useState('');
@@ -14,6 +15,7 @@ export default function RegisterPage() {
   const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
   const supabase = createClient();
+  const { t } = useI18n();
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -77,8 +79,8 @@ export default function RegisterPage() {
         <div className="bg-white/80 backdrop-blur-xl rounded-2xl p-8 border border-blue-200/60 shadow-xl">
           {/* Header */}
           <div className="text-center mb-8">
-            <h1 className="text-3xl font-bold text-gray-900 mb-2">新規登録</h1>
-            <p className="text-gray-600">ACT診断を始めましょう</p>
+            <h1 className="text-3xl font-bold text-gray-900 mb-2">{t('register.title')}</h1>
+            <p className="text-gray-600">{t('register.subtitle')}</p>
           </div>
 
           {/* Error Message */}
@@ -101,7 +103,7 @@ export default function RegisterPage() {
               {/* Display Name Field */}
               <div>
                 <label htmlFor="displayName" className="block text-sm font-medium text-gray-700 mb-2">
-                  お名前 (任意)
+                  {t('register.displayName')}
                 </label>
                 <input
                   id="displayName"
@@ -116,7 +118,7 @@ export default function RegisterPage() {
               {/* Email Field */}
               <div>
                 <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
-                  メールアドレス
+                  {t('register.email')}
                 </label>
                 <input
                   id="email"
@@ -132,7 +134,7 @@ export default function RegisterPage() {
               {/* Password Field */}
               <div>
                 <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
-                  パスワード (8文字以上)
+                  {t('register.password')}
                 </label>
                 <input
                   id="password"
@@ -152,7 +154,7 @@ export default function RegisterPage() {
                 disabled={isLoading}
                 className="w-full py-3 bg-blue-500 hover:bg-blue-600 disabled:bg-blue-300 disabled:opacity-50 text-white font-semibold rounded-lg transition-colors duration-200 mt-6"
               >
-                {isLoading ? '登録中...' : '新規登録'}
+                {isLoading ? t('register.loading') : t('register.submit')}
               </button>
             </form>
           )}
@@ -160,15 +162,15 @@ export default function RegisterPage() {
           {/* Divider */}
           <div className="my-6 flex items-center gap-4">
             <div className="flex-1 h-px bg-blue-200"></div>
-            <span className="text-gray-500 text-sm">または</span>
+            <span className="text-gray-500 text-sm">{t('login.or')}</span>
             <div className="flex-1 h-px bg-blue-200"></div>
           </div>
 
           {/* Login Link */}
           <p className="text-center text-gray-600">
-            既にアカウントをお持ちですか？
+            {t('register.hasAccount')}
             <Link href="/login" className="text-blue-500 hover:text-blue-600 font-semibold ml-1">
-              ログイン
+              {t('register.login')}
             </Link>
           </p>
         </div>

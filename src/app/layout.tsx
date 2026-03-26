@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import { Noto_Sans_JP } from 'next/font/google';
 import './globals.css';
+import Providers from '@/components/Providers';
 
 const notoSansJp = Noto_Sans_JP({
   subsets: ['latin'],
@@ -54,7 +55,7 @@ export default function RootLayout({
         <meta name="theme-color" content="#dbeafe" />
       </head>
       <body className={`${notoSansJp.variable} font-sans antialiased`}>
-        {children}
+        <Providers>{children}</Providers>
       </body>
     </html>
   );

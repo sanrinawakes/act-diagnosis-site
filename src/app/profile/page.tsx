@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import AuthGuard from '@/components/AuthGuard';
 import Header from '@/components/Header';
 import { createClient } from '@/lib/supabase';
+import { useI18n } from '@/lib/i18n';
 import type { Profile } from '@/lib/types';
 
 export default function ProfilePage() {
@@ -23,6 +24,7 @@ export default function ProfilePage() {
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const router = useRouter();
   const supabase = createClient();
+  const { t } = useI18n();
 
   useEffect(() => {
     const fetchProfile = async () => {
@@ -48,7 +50,7 @@ export default function ProfilePage() {
         setDisplayName(data.display_name || '');
       } catch (err) {
         console.error('Failed to fetch profile:', err);
-        setError('プロフィールの読み込みに失敗しました');
+        setError(t('profile.title'));
       } finally {
         setLoading(false);
       }
@@ -80,11 +82,11 @@ export default function ProfilePage() {
 
       if (updateError) throw updateError;
 
-      setSuccessMessage('プロフィールを更新しました');
+      setSuccessMessage(t('profile.saved'));
       setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err) {
       console.error('Failed to save profile:', err);
-      setError('プロフィールの保存に失敗しました');
+      setError(t('profile.title'));
     } finally {
       setSaving(false);
     }
@@ -101,7 +103,7 @@ export default function ProfilePage() {
     }
 
     if (passwordForm.newPassword !== passwordForm.confirmPassword) {
-      setPasswordError('パスワードが一致しません');
+      setPasswordError('新しいパスワード（確認）が一致しません');
       return;
     }
 
@@ -114,7 +116,7 @@ export default function ProfilePage() {
 
       if (updateError) throw updateError;
 
-      setPasswordSuccess('パスワードを変更しました');
+      setPasswordSuccess(t('profile.updated'));
       setPasswordForm({ newPassword: '', confirmPassword: '' });
       setTimeout(() => setPasswordSuccess(null), 3000);
     } catch (err) {
@@ -132,7 +134,7 @@ export default function ProfilePage() {
         <div className="min-h-screen flex items-center justify-center">
           <div className="flex flex-col items-center gap-4">
             <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-400"></div>
-            <p className="text-gray-700">読み込み中...</p>
+            <p className="text-gray-700">{t('common.loading')}</p>
           </div>
         </div>
       </AuthGuard>
@@ -144,7 +146,7 @@ export default function ProfilePage() {
       <Header />
       <div className="min-h-screen">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-8">プロフィール設定</h1>
+          <h1 className="text-3xl font-bold text-gray-900 mb-8">{t('profile.title')}</h1>
 
           {/* プロフィール情報 */}
           <div className="bg-white border border-blue-200 rounded-xl p-6 mb-6">
@@ -164,7 +166,7 @@ export default function ProfilePage() {
             <form onSubmit={handleSaveProfile} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  メールアドレス
+                  {t('profile.email')}
                 </label>
                 <input
                   type="email"
@@ -177,7 +179,7 @@ export default function ProfilePage() {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  表示名
+                  {t('profile.displayName')}
                 </label>
                 <input
                   type="text"
@@ -190,7 +192,7 @@ export default function ProfilePage() {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  アカウント種別
+                  {t('profile.role')}
                 </label>
                 <div className="px-4 py-3 bg-gray-50 border border-gray-200 rounded-lg">
                   <span
@@ -200,14 +202,14 @@ export default function ProfilePage() {
                         : 'bg-blue-100 text-blue-900'
                     }`}
                   >
-                    {profile?.role === 'admin' ? '管理者' : '会員'}
+                    {profile?.role === 'admin' ? t('common.admin') : t('common.member')}
                   </span>
                 </div>
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  登録日
+                  {t('profile.registered')}
                 </label>
                 <input
                   type="text"
@@ -230,14 +232,14 @@ export default function ProfilePage() {
                 disabled={saving}
                 className="w-full py-3 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-400 disabled:opacity-50 text-white font-semibold rounded-lg transition-colors"
               >
-                {saving ? '保存中...' : 'プロフィールを保存'}
+                {saving ? t('profile.saving') : t('profile.save')}
               </button>
             </form>
           </div>
 
           {/* パスワード変更 */}
           <div className="bg-white border border-blue-200 rounded-xl p-6">
-            <h2 className="text-xl font-semibold text-gray-900 mb-4">パスワード変更</h2>
+            <h2 className="text-xl font-semibold text-gray-900 mb-4">{t('profile.changePassword')}</h2>
 
             {passwordSuccess && (
               <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg text-green-900 text-sm">
@@ -253,7 +255,7 @@ export default function ProfilePage() {
             <form onSubmit={handleChangePassword} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  新しいパスワード
+                  {t('profile.newPassword')}
                 </label>
                 <input
                   type="password"
@@ -270,7 +272,7 @@ export default function ProfilePage() {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  新しいパスワード（確認）
+                  {t('profile.newPassword')}
                 </label>
                 <input
                   type="password"
@@ -290,7 +292,7 @@ export default function ProfilePage() {
                 disabled={passwordSaving}
                 className="w-full py-3 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-400 disabled:opacity-50 text-white font-semibold rounded-lg transition-colors"
               >
-                {passwordSaving ? '変更中...' : 'パスワードを変更'}
+                {passwordSaving ? t('profile.updating') : t('profile.update')}
               </button>
             </form>
           </div>

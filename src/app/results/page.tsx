@@ -6,6 +6,7 @@ import Link from 'next/link';
 import AuthGuard from '@/components/AuthGuard';
 import Header from '@/components/Header';
 import { createClient } from '@/lib/supabase';
+import { useI18n } from '@/lib/i18n';
 import { DiagnosisResult } from '@/lib/types';
 import { typeNames, levelNames } from '@/data/type-names';
 
@@ -15,6 +16,7 @@ export default function ResultsPage() {
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
   const supabase = createClient();
+  const { t } = useI18n();
 
   useEffect(() => {
     const fetchResults = async () => {
@@ -39,7 +41,7 @@ export default function ResultsPage() {
         setResults(data || []);
       } catch (err) {
         console.error('Failed to fetch results:', err);
-        setError('診断結果の読み込みに失敗しました');
+        setError(t('results.title'));
       } finally {
         setLoading(false);
       }
@@ -54,7 +56,7 @@ export default function ResultsPage() {
         <div className="min-h-screen flex items-center justify-center">
           <div className="flex flex-col items-center gap-4">
             <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-400"></div>
-            <p className="text-gray-700">読み込み中...</p>
+            <p className="text-gray-700">{t('common.loading')}</p>
           </div>
         </div>
       </AuthGuard>
@@ -66,7 +68,7 @@ export default function ResultsPage() {
       <Header />
       <div className="min-h-screen p-6 sm:p-8">
         <div className="max-w-6xl mx-auto">
-          <h1 className="text-4xl font-bold text-gray-900 mb-8">診断結果一覧</h1>
+          <h1 className="text-4xl font-bold text-gray-900 mb-8">{t('results.title')}</h1>
 
           {error && (
             <div className="bg-red-50 border border-red-200 text-red-900 p-4 rounded-lg mb-6">
@@ -77,13 +79,13 @@ export default function ResultsPage() {
           {results.length === 0 ? (
             <div className="bg-white border border-blue-200 rounded-lg p-12 text-center">
               <p className="text-xl text-gray-600 mb-6">
-                まだ診断を受けていません
+                {t('results.noResults')}
               </p>
               <Link
                 href="/diagnosis"
                 className="inline-block bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-semibold py-3 px-8 rounded-lg transition-all duration-200 transform hover:scale-105"
               >
-                診断を開始する
+                {t('results.takeFirst')}
               </Link>
             </div>
           ) : (
@@ -103,7 +105,7 @@ export default function ResultsPage() {
                           </div>
                           <div className="flex flex-col gap-2">
                             <span className="inline-block bg-gradient-to-r from-blue-500 to-blue-600 text-white px-4 py-2 rounded-full font-semibold text-sm">
-                              {levelNames[result.consciousness_level]}
+                              {t('results.level')}: {levelNames[result.consciousness_level]}
                             </span>
                           </div>
                         </div>
@@ -124,7 +126,7 @@ export default function ResultsPage() {
                     </div>
 
                     <div className="mt-4 flex items-center text-blue-600 group-hover:text-blue-700 font-semibold">
-                      詳細を見る →
+                      {t('results.viewDetail')} →
                     </div>
                   </div>
                 </Link>

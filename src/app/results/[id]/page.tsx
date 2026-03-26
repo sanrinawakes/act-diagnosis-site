@@ -7,7 +7,8 @@ import AuthGuard from '@/components/AuthGuard';
 import Header from '@/components/Header';
 import { createClient } from '@/lib/supabase';
 import { DiagnosisResult } from '@/lib/types';
-import { typeNames, levelNames, axisDescriptions } from '@/data/type-names';
+import { typeNames, levelNames, axisDescriptions, typeNamesEn, levelNamesEn, axisDescriptionsEn } from '@/data/type-names';
+import { useI18n } from '@/lib/i18n';
 
 export default function ResultDetailPage() {
   const [result, setResult] = useState<DiagnosisResult | null>(null);
@@ -16,7 +17,13 @@ export default function ResultDetailPage() {
   const router = useRouter();
   const params = useParams();
   const supabase = createClient();
+  const { locale, t } = useI18n();
   const resultId = params.id as string;
+
+  // Select locale-appropriate data
+  const currentTypeNames = locale === 'en' ? typeNamesEn : typeNames;
+  const currentLevelNames = locale === 'en' ? levelNamesEn : levelNames;
+  const currentAxisDescriptions = locale === 'en' ? axisDescriptionsEn : axisDescriptions;
 
   useEffect(() => {
     const fetchResult = async () => {
@@ -38,12 +45,12 @@ export default function ResultDetailPage() {
           .single();
 
         if (error) throw error;
-        if (!data) throw new Error('診断結果が見つかりません');
+        if (!data) throw new Error(t('resultDetail.notFound'));
 
         setResult(data);
       } catch (err) {
         console.error('Failed to fetch result:', err);
-        setError('診断結果の読み込みに失敗しました');
+        setError(t('resultDetail.loadError'));
       } finally {
         setLoading(false);
       }
@@ -58,7 +65,7 @@ export default function ResultDetailPage() {
         <div className="min-h-screen flex items-center justify-center">
           <div className="flex flex-col items-center gap-4">
             <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-400"></div>
-            <p className="text-gray-700">読み込み中...</p>
+            <p className="text-gray-700">{t('common.loading')}</p>
           </div>
         </div>
       </AuthGuard>
@@ -71,13 +78,13 @@ export default function ResultDetailPage() {
         <div className="min-h-screen p-6 sm:p-8">
           <div className="max-w-4xl mx-auto">
             <div className="bg-red-50 border border-red-200 text-red-900 p-6 rounded-lg mb-6">
-              {error || '診断結果が見つかりません'}
+              {error || t('resultDetail.notFound')}
             </div>
             <Link
               href="/results"
               className="text-blue-600 hover:text-blue-700 font-semibold transition-colors"
             >
-              ← 結果一覧に戻る
+              {t('resultDetail.backToList')}
             </Link>
           </div>
         </div>
@@ -101,27 +108,27 @@ export default function ResultDetailPage() {
               href="/results"
               className="text-blue-600 hover:text-blue-700 font-semibold transition-colors mb-6 inline-block"
             >
-              ← 結果一覧に戻る
+              {t('resultDetail.backToList')}
             </Link>
 
             <div className="bg-white border border-blue-200 rounded-lg p-8 mb-8">
               <div className="flex flex-col gap-6">
                 <div className="flex items-end gap-6">
                   <div>
-                    <p className="text-gray-500 text-sm mb-2">タイプコード</p>
+                    <p className="text-gray-500 text-sm mb-2">{t('resultDetail.typeCode')}</p>
                     <div className="text-7xl font-bold text-transparent bg-gradient-to-r from-blue-600 via-pink-500 to-blue-500 bg-clip-text">
                       {typeCode}
                     </div>
                   </div>
 
                   <div>
-                    <p className="text-gray-500 text-sm mb-2">意識レベル</p>
+                    <p className="text-gray-500 text-sm mb-2">{t('resultDetail.consciousnessLevel')}</p>
                     <div className="flex items-center gap-3">
                       <div className="text-5xl font-bold text-transparent bg-gradient-to-r from-blue-600 to-pink-500 bg-clip-text">
                         {result.consciousness_level}
                       </div>
                       <div className="bg-gradient-to-r from-blue-500 to-blue-600 text-white px-4 py-2 rounded-lg font-semibold">
-                        {levelNames[result.consciousness_level]}
+                        {currentLevelNames[result.consciousness_level]}
                       </div>
                     </div>
                   </div>
@@ -129,10 +136,10 @@ export default function ResultDetailPage() {
 
                 <div>
                   <p className="text-2xl font-semibold text-blue-600 mb-2">
-                    {typeNames[typeCode] || typeCode}
+                    {currentTypeNames[typeCode] || typeCode}
                   </p>
                   <p className="text-gray-600">
-                    {new Date(result.created_at).toLocaleDateString('ja-JP', {
+                    {new Date(result.created_at).toLocaleDateString(locale === 'en' ? 'en-US' : 'ja-JP', {
                       year: 'numeric',
                       month: '2-digit',
                       day: '2-digit',
@@ -147,78 +154,78 @@ export default function ResultDetailPage() {
 
           {/* Axis Explanations */}
           <div className="mb-8">
-            <h2 className="text-2xl font-bold text-gray-900 mb-6">3つの軸の説明</h2>
+            <h2 className="text-2xl font-bold text-gray-900 mb-6">{t('resultDetail.axisTitle')}</h2>
 
             <div className="grid gap-4 md:grid-cols-3">
               {/* Axis 1 */}
               <div className="bg-white border border-blue-200 rounded-lg p-6">
                 <p className="text-blue-600 font-semibold mb-2">
-                  1文字目: {axisDescriptions.axis1.description}
+                  {t('resultDetail.axis1Label')}: {currentAxisDescriptions.axis1.description}
                 </p>
                 <p className="text-3xl font-bold text-transparent bg-gradient-to-r from-blue-600 to-pink-500 bg-clip-text mb-3">
                   {axis1}
                 </p>
                 <p className="text-gray-700">
                   {axis1 === 'S'
-                    ? axisDescriptions.axis1.S
+                    ? currentAxisDescriptions.axis1.S
                     : axis1 === 'P'
-                      ? axisDescriptions.axis1.P
-                      : axisDescriptions.axis1.M}
+                      ? currentAxisDescriptions.axis1.P
+                      : currentAxisDescriptions.axis1.M}
                 </p>
                 <p className="text-gray-600 text-sm mt-3">
                   {axis1 === 'S'
-                    ? 'あなたは内向的なエネルギーを持つ人です。深い思考と内省を重視します。'
+                    ? t('resultDetail.axis1.S')
                     : axis1 === 'P'
-                      ? 'あなたは外向的なエネルギーを持つ人です。行動と周囲との関わりを重視します。'
-                      : 'あなたはバランスの取れたエネルギーを持つ人です。状況に応じて柔軟に対応します。'}
+                      ? t('resultDetail.axis1.P')
+                      : t('resultDetail.axis1.M')}
                 </p>
               </div>
 
               {/* Axis 2 */}
               <div className="bg-white border border-blue-200 rounded-lg p-6">
                 <p className="text-blue-600 font-semibold mb-2">
-                  2文字目: {axisDescriptions.axis2.description}
+                  {t('resultDetail.axis2Label')}: {currentAxisDescriptions.axis2.description}
                 </p>
                 <p className="text-3xl font-bold text-transparent bg-gradient-to-r from-blue-600 to-pink-500 bg-clip-text mb-3">
                   {axis2}
                 </p>
                 <p className="text-gray-700">
                   {axis2 === 'V'
-                    ? axisDescriptions.axis2.V
+                    ? currentAxisDescriptions.axis2.V
                     : axis2 === 'G'
-                      ? axisDescriptions.axis2.G
-                      : axisDescriptions.axis2.M}
+                      ? currentAxisDescriptions.axis2.G
+                      : currentAxisDescriptions.axis2.M}
                 </p>
                 <p className="text-gray-600 text-sm mt-3">
                   {axis2 === 'V'
-                    ? 'あなたは理想や価値観を大切にする理想型です。'
+                    ? t('resultDetail.axis2.V')
                     : axis2 === 'G'
-                      ? 'あなたは現実や実用性を重視する現実型です。'
-                      : 'あなたはバランス感覚に優れたバランス型です。'}
+                      ? t('resultDetail.axis2.G')
+                      : t('resultDetail.axis2.M')}
                 </p>
               </div>
 
               {/* Axis 3 */}
               <div className="bg-white border border-blue-200 rounded-lg p-6">
                 <p className="text-blue-600 font-semibold mb-2">
-                  3文字目: {axisDescriptions.axis3.description}
+                  {t('resultDetail.axis3Label')}: {currentAxisDescriptions.axis3.description}
                 </p>
                 <p className="text-3xl font-bold text-transparent bg-gradient-to-r from-blue-600 to-pink-500 bg-clip-text mb-3">
                   {axis3}
                 </p>
                 <p className="text-gray-700">
                   {axis3 === 'A'
-                    ? axisDescriptions.axis3.A
+                    ? currentAxisDescriptions.axis3.A
                     : axis3 === 'E'
-                      ? axisDescriptions.axis3.E
-                      : axisDescriptions.axis3.M}
+                      ? currentAxisDescriptions.axis3.E
+                      : currentAxisDescriptions.axis3.M}
                 </p>
                 <p className="text-gray-600 text-sm mt-3">
                   {axis3 === 'A'
-                    ? 'あなたは論理的で客観的な判断を重視する論理型です。'
+                    ? t('resultDetail.axis3.A')
                     : axis3 === 'E'
-                      ? 'あなたは感情や共感を大切にする感情型です。'
-                      : 'あなたは論理と感情のバランスを取る中立型です。'}
+                      ? t('resultDetail.axis3.E')
+                      : t('resultDetail.axis3.M')}
                 </p>
               </div>
             </div>
@@ -226,25 +233,25 @@ export default function ResultDetailPage() {
 
           {/* Consciousness Level Details */}
           <div className="mb-8">
-            <h2 className="text-2xl font-bold text-gray-900 mb-6">意識レベルについて</h2>
+            <h2 className="text-2xl font-bold text-gray-900 mb-6">{t('resultDetail.levelTitle')}</h2>
 
             <div className="bg-white border border-blue-200 rounded-lg p-6">
               <p className="text-blue-600 font-semibold mb-3 text-lg">
-                レベル {result.consciousness_level}: {levelNames[result.consciousness_level]}
+                {t('resultDetail.levelLabel')} {result.consciousness_level}: {currentLevelNames[result.consciousness_level]}
               </p>
 
               <p className="text-gray-700 leading-relaxed">
                 {result.consciousness_level === 1
-                  ? '防衛レベルでは、あなたは困難や脅威から身を守ることに集中しています。安全と安心を最優先とし、変化よりも現状維持を好みます。'
+                  ? t('resultDetail.level1Desc')
                   : result.consciousness_level === 2
-                    ? '著しい葛藤レベルでは、あなたは内的な矛盾や対立を感じています。異なる価値観や欲求のバランスを取ることに苦労しています。'
+                    ? t('resultDetail.level2Desc')
                     : result.consciousness_level === 3
-                      ? '自立レベルでは、あなたは自分の価値観に基づいて独立して判断し、行動できます。自己責任と個人の成長を重視しています。'
+                      ? t('resultDetail.level3Desc')
                       : result.consciousness_level === 4
-                        ? '調和レベルでは、あなたは個人の欲求と周囲との関係のバランスを取ることができます。共感と協働を大切にしながらも、自分の目標を追求します。'
+                        ? t('resultDetail.level4Desc')
                         : result.consciousness_level === 5
-                          ? '創造レベルでは、あなたは新しい可能性を見出し、他者にインスピレーションを与えることができます。個人の成長と周囲への貢献の統合を実現しています。'
-                          : '解脱（視野の超越）レベルでは、あなたはあらゆる二項対立を超え、より大きな視野を持って世界を理解しています。普遍的な真理と個別の現象の関連を知覚します。'}
+                          ? t('resultDetail.level5Desc')
+                          : t('resultDetail.level6Desc')}
               </p>
             </div>
           </div>
@@ -255,14 +262,14 @@ export default function ResultDetailPage() {
               href={`/chat?code=${typeCode}-${result.consciousness_level}`}
               className="flex-1 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-semibold py-3 px-6 rounded-lg text-center transition-all duration-200 transform hover:scale-105 shadow-lg"
             >
-              AIコーチングを受ける
+              {t('resultDetail.getCoaching')}
             </Link>
 
             <Link
               href="/diagnosis"
               className="flex-1 bg-white border border-blue-200 hover:bg-blue-50 text-blue-600 font-semibold py-3 px-6 rounded-lg text-center transition-all duration-200 transform hover:scale-105"
             >
-              もう一度診断する
+              {t('resultDetail.retakeDiagnosis')}
             </Link>
           </div>
         </div>
