@@ -9,9 +9,8 @@ CREATE TABLE IF NOT EXISTS public.pending_activations (
   activated_at timestamptz
 );
 
--- emailにユニークインデックス（小文字正規化）
-CREATE UNIQUE INDEX IF NOT EXISTS idx_pending_activations_email
-  ON public.pending_activations (lower(email));
+-- emailカラムにUNIQUE制約（API側でlowercaseに正規化して格納する）
+ALTER TABLE public.pending_activations ADD CONSTRAINT pending_activations_email_unique UNIQUE (email);
 
 -- RLS有効化
 ALTER TABLE public.pending_activations ENABLE ROW LEVEL SECURITY;
