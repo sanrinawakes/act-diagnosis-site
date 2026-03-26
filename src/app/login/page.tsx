@@ -1,12 +1,13 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase';
 import { useI18n } from '@/lib/i18n';
+import { Suspense } from 'react';
 
-export default function LoginPage() {
+function LoginForm() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -14,16 +15,40 @@ export default function LoginPage() {
   const [hydrated, setHydrated] = useState(false);
   const formRef = useRef<HTMLFormElement>(null);
   const router = useRouter();
+  const searchParams = useSearchParams();
   const supabase = createClient();
   const { t } = useI18n();
 
+  // Check for server-side error from API route redirect
   useEffect(() => {
     setHydrated(true);
     console.log('[LOGIN] Component hydrated successfully');
-  }, []);
+    const urlError = searchParams.get('error');
+    if (urlError) {
+      setError(urlError);
+    }
+  }, [searchParams]);
 
-  const doLogin = async (loginEmail: string, loginPassword: string) => {
-    console.log('[LOGIN] doLogin called with email:', loginEmail);
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    console.log('[LOGIN] handleLogin called, email state:', email, 'password length:', password.length);
+
+    // Fall back to DOM values if React state is empty (extension autofill issue)
+    let loginEmail = email;
+    let loginPassword = password;
+    if (!loginEmail || !loginPassword) {
+      const emailInput = document.getElementById('email') as HTMLInputElement;
+      const passwordInput = document.getElementById('password') as HTMLInputElement;
+      if (emailInput?.value) loginEmail = emailInput.value;
+      if (passwordInput?.value) loginPassword = passwordInput.value;
+      console.log('[LOGIN] Falling back to DOM values, email:', loginEmail);
+    }
+
+    if (!loginEmail || !loginPassword) {
+      setError('メールアドレスとパスワードを入力してください');
+      return;
+    }
+
     setError('');
     setIsLoading(true);
 
@@ -55,29 +80,6 @@ export default function LoginPage() {
     }
   };
 
-  const handleLogin = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    console.log('[LOGIN] handleLogin called, email state:', email, 'password length:', password.length);
-
-    // Fall back to DOM values if React state is empty (extension autofill issue)
-    let loginEmail = email;
-    let loginPassword = password;
-    if (!loginEmail || !loginPassword) {
-      const emailInput = document.getElementById('email') as HTMLInputElement;
-      const passwordInput = document.getElementById('password') as HTMLInputElement;
-      if (emailInput?.value) loginEmail = emailInput.value;
-      if (passwordInput?.value) loginPassword = passwordInput.value;
-      console.log('[LOGIN] Falling back to DOM values, email:', loginEmail);
-    }
-
-    if (!loginEmail || !loginPassword) {
-      setError('メールアドレスとパスワードを入力してください');
-      return;
-    }
-
-    await doLogin(loginEmail, loginPassword);
-  };
-
   return (
     <main className="min-h-screen flex items-center justify-center px-4">
       <div className="w-full max-w-md">
@@ -95,8 +97,14 @@ export default function LoginPage() {
             </div>
           )}
 
-          {/* Form */}
-          <form ref={formRef} onSubmit={handleLogin} className="space-y-5">
+          {/* Form - action/method provide native HTML fallback if React hydration fails */}
+          <form
+            ref={formRef}
+            action="/api/auth/login"
+            method="POST"
+            onSubmit={handleLogin}
+            className="space-y-5"
+          >
             {/* Email Field */}
             <div>
               <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
@@ -104,15 +112,10 @@ export default function LoginPage() {
               </label>
               <input
                 id="email"
+                name="email"
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                onInput={(e) => {
-                  const target = e.target as HTMLInputElement;
-                  if (target.value && !email) {
-                    setEmail(target.value);
-                  }
-                }}
                 placeholder="your@email.com"
                 required
                 className="w-full px-4 py-3 bg-white border border-blue-200 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-transparent transition-all"
@@ -126,26 +129,20 @@ export default function LoginPage() {
               </label>
               <input
                 id="password"
+                name="password"
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                onInput={(e) => {
-                  const target = e.target as HTMLInputElement;
-                  if (target.value && !password) {
-                    setPassword(target.value);
-                  }
-                }}
                 placeholder="••••••••"
                 required
                 className="w-full px-4 py-3 bg-white border border-blue-200 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-transparent transition-all"
               />
             </div>
 
-            {/* Submit Button */}
+            {/* Submit Button - type="submit" so native HTML form works even without JS */}
             <button
-              type="button"
+              type="submit"
               disabled={isLoading}
-              onClick={() => handleLogin()}
               className="w-full py-3 bg-blue-500 hover:bg-blue-600 disabled:bg-blue-300 disabled:opacity-50 text-white font-semibold rounded-lg transition-colors duration-200 mt-6"
             >
               {isLoading ? t('login.loading') : t('login.submit')}
@@ -169,5 +166,17 @@ export default function LoginPage() {
         </div>
       </div>
     </main>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={
+      <main className="min-h-screen flex items-center justify-center px-4">
+        <div className="text-gray-500">読み込み中...</div>
+      </main>
+    }>
+      <LoginForm />
+    </Suspense>
   );
 }
