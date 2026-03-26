@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase';
+import { restoreSessionFromCookie } from '@/lib/restore-session';
 import { useI18n } from '@/lib/i18n';
 import { Suspense } from 'react';
 
@@ -19,15 +20,37 @@ function LoginForm() {
   const supabase = createClient();
   const { t } = useI18n();
 
-  // Check for server-side error from API route redirect
+  // Check if user is already authenticated (e.g. arrived here after login API set cookie)
+  // If so, redirect to dashboard immediately
   useEffect(() => {
     setHydrated(true);
     console.log('[LOGIN] Component hydrated successfully');
     const urlError = searchParams.get('error');
     if (urlError) {
       setError(urlError);
+      return; // Don't auto-redirect if there's an error
     }
-  }, [searchParams]);
+
+    const checkExistingSession = async () => {
+      // First check localStorage (normal Supabase session)
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const redirect = searchParams.get('redirect') || '/dashboard';
+        router.push(redirect);
+        return;
+      }
+      // Then try to restore from cookie (login via /api/auth/login)
+      const restored = await restoreSessionFromCookie(supabase);
+      if (restored) {
+        const { data: { user: restoredUser } } = await supabase.auth.getUser();
+        if (restoredUser) {
+          const redirect = searchParams.get('redirect') || '/dashboard';
+          router.push(redirect);
+        }
+      }
+    };
+    checkExistingSession();
+  }, [searchParams, supabase, router]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
