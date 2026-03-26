@@ -5,8 +5,8 @@ import type { NextRequest } from 'next/server';
 // Routes that require active subscription (paid member)
 const PROTECTED_ROUTES = ['/diagnosis', '/results', '/coaching', '/profile'];
 
-// Routes that are always public
-const PUBLIC_ROUTES = ['/', '/free', '/login', '/register', '/subscription-required', '/api'];
+// Routes that are always public (exact match for '/', prefix match for others)
+const PUBLIC_ROUTE_PREFIXES = ['/free', '/login', '/register', '/subscription-required', '/api'];
 
 // Admin routes - require admin role, handled by AdminGuard component
 const ADMIN_ROUTES = ['/admin'];
@@ -15,8 +15,10 @@ export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Skip public routes and static files
+  // Note: '/' must be exact match to avoid matching all paths
   if (
-    PUBLIC_ROUTES.some((route) => pathname.startsWith(route)) ||
+    pathname === '/' ||
+    PUBLIC_ROUTE_PREFIXES.some((route) => pathname.startsWith(route)) ||
     pathname.startsWith('/_next') ||
     pathname.startsWith('/favicon') ||
     pathname.includes('.')
