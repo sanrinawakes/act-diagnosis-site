@@ -114,6 +114,58 @@ export default function UserManagement() {
     }
   };
 
+  const toggleSubscription = async (userId: string, currentStatus: string) => {
+    const newStatus = currentStatus === 'active' ? 'none' : 'active';
+    const label = newStatus === 'active' ? '有料会員に変更' : '無料会員に変更';
+
+    if (!window.confirm(`${label}してもよろしいですか？`)) {
+      return;
+    }
+
+    try {
+      setUpdating(userId);
+      setError(null);
+
+      const response = await fetch('/api/admin/users', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: userId,
+          subscription_status: newStatus,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || '会員ステータスの更新に失敗しました');
+      }
+
+      const updatedProfile = await response.json();
+
+      // Update local state
+      setUsers((prevUsers) =>
+        prevUsers.map((user) =>
+          user.id === userId
+            ? {
+                ...user,
+                subscription_status: updatedProfile.subscription_status,
+                is_active: updatedProfile.is_active,
+                subscribed_at: updatedProfile.subscribed_at,
+              }
+            : user
+        )
+      );
+
+      setSuccessMessage(`会員ステータスが${newStatus === 'active' ? '有料会員' : '未連携'}に変更されました`);
+      setTimeout(() => setSuccessMessage(null), 3000);
+    } catch (err) {
+      console.error('Failed to update subscription status:', err);
+      setError(err instanceof Error ? err.message : '会員ステータスの更新に失敗しました');
+    } finally {
+      setUpdating(null);
+    }
+  };
+
   const toggleUserRole = async (userId: string, currentRole: string) => {
     if (
       !window.confirm(
@@ -315,21 +367,34 @@ export default function UserManagement() {
                             <td className="px-6 py-4 text-sm text-gray-600">
                               {new Date(user.created_at).toLocaleDateString('ja-JP')}
                             </td>
-                            <td className="px-6 py-4 text-sm flex gap-2">
-                              <button
-                                onClick={() => toggleUserActive(user.id, user.is_active)}
-                                disabled={updating === user.id}
-                                className="px-2 py-1 rounded bg-blue-500 hover:bg-blue-600 text-white text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                              >
-                                {user.is_active ? '無効化' : '有効化'}
-                              </button>
-                              <button
-                                onClick={() => toggleUserRole(user.id, user.role)}
-                                disabled={updating === user.id}
-                                className="px-2 py-1 rounded bg-pink-500 hover:bg-pink-600 text-white text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                              >
-                                {user.role === 'admin' ? 'メンバーに' : '管理者に'}
-                              </button>
+                            <td className="px-6 py-4 text-sm">
+                              <div className="flex flex-wrap gap-2">
+                                <button
+                                  onClick={() => toggleSubscription(user.id, (user as any).subscription_status || 'none')}
+                                  disabled={updating === user.id}
+                                  className={`px-2 py-1 rounded text-white text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                                    (user as any).subscription_status === 'active'
+                                      ? 'bg-orange-500 hover:bg-orange-600'
+                                      : 'bg-emerald-500 hover:bg-emerald-600'
+                                  }`}
+                                >
+                                  {(user as any).subscription_status === 'active' ? '無料に変更' : '有料に変更'}
+                                </button>
+                                <button
+                                  onClick={() => toggleUserActive(user.id, user.is_active)}
+                                  disabled={updating === user.id}
+                                  className="px-2 py-1 rounded bg-blue-500 hover:bg-blue-600 text-white text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                  {user.is_active ? '無効化' : '有効化'}
+                                </button>
+                                <button
+                                  onClick={() => toggleUserRole(user.id, user.role)}
+                                  disabled={updating === user.id}
+                                  className="px-2 py-1 rounded bg-pink-500 hover:bg-pink-600 text-white text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                  {user.role === 'admin' ? 'メンバーに' : '管理者に'}
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         ))

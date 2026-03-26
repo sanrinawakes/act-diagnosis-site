@@ -161,6 +161,22 @@ export async function PATCH(request: NextRequest) {
       }
       updateData.role = role;
     }
+    if (body.subscription_status !== undefined) {
+      const validStatuses = ['none', 'active', 'cancelled', 'payment_failed'];
+      if (!validStatuses.includes(body.subscription_status)) {
+        return NextResponse.json({ error: '無効な会員ステータスです' }, { status: 400 });
+      }
+      updateData.subscription_status = body.subscription_status;
+      // activeに変更する場合はsubscribed_atも設定
+      if (body.subscription_status === 'active') {
+        updateData.subscribed_at = new Date().toISOString();
+        updateData.is_active = true;
+      }
+      // cancelled に変更する場合は cancelled_at を設定
+      if (body.subscription_status === 'cancelled') {
+        updateData.cancelled_at = new Date().toISOString();
+      }
+    }
 
     if (Object.keys(updateData).length === 0) {
       return NextResponse.json(
