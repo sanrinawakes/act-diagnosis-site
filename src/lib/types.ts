@@ -15,12 +15,18 @@ export type ConsciousnessLevel = 1 | 2 | 3 | 4 | 5 | 6;
 /**
  * User profile
  */
+export type SubscriptionStatus = 'none' | 'active' | 'cancelled' | 'payment_failed';
+
 export interface Profile {
   id: string;
   email: string;
   display_name: string | null;
   role: 'admin' | 'member';
   is_active: boolean;
+  myasp_customer_email: string | null;
+  subscription_status: SubscriptionStatus;
+  subscribed_at: string | null;
+  cancelled_at: string | null;
   created_at: string;
   updated_at: string;
 }

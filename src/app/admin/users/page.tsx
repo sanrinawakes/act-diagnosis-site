@@ -240,6 +240,9 @@ export default function UserManagement() {
                           ステータス
                         </th>
                         <th className="px-6 py-3 text-left text-xs font-semibold text-gray-900 uppercase">
+                          会員状態
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-semibold text-gray-900 uppercase">
                           診断数
                         </th>
                         <th className="px-6 py-3 text-left text-xs font-semibold text-gray-900 uppercase">
@@ -285,6 +288,27 @@ export default function UserManagement() {
                                 {user.is_active ? '有効' : '無効'}
                               </span>
                             </td>
+                            <td className="px-6 py-4 text-sm">
+                              <span
+                                className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                                  (user as any).subscription_status === 'active'
+                                    ? 'bg-emerald-100 text-emerald-800'
+                                    : (user as any).subscription_status === 'cancelled'
+                                    ? 'bg-red-100 text-red-800'
+                                    : (user as any).subscription_status === 'payment_failed'
+                                    ? 'bg-orange-100 text-orange-800'
+                                    : 'bg-gray-100 text-gray-500'
+                                }`}
+                              >
+                                {(user as any).subscription_status === 'active'
+                                  ? '有料会員'
+                                  : (user as any).subscription_status === 'cancelled'
+                                  ? '退会済み'
+                                  : (user as any).subscription_status === 'payment_failed'
+                                  ? '決済エラー'
+                                  : '未連携'}
+                              </span>
+                            </td>
                             <td className="px-6 py-4 text-sm text-gray-700">
                               {user.diagnosis_count}
                             </td>
@@ -311,7 +335,7 @@ export default function UserManagement() {
                         ))
                       ) : (
                         <tr>
-                          <td colSpan={7} className="px-6 py-8 text-center text-gray-600">
+                          <td colSpan={8} className="px-6 py-8 text-center text-gray-600">
                             ユーザーが見つかりません
                           </td>
                         </tr>
