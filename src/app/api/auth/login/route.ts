@@ -1,7 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+
+// GET handler - redirect to login page
+export async function GET() {
+  return NextResponse.redirect(new URL('/login', process.env.NEXT_PUBLIC_SUPABASE_URL ? 'https://act-diagnosis-site.vercel.app' : 'http://localhost:3000'));
+}
 
 export async function POST(request: NextRequest) {
+  const baseUrl = request.nextUrl.origin;
+
   try {
     const contentType = request.headers.get('content-type') || '';
     let email = '';
@@ -23,14 +29,20 @@ export async function POST(request: NextRequest) {
     }
 
     if (!email || !password) {
-      // Redirect back to login with error
-      const loginUrl = new URL('/login', request.url);
+      const loginUrl = new URL('/login.html', baseUrl);
       loginUrl.searchParams.set('error', 'メールアドレスとパスワードを入力してください');
-      return NextResponse.redirect(loginUrl);
+      return NextResponse.redirect(loginUrl, { status: 303 });
     }
 
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
     const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+
+    if (!supabaseUrl || !supabaseAnonKey) {
+      console.error('[AUTH/LOGIN] Missing Supabase env vars');
+      const loginUrl = new URL('/login.html', baseUrl);
+      loginUrl.searchParams.set('error', 'サーバー設定エラー');
+      return NextResponse.redirect(loginUrl, { status: 303 });
+    }
 
     // Use Supabase REST API directly to sign in
     const authResponse = await fetch(`${supabaseUrl}/auth/v1/token?grant_type=password`, {
@@ -45,13 +57,15 @@ export async function POST(request: NextRequest) {
     const authData = await authResponse.json();
 
     if (!authResponse.ok || authData.error) {
-      const loginUrl = new URL('/login', request.url);
+      console.error('[AUTH/LOGIN] Auth failed:', authData.error || authData.error_description);
+      const loginUrl = new URL('/login.html', baseUrl);
       loginUrl.searchParams.set('error', 'メールアドレスまたはパスワードが正しくありません');
-      return NextResponse.redirect(loginUrl);
+      return NextResponse.redirect(loginUrl, { status: 303 });
     }
 
     // Set Supabase auth cookies and redirect to dashboard
-    const response = NextResponse.redirect(new URL(redirect, request.url));
+    const redirectUrl = new URL(redirect, baseUrl);
+    const response = NextResponse.redirect(redirectUrl, { status: 303 });
 
     // Set the access token and refresh token as cookies
     // Supabase JS client reads these cookies to restore the session
@@ -76,8 +90,8 @@ export async function POST(request: NextRequest) {
     return response;
   } catch (error) {
     console.error('[AUTH/LOGIN] Error:', error);
-    const loginUrl = new URL('/login', request.url);
+    const loginUrl = new URL('/login.html', baseUrl);
     loginUrl.searchParams.set('error', 'ログインに失敗しました');
-    return NextResponse.redirect(loginUrl);
+    return NextResponse.redirect(loginUrl, { status: 303 });
   }
 }
