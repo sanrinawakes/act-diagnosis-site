@@ -86,10 +86,14 @@ You provide compassionate, insightful coaching based on the user's ACT type diag
 Always communicate in Japanese, with respect and curiosity. Help users understand their strengths, growth areas, and pathways to higher consciousness levels.`;
 
     // Prepare conversation history for Gemini
-    const geminiHistory = messages.slice(0, -1).map((msg) => ({
+    // Gemini requires the first message in history to be 'user' role
+    const rawHistory = messages.slice(0, -1).map((msg) => ({
       role: msg.role === 'assistant' ? 'model' as const : 'user' as const,
       parts: [{ text: msg.content }],
     }));
+    // Strip leading 'model' messages (e.g. welcome message) since Gemini requires 'user' first
+    const firstUserIndex = rawHistory.findIndex((msg) => msg.role === 'user');
+    const geminiHistory = firstUserIndex >= 0 ? rawHistory.slice(firstUserIndex) : [];
 
     const lastUserMessage = messages[messages.length - 1];
 
