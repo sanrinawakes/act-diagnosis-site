@@ -1,4 +1,5 @@
-import { createClient as createBrowserClient, SupabaseClient } from '@supabase/supabase-js';
+import { createBrowserClient } from '@supabase/ssr';
+import type { SupabaseClient } from '@supabase/supabase-js';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
@@ -12,6 +13,8 @@ let supabaseInstance: SupabaseClient | null = null;
 
 /**
  * Create a Supabase client for browser-side usage (singleton)
+ * Uses @supabase/ssr's createBrowserClient to store auth tokens in cookies,
+ * matching the middleware's createServerClient which reads from cookies.
  */
 export function createClient() {
   if (supabaseInstance) {
