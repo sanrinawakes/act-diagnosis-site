@@ -27,6 +27,8 @@ export interface Profile {
   subscription_status: SubscriptionStatus;
   subscribed_at: string | null;
   cancelled_at: string | null;
+  paid_test_credits: number;
+  referral_code_used: string | null;
   created_at: string;
   updated_at: string;
 }

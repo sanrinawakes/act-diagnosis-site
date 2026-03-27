@@ -16,6 +16,9 @@ export default function DashboardPage() {
   const [diagnosisCount, setDiagnosisCount] = useState<number>(0);
   const [chatSessionCount, setChatSessionCount] = useState<number>(0);
   const [loading, setLoading] = useState(true);
+  const [referralCode, setReferralCode] = useState('');
+  const [referralMessage, setReferralMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [referralSubmitting, setReferralSubmitting] = useState(false);
   const router = useRouter();
   const supabase = createClient();
   const { t } = useI18n();
@@ -73,6 +76,54 @@ export default function DashboardPage() {
     fetchDashboardData();
   }, [router, supabase]);
 
+  // ユーザーの権限判定
+  const isAdmin = profile?.role === 'admin';
+  const hasActiveSubscription = profile?.subscription_status === 'active' && profile?.is_active;
+  const hasPaidTestCredits = (profile?.paid_test_credits || 0) > 0;
+  const isPaidUser = isAdmin || hasActiveSubscription || hasPaidTestCredits;
+  const hasUsedReferralCode = !!profile?.referral_code_used;
+
+  const handleReferralSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!referralCode.trim()) return;
+
+    setReferralSubmitting(true);
+    setReferralMessage(null);
+
+    try {
+      const res = await fetch('/api/referral/redeem', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: referralCode.trim() }),
+      });
+
+      const data = await res.json();
+
+      if (res.ok) {
+        setReferralMessage({ type: 'success', text: '紹介コードが適用されました！有料診断テスト（122問）を1回受けることができます。' });
+        // プロフィールを再取得して状態を更新
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          const { data: updatedProfile } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', user.id)
+            .single();
+          if (updatedProfile) {
+            setProfile(updatedProfile);
+          }
+        }
+        setReferralCode('');
+      } else {
+        setReferralMessage({ type: 'error', text: data.error || '紹介コードの適用に失敗しました。' });
+      }
+    } catch {
+      setReferralMessage({ type: 'error', text: 'ネットワークエラーが発生しました。' });
+    } finally {
+      setReferralSubmitting(false);
+    }
+  };
+
   if (loading) {
     return (
       <AuthGuard>
@@ -100,6 +151,26 @@ export default function DashboardPage() {
                 : t('dashboard.default')}
             </h1>
             <p className="text-gray-600">{t('dashboard.welcome')}</p>
+            {/* 会員ステータスバッジ */}
+            <div className="mt-3">
+              {isAdmin ? (
+                <span className="inline-block bg-purple-100 text-purple-800 px-3 py-1 rounded-full text-sm font-semibold">
+                  管理者
+                </span>
+              ) : hasActiveSubscription ? (
+                <span className="inline-block bg-green-100 text-green-800 px-3 py-1 rounded-full text-sm font-semibold">
+                  有料会員
+                </span>
+              ) : hasPaidTestCredits ? (
+                <span className="inline-block bg-yellow-100 text-yellow-800 px-3 py-1 rounded-full text-sm font-semibold">
+                  無料会員（有料テスト {profile?.paid_test_credits}回分あり）
+                </span>
+              ) : (
+                <span className="inline-block bg-gray-100 text-gray-700 px-3 py-1 rounded-full text-sm font-semibold">
+                  無料会員
+                </span>
+              )}
+            </div>
           </div>
 
           {/* 統計カード */}
@@ -167,42 +238,111 @@ export default function DashboardPage() {
               <p className="text-gray-600 mb-6">
                 {t('dashboard.noDiagnosisDesc')}
               </p>
-              <Link
-                href="/diagnosis"
-                className="inline-block px-8 py-3 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-semibold rounded-lg transition-all"
+              <div className="flex flex-col sm:flex-row gap-3 justify-center">
+                <Link
+                  href="/free/diagnosis"
+                  className="inline-block px-8 py-3 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-semibold rounded-lg transition-all"
+                >
+                  無料診断を受ける（15問）
+                </Link>
+                {isPaidUser && (
+                  <Link
+                    href="/diagnosis"
+                    className="inline-block px-8 py-3 bg-gradient-to-r from-pink-500 to-pink-600 hover:from-pink-600 hover:to-pink-700 text-white font-semibold rounded-lg transition-all"
+                  >
+                    有料診断を受ける（122問）
+                  </Link>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* 紹介コード入力セクション（無料ユーザーかつ未使用の場合のみ表示） */}
+          {!isAdmin && !hasActiveSubscription && !hasUsedReferralCode && (
+            <div className="bg-gradient-to-r from-yellow-50 to-orange-50 border border-yellow-200 rounded-xl p-6 mb-8">
+              <h2 className="text-lg font-semibold text-gray-900 mb-2">紹介コードをお持ちですか？</h2>
+              <p className="text-gray-600 text-sm mb-4">
+                紹介コードを入力すると、有料診断テスト（122問フル版）を1回無料で受けることができます。
+              </p>
+              <form onSubmit={handleReferralSubmit} className="flex flex-col sm:flex-row gap-3">
+                <input
+                  type="text"
+                  value={referralCode}
+                  onChange={(e) => setReferralCode(e.target.value)}
+                  placeholder="紹介コードを入力"
+                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-400 focus:border-yellow-400 outline-none text-gray-900"
+                  disabled={referralSubmitting}
+                />
+                <button
+                  type="submit"
+                  disabled={referralSubmitting || !referralCode.trim()}
+                  className="px-6 py-2 bg-yellow-500 hover:bg-yellow-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-colors"
+                >
+                  {referralSubmitting ? '確認中...' : '適用する'}
+                </button>
+              </form>
+              {referralMessage && (
+                <p className={`mt-3 text-sm ${referralMessage.type === 'success' ? 'text-green-700' : 'text-red-600'}`}>
+                  {referralMessage.text}
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* 有料プランへのアップグレード案内（無料ユーザーのみ） */}
+          {!isAdmin && !hasActiveSubscription && (
+            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-6 mb-8">
+              <h2 className="text-lg font-semibold text-gray-900 mb-2">有料会員になると</h2>
+              <p className="text-gray-600 text-sm mb-3">
+                122問のフル診断で、意識レベル（47問）とパーソナリティタイプ（75問）の両方を詳細に分析できます。
+                Awakesオンラインスクールの有料会員になると、何度でも受検可能です。
+              </p>
+              <a
+                href="https://awakes1.tokyo"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-block px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition-colors text-sm"
               >
-                {t('dashboard.takeDiagnosis')}
-              </Link>
+                Awakesオンラインスクールを見る
+              </a>
             </div>
           )}
 
           {/* クイックアクション */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <Link
-              href="/diagnosis"
+              href="/free/diagnosis"
               className="bg-white/70 border border-blue-200/50 rounded-xl p-5 hover:border-blue-300 transition-all group"
             >
               <div className="text-2xl mb-2">📋</div>
-              <h3 className="text-gray-900 font-semibold group-hover:text-blue-600 transition-colors">{t('dashboard.quickDiagnosis')}</h3>
-              <p className="text-gray-600 text-sm mt-1">{t('dashboard.quickDiagnosisDesc')}</p>
+              <h3 className="text-gray-900 font-semibold group-hover:text-blue-600 transition-colors">無料診断（15問）</h3>
+              <p className="text-gray-600 text-sm mt-1">意識レベルの簡易チェック</p>
             </Link>
+
+            {isPaidUser ? (
+              <Link
+                href="/diagnosis"
+                className="bg-white/70 border border-pink-200/50 rounded-xl p-5 hover:border-pink-300 transition-all group"
+              >
+                <div className="text-2xl mb-2">📝</div>
+                <h3 className="text-gray-900 font-semibold group-hover:text-pink-600 transition-colors">有料診断（122問）</h3>
+                <p className="text-gray-600 text-sm mt-1">フル診断で詳細分析</p>
+              </Link>
+            ) : (
+              <div className="bg-gray-50/70 border border-gray-200/50 rounded-xl p-5 opacity-60 cursor-not-allowed">
+                <div className="text-2xl mb-2">🔒</div>
+                <h3 className="text-gray-500 font-semibold">有料診断（122問）</h3>
+                <p className="text-gray-400 text-sm mt-1">有料会員または紹介コードが必要</p>
+              </div>
+            )}
 
             <Link
               href="/results"
-              className="bg-white/70 border border-pink-200/50 rounded-xl p-5 hover:border-pink-300 transition-all group"
-            >
-              <div className="text-2xl mb-2">📊</div>
-              <h3 className="text-gray-900 font-semibold group-hover:text-pink-600 transition-colors">{t('dashboard.quickHistory')}</h3>
-              <p className="text-gray-600 text-sm mt-1">{t('dashboard.quickHistoryDesc')}</p>
-            </Link>
-
-            <Link
-              href="/coaching"
               className="bg-white/70 border border-blue-200/50 rounded-xl p-5 hover:border-blue-300 transition-all group"
             >
-              <div className="text-2xl mb-2">🤖</div>
-              <h3 className="text-gray-900 font-semibold group-hover:text-blue-600 transition-colors">{t('dashboard.quickCoaching')}</h3>
-              <p className="text-gray-600 text-sm mt-1">{t('dashboard.quickCoachingDesc')}</p>
+              <div className="text-2xl mb-2">📊</div>
+              <h3 className="text-gray-900 font-semibold group-hover:text-blue-600 transition-colors">{t('dashboard.quickHistory')}</h3>
+              <p className="text-gray-600 text-sm mt-1">{t('dashboard.quickHistoryDesc')}</p>
             </Link>
 
             <Link
