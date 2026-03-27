@@ -212,7 +212,7 @@ async function handleFollowEvent(event: LineWebhookEvent): Promise<void> {
     // Send welcome message
     await replyMessage(event.replyToken, [
       textMessage(
-        `ACT診断コーチングへようこそ！
+        `ACTIコーチングへようこそ！
 
 こちらはACT（Awakening Consciousness Type）診断に基づく、AIコーチングBotです。
 

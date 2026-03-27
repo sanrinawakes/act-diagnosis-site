@@ -123,13 +123,13 @@ function CoachingContent() {
       await supabase.from('chat_messages').insert({
         session_id: sid,
         role: 'system',
-        content: `ACT診断の結果: ${code}\nこのコードに基づいてパーソナライズされたコーチングを提供します。`,
+        content: `ACTIの結果: ${code}\nこのコードに基づいてパーソナライズされたコーチングを提供します。`,
       });
 
       const welcomeMsg: Message = {
         id: Date.now().toString(),
         role: 'assistant',
-        content: `こんにちは！ACT診断のコーチングへようこそ。\n\nあなたのタイプコード「${code}」に基づいて、パーソナライズされたコーチングを提供します。\n\n次のテーマについてお話しすることができます：\n・自己理解 - あなたのタイプの強みと課題\n・行動パターン - 日常での行動傾向\n・人間関係 - 対人スキルの向上\n・キャリア - 仕事での活躍方法\n・パーソナルグロース - 成長のステップ\n\n何について詳しく知りたいですか？`,
+        content: `こんにちは！ACTIのコーチングへようこそ。\n\nあなたのタイプコード「${code}」に基づいて、パーソナライズされたコーチングを提供します。\n\n次のテーマについてお話しすることができます：\n・自己理解 - あなたのタイプの強みと課題\n・行動パターン - 日常での行動傾向\n・人間関係 - 対人スキルの向上\n・キャリア - 仕事での活躍方法\n・パーソナルグロース - 成長のステップ\n\n何について詳しく知りたいですか？`,
         createdAt: new Date().toISOString(),
       };
 

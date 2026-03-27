@@ -100,7 +100,7 @@ function ChatContent() {
     userId: string
   ) => {
     try {
-      const systemMessage = `ACT診断の結果: ${code}
+      const systemMessage = `ACTIの結果: ${code}
 
 このコードに基づいてあなたの診断タイプと意識レベルを理解し、パーソナライズされたコーチングを提供します。`;
 
@@ -115,7 +115,7 @@ function ChatContent() {
       const welcomeMsg = {
         id: Date.now().toString(),
         role: 'assistant' as const,
-        content: `こんにちは！ACT診断のコーチングへようこそ。
+        content: `こんにちは！ACTIのコーチングへようこそ。
 
 あなたのタイプコード「${code}」に基づいて、パーソナライズされたコーチングを提供します。
 

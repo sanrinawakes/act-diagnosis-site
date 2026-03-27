@@ -15,7 +15,7 @@ function getResend(): Resend {
 
 const FROM_EMAIL = process.env.FROM_EMAIL || 'noreply@act-diagnosis-site.vercel.app';
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://act-diagnosis-site.vercel.app';
-const SITE_NAME = 'ACT診断 - Awakes';
+const SITE_NAME = 'ACTI - Awakes';
 
 /**
  * Send welcome email with login credentials to a new user
@@ -32,21 +32,21 @@ export async function sendWelcomeEmail(params: {
     const { data, error } = await r.emails.send({
       from: `${SITE_NAME} <${FROM_EMAIL}>`,
       to: params.to,
-      subject: `【ACT診断】Awakesメンバーサイトのアカウントが作成されました`,
+      subject: `【ACTI】Awakesメンバーサイトのアカウントが作成されました`,
       html: `
 <!DOCTYPE html>
 <html lang="ja">
 <head><meta charset="UTF-8"></head>
 <body style="font-family: 'Helvetica Neue', Arial, sans-serif; line-height: 1.8; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
   <div style="background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); padding: 30px; border-radius: 12px 12px 0 0; text-align: center;">
-    <h1 style="color: white; margin: 0; font-size: 24px;">ACT診断 コーチングサイト</h1>
+    <h1 style="color: white; margin: 0; font-size: 24px;">ACTI コーチングサイト</h1>
     <p style="color: rgba(255,255,255,0.9); margin: 8px 0 0;">Awakes メンバー専用</p>
   </div>
 
   <div style="background: #ffffff; padding: 30px; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 12px 12px;">
     <p>${params.displayName} 様</p>
 
-    <p>Awakesオンラインスクールの有料会員向けACT診断サイトのアカウントが作成されました。</p>
+    <p>Awakesオンラインスクールの有料会員向けACTIサイトのアカウントが作成されました。</p>
 
     <div style="background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 8px; padding: 20px; margin: 20px 0;">
       <h3 style="margin: 0 0 12px; color: #1d4ed8;">ログイン情報</h3>
@@ -108,20 +108,20 @@ export async function sendDeactivationEmail(params: {
     const { data, error } = await r.emails.send({
       from: `${SITE_NAME} <${FROM_EMAIL}>`,
       to: params.to,
-      subject: `【ACT診断】アカウントが無効化されました`,
+      subject: `【ACTI】アカウントが無効化されました`,
       html: `
 <!DOCTYPE html>
 <html lang="ja">
 <head><meta charset="UTF-8"></head>
 <body style="font-family: 'Helvetica Neue', Arial, sans-serif; line-height: 1.8; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
   <div style="background: #6b7280; padding: 30px; border-radius: 12px 12px 0 0; text-align: center;">
-    <h1 style="color: white; margin: 0; font-size: 24px;">ACT診断 コーチングサイト</h1>
+    <h1 style="color: white; margin: 0; font-size: 24px;">ACTI コーチングサイト</h1>
   </div>
 
   <div style="background: #ffffff; padding: 30px; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 12px 12px;">
     <p>${params.displayName} 様</p>
 
-    <p>Awakesオンラインスクールの会員ステータスの変更に伴い、ACT診断サイトへのアクセスが一時的に無効化されました。</p>
+    <p>Awakesオンラインスクールの会員ステータスの変更に伴い、ACTIサイトへのアクセスが一時的に無効化されました。</p>
 
     <p>再度ご利用いただくには、Awakesオンラインスクールの有料会員を継続していただく必要があります。</p>
 

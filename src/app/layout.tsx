@@ -17,7 +17,7 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  title: 'ACT診断コーチングサイト',
+  title: 'ACTIコーチングサイト',
   description: '個人の行動や思考を診断し、改善のためのコーチングを提供するプラットフォーム',
   keywords: ['ACT', '診断', 'コーチング', 'メンタルヘルス', '行動'],
   authors: [{ name: 'ACT Coaching Platform' }],
@@ -29,13 +29,13 @@ export const metadata: Metadata = {
     type: 'website',
     locale: 'ja_JP',
     url: 'https://act-diagnosis.com',
-    title: 'ACT診断コーチングサイト',
+    title: 'ACTIコーチングサイト',
     description: '個人の行動や思考を診断し、改善のためのコーチングを提供するプラットフォーム',
     siteName: 'ACT Coaching Platform',
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'ACT診断コーチングサイト',
+    title: 'ACTIコーチングサイト',
     description: '個人の行動や思考を診断し、改善のためのコーチングを提供するプラットフォーム',
   },
   icons: {

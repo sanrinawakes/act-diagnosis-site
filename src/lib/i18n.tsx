@@ -25,10 +25,10 @@ const translations: Record<Locale, Record<string, string>> = {
     'nav.logout': 'ログアウト',
     'nav.login': 'ログイン',
     'nav.register': '新規登録',
-    'nav.siteName': 'ACT診断',
+    'nav.siteName': 'ACTI',
 
     // Home
-    'home.title': 'ACT診断',
+    'home.title': 'ACTI',
     'home.subtitle': 'あなたの意識レベルと行動パターンを診断し、\nAI コーチングで自己成長をサポートします',
     'home.toMypage': 'マイページへ',
     'home.takeDiagnosis': '診断を受ける',
@@ -42,7 +42,7 @@ const translations: Record<Locale, Record<string, string>> = {
 
     // Login
     'login.title': 'ログイン',
-    'login.welcome': 'ACT診断へようこそ',
+    'login.welcome': 'ACTIへようこそ',
     'login.email': 'メールアドレス',
     'login.password': 'パスワード',
     'login.submit': 'ログイン',
@@ -55,7 +55,7 @@ const translations: Record<Locale, Record<string, string>> = {
 
     // Register
     'register.title': '新規登録',
-    'register.subtitle': 'ACT診断コーチングを始めましょう',
+    'register.subtitle': 'ACTIコーチングを始めましょう',
     'register.displayName': '表示名',
     'register.email': 'メールアドレス',
     'register.password': 'パスワード（6文字以上）',
@@ -67,7 +67,7 @@ const translations: Record<Locale, Record<string, string>> = {
     // Dashboard
     'dashboard.greeting': 'さん、こんにちは',
     'dashboard.default': 'マイページ',
-    'dashboard.welcome': 'ACT診断コーチングへようこそ',
+    'dashboard.welcome': 'ACTIコーチングへようこそ',
     'dashboard.diagnosisCount': '診断回数',
     'dashboard.chatSessions': 'チャットセッション',
     'dashboard.currentType': '現在のタイプ',
@@ -78,7 +78,7 @@ const translations: Record<Locale, Record<string, string>> = {
     'dashboard.viewDetail': '詳細を見る',
     'dashboard.getCoaching': 'AIコーチングを受ける',
     'dashboard.noDiagnosis': 'まだ診断を受けていません',
-    'dashboard.noDiagnosisDesc': 'ACT診断であなたのタイプと意識レベルを確認しましょう',
+    'dashboard.noDiagnosisDesc': 'ACTIであなたのタイプと意識レベルを確認しましょう',
     'dashboard.takeDiagnosis': '診断を受ける',
     'dashboard.quickDiagnosis': '診断を受ける',
     'dashboard.quickDiagnosisDesc': 'ACTタイプを診断',
@@ -90,7 +90,7 @@ const translations: Record<Locale, Record<string, string>> = {
     'dashboard.quickProfileDesc': 'アカウント設定',
 
     // Diagnosis
-    'diagnosis.title': 'ACT診断テスト',
+    'diagnosis.title': 'ACTIテスト',
     'diagnosis.description': 'このテストは、あなたの現在の意識レベルと性格タイプを診断するものです。',
     'diagnosis.copyright.title': '著作権表示：',
     'diagnosis.copyright.text1': '本診断テストの内容、デザイン、システムは著作権で保護されています。このテストの結果は個人利用のみを目的としており、商業的な利用、無断複製、配布は禁止されています。',

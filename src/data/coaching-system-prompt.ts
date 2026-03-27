@@ -3,7 +3,7 @@
  * This contains the complete coaching instructions for the AI coach
  */
 
-export const coachingSystemPrompt = `# ACT診断コーチングAI指示書
+export const coachingSystemPrompt = `# ACTIコーチングAI指示書
 
 ## セクション 1: タイプ定義（27タイプ）
 
