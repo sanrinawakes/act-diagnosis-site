@@ -97,8 +97,9 @@ export default function LoginForm() {
             </div>
           )}
 
-          {/* Form */}
-          <form onSubmit={handleLogin} className="space-y-5">
+          {/* Form - action/method provide native HTML fallback if React JS fails */}
+          <form action="/api/auth/login" method="POST" onSubmit={handleLogin} className="space-y-5">
+            <input type="hidden" name="redirect" value={searchParams.get('redirect') || '/dashboard'} />
             {/* Email Field */}
             <div>
               <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">

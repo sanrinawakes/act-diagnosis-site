@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (!email || !password) {
-      const loginUrl = new URL('/login.html', baseUrl);
+      const loginUrl = new URL('/login', baseUrl);
       loginUrl.searchParams.set('error', 'メールアドレスとパスワードを入力してください');
       return NextResponse.redirect(loginUrl, { status: 303 });
     }
@@ -39,7 +39,7 @@ export async function POST(request: NextRequest) {
 
     if (!supabaseUrl || !supabaseAnonKey) {
       console.error('[AUTH/LOGIN] Missing Supabase env vars');
-      const loginUrl = new URL('/login.html', baseUrl);
+      const loginUrl = new URL('/login', baseUrl);
       loginUrl.searchParams.set('error', 'サーバー設定エラー');
       return NextResponse.redirect(loginUrl, { status: 303 });
     }
@@ -58,7 +58,7 @@ export async function POST(request: NextRequest) {
 
     if (!authResponse.ok || authData.error) {
       console.error('[AUTH/LOGIN] Auth failed:', authData.error || authData.error_description);
-      const loginUrl = new URL('/login.html', baseUrl);
+      const loginUrl = new URL('/login', baseUrl);
       loginUrl.searchParams.set('error', 'メールアドレスまたはパスワードが正しくありません');
       return NextResponse.redirect(loginUrl, { status: 303 });
     }
@@ -101,7 +101,7 @@ window.location.replace(${JSON.stringify(redirectUrl)});
     });
   } catch (error) {
     console.error('[AUTH/LOGIN] Error:', error);
-    const loginUrl = new URL('/login.html', baseUrl);
+    const loginUrl = new URL('/login', baseUrl);
     loginUrl.searchParams.set('error', 'ログインに失敗しました');
     return NextResponse.redirect(loginUrl, { status: 303 });
   }
