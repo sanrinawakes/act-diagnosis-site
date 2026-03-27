@@ -6,7 +6,7 @@ import type { NextRequest } from 'next/server';
 const PROTECTED_ROUTES = ['/diagnosis', '/results', '/coaching', '/profile'];
 
 // Routes that are always public (exact match for '/', prefix match for others)
-const PUBLIC_ROUTE_PREFIXES = ['/free', '/login', '/register', '/subscription-required', '/api'];
+const PUBLIC_ROUTE_PREFIXES = ['/login', '/register', '/subscription-required', '/api'];
 
 // Admin routes - require admin role, handled by AdminGuard component
 const ADMIN_ROUTES = ['/admin'];
@@ -75,7 +75,7 @@ export async function middleware(request: NextRequest) {
     // Check subscription status from profile
     const { data: profile } = await supabase
       .from('profiles')
-      .select('subscription_status, is_active, role')
+      .select('subscription_status, is_active, role, paid_test_credits')
       .eq('id', user.id)
       .single();
 
@@ -84,8 +84,11 @@ export async function middleware(request: NextRequest) {
       return response;
     }
 
-    // Check if user has active subscription
-    if (!profile || profile.subscription_status !== 'active' || !profile.is_active) {
+    // Check if user has active subscription OR paid test credits
+    const hasActiveSubscription = profile?.subscription_status === 'active' && profile?.is_active;
+    const hasPaidTestCredits = (profile?.paid_test_credits || 0) > 0;
+
+    if (!hasActiveSubscription && !hasPaidTestCredits) {
       return NextResponse.redirect(
         new URL('/subscription-required', request.url)
       );

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { createClient } from '@/lib/supabase';
 import { consciousnessQuestions } from '@/data/consciousness-questions';
 import type { CLQuestion } from '@/lib/types';
 
@@ -15,6 +16,7 @@ interface DiagnosisResult {
 
 export default function FreeDiagnosisPage() {
   const router = useRouter();
+  const supabase = createClient();
   const [email, setEmail] = useState<string | null>(null);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [answers, setAnswers] = useState<number[]>(Array(freeQuestions.length).fill(-999));
@@ -22,14 +24,22 @@ export default function FreeDiagnosisPage() {
   const [initialized, setInitialized] = useState(false);
 
   useEffect(() => {
-    const savedEmail = localStorage.getItem('free_user_email');
-    if (!savedEmail) {
-      router.push('/free');
-      return;
-    }
-    setEmail(savedEmail);
-    setInitialized(true);
-  }, [router]);
+    const getUser = async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        router.push('/login');
+        return;
+      }
+
+      setEmail(user.email || null);
+      setInitialized(true);
+    };
+
+    getUser();
+  }, [router, supabase]);
 
   const handleAnswer = (choiceIndex: number) => {
     const newAnswers = [...answers];
@@ -79,7 +89,7 @@ export default function FreeDiagnosisPage() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          email: email,
+          email: email || '',
           level: level,
           typeCode: typeCode,
           answers: answers,

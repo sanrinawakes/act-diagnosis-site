@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { createClient } from '@/lib/supabase';
 import Header from '@/components/Header';
 
 interface DiagnosisResult {
@@ -12,33 +13,42 @@ interface DiagnosisResult {
 
 export default function FreeResultsPage() {
   const router = useRouter();
+  const supabase = createClient();
   const [email, setEmail] = useState<string | null>(null);
   const [result, setResult] = useState<DiagnosisResult | null>(null);
   const [initialized, setInitialized] = useState(false);
 
   useEffect(() => {
-    const savedEmail = localStorage.getItem('free_user_email');
-    if (!savedEmail) {
-      router.push('/free');
-      return;
-    }
-    setEmail(savedEmail);
+    const getUser = async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
 
-    const savedResult = localStorage.getItem('free_diagnosis_result');
-    if (!savedResult) {
-      router.push('/free/diagnosis');
-      return;
-    }
+      if (!user) {
+        router.push('/login');
+        return;
+      }
 
-    try {
-      const parsedResult = JSON.parse(savedResult);
-      setResult(parsedResult);
-      setInitialized(true);
-    } catch (error) {
-      console.error('Failed to parse diagnosis result:', error);
-      router.push('/free/diagnosis');
-    }
-  }, [router]);
+      setEmail(user.email || null);
+
+      const savedResult = localStorage.getItem('free_diagnosis_result');
+      if (!savedResult) {
+        router.push('/free/diagnosis');
+        return;
+      }
+
+      try {
+        const parsedResult = JSON.parse(savedResult);
+        setResult(parsedResult);
+        setInitialized(true);
+      } catch (error) {
+        console.error('Failed to parse diagnosis result:', error);
+        router.push('/free/diagnosis');
+      }
+    };
+
+    getUser();
+  }, [router, supabase]);
 
   if (!initialized || !result) {
     return (

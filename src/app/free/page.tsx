@@ -1,42 +1,9 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import Link from 'next/link';
 import Header from '@/components/Header';
+import Link from 'next/link';
 
 export default function FreeLandingPage() {
-  const router = useRouter();
-  const [email, setEmail] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState('');
-
-  // Check if already has email in localStorage
-  useEffect(() => {
-    const savedEmail = localStorage.getItem('free_user_email');
-    if (savedEmail) {
-      router.push('/free/diagnosis');
-    }
-  }, [router]);
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
-
-    // Validate email
-    if (!email || !email.includes('@')) {
-      setError('有効なメールアドレスを入力してください');
-      return;
-    }
-
-    // Store email in localStorage
-    localStorage.setItem('free_user_email', email);
-    setIsLoading(true);
-
-    // Redirect to diagnosis
-    router.push('/free/diagnosis');
-  };
-
   return (
     <main className="min-h-screen">
       <Header />
@@ -57,44 +24,26 @@ export default function FreeLandingPage() {
               あなたの意識タイプを無料で診断
             </h1>
             <p className="text-lg sm:text-xl text-gray-600 mb-4 drop-shadow">
-              メールアドレスだけで簡単スタート
+              会員登録で利用可能
             </p>
             <p className="text-base sm:text-lg text-gray-600 mb-12 drop-shadow">
               15問の簡易テスト + AIコーチング3回/日
             </p>
 
-            {/* Email Form */}
-            <form onSubmit={handleSubmit} className="max-w-md mx-auto">
-              <div className="space-y-4">
-                <div>
-                  <input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="メールアドレスを入力"
-                    className="w-full px-6 py-4 border-2 border-blue-200 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-400/50 text-gray-900 placeholder-gray-500"
-                    disabled={isLoading}
-                  />
-                  {error && (
-                    <p className="text-red-500 text-sm mt-2">{error}</p>
-                  )}
-                </div>
-                <button
-                  type="submit"
-                  disabled={isLoading}
-                  className="w-full py-4 px-6 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-all duration-300 shadow-lg"
-                >
-                  {isLoading ? '処理中...' : '無料診断を始める'}
-                </button>
-              </div>
-            </form>
+            {/* Start Button */}
+            <Link
+              href="/free/diagnosis"
+              className="inline-block py-4 px-8 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-semibold rounded-lg transition-all duration-300 shadow-lg"
+            >
+              無料診断を始める
+            </Link>
 
             {/* Features */}
             <div className="mt-16 grid md:grid-cols-3 gap-6 max-w-3xl mx-auto">
               <div className="bg-white/70 backdrop-blur rounded-xl p-6 border border-blue-200/50">
                 <div className="text-3xl mb-3">✓</div>
-                <h3 className="font-semibold text-gray-900 mb-2">ログイン不要</h3>
-                <p className="text-sm text-gray-600">メールアドレスだけで簡単開始</p>
+                <h3 className="font-semibold text-gray-900 mb-2">会員登録で利用可能</h3>
+                <p className="text-sm text-gray-600">ログイン後に診断を開始</p>
               </div>
               <div className="bg-white/70 backdrop-blur rounded-xl p-6 border border-blue-200/50">
                 <div className="text-3xl mb-3">⚡</div>
@@ -181,29 +130,28 @@ export default function FreeLandingPage() {
               </div>
             </div>
 
-            {/* Divider */}
+            {/* Study Session Links */}
             <div className="mt-12 flex items-center gap-4 justify-center">
               <div className="h-px flex-1 bg-gradient-to-r from-transparent to-blue-200"></div>
-              <span className="text-gray-600 text-sm">または</span>
+              <span className="text-gray-600 text-sm">その他</span>
               <div className="h-px flex-1 bg-gradient-to-l from-transparent to-blue-200"></div>
             </div>
 
-            {/* Login Link */}
             <div className="mt-8">
-              <p className="text-gray-600 mb-4">すでにアカウントをお持ちですか？</p>
+              <p className="text-gray-600 mb-4">勉強会に参加してさらに詳しく学ぶ</p>
               <div className="flex flex-col sm:flex-row gap-4 justify-center">
-                <Link
-                  href="/login"
+                <a
+                  href="https://example.com/study-session"
                   className="px-8 py-3 bg-white hover:bg-gray-100 text-blue-500 font-semibold rounded-lg transition-colors duration-200 border border-blue-200"
                 >
-                  ログイン
-                </Link>
-                <Link
-                  href="/register"
+                  無料勉強会
+                </a>
+                <a
+                  href="https://example.com/resources"
                   className="px-8 py-3 bg-blue-500 hover:bg-blue-600 text-white font-semibold rounded-lg transition-colors duration-200"
                 >
-                  新規登録
-                </Link>
+                  学習リソース
+                </a>
               </div>
             </div>
           </div>

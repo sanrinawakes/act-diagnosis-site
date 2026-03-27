@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { createClient } from '@/lib/supabase';
 import Header from '@/components/Header';
 
 interface Message {
@@ -18,6 +19,7 @@ interface RateLimitModal {
 
 export default function FreeCoachingPage() {
   const router = useRouter();
+  const supabase = createClient();
   const [email, setEmail] = useState<string | null>(null);
   const [diagnosisCode, setDiagnosisCode] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -40,52 +42,60 @@ export default function FreeCoachingPage() {
   }, [messages]);
 
   useEffect(() => {
-    const savedEmail = localStorage.getItem('free_user_email');
-    if (!savedEmail) {
-      router.push('/free');
-      return;
-    }
-    setEmail(savedEmail);
+    const getUser = async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
 
-    const savedResult = localStorage.getItem('free_diagnosis_result');
-    if (!savedResult) {
-      router.push('/free/diagnosis');
-      return;
-    }
-
-    try {
-      const result = JSON.parse(savedResult);
-      const code = `${result.typeCode}-${result.level}`;
-      setDiagnosisCode(code);
-
-      // Get messages used today from localStorage
-      const today = new Date().toDateString();
-      const lastDate = localStorage.getItem('free_coaching_last_date');
-      let used = 0;
-
-      if (lastDate === today) {
-        used = parseInt(localStorage.getItem('free_coaching_used') || '0', 10);
-      } else {
-        localStorage.setItem('free_coaching_last_date', today);
-        localStorage.setItem('free_coaching_used', '0');
+      if (!user) {
+        router.push('/login');
+        return;
       }
 
-      setMessagesUsedToday(used);
-      setInitialized(true);
+      setEmail(user.email || null);
 
-      // Load welcome message
-      const welcomeMsg: Message = {
-        id: Date.now().toString(),
-        role: 'assistant',
-        content: `こんにちは！ACT診断のAIコーチへようこそ。\n\nあなたのタイプコード「${code}」に基づいて、パーソナライズされたコーチングを提供します。\n\n次のテーマについてお話しすることができます：\n・自己理解 - あなたのタイプの強みと課題\n・行動パターン - 日常での行動傾向\n・人間関係 - 対人スキルの向上\n・キャリア - 仕事での活躍方法\n・パーソナルグロース - 成長のステップ\n\n何について詳しく知りたいですか？`,
-        createdAt: new Date().toISOString(),
-      };
-      setMessages([welcomeMsg]);
-    } catch (error) {
-      console.error('Failed to parse diagnosis result:', error);
-      router.push('/free/diagnosis');
-    }
-  }, [router]);
+      const savedResult = localStorage.getItem('free_diagnosis_result');
+      if (!savedResult) {
+        router.push('/free/diagnosis');
+        return;
+      }
+
+      try {
+        const result = JSON.parse(savedResult);
+        const code = `${result.typeCode}-${result.level}`;
+        setDiagnosisCode(code);
+
+        // Get messages used today from localStorage
+        const today = new Date().toDateString();
+        const lastDate = localStorage.getItem('free_coaching_last_date');
+        let used = 0;
+
+        if (lastDate === today) {
+          used = parseInt(localStorage.getItem('free_coaching_used') || '0', 10);
+        } else {
+          localStorage.setItem('free_coaching_last_date', today);
+          localStorage.setItem('free_coaching_used', '0');
+        }
+
+        setMessagesUsedToday(used);
+        setInitialized(true);
+
+        // Load welcome message
+        const welcomeMsg: Message = {
+          id: Date.now().toString(),
+          role: 'assistant',
+          content: `こんにちは！ACT診断のAIコーチへようこそ。\n\nあなたのタイプコード「${code}」に基づいて、パーソナライズされたコーチングを提供します。\n\n次のテーマについてお話しすることができます：\n・自己理解 - あなたのタイプの強みと課題\n・行動パターン - 日常での行動傾向\n・人間関係 - 対人スキルの向上\n・キャリア - 仕事での活躍方法\n・パーソナルグロース - 成長のステップ\n\n何について詳しく知りたいですか？`,
+          createdAt: new Date().toISOString(),
+        };
+        setMessages([welcomeMsg]);
+      } catch (error) {
+        console.error('Failed to parse diagnosis result:', error);
+        router.push('/free/diagnosis');
+      }
+    };
+
+    getUser();
+  }, [router, supabase]);
 
   const sendMessage = async () => {
     if (!input.trim() || loading || !email || !diagnosisCode) return;
