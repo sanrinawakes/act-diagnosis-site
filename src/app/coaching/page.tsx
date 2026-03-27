@@ -28,6 +28,9 @@ function CoachingContent() {
   const [diagnosisCode, setDiagnosisCode] = useState<string | null>(null);
   const [initialized, setInitialized] = useState(false);
   const [latestDiagnosis, setLatestDiagnosis] = useState<DiagnosisResult | null>(null);
+  const [remainingChats, setRemainingChats] = useState<number | null>(null);
+  const [chatLimit, setChatLimit] = useState<number>(50);
+  const [rateLimitReached, setRateLimitReached] = useState(false);
   const router = useRouter();
   const searchParams = useSearchParams();
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -179,12 +182,25 @@ function CoachingContent() {
         }),
       });
 
+      const data = await response.json();
+
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to get response');
+        if (response.status === 429) {
+          setRateLimitReached(true);
+          setRemainingChats(0);
+          throw new Error(data.error || '本日の利用上限に達しました。');
+        }
+        throw new Error(data.error || 'Failed to get response');
       }
 
-      const data = await response.json();
+      // Update remaining chats count
+      if (data.remaining !== undefined) {
+        setRemainingChats(data.remaining);
+      }
+      if (data.limit !== undefined) {
+        setChatLimit(data.limit);
+      }
+
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
@@ -258,6 +274,11 @@ function CoachingContent() {
               <h1 className="text-xl font-bold text-gray-900">{t('coaching.title')}</h1>
               {diagnosisCode && (
                 <p className="text-blue-600 text-sm">タイプ: {diagnosisCode}</p>
+              )}
+              {remainingChats !== null && (
+                <p className={`text-xs mt-1 ${remainingChats <= 5 ? 'text-red-500 font-semibold' : 'text-gray-500'}`}>
+                  本日の残り: {remainingChats}/{chatLimit}回
+                </p>
               )}
             </div>
             {!diagnosisCode && (
@@ -357,29 +378,36 @@ function CoachingContent() {
           {/* 入力エリア */}
           {!botDisabled && (
             <div className="border-t border-blue-200 bg-white p-4 sm:p-6">
-              <div className="max-w-4xl mx-auto flex gap-3">
-                <input
-                  type="text"
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  onKeyPress={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                      e.preventDefault();
-                      sendMessage();
-                    }
-                  }}
-                  placeholder={t('coaching.placeholder')}
-                  className="flex-1 bg-white border border-blue-200 text-gray-900 placeholder-gray-500 rounded-lg px-4 py-3 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-400/50 transition-all"
-                  disabled={loading}
-                />
-                <button
-                  onClick={sendMessage}
-                  disabled={loading || !input.trim()}
-                  className="bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 disabled:from-gray-400 disabled:to-gray-400 text-white font-semibold py-3 px-6 rounded-lg transition-all duration-200 disabled:cursor-not-allowed"
-                >
-                  {loading ? '送信中...' : t('coaching.send')}
-                </button>
-              </div>
+              {rateLimitReached ? (
+                <div className="max-w-4xl mx-auto text-center py-2">
+                  <p className="text-red-600 font-semibold">本日の利用上限（{chatLimit}往復）に達しました。</p>
+                  <p className="text-gray-500 text-sm mt-1">明日またご利用ください。</p>
+                </div>
+              ) : (
+                <div className="max-w-4xl mx-auto flex gap-3">
+                  <input
+                    type="text"
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    onKeyPress={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        sendMessage();
+                      }
+                    }}
+                    placeholder={t('coaching.placeholder')}
+                    className="flex-1 bg-white border border-blue-200 text-gray-900 placeholder-gray-500 rounded-lg px-4 py-3 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-400/50 transition-all"
+                    disabled={loading}
+                  />
+                  <button
+                    onClick={sendMessage}
+                    disabled={loading || !input.trim()}
+                    className="bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 disabled:from-gray-400 disabled:to-gray-400 text-white font-semibold py-3 px-6 rounded-lg transition-all duration-200 disabled:cursor-not-allowed"
+                  >
+                    {loading ? '送信中...' : t('coaching.send')}
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>

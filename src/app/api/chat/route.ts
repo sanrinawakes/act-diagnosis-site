@@ -7,6 +7,9 @@ export const runtime = 'nodejs';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+
+const DAILY_CHAT_LIMIT = 50; // 1日50往復まで
 
 interface ChatMessage {
   role: 'user' | 'assistant';
@@ -44,6 +47,36 @@ export async function POST(request: NextRequest) {
         { error: 'Unauthorized' },
         { status: 401 }
       );
+    }
+
+    // Service role client for rate limit updates (bypasses RLS)
+    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey);
+
+    // Check daily chat limit
+    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+    const { data: profile, error: profileError } = await supabaseAdmin
+      .from('profiles')
+      .select('chat_count_today, last_chat_date, role')
+      .eq('id', user.id)
+      .single();
+
+    if (profileError) {
+      console.error('Profile fetch error:', profileError);
+    }
+
+    if (profile && profile.role !== 'admin') {
+      const chatCountToday = profile.last_chat_date === today ? (profile.chat_count_today || 0) : 0;
+
+      if (chatCountToday >= DAILY_CHAT_LIMIT) {
+        return NextResponse.json(
+          {
+            error: `本日の利用上限（${DAILY_CHAT_LIMIT}往復）に達しました。明日またご利用ください。`,
+            remaining: 0,
+            limit: DAILY_CHAT_LIMIT,
+          },
+          { status: 429 }
+        );
+      }
     }
 
     // Check site settings
@@ -118,8 +151,24 @@ Always communicate in Japanese, with respect and curiosity. Help users understan
     const assistantMessage =
       response.text() || 'すみません、応答に失敗しました。もう一度お試しください。';
 
+    // Increment daily chat count
+    const currentCount = profile && profile.last_chat_date === today ? (profile.chat_count_today || 0) : 0;
+    const newCount = currentCount + 1;
+
+    await supabaseAdmin
+      .from('profiles')
+      .update({
+        chat_count_today: newCount,
+        last_chat_date: today,
+      })
+      .eq('id', user.id);
+
+    const remaining = profile?.role === 'admin' ? DAILY_CHAT_LIMIT : Math.max(0, DAILY_CHAT_LIMIT - newCount);
+
     return NextResponse.json({
       message: assistantMessage,
+      remaining,
+      limit: DAILY_CHAT_LIMIT,
       usage: {
         prompt_tokens: response.usageMetadata?.promptTokenCount,
         completion_tokens: response.usageMetadata?.candidatesTokenCount,
