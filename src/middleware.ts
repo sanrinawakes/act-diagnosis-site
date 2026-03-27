@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
 // Routes that require active subscription (paid member)
-const PROTECTED_ROUTES = ['/diagnosis', '/results', '/coaching', '/profile'];
+const PROTECTED_ROUTES = ['/diagnosis', '/results', '/coaching'];
 
 // Routes that are always public (exact match for '/', prefix match for others)
 const PUBLIC_ROUTE_PREFIXES = ['/login', '/register', '/subscription-required', '/api'];
