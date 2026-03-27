@@ -88,11 +88,20 @@ export default function LoginForm() {
     try {
       const redirectTo = `${window.location.origin}/api/auth/callback?next=${encodeURIComponent(searchParams.get('redirect') || '/dashboard')}`;
 
+      const oauthOptions: { redirectTo: string; queryParams?: Record<string, string> } = {
+        redirectTo,
+      };
+
+      // LINE Login: 友だち追加オプション（bot_prompt=aggressive でチェックON状態で表示）
+      if (provider === 'custom:line') {
+        oauthOptions.queryParams = {
+          bot_prompt: 'aggressive',
+        };
+      }
+
       const { error: oauthError } = await supabase.auth.signInWithOAuth({
         provider,
-        options: {
-          redirectTo,
-        },
+        options: oauthOptions,
       });
 
       if (oauthError) {
