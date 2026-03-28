@@ -110,6 +110,9 @@ export default function Header() {
                 <Link href="/profile" className="px-4 py-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all">
                   {t('nav.profile')}
                 </Link>
+                <Link href="/support" className="px-4 py-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all">
+                  サポート
+                </Link>
 
                 {profile?.role === 'admin' && (
                   <Link href="/admin" className="px-4 py-2 text-pink-500 hover:text-pink-600 hover:bg-pink-50 rounded-lg transition-all font-semibold">
@@ -210,6 +213,13 @@ export default function Header() {
                   onClick={() => setIsMenuOpen(false)}
                 >
                   {t('nav.profile')}
+                </Link>
+                <Link
+                  href="/support"
+                  className="block px-4 py-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
+                  onClick={() => setIsMenuOpen(false)}
+                >
+                  サポート
                 </Link>
 
                 {profile?.role === 'admin' && (

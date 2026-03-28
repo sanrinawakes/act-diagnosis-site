@@ -195,6 +195,23 @@ export default function AdminDashboard() {
                   <p className="text-pink-600 text-sm font-medium">詳細を表示 →</p>
                 </Link>
 
+                {/* Support Tickets Link */}
+                <Link
+                  href="/admin/support"
+                  className="bg-white/80 border border-green-200/50 rounded-lg p-6 hover:border-green-300 hover:shadow-md transition-all cursor-pointer group"
+                >
+                  <div className="flex items-start justify-between mb-4">
+                    <h2 className="text-xl font-semibold text-gray-900 group-hover:text-green-600 transition-colors">
+                      サポートチケット
+                    </h2>
+                    <span className="text-2xl">📩</span>
+                  </div>
+                  <p className="text-gray-600 text-sm mb-4">
+                    ユーザーからのお問い合わせを確認・管理
+                  </p>
+                  <p className="text-green-600 text-sm font-medium">詳細を表示 →</p>
+                </Link>
+
                 {/* Settings Link */}
                 <Link
                   href="/admin/settings"
