@@ -62,6 +62,81 @@ function CoachingContent() {
           return;
         }
 
+        // URLパラメータからセッションIDを取得
+        const sessionIdParam = searchParams.get('session');
+
+        // サイト設定確認
+        const { data: settings } = await supabase
+          .from('site_settings')
+          .select('bot_enabled')
+          .single();
+
+        if (settings && !settings.bot_enabled) {
+          setBotDisabled(true);
+          setInitialized(true);
+          return;
+        }
+
+        // 既存セッションを再開する場合
+        if (sessionIdParam) {
+          const { data: existingSession, error: sessionError } = await supabase
+            .from('chat_sessions')
+            .select('*')
+            .eq('id', sessionIdParam)
+            .eq('user_id', user.id)
+            .single();
+
+          if (sessionError || !existingSession) {
+            console.error('Session not found');
+            setInitialized(true);
+            return;
+          }
+
+          setSessionId(existingSession.id);
+
+          // Load existing messages
+          const { data: messages, error: messagesError } = await supabase
+            .from('chat_messages')
+            .select('*')
+            .eq('session_id', existingSession.id)
+            .order('created_at', { ascending: true });
+
+          if (messagesError) {
+            console.error('Failed to load messages:', messagesError);
+          } else if (messages) {
+            // Filter out system messages and convert to Message format
+            const loadedMessages = messages
+              .filter((m) => m.role !== 'system')
+              .map((m) => ({
+                id: m.id,
+                role: m.role as 'user' | 'assistant',
+                content: m.content,
+                createdAt: m.created_at,
+              }));
+            setMessages(loadedMessages);
+          }
+
+          // Get diagnosis code from existing session if available
+          let code: string | null = null;
+          if (existingSession.diagnosis_result_id) {
+            const { data: diagnosis } = await supabase
+              .from('diagnosis_results')
+              .select('type_code, consciousness_level')
+              .eq('id', existingSession.diagnosis_result_id)
+              .single();
+
+            if (diagnosis) {
+              code = `${diagnosis.type_code}-${diagnosis.consciousness_level}`;
+              setDiagnosisCode(code);
+              setLatestDiagnosis(diagnosis as any);
+            }
+          }
+
+          setInitialized(true);
+          return;
+        }
+
+        // 新しいセッションを作成
         // URLパラメータから診断コードを取得、なければ最新の診断結果を使用
         let code = searchParams.get('code');
 
@@ -80,18 +155,6 @@ function CoachingContent() {
         }
 
         setDiagnosisCode(code);
-
-        // サイト設定確認
-        const { data: settings } = await supabase
-          .from('site_settings')
-          .select('bot_enabled')
-          .single();
-
-        if (settings && !settings.bot_enabled) {
-          setBotDisabled(true);
-          setInitialized(true);
-          return;
-        }
 
         // チャットセッション作成
         const { data: session, error: sessionError } = await supabase
@@ -143,6 +206,15 @@ function CoachingContent() {
         role: 'assistant',
         content: welcomeMsg.content,
       });
+
+      // Update session metadata
+      await supabase
+        .from('chat_sessions')
+        .update({
+          last_message_at: new Date().toISOString(),
+          message_count: 1, // Only the welcome message
+        })
+        .eq('id', sid);
     } catch (err) {
       console.error('Failed to send initial message:', err);
     }
@@ -215,6 +287,23 @@ function CoachingContent() {
         role: 'assistant',
         content: data.message,
       });
+
+      // Update session metadata (last_message_at and message_count)
+      const { data: sessionData } = await supabase
+        .from('chat_sessions')
+        .select('message_count')
+        .eq('id', sessionId)
+        .single();
+
+      const currentCount = sessionData?.message_count || 0;
+
+      await supabase
+        .from('chat_sessions')
+        .update({
+          last_message_at: new Date().toISOString(),
+          message_count: currentCount + 2, // user message + assistant message
+        })
+        .eq('id', sessionId);
     } catch (err) {
       console.error('Failed to send message:', err);
       setMessages((prev) => [
@@ -281,14 +370,22 @@ function CoachingContent() {
                 </p>
               )}
             </div>
-            {!diagnosisCode && (
+            <div className="flex items-center gap-3">
               <Link
-                href="/diagnosis"
-                className="text-sm px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors"
+                href="/coaching/history"
+                className="text-sm px-4 py-2 border border-blue-200 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
               >
-                {t('coaching.takeDiagnosis')}
+                履歴
               </Link>
-            )}
+              {!diagnosisCode && (
+                <Link
+                  href="/diagnosis"
+                  className="text-sm px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors"
+                >
+                  {t('coaching.takeDiagnosis')}
+                </Link>
+              )}
+            </div>
           </div>
 
           {/* メッセージエリア */}
