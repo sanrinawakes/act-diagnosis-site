@@ -286,9 +286,7 @@ function DiagnosisContent() {
         selectedChoiceIndex={
           consciousnessAnswers[currentQuestionIndex] === -999
             ? -1
-            : consciousnessQuestions[currentQuestionIndex].choices.findIndex(
-                (c) => c.score === consciousnessAnswers[currentQuestionIndex]
-              )
+            : consciousnessAnswers[currentQuestionIndex]
         }
         onAnswer={handleConsciousnessAnswer}
         onNext={handleConsciousnessNext}
