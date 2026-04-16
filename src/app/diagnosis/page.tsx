@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useI18n } from '@/lib/i18n';
 import AuthGuard from '@/components/AuthGuard';
@@ -67,11 +67,8 @@ function DiagnosisContent() {
   });
   const [consciousnessLevel, setConsciousnessLevel] = useState<number | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
-  const allConsciousnessAnswered =
-    consciousnessAnswers.every((answer) => answer !== -999);
-  const allPersonalityAnswered =
-    personalityQuestions.every((q) => personalityAnswers[q.id] !== -999);
 
   // Growth question choices
   const growthChoices = [
@@ -220,6 +217,7 @@ function DiagnosisContent() {
     growthSelected: string[] | null,
     immaturitySelected: string | null
   ) => {
+    setSubmitError(null);
     setLoading(true);
     try {
       const {
@@ -263,6 +261,7 @@ function DiagnosisContent() {
       router.push(`/results/${data.id}`);
     } catch (error) {
       console.error('Error saving diagnosis:', error);
+      setSubmitError(error instanceof Error ? error.message : 'An error occurred while saving.');
       setLoading(false);
     }
   };
@@ -272,7 +271,40 @@ function DiagnosisContent() {
   };
 
   // Render stages
-  if (stage === 'copyright') {
+
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-400"></div>
+          <p className="text-gray-700">{t('diagnosis.saving')}</p>
+        </div>
+      </div>
+    );
+  }
+
+  return null;
+}
+
+  if (submitError) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4">
+        <div className="bg-white bg-opacity-80 border border-red-200 rounded-2xl p-8 max-w-md w-full text-center">
+          <p className="text-red-600 text-lg font-semibold mb-4">{t('diagnosis.saving')} failed</p>
+          <p className="text-gray-700 mb-6">{submitError}</p>
+          <button
+            onClick={() => setSubmitError(null)}
+            className="py-2 px-6 bg-blue-500 hover:bg-blue-600 text-white rounded-lg"
+          >
+            {t('diagnosis.back')}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+    if (stage === 'copyright') {
     return <CopyrightStage onAgree={handleCopyrightAgree} onCancel={handleCancel} />;
   }
 
@@ -355,20 +387,6 @@ function DiagnosisContent() {
       />
     );
   }
-
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="flex flex-col items-center gap-4">
-          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-400"></div>
-          <p className="text-gray-700">{t('diagnosis.saving')}</p>
-        </div>
-      </div>
-    );
-  }
-
-  return null;
-}
 
 // Copyright Stage Component
 function CopyrightStage({ onAgree, onCancel }: { onAgree: () => void; onCancel: () => void }) {
