@@ -284,9 +284,6 @@ function DiagnosisContent() {
     );
   }
 
-  return null;
-}
-
   if (submitError) {
     return (
       <div className="min-h-screen flex items-center justify-center p-4">
@@ -387,6 +384,9 @@ function DiagnosisContent() {
       />
     );
   }
+
+  return null;
+}
 
 // Copyright Stage Component
 function CopyrightStage({ onAgree, onCancel }: { onAgree: () => void; onCancel: () => void }) {
