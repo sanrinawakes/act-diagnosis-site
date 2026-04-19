@@ -259,7 +259,7 @@ export default function ResultDetailPage() {
           {/* Action Buttons */}
           <div className="flex flex-col gap-4 sm:flex-row">
             <Link
-              href={`/chat?code=${typeCode}-${result.consciousness_level}`}
+              href={`/coaching?code=${typeCode}-${result.consciousness_level}`}
               className="flex-1 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-semibold py-3 px-6 rounded-lg text-center transition-all duration-200 transform hover:scale-105 shadow-lg"
             >
               {t('resultDetail.getCoaching')}
