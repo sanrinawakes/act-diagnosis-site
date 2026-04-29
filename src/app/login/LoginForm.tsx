@@ -12,12 +12,14 @@ export default function LoginForm() {
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [socialLoading, setSocialLoading] = useState<string | null>(null);
+  const [magicLoading, setMagicLoading] = useState(false);
+  const [magicSent, setMagicSent] = useState(false);
   const router = useRouter();
   const searchParams = useSearchParams();
   const supabase = createClient();
   const { t } = useI18n();
 
-  // URLパラメータからエラーを読み取り、既存セッションがあればリダイレクト
+  // URLãã©ã¡ã¼ã¿ããã¨ã©ã¼ãèª­ã¿åããæ¢å­ã»ãã·ã§ã³ãããã°ãªãã¤ã¬ã¯ã
   useEffect(() => {
     const urlError = searchParams.get('error');
     if (urlError) {
@@ -38,7 +40,7 @@ export default function LoginForm() {
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // パスワードマネージャー等によるautofill対策: DOM値も取得
+    // ãã¹ã¯ã¼ãããã¼ã¸ã£ã¼ç­ã«ããautofillå¯¾ç­: DOMå¤ãåå¾
     let loginEmail = email;
     let loginPassword = password;
     if (!loginEmail || !loginPassword) {
@@ -49,7 +51,7 @@ export default function LoginForm() {
     }
 
     if (!loginEmail || !loginPassword) {
-      setError('メールアドレスとパスワードを入力してください');
+      setError('ã¡ã¼ã«ã¢ãã¬ã¹ã¨ãã¹ã¯ã¼ããå¥åãã¦ãã ãã');
       return;
     }
 
@@ -81,6 +83,41 @@ export default function LoginForm() {
     }
   };
 
+  
+  const handleMagicLink = async () => {
+    let magicEmail = email;
+    if (!magicEmail) {
+      const emailInput = document.getElementById('email') as HTMLInputElement;
+      if (emailInput?.value) magicEmail = emailInput.value;
+    }
+    if (!magicEmail) {
+      setError('メールアドレスを入力してください');
+      return;
+    }
+    setError('');
+    setMagicLoading(true);
+    setMagicSent(false);
+    try {
+      const redirect = searchParams.get('redirect') || '/dashboard';
+      const { error: otpError } = await supabase.auth.signInWithOtp({
+        email: magicEmail,
+        options: {
+          emailRedirectTo: `${window.location.origin}/api/auth/callback?next=${encodeURIComponent(redirect)}`,
+        },
+      });
+      if (otpError) {
+        setError(otpError.message);
+        return;
+      }
+      setMagicSent(true);
+    } catch (err) {
+      setError('ログインリンクの送信に失敗しました');
+      console.error('Magic link error:', err);
+    } finally {
+      setMagicLoading(false);
+    }
+  };
+
   const handleSocialLogin = async (provider: 'google' | 'custom:line') => {
     setSocialLoading(provider);
     setError('');
@@ -92,7 +129,7 @@ export default function LoginForm() {
         redirectTo,
       };
 
-      // LINE Login: 友だち追加オプション（bot_prompt=aggressive でチェックON状態で表示）
+      // LINE Login: åã ã¡è¿½å ãªãã·ã§ã³ï¼bot_prompt=aggressive ã§ãã§ãã¯ONç¶æã§è¡¨ç¤ºï¼
       if (provider === 'custom:line') {
         oauthOptions.queryParams = {
           bot_prompt: 'aggressive',
@@ -108,9 +145,9 @@ export default function LoginForm() {
         setError(oauthError.message);
         setSocialLoading(null);
       }
-      // リダイレクトされるのでsocialLoadingのリセットは不要
+      // ãªãã¤ã¬ã¯ããããã®ã§socialLoadingã®ãªã»ããã¯ä¸è¦
     } catch {
-      setError('ソーシャルログインに失敗しました');
+      setError('ã½ã¼ã·ã£ã«ã­ã°ã¤ã³ã«å¤±æãã¾ãã');
       setSocialLoading(null);
     }
   };
@@ -147,7 +184,7 @@ export default function LoginForm() {
                 <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
               </svg>
               <span className="text-gray-700 font-medium">
-                {socialLoading === 'google' ? '接続中...' : 'Googleでログイン'}
+                {socialLoading === 'google' ? 'æ¥ç¶ä¸­...' : 'Googleã§ã­ã°ã¤ã³'}
               </span>
             </button>
 
@@ -161,7 +198,7 @@ export default function LoginForm() {
                 <path d="M19.365 9.863c.349 0 .63.285.63.631 0 .345-.281.63-.63.63H17.61v1.125h1.755c.349 0 .63.283.63.63 0 .344-.281.629-.63.629h-2.386c-.345 0-.627-.285-.627-.629V8.108c0-.345.282-.63.63-.63h2.386c.346 0 .627.285.627.63 0 .349-.281.63-.63.63H17.61v1.125h1.755zm-3.855 3.016c0 .27-.174.51-.432.596-.064.021-.133.031-.199.031-.211 0-.391-.09-.51-.25l-2.443-3.317v2.94c0 .344-.279.629-.631.629-.346 0-.626-.285-.626-.629V8.108c0-.27.173-.51.43-.595.06-.023.136-.033.194-.033.195 0 .375.104.495.254l2.462 3.33V8.108c0-.345.282-.63.63-.63.345 0 .63.285.63.63v4.771zm-5.741 0c0 .344-.282.629-.631.629-.345 0-.627-.285-.627-.629V8.108c0-.345.282-.63.63-.63.346 0 .628.285.628.63v4.771zm-2.466.629H4.917c-.345 0-.63-.285-.63-.629V8.108c0-.345.285-.63.63-.63.348 0 .63.285.63.63v4.141h1.756c.348 0 .629.283.629.63 0 .344-.282.629-.629.629M24 10.314C24 4.943 18.615.572 12 .572S0 4.943 0 10.314c0 4.811 4.27 8.842 10.035 9.608.391.082.923.258 1.058.59.12.301.079.766.038 1.08l-.164 1.02c-.045.301-.24 1.186 1.049.645 1.291-.539 6.916-4.078 9.436-6.975C23.176 14.393 24 12.458 24 10.314"/>
               </svg>
               <span className="text-white font-medium">
-                {socialLoading === 'custom:line' ? '接続中...' : 'LINEでログイン'}
+                {socialLoading === 'custom:line' ? 'æ¥ç¶ä¸­...' : 'LINEã§ã­ã°ã¤ã³'}
               </span>
             </button>
           </div>
@@ -169,7 +206,7 @@ export default function LoginForm() {
           {/* Divider */}
           <div className="mb-6 flex items-center gap-4">
             <div className="flex-1 h-px bg-blue-200"></div>
-            <span className="text-gray-500 text-sm">または</span>
+            <span className="text-gray-500 text-sm">ã¾ãã¯</span>
             <div className="flex-1 h-px bg-blue-200"></div>
           </div>
 
@@ -205,7 +242,7 @@ export default function LoginForm() {
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
+                placeholder="â¢â¢â¢â¢â¢â¢â¢â¢"
                 required
                 autoComplete="current-password"
                 className="w-full px-4 py-3 bg-white border border-blue-200 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-transparent transition-all"
@@ -221,6 +258,32 @@ export default function LoginForm() {
               {isLoading ? t('login.loading') : t('login.submit')}
             </button>
           </form>
+
+          {/* Magic Link Login */}
+          <div className="mt-4 pt-4 border-t border-blue-100">
+            <p className="text-xs text-gray-500 mb-2 text-center">
+              パスワードを忘れた方・MyASPで決済済みの方はこちら
+            </p>
+            {magicSent ? (
+              <div className="p-3 bg-green-50 border border-green-200 rounded-lg text-center">
+                <p className="text-green-800 text-sm font-medium">
+                  ログインリンクをメールで送信しました
+                </p>
+                <p className="text-green-700 text-xs mt-1">
+                  メール内のリンクをクリックしてログインしてください。
+                </p>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={handleMagicLink}
+                disabled={magicLoading}
+                className="w-full py-2.5 bg-white border border-blue-300 text-blue-600 font-medium rounded-lg hover:bg-blue-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200 text-sm"
+              >
+                {magicLoading ? '送信中…' : 'メールでログインリンクを受け取る（パスワード不要）'}
+              </button>
+            )}
+          </div>
 
           {/* Register Link */}
           <div className="mt-6">
