@@ -41,6 +41,9 @@ function CoachingContent() {
   const { loading: subscriptionLoading, allowed } = useSubscriptionGuard();
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
+  const [isListening, setIsListening] = useState(false);
+  const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
+  const recognitionRef = useRef<any>(null);
   const [loading, setLoading] = useState(false);
   const [botDisabled, setBotDisabled] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -357,6 +360,72 @@ function CoachingContent() {
     } catch (err) {
       console.error('Failed to send initial message:', err);
     }
+  };
+
+  // Voice input (speech recognition)
+  const handleVoiceInput = () => {
+    if (isListening) {
+      recognitionRef.current?.stop();
+      setIsListening(false);
+      return;
+    }
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SR) {
+      alert('お使いのブラウザは音声入力に対応していません。Chromeをお使いください。');
+      return;
+    }
+    const rec = new SR();
+    rec.lang = 'ja-JP';
+    rec.continuous = false;
+    rec.interimResults = true;
+    let finalTranscript = '';
+    rec.onresult = (event: any) => {
+      let interim = '';
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const transcript = event.results[i][0].transcript;
+        if (event.results[i].isFinal) finalTranscript += transcript;
+        else interim += transcript;
+      }
+      if (finalTranscript) {
+        setInput((prev) => (prev.replace(/ 【入力中】.*$/, '') + ' ' + finalTranscript).trim());
+        finalTranscript = '';
+      } else if (interim) {
+        setInput((prev) => prev.replace(/ 【入力中】.*$/, '') + ' 【入力中】' + interim);
+      }
+    };
+    rec.onend = () => {
+      setIsListening(false);
+      setInput((prev) => prev.replace(/ 【入力中】.*$/, '').trim());
+    };
+    rec.onerror = () => {
+      setIsListening(false);
+      setInput((prev) => prev.replace(/ 【入力中】.*$/, '').trim());
+    };
+    recognitionRef.current = rec;
+    rec.start();
+    setIsListening(true);
+  };
+
+  // Voice output (text-to-speech)
+  const handleSpeak = (messageId: string, text: string) => {
+    if (typeof window === 'undefined' || !window.speechSynthesis) {
+      alert('お使いのブラウザは読み上げに対応していません。');
+      return;
+    }
+    if (speakingMessageId === messageId) {
+      window.speechSynthesis.cancel();
+      setSpeakingMessageId(null);
+      return;
+    }
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = 'ja-JP';
+    utterance.rate = 1.0;
+    utterance.pitch = 1.0;
+    utterance.onend = () => setSpeakingMessageId(null);
+    utterance.onerror = () => setSpeakingMessageId(null);
+    window.speechSynthesis.speak(utterance);
+    setSpeakingMessageId(messageId);
   };
 
   const sendMessage = async () => {
@@ -759,6 +828,16 @@ function CoachingContent() {
                   <p className="text-sm sm:text-base leading-relaxed whitespace-pre-wrap">
                     {message.content}
                   </p>
+                  {message.role === 'assistant' && (
+                    <button
+                      type="button"
+                      onClick={() => handleSpeak(message.id, message.content)}
+                      className="text-xs text-blue-500 hover:text-blue-700 mt-1 mr-2"
+                      title={speakingMessageId === message.id ? '読み上げ停止' : '音声で聞く'}
+                    >
+                      {speakingMessageId === message.id ? '⏸ 停止' : '🔊 読み上げ'}
+                    </button>
+                  )}
                   <p
                     className={`text-xs mt-2 ${
                       message.role === 'user' ? 'text-blue-100' : 'text-gray-500'
@@ -804,6 +883,16 @@ function CoachingContent() {
                 </div>
               ) : (
                 <div className="max-w-4xl mx-auto flex gap-3">
+                  <button
+                    type="button"
+                    onClick={handleVoiceInput}
+                    disabled={loading}
+                    className={`flex-shrink-0 px-4 py-3 rounded-lg transition-colors ${isListening ? 'bg-red-500 hover:bg-red-600 text-white animate-pulse' : 'bg-blue-100 hover:bg-blue-200 text-blue-600'} disabled:opacity-50 disabled:cursor-not-allowed`}
+                    title={isListening ? '録音停止' : '音声入力'}
+                    aria-label={isListening ? '録音停止' : '音声入力'}
+                  >
+                    {isListening ? '🛑' : '🎤'}
+                  </button>
                   <input
                     type="text"
                     value={input}
