@@ -1,5 +1,9 @@
 -- Auto-activate matching profiles when pending_activations gets a new email
 -- Plus one-time fix for any currently-stuck users (ACTI-first / AWAKES-later flow)
+--
+-- IMPORTANT: This migration only touches profiles whose subscription_status is
+-- 'none' or NULL. Users in 'cancelled' or 'payment_failed' state are left alone
+-- (they must be re-activated manually if they re-subscribe).
 
 -- ========== One-time fix: rescue currently stuck users ==========
 update public.profiles p
@@ -11,7 +15,7 @@ set
   updated_at = now()
 from public.pending_activations pa
 where lower(pa.email) = lower(p.email)
-  and (p.subscription_status <> 'active' or p.subscription_status is null);
+  and (p.subscription_status = 'none' or p.subscription_status is null);
 
 update public.pending_activations pa
 set activated = true, activated_at = now()
@@ -21,8 +25,6 @@ where lower(pa.email) = lower(p.email)
   and pa.activated = false;
 
 -- ========== New trigger: handle ACTI-first then AWAKES-later flow ==========
--- When a row is INSERTED into pending_activations (via MyASP webhook),
--- if there is already a matching profile registered as free, auto-activate it.
 create or replace function public.handle_pending_activation_insert()
 returns trigger as $$
 begin
@@ -34,7 +36,7 @@ begin
     myasp_customer_email = coalesce(myasp_customer_email, lower(email)),
     updated_at = now()
   where lower(email) = lower(NEW.email)
-    and (subscription_status <> 'active' or subscription_status is null);
+    and (subscription_status = 'none' or subscription_status is null);
   
   if found then
     NEW.activated := true;
