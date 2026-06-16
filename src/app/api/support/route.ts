@@ -5,7 +5,7 @@ import {
   formatBytes,
   type StoredAttachment,
 } from '@/lib/attachments';
-import { uploadImageAttachments } from '@/lib/server-attachments';
+import { uploadImageAttachments, validateImageFiles } from '@/lib/server-attachments';
 
 export const runtime = 'nodejs';
 
@@ -37,6 +37,8 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+
+    validateImageFiles(attachmentFiles);
 
     const supabase = createClient(supabaseUrl, supabaseServiceRoleKey);
 
