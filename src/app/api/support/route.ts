@@ -5,8 +5,11 @@ export const runtime = 'nodejs';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-const SUPPORT_NOTIFICATION_EMAIL = process.env.SUPPORT_NOTIFICATION_EMAIL || 'support@example.com';
+const SUPPORT_NOTIFICATION_EMAIL = process.env.SUPPORT_NOTIFICATION_EMAIL || '';
 const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
+// Resend's onboarding@resend.dev sender is testing-only and fails for external recipients.
+// Use the same verified sender domain as welcome/deactivation emails.
+const SUPPORT_FROM_EMAIL = process.env.FROM_EMAIL || 'noreply@silversense.cc';
 
 export async function POST(request: NextRequest) {
   try {
@@ -45,8 +48,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Send email notification via Resend (if API key is configured)
-    if (RESEND_API_KEY) {
+    // Send email notification via Resend (if email settings are configured)
+    if (RESEND_API_KEY && SUPPORT_NOTIFICATION_EMAIL) {
       try {
         const categoryLabel = getCategoryLabel(category);
         const emailBody = `
@@ -73,25 +76,36 @@ ${message}
 ━━━━━━━━━━━━━━━━━━━━
 `.trim();
 
-        await fetch('https://api.resend.com/emails', {
+        const emailResponse = await fetch('https://api.resend.com/emails', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${RESEND_API_KEY}`,
           },
           body: JSON.stringify({
-            from: 'ACTI サポート <onboarding@resend.dev>',
+            from: `ACTI サポート <${SUPPORT_FROM_EMAIL}>`,
             to: [SUPPORT_NOTIFICATION_EMAIL],
             subject: `[ACTI サポート] ${categoryLabel}: ${subject}`,
             text: emailBody,
           }),
         });
+
+        if (!emailResponse.ok) {
+          const errorBody = await emailResponse.text();
+          console.error('Failed to send notification email:', {
+            status: emailResponse.status,
+            statusText: emailResponse.statusText,
+            body: errorBody,
+          });
+        }
       } catch (emailError) {
         // Email failure should not block the ticket creation
         console.error('Failed to send notification email:', emailError);
       }
-    } else {
+    } else if (!RESEND_API_KEY) {
       console.log('RESEND_API_KEY not configured - skipping email notification');
+    } else {
+      console.error('SUPPORT_NOTIFICATION_EMAIL not configured - skipping email notification');
     }
 
     return NextResponse.json({
