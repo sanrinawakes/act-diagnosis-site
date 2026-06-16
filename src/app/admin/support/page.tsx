@@ -6,6 +6,7 @@ import AdminGuard from '@/components/AdminGuard';
 import Header from '@/components/Header';
 import { createClient } from '@/lib/supabase';
 import { splitSupportMessage } from '@/lib/support-reply-log';
+import { parseAttachmentMarkdown } from '@/lib/attachments';
 
 interface SupportTicket {
   id: string;
@@ -57,6 +58,9 @@ export default function AdminSupportPage() {
   const selectedMessage = selectedTicket
     ? splitSupportMessage(selectedTicket.message || '')
     : null;
+  const selectedCustomerMessage =
+    selectedMessage?.customerMessage || selectedTicket?.message || '';
+  const parsedCustomerMessage = parseAttachmentMarkdown(selectedCustomerMessage);
 
   useEffect(() => {
     fetchTickets();
@@ -319,9 +323,33 @@ export default function AdminSupportPage() {
                           問い合わせ内容
                         </h3>
                         <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-                          <p className="text-sm text-gray-900 whitespace-pre-wrap">
-                            {selectedMessage?.customerMessage || selectedTicket.message}
-                          </p>
+                          {parsedCustomerMessage.text && (
+                            <p className="text-sm text-gray-900 whitespace-pre-wrap">
+                              {parsedCustomerMessage.text}
+                            </p>
+                          )}
+                          {parsedCustomerMessage.attachments.length > 0 && (
+                            <div className="mt-4 grid grid-cols-2 gap-3">
+                              {parsedCustomerMessage.attachments.map((attachment) => (
+                                <a
+                                  key={attachment.url}
+                                  href={attachment.url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="block overflow-hidden rounded-lg border border-gray-200 bg-white"
+                                >
+                                  <img
+                                    src={attachment.url}
+                                    alt={attachment.label || '添付画像'}
+                                    className="h-36 w-full object-cover"
+                                  />
+                                  <span className="block truncate px-2 py-1 text-xs text-gray-600">
+                                    {attachment.label || '添付画像'}
+                                  </span>
+                                </a>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       </div>
 

@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useEffect, useRef, useState, useCallback } from 'react';
+import { Suspense, useEffect, useRef, useState, useCallback, type ChangeEvent } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import AuthGuard from '@/components/AuthGuard';
@@ -10,6 +10,17 @@ import { useI18n } from '@/lib/i18n';
 import { useSubscriptionGuard } from '@/hooks/useSubscriptionGuard';
 import type { DiagnosisResult } from '@/lib/types';
 import { typeNames } from '@/data/type-names';
+import {
+  appendAttachmentMarkdown,
+  parseAttachmentMarkdown,
+  stripAttachmentMarkdown,
+} from '@/lib/attachments';
+import {
+  fileToInlineImageAttachment,
+  uploadChatImageAttachments,
+  validatePendingImageFiles,
+  type PendingImageAttachment,
+} from '@/lib/client-attachments';
 
 interface Message {
   id: string;
@@ -53,6 +64,8 @@ function CoachingContent() {
   const [remainingChats, setRemainingChats] = useState<number | null>(null);
   const [chatLimit, setChatLimit] = useState<number>(50);
   const [rateLimitReached, setRateLimitReached] = useState(false);
+  const [pendingAttachments, setPendingAttachments] = useState<PendingImageAttachment[]>([]);
+  const [attachmentError, setAttachmentError] = useState<string | null>(null);
 
   // Sidebar state
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -67,6 +80,8 @@ function CoachingContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const pendingAttachmentsRef = useRef<PendingImageAttachment[]>([]);
   const supabase = createClient();
   const { t } = useI18n();
   const sidebarLimit = 20;
@@ -80,6 +95,18 @@ function CoachingContent() {
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  useEffect(() => {
+    pendingAttachmentsRef.current = pendingAttachments;
+  }, [pendingAttachments]);
+
+  useEffect(() => {
+    return () => {
+      pendingAttachmentsRef.current.forEach((attachment) => {
+        URL.revokeObjectURL(attachment.previewUrl);
+      });
+    };
+  }, []);
 
   // ─── Sidebar: fetch sessions ───
   const fetchSidebarSessions = useCallback(
@@ -428,28 +455,95 @@ function CoachingContent() {
     setSpeakingMessageId(messageId);
   };
 
+  const handleAttachmentSelect = (event: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files || []);
+    event.target.value = '';
+
+    if (files.length === 0) {
+      return;
+    }
+
+    const validationError = validatePendingImageFiles(pendingAttachments.length, files);
+    if (validationError) {
+      setAttachmentError(validationError);
+      return;
+    }
+
+    const nextAttachments = files.map((file) => ({
+      id: globalThis.crypto?.randomUUID?.() || `${Date.now()}-${file.name}`,
+      file,
+      previewUrl: URL.createObjectURL(file),
+    }));
+
+    setPendingAttachments((prev) => [...prev, ...nextAttachments]);
+    setAttachmentError(null);
+  };
+
+  const removePendingAttachment = (attachmentId: string) => {
+    setPendingAttachments((prev) => {
+      const target = prev.find((attachment) => attachment.id === attachmentId);
+      if (target) {
+        URL.revokeObjectURL(target.previewUrl);
+      }
+      return prev.filter((attachment) => attachment.id !== attachmentId);
+    });
+    setAttachmentError(null);
+  };
+
+  const clearPendingAttachments = (attachmentsToClear = pendingAttachments) => {
+    attachmentsToClear.forEach((attachment) => {
+      URL.revokeObjectURL(attachment.previewUrl);
+    });
+    setPendingAttachments([]);
+  };
+
   const sendMessage = async () => {
-    if (!input.trim() || loading || !sessionId) return;
+    const messageText = input.trim();
+    const attachmentsToSend = pendingAttachments;
+    if ((!messageText && attachmentsToSend.length === 0) || loading || !sessionId) return;
 
-    const userMessage: Message = {
-      id: Date.now().toString(),
-      role: 'user',
-      content: input,
-      createdAt: new Date().toISOString(),
-    };
-
-    setMessages((prev) => [...prev, userMessage]);
-    setInput('');
     setLoading(true);
+    setAttachmentError(null);
+
+    let shouldPersistFallback = false;
 
     try {
+      const {
+        data: { session: authSession },
+      } = await supabase.auth.getSession();
+
+      if (!authSession?.access_token) {
+        throw new Error('ログイン状態を確認できませんでした。再ログインしてからお試しください。');
+      }
+
+      const files = attachmentsToSend.map((attachment) => attachment.file);
+      const [uploadedAttachments, inlineAttachments] = await Promise.all([
+        uploadChatImageAttachments(files, authSession.access_token),
+        Promise.all(files.map((file) => fileToInlineImageAttachment(file))),
+      ]);
+      const userVisibleContent = appendAttachmentMarkdown(
+        messageText || '画像を添付しました。',
+        uploadedAttachments
+      );
+      const apiContent = messageText || '添付画像について見てください。';
+      const userMessage: Message = {
+        id: Date.now().toString(),
+        role: 'user',
+        content: userVisibleContent,
+        createdAt: new Date().toISOString(),
+      };
+
+      setMessages((prev) => [...prev, userMessage]);
+      setInput('');
+      clearPendingAttachments(attachmentsToSend);
+      shouldPersistFallback = true;
+
       await supabase.from('chat_messages').insert({
         session_id: sessionId,
         role: 'user',
-        content: input,
+        content: userVisibleContent,
       });
 
-      const { data: { session: authSession } } = await supabase.auth.getSession();
       // クライアント側でも60秒で打ち切る。これが無いとfetchが永遠に解決せず
       // finallyが走らず「送信中…」が固着し、次の送信もブロックされる（中村さんの症状）。
       const controller = new AbortController();
@@ -463,8 +557,9 @@ function CoachingContent() {
             ...(authSession?.access_token ? { 'Authorization': `Bearer ${authSession.access_token}` } : {}),
           },
           body: JSON.stringify({
-            messages: messages.concat(userMessage),
+            messages: messages.concat({ ...userMessage, content: apiContent }),
             diagnosisCode,
+            attachments: inlineAttachments,
           }),
           signal: controller.signal,
         });
@@ -521,6 +616,10 @@ function CoachingContent() {
       fetchSidebarSessions(sidebarSearch, sidebarTab, sidebarPage);
     } catch (err) {
       console.error('Failed to send message:', err);
+      if (!shouldPersistFallback) {
+        setAttachmentError(err instanceof Error ? err.message : '送信に失敗しました。');
+        return;
+      }
       const isAbort = err instanceof DOMException && err.name === 'AbortError';
       const failContent = isAbort
         ? '応答に時間がかかりすぎたため中断しました。お手数ですが、もう一度お試しください。'
@@ -849,13 +948,41 @@ function CoachingContent() {
                       : 'bg-white border border-blue-200 text-gray-900'
                   }`}
                 >
-                  <p className="text-sm sm:text-base leading-relaxed whitespace-pre-wrap">
-                    {message.content}
-                  </p>
+                  {(() => {
+                    const parsedMessage = parseAttachmentMarkdown(message.content);
+                    return (
+                      <>
+                        {parsedMessage.text && (
+                          <p className="text-sm sm:text-base leading-relaxed whitespace-pre-wrap">
+                            {parsedMessage.text}
+                          </p>
+                        )}
+                        {parsedMessage.attachments.length > 0 && (
+                          <div className="mt-3 grid grid-cols-2 gap-2">
+                            {parsedMessage.attachments.map((attachment) => (
+                              <a
+                                key={attachment.url}
+                                href={attachment.url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="block overflow-hidden rounded-lg border border-white/60 bg-white/10"
+                              >
+                                <img
+                                  src={attachment.url}
+                                  alt={attachment.label || '添付画像'}
+                                  className="h-28 w-full object-cover"
+                                />
+                              </a>
+                            ))}
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
                   {message.role === 'assistant' && (
                     <button
                       type="button"
-                      onClick={() => handleSpeak(message.id, message.content)}
+                      onClick={() => handleSpeak(message.id, stripAttachmentMarkdown(message.content))}
                       className="text-xs text-blue-500 hover:text-blue-700 mt-1 mr-2"
                       title={speakingMessageId === message.id ? '読み上げ停止' : '音声で聞く'}
                     >
@@ -906,7 +1033,58 @@ function CoachingContent() {
                   <p className="text-gray-500 text-sm mt-1">明日またご利用ください。</p>
                 </div>
               ) : (
-                <div className="max-w-4xl mx-auto flex gap-3 items-end">
+                <div className="max-w-4xl mx-auto">
+                  {pendingAttachments.length > 0 && (
+                    <div className="mb-3 flex flex-wrap gap-2">
+                      {pendingAttachments.map((attachment) => (
+                        <div
+                          key={attachment.id}
+                          className="relative h-20 w-20 overflow-hidden rounded-lg border border-blue-200 bg-blue-50"
+                        >
+                          <img
+                            src={attachment.previewUrl}
+                            alt={attachment.file.name}
+                            className="h-full w-full object-cover"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => removePendingAttachment(attachment.id)}
+                            className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-black/60 text-xs text-white"
+                            title="添付を削除"
+                            aria-label="添付を削除"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {attachmentError && (
+                    <p className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                      {attachmentError}
+                    </p>
+                  )}
+                  <div className="flex gap-3 items-end">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,image/gif"
+                    multiple
+                    className="hidden"
+                    onChange={handleAttachmentSelect}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={loading}
+                    className="flex-shrink-0 p-3 rounded-lg bg-blue-100 hover:bg-blue-200 text-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="画像を添付"
+                    aria-label="画像を添付"
+                  >
+                    <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.586-6.586a4 4 0 10-5.657-5.657l-6.586 6.586a6 6 0 108.485 8.485L20.5 13" />
+                    </svg>
+                  </button>
                   <button
                     type="button"
                     onClick={handleVoiceInput}
@@ -938,11 +1116,12 @@ function CoachingContent() {
                   />
                   <button
                     onClick={sendMessage}
-                    disabled={loading || !input.trim()}
+                    disabled={loading || (!input.trim() && pendingAttachments.length === 0)}
                     className="bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 disabled:from-gray-400 disabled:to-gray-400 text-white font-semibold py-3 px-6 rounded-lg transition-all duration-200 disabled:cursor-not-allowed"
                   >
                     {loading ? '送信中...' : t('coaching.send')}
                   </button>
+                  </div>
                 </div>
               )}
             </div>

@@ -2,6 +2,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { genAI } from '@/lib/openai';
 import { getContextualizedPrompt } from '@/data/coaching-system-prompt';
+import {
+  isAllowedImageType,
+  MAX_IMAGE_ATTACHMENTS,
+  MAX_IMAGE_BYTES,
+  stripAttachmentMarkdown,
+  type InlineImageAttachment,
+} from '@/lib/attachments';
 
 export const runtime = 'nodejs';
 // Vercel関数のデフォルト打ち切り(Hobby 10s)を延長し、Gemini生成の途中切断を防ぐ
@@ -21,6 +28,7 @@ interface ChatMessage {
 interface RequestBody {
   messages: ChatMessage[];
   diagnosisCode?: string;
+  attachments?: InlineImageAttachment[];
 }
 
 export async function POST(request: NextRequest) {
@@ -113,13 +121,18 @@ export async function POST(request: NextRequest) {
     }
 
     const body: RequestBody = await request.json();
-    const { messages, diagnosisCode } = body;
+    const { messages, diagnosisCode, attachments = [] } = body;
 
     if (!messages || messages.length === 0) {
       return NextResponse.json(
         { error: 'No messages provided' },
         { status: 400 }
       );
+    }
+
+    const attachmentError = validateInlineAttachments(attachments);
+    if (attachmentError) {
+      return NextResponse.json({ error: attachmentError }, { status: 400 });
     }
 
     // Build system prompt
@@ -138,13 +151,15 @@ Always communicate in Japanese, with respect and curiosity. Help users understan
     // Gemini requires the first message in history to be 'user' role
     const rawHistory = messages.slice(0, -1).map((msg) => ({
       role: msg.role === 'assistant' ? 'model' as const : 'user' as const,
-      parts: [{ text: msg.content }],
+      parts: [{ text: stripAttachmentMarkdown(msg.content) || '画像を添付しました。' }],
     }));
     // Strip leading 'model' messages (e.g. welcome message) since Gemini requires 'user' first
     const firstUserIndex = rawHistory.findIndex((msg) => msg.role === 'user');
     const geminiHistory = firstUserIndex >= 0 ? rawHistory.slice(firstUserIndex) : [];
 
     const lastUserMessage = messages[messages.length - 1];
+    const lastUserText = stripAttachmentMarkdown(lastUserMessage.content);
+    const lastUserParts = buildGeminiParts(lastUserText, attachments);
 
     // Create Gemini model with system instruction
     const model = genAI.getGenerativeModel({
@@ -166,7 +181,7 @@ Always communicate in Japanese, with respect and curiosity. Help users understan
     let result;
     try {
       result = await Promise.race([
-        chat.sendMessage(lastUserMessage.content),
+        chat.sendMessage(lastUserParts),
         new Promise<never>((_, reject) =>
           setTimeout(
             () => reject(new Error('GEMINI_TIMEOUT')),
@@ -235,4 +250,49 @@ Always communicate in Japanese, with respect and curiosity. Help users understan
       { status: 500 }
     );
   }
+}
+
+function validateInlineAttachments(attachments: InlineImageAttachment[]) {
+  if (attachments.length > MAX_IMAGE_ATTACHMENTS) {
+    return `画像は最大${MAX_IMAGE_ATTACHMENTS}枚まで添付できます。`;
+  }
+
+  for (const attachment of attachments) {
+    if (!isAllowedImageType(attachment.mimeType)) {
+      return '添付できる画像は JPG / PNG / WebP / GIF のみです。';
+    }
+
+    if (!attachment.data || base64ByteSize(attachment.data) > MAX_IMAGE_BYTES) {
+      return '画像1枚あたりの上限は4MBです。';
+    }
+  }
+
+  return '';
+}
+
+function buildGeminiParts(text: string, attachments: InlineImageAttachment[]) {
+  const parts: Array<
+    { text: string } | { inlineData: { mimeType: string; data: string } }
+  > = [
+    {
+      text: text.trim() || '添付画像について見てください。',
+    },
+  ];
+
+  attachments.forEach((attachment) => {
+    parts.push({
+      inlineData: {
+        mimeType: attachment.mimeType,
+        data: attachment.data,
+      },
+    });
+  });
+
+  return parts;
+}
+
+function base64ByteSize(base64: string) {
+  const clean = base64.replace(/\s/g, '');
+  const padding = clean.endsWith('==') ? 2 : clean.endsWith('=') ? 1 : 0;
+  return Math.floor((clean.length * 3) / 4) - padding;
 }

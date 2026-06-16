@@ -2,6 +2,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { genAI } from '@/lib/openai';
 import { coachingSystemPrompt } from '@/data/coaching-system-prompt';
+import {
+  isAllowedImageType,
+  MAX_IMAGE_ATTACHMENTS,
+  MAX_IMAGE_BYTES,
+  stripAttachmentMarkdown,
+  type InlineImageAttachment,
+} from '@/lib/attachments';
 
 export const runtime = 'nodejs';
 
@@ -17,6 +24,7 @@ interface RequestBody {
   messages: ChatMessage[];
   diagnosisCode?: string;
   email: string;
+  attachments?: InlineImageAttachment[];
 }
 
 function createAdminClient() {
@@ -76,13 +84,18 @@ ${diagnosisCode ? `## クライアント診断情報\n\nクライアントの診
 export async function POST(request: NextRequest) {
   try {
     const body: RequestBody = await request.json();
-    const { messages, diagnosisCode, email } = body;
+    const { messages, diagnosisCode, email, attachments = [] } = body;
 
     if (!messages || messages.length === 0) {
       return NextResponse.json(
         { error: 'No messages provided' },
         { status: 400 }
       );
+    }
+
+    const attachmentError = validateInlineAttachments(attachments);
+    if (attachmentError) {
+      return NextResponse.json({ error: attachmentError }, { status: 400 });
     }
 
     if (!email) {
@@ -169,7 +182,7 @@ export async function POST(request: NextRequest) {
     // Prepare conversation history for Gemini
     const rawHistory = messages.slice(0, -1).map((msg) => ({
       role: msg.role === 'assistant' ? ('model' as const) : ('user' as const),
-      parts: [{ text: msg.content }],
+      parts: [{ text: stripAttachmentMarkdown(msg.content) || '画像を添付しました。' }],
     }));
 
     // Strip leading 'model' messages since Gemini requires 'user' first
@@ -177,6 +190,8 @@ export async function POST(request: NextRequest) {
     const geminiHistory = firstUserIndex >= 0 ? rawHistory.slice(firstUserIndex) : [];
 
     const lastUserMessage = messages[messages.length - 1];
+    const lastUserText = stripAttachmentMarkdown(lastUserMessage.content);
+    const lastUserParts = buildGeminiParts(lastUserText, attachments);
 
     // Create Gemini model with system instruction
     const model = genAI.getGenerativeModel({
@@ -194,7 +209,31 @@ export async function POST(request: NextRequest) {
     });
 
     // Send the last user message
-    const result = await chat.sendMessage(lastUserMessage.content);
+    const GEMINI_TIMEOUT_MS = 55000;
+    let result;
+    try {
+      result = await Promise.race([
+        chat.sendMessage(lastUserParts),
+        new Promise<never>((_, reject) =>
+          setTimeout(
+            () => reject(new Error('GEMINI_TIMEOUT')),
+            GEMINI_TIMEOUT_MS
+          )
+        ),
+      ]);
+    } catch (genErr) {
+      const isTimeout =
+        genErr instanceof Error && genErr.message === 'GEMINI_TIMEOUT';
+      console.error('Free Gemini generation error:', genErr);
+      return NextResponse.json(
+        {
+          error: isTimeout
+            ? '応答に時間がかかりすぎたため中断しました。もう一度お試しください。'
+            : 'AIの応答生成に失敗しました。もう一度お試しください。',
+        },
+        { status: isTimeout ? 504 : 502 }
+      );
+    }
     const response = result.response;
     const assistantMessage =
       response.text() || 'すみません、応答に失敗しました。もう一度お試しください。';
@@ -238,4 +277,49 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
+}
+
+function validateInlineAttachments(attachments: InlineImageAttachment[]) {
+  if (attachments.length > MAX_IMAGE_ATTACHMENTS) {
+    return `画像は最大${MAX_IMAGE_ATTACHMENTS}枚まで添付できます。`;
+  }
+
+  for (const attachment of attachments) {
+    if (!isAllowedImageType(attachment.mimeType)) {
+      return '添付できる画像は JPG / PNG / WebP / GIF のみです。';
+    }
+
+    if (!attachment.data || base64ByteSize(attachment.data) > MAX_IMAGE_BYTES) {
+      return '画像1枚あたりの上限は4MBです。';
+    }
+  }
+
+  return '';
+}
+
+function buildGeminiParts(text: string, attachments: InlineImageAttachment[]) {
+  const parts: Array<
+    { text: string } | { inlineData: { mimeType: string; data: string } }
+  > = [
+    {
+      text: text.trim() || '添付画像について見てください。',
+    },
+  ];
+
+  attachments.forEach((attachment) => {
+    parts.push({
+      inlineData: {
+        mimeType: attachment.mimeType,
+        data: attachment.data,
+      },
+    });
+  });
+
+  return parts;
+}
+
+function base64ByteSize(base64: string) {
+  const clean = base64.replace(/\s/g, '');
+  const padding = clean.endsWith('==') ? 2 : clean.endsWith('=') ? 1 : 0;
+  return Math.floor((clean.length * 3) / 4) - padding;
 }

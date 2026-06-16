@@ -1,9 +1,13 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, type ChangeEvent } from 'react';
 import Header from '@/components/Header';
 import { createClient } from '@/lib/supabase';
 import { useI18n } from '@/lib/i18n';
+import {
+  validatePendingImageFiles,
+  type PendingImageAttachment,
+} from '@/lib/client-attachments';
 
 export default function SupportPage() {
   const [name, setName] = useState('');
@@ -15,6 +19,9 @@ export default function SupportPage() {
   const [sent, setSent] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
+  const [pendingAttachments, setPendingAttachments] = useState<PendingImageAttachment[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const pendingAttachmentsRef = useRef<PendingImageAttachment[]>([]);
   const supabase = createClient();
   const { t } = useI18n();
 
@@ -40,6 +47,59 @@ export default function SupportPage() {
     loadUser();
   }, [supabase]);
 
+  useEffect(() => {
+    pendingAttachmentsRef.current = pendingAttachments;
+  }, [pendingAttachments]);
+
+  useEffect(() => {
+    return () => {
+      pendingAttachmentsRef.current.forEach((attachment) => {
+        URL.revokeObjectURL(attachment.previewUrl);
+      });
+    };
+  }, []);
+
+  const handleAttachmentSelect = (event: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files || []);
+    event.target.value = '';
+
+    if (files.length === 0) {
+      return;
+    }
+
+    const validationError = validatePendingImageFiles(pendingAttachments.length, files);
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+
+    const nextAttachments = files.map((file) => ({
+      id: globalThis.crypto?.randomUUID?.() || `${Date.now()}-${file.name}`,
+      file,
+      previewUrl: URL.createObjectURL(file),
+    }));
+
+    setPendingAttachments((prev) => [...prev, ...nextAttachments]);
+    setError(null);
+  };
+
+  const removePendingAttachment = (attachmentId: string) => {
+    setPendingAttachments((prev) => {
+      const target = prev.find((attachment) => attachment.id === attachmentId);
+      if (target) {
+        URL.revokeObjectURL(target.previewUrl);
+      }
+      return prev.filter((attachment) => attachment.id !== attachmentId);
+    });
+  };
+
+  const clearPendingAttachments = () => {
+    pendingAttachments.forEach((attachment) => {
+      URL.revokeObjectURL(attachment.previewUrl);
+    });
+    setPendingAttachments([]);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -52,17 +112,22 @@ export default function SupportPage() {
     setSending(true);
 
     try {
+      const formData = new FormData();
+      formData.append('name', name.trim());
+      formData.append('email', email.trim());
+      formData.append('category', category);
+      formData.append('subject', subject.trim());
+      formData.append('message', message.trim());
+      if (userId) {
+        formData.append('user_id', userId);
+      }
+      pendingAttachments.forEach((attachment) => {
+        formData.append('attachments', attachment.file);
+      });
+
       const response = await fetch('/api/support', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: name.trim(),
-          email: email.trim(),
-          category,
-          subject: subject.trim(),
-          message: message.trim(),
-          user_id: userId,
-        }),
+        body: formData,
       });
 
       const data = await response.json();
@@ -72,6 +137,7 @@ export default function SupportPage() {
       }
 
       setSent(true);
+      clearPendingAttachments();
     } catch (err) {
       setError(err instanceof Error ? err.message : '送信に失敗しました');
     } finally {
@@ -96,6 +162,7 @@ export default function SupportPage() {
                 setSubject('');
                 setMessage('');
                 setCategory('general');
+                clearPendingAttachments();
               }}
               className="px-6 py-2.5 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors font-semibold"
             >
@@ -201,6 +268,57 @@ export default function SupportPage() {
                   placeholder="お問い合わせ内容を詳しくご記入ください"
                   required
                 />
+              </div>
+
+              {/* Attachments */}
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1">
+                  画像・スクリーンショット
+                </label>
+                {pendingAttachments.length > 0 && (
+                  <div className="mb-3 flex flex-wrap gap-2">
+                    {pendingAttachments.map((attachment) => (
+                      <div
+                        key={attachment.id}
+                        className="relative h-24 w-24 overflow-hidden rounded-lg border border-gray-200 bg-gray-50"
+                      >
+                        <img
+                          src={attachment.previewUrl}
+                          alt={attachment.file.name}
+                          className="h-full w-full object-cover"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => removePendingAttachment(attachment.id)}
+                          className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-black/60 text-xs text-white"
+                          title="添付を削除"
+                          aria-label="添付を削除"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,image/gif"
+                  multiple
+                  className="hidden"
+                  onChange={handleAttachmentSelect}
+                />
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={sending}
+                  className="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm font-semibold text-blue-700 transition-colors hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.586-6.586a4 4 0 10-5.657-5.657l-6.586 6.586a6 6 0 108.485 8.485L20.5 13" />
+                  </svg>
+                  画像を添付
+                </button>
               </div>
 
               {/* Error */}

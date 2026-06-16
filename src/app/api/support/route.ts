@@ -1,5 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import {
+  appendAttachmentMarkdown,
+  formatBytes,
+  type StoredAttachment,
+} from '@/lib/attachments';
+import { uploadImageAttachments } from '@/lib/server-attachments';
 
 export const runtime = 'nodejs';
 
@@ -15,8 +21,15 @@ const SUPPORT_FROM_EMAIL = process.env.FROM_EMAIL || 'noreply@silversense.cc';
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const { name, email, category, subject, message, user_id } = body;
+    const {
+      name,
+      email,
+      category,
+      subject,
+      message,
+      user_id,
+      attachments: attachmentFiles,
+    } = await parseSupportRequest(request);
 
     if (!name || !email || !subject || !message) {
       return NextResponse.json(
@@ -50,6 +63,35 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    let storedMessage = message;
+    let uploadedAttachments: StoredAttachment[] = [];
+
+    if (attachmentFiles.length > 0) {
+      uploadedAttachments = await uploadImageAttachments({
+        files: attachmentFiles,
+        folder: `support/${ticket.id}`,
+        supabaseUrl,
+        serviceRoleKey: supabaseServiceRoleKey,
+      });
+      storedMessage = appendAttachmentMarkdown(message, uploadedAttachments);
+
+      const { error: updateError } = await supabase
+        .from('support_tickets')
+        .update({
+          message: storedMessage,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', ticket.id);
+
+      if (updateError) {
+        console.error('Failed to update support ticket attachments:', updateError);
+        return NextResponse.json(
+          { error: '添付画像の保存に失敗しました' },
+          { status: 500 }
+        );
+      }
+    }
+
     // Send email notification via Resend (if email settings are configured)
     if (RESEND_API_KEY && SUPPORT_NOTIFICATION_EMAILS.length > 0) {
       try {
@@ -60,6 +102,18 @@ export async function POST(request: NextRequest) {
         }
 
         const categoryLabel = getCategoryLabel(category);
+        const attachmentText = uploadedAttachments.length
+          ? [
+              '',
+              '■ 添付画像',
+              ...uploadedAttachments.map(
+                (attachment, index) =>
+                  `${index + 1}. ${attachment.name} (${formatBytes(attachment.size)})`,
+              ),
+              ...uploadedAttachments.map((attachment) => attachment.url),
+              '',
+            ].join('\n')
+          : '';
         const emailBody = `
 新しいサポートチケットが届きました。
 
@@ -77,6 +131,7 @@ ${subject}
 
 ■ 内容
 ${message}
+${attachmentText}
 
 ━━━━━━━━━━━━━━━━━━━━
 送信日時: ${new Date().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })}
@@ -142,6 +197,53 @@ function getSupportNotificationEmails(): string[] {
         .filter(Boolean)
     )
   );
+}
+
+type ParsedSupportRequest = {
+  name: string;
+  email: string;
+  category: string;
+  subject: string;
+  message: string;
+  user_id: string | null;
+  attachments: File[];
+};
+
+async function parseSupportRequest(request: NextRequest): Promise<ParsedSupportRequest> {
+  const contentType = request.headers.get('content-type') || '';
+
+  if (contentType.includes('multipart/form-data')) {
+    const formData = await request.formData();
+
+    return {
+      name: getFormString(formData, 'name').trim(),
+      email: getFormString(formData, 'email').trim(),
+      category: getFormString(formData, 'category').trim() || 'general',
+      subject: getFormString(formData, 'subject').trim(),
+      message: getFormString(formData, 'message').trim(),
+      user_id: getFormString(formData, 'user_id').trim() || null,
+      attachments: formData
+        .getAll('attachments')
+        .filter((entry): entry is File => entry instanceof File && entry.size > 0),
+    };
+  }
+
+  const body = await request.json();
+
+  return {
+    name: typeof body.name === 'string' ? body.name.trim() : '',
+    email: typeof body.email === 'string' ? body.email.trim() : '',
+    category: typeof body.category === 'string' ? body.category.trim() : 'general',
+    subject: typeof body.subject === 'string' ? body.subject.trim() : '',
+    message: typeof body.message === 'string' ? body.message.trim() : '',
+    user_id: typeof body.user_id === 'string' && body.user_id.trim() ? body.user_id.trim() : null,
+    attachments: [],
+  };
+}
+
+function getFormString(formData: FormData, key: string) {
+  const value = formData.get(key);
+  return typeof value === 'string' ? value : '';
 }
 
 function getCategoryLabel(category: string): string {

@@ -1,10 +1,17 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ChangeEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase';
 import Header from '@/components/Header';
+import { appendAttachmentMarkdown, parseAttachmentMarkdown } from '@/lib/attachments';
+import {
+  fileToInlineImageAttachment,
+  uploadChatImageAttachments,
+  validatePendingImageFiles,
+  type PendingImageAttachment,
+} from '@/lib/client-attachments';
 
 interface Message {
   id: string;
@@ -28,7 +35,11 @@ export default function FreeCoachingPage() {
   const [initialized, setInitialized] = useState(false);
   const [messagesUsedToday, setMessagesUsedToday] = useState(0);
   const [rateLimitModal, setRateLimitModal] = useState<RateLimitModal>({ isOpen: false });
+  const [pendingAttachments, setPendingAttachments] = useState<PendingImageAttachment[]>([]);
+  const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const pendingAttachmentsRef = useRef<PendingImageAttachment[]>([]);
 
   const DAILY_MESSAGE_LIMIT = 3;
   const remainingMessages = DAILY_MESSAGE_LIMIT - messagesUsedToday;
@@ -40,6 +51,18 @@ export default function FreeCoachingPage() {
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  useEffect(() => {
+    pendingAttachmentsRef.current = pendingAttachments;
+  }, [pendingAttachments]);
+
+  useEffect(() => {
+    return () => {
+      pendingAttachmentsRef.current.forEach((attachment) => {
+        URL.revokeObjectURL(attachment.previewUrl);
+      });
+    };
+  }, []);
 
   useEffect(() => {
     const getUser = async () => {
@@ -97,8 +120,52 @@ export default function FreeCoachingPage() {
     getUser();
   }, [router, supabase]);
 
+  const handleAttachmentSelect = (event: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files || []);
+    event.target.value = '';
+
+    if (files.length === 0) {
+      return;
+    }
+
+    const validationError = validatePendingImageFiles(pendingAttachments.length, files);
+    if (validationError) {
+      setAttachmentError(validationError);
+      return;
+    }
+
+    const nextAttachments = files.map((file) => ({
+      id: globalThis.crypto?.randomUUID?.() || `${Date.now()}-${file.name}`,
+      file,
+      previewUrl: URL.createObjectURL(file),
+    }));
+
+    setPendingAttachments((prev) => [...prev, ...nextAttachments]);
+    setAttachmentError(null);
+  };
+
+  const removePendingAttachment = (attachmentId: string) => {
+    setPendingAttachments((prev) => {
+      const target = prev.find((attachment) => attachment.id === attachmentId);
+      if (target) {
+        URL.revokeObjectURL(target.previewUrl);
+      }
+      return prev.filter((attachment) => attachment.id !== attachmentId);
+    });
+    setAttachmentError(null);
+  };
+
+  const clearPendingAttachments = (attachmentsToClear = pendingAttachments) => {
+    attachmentsToClear.forEach((attachment) => {
+      URL.revokeObjectURL(attachment.previewUrl);
+    });
+    setPendingAttachments([]);
+  };
+
   const sendMessage = async () => {
-    if (!input.trim() || loading || !email || !diagnosisCode) return;
+    const messageText = input.trim();
+    const attachmentsToSend = pendingAttachments;
+    if ((!messageText && attachmentsToSend.length === 0) || loading || !email || !diagnosisCode) return;
 
     // Check rate limit
     if (remainingMessages <= 0) {
@@ -106,18 +173,41 @@ export default function FreeCoachingPage() {
       return;
     }
 
-    const userMessage: Message = {
-      id: Date.now().toString(),
-      role: 'user',
-      content: input,
-      createdAt: new Date().toISOString(),
-    };
-
-    setMessages((prev) => [...prev, userMessage]);
-    setInput('');
     setLoading(true);
+    setAttachmentError(null);
+    let userMessageAdded = false;
 
     try {
+      const {
+        data: { session: authSession },
+      } = await supabase.auth.getSession();
+
+      if (attachmentsToSend.length > 0 && !authSession?.access_token) {
+        throw new Error('ログイン状態を確認できませんでした。再ログインしてからお試しください。');
+      }
+
+      const files = attachmentsToSend.map((attachment) => attachment.file);
+      const [uploadedAttachments, inlineAttachments] = await Promise.all([
+        uploadChatImageAttachments(files, authSession?.access_token || ''),
+        Promise.all(files.map((file) => fileToInlineImageAttachment(file))),
+      ]);
+      const userVisibleContent = appendAttachmentMarkdown(
+        messageText || '画像を添付しました。',
+        uploadedAttachments
+      );
+      const apiContent = messageText || '添付画像について見てください。';
+      const userMessage: Message = {
+        id: Date.now().toString(),
+        role: 'user',
+        content: userVisibleContent,
+        createdAt: new Date().toISOString(),
+      };
+
+      setMessages((prev) => [...prev, userMessage]);
+      setInput('');
+      clearPendingAttachments(attachmentsToSend);
+      userMessageAdded = true;
+
       const response = await fetch('/api/free/chat', {
         method: 'POST',
         headers: {
@@ -126,7 +216,8 @@ export default function FreeCoachingPage() {
         body: JSON.stringify({
           email: email,
           diagnosisCode: diagnosisCode,
-          messages: messages.concat(userMessage),
+          messages: messages.concat({ ...userMessage, content: apiContent }),
+          attachments: inlineAttachments,
         }),
       });
 
@@ -160,6 +251,10 @@ export default function FreeCoachingPage() {
       localStorage.setItem('free_coaching_used', newUsed.toString());
     } catch (err) {
       console.error('Failed to send message:', err);
+      if (!userMessageAdded) {
+        setAttachmentError(err instanceof Error ? err.message : '送信に失敗しました。');
+        return;
+      }
       setMessages((prev) => [
         ...prev,
         {
@@ -232,9 +327,37 @@ export default function FreeCoachingPage() {
                       : 'bg-white border border-blue-200 text-gray-900'
                   }`}
                 >
-                  <p className="text-sm sm:text-base leading-relaxed whitespace-pre-wrap">
-                    {message.content}
-                  </p>
+                  {(() => {
+                    const parsedMessage = parseAttachmentMarkdown(message.content);
+                    return (
+                      <>
+                        {parsedMessage.text && (
+                          <p className="text-sm sm:text-base leading-relaxed whitespace-pre-wrap">
+                            {parsedMessage.text}
+                          </p>
+                        )}
+                        {parsedMessage.attachments.length > 0 && (
+                          <div className="mt-3 grid grid-cols-2 gap-2">
+                            {parsedMessage.attachments.map((attachment) => (
+                              <a
+                                key={attachment.url}
+                                href={attachment.url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="block overflow-hidden rounded-lg border border-white/60 bg-white/10"
+                              >
+                                <img
+                                  src={attachment.url}
+                                  alt={attachment.label || '添付画像'}
+                                  className="h-28 w-full object-cover"
+                                />
+                              </a>
+                            ))}
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
                   <p
                     className={`text-xs mt-2 ${
                       message.role === 'user' ? 'text-blue-100' : 'text-gray-500'
@@ -287,7 +410,57 @@ export default function FreeCoachingPage() {
                   </a>
                 </div>
               )}
+              {pendingAttachments.length > 0 && (
+                <div className="mb-3 flex flex-wrap gap-2">
+                  {pendingAttachments.map((attachment) => (
+                    <div
+                      key={attachment.id}
+                      className="relative h-20 w-20 overflow-hidden rounded-lg border border-blue-200 bg-blue-50"
+                    >
+                      <img
+                        src={attachment.previewUrl}
+                        alt={attachment.file.name}
+                        className="h-full w-full object-cover"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removePendingAttachment(attachment.id)}
+                        className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-black/60 text-xs text-white"
+                        title="添付を削除"
+                        aria-label="添付を削除"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {attachmentError && (
+                <p className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                  {attachmentError}
+                </p>
+              )}
               <div className="flex gap-3 items-end">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,image/gif"
+                  multiple
+                  className="hidden"
+                  onChange={handleAttachmentSelect}
+                />
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={loading || remainingMessages <= 0}
+                  className="flex-shrink-0 p-3 rounded-lg bg-blue-100 hover:bg-blue-200 text-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="画像を添付"
+                  aria-label="画像を添付"
+                >
+                  <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.586-6.586a4 4 0 10-5.657-5.657l-6.586 6.586a6 6 0 108.485 8.485L20.5 13" />
+                  </svg>
+                </button>
                 <textarea
                   rows={3}
                   value={input}
@@ -312,7 +485,7 @@ export default function FreeCoachingPage() {
                 <button
                   onClick={sendMessage}
                   disabled={
-                    loading || !input.trim() || remainingMessages <= 0
+                    loading || (!input.trim() && pendingAttachments.length === 0) || remainingMessages <= 0
                   }
                   className="bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 disabled:from-gray-400 disabled:to-gray-400 text-white font-semibold py-3 px-6 rounded-lg transition-all duration-200 disabled:cursor-not-allowed"
                 >
