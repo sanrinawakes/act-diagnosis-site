@@ -1,8 +1,11 @@
 /**
  * Shared AI coaching logic for web chat and messaging platforms (LINE, WhatsApp, etc.)
  */
-import { genAI } from '@/lib/openai';
 import { getContextualizedPrompt } from '@/data/coaching-system-prompt';
+import {
+  buildGeminiParts,
+  generateCoachingText,
+} from '@/lib/coaching-gemini';
 
 interface ConversationMessage {
   role: 'user' | 'assistant';
@@ -34,33 +37,11 @@ export async function generateCoachingResponse(
     ? getContextualizedPrompt(diagnosisCode)
     : DEFAULT_SYSTEM_PROMPT;
 
-  // Prepare conversation history for Gemini
-  const geminiHistory = history.map((msg) => ({
-    role: msg.role === 'assistant' ? ('model' as const) : ('user' as const),
-    parts: [{ text: msg.content }],
-  }));
-
-  // Create Gemini model with system instruction
-  const model = genAI.getGenerativeModel({
-    model: 'gemini-2.0-flash',
-    systemInstruction: systemPrompt,
-    generationConfig: {
-      temperature: 0.7,
-      maxOutputTokens: 2048,
-    },
+  const result = await generateCoachingText({
+    systemPrompt,
+    historyMessages: history,
+    lastUserParts: buildGeminiParts(userMessage, []),
   });
 
-  // Start chat with history
-  const chat = model.startChat({
-    history: geminiHistory,
-  });
-
-  // Send the user message
-  const result = await chat.sendMessage(userMessage);
-  const response = result.response;
-
-  return (
-    response.text() ||
-    'すみません、応答に失敗しました。もう一度お試しください。'
-  );
+  return result.text;
 }

@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { genAI } from '@/lib/openai';
 import { coachingSystemPrompt } from '@/data/coaching-system-prompt';
 import {
   isAllowedImageType,
@@ -9,6 +8,12 @@ import {
   stripAttachmentMarkdown,
   type InlineImageAttachment,
 } from '@/lib/attachments';
+import {
+  buildGeminiParts,
+  createJsonLineStream,
+  generateCoachingText,
+  getStreamHeaders,
+} from '@/lib/coaching-gemini';
 
 export const runtime = 'nodejs';
 
@@ -25,6 +30,7 @@ interface RequestBody {
   diagnosisCode?: string;
   email: string;
   attachments?: InlineImageAttachment[];
+  stream?: boolean;
 }
 
 function createAdminClient() {
@@ -34,8 +40,7 @@ function createAdminClient() {
 }
 
 /**
- * Free version sales-enhanced coaching system prompt
- * Based on the main coaching prompt but with natural sales touches for study sessions
+ * Free version coaching prompt with a light study-session guidance layer.
  */
 function getFreeCoachingSystemPrompt(diagnosisCode?: string): string {
   const baseFreePrompt = `${coachingSystemPrompt}
@@ -44,31 +49,29 @@ function getFreeCoachingSystemPrompt(diagnosisCode?: string): string {
 
 ## 無料版に関する重要なガイダンス
 
-このユーザーは無料版の簡易診断（15問）を受けています。簡易版では意識レベル2段階しか判定できず、27種類の性格タイプ判定もできません。あなたの最重要ミッションは、ユーザーに最高のコーチング体験を提供しつつ、無料オンライン勉強会への参加を強く促すことです。
+このユーザーは無料版の簡易診断（15問）を受けています。簡易版では意識レベル2段階しか判定できず、27種類の性格タイプ判定もできません。まず相談内容に真摯に答え、そのうえで必要な時だけ、フルテストや無料オンライン勉強会に短く触れてください。
 
 ### コーチング方針
-- 1回目の返答から、簡易版の限界を明確に伝えてください
-- 毎回の返答で、フルテストを受ければもっと深い自己理解ができることに触れてください
-- ユーザーの悩みや質問に対して「フルテストならもっと正確な答えが出せます」と積極的に提案してください
-- 3回しかチャンスがないので、毎回のやり取りを最大限に活用して勉強会参加を促してください
+- ユーザーの質問や悩みへの回答を最優先にする。
+- 簡易版の限界を説明する時は、短く自然に伝える。
+- フルテストや勉強会の案内は、本文の最後に1〜2文だけ添える。
+- ユーザーが深刻に悩んでいる時は、案内より共感と整理を優先する。
+- 同じ誘導文を毎回繰り返さない。
 
-### フルテストについて積極的に言及する方法
-以下のような言い回しを毎回の返答に自然に織り込んでください：
-- 「今回の簡易テストは15問の短縮版で、意識レベルも2段階までしか判定できていません。フルテスト（120問以上）では、6段階の意識レベルと27種類の性格タイプを正確に判定できるので、今のお悩みにもっと具体的なアドバイスができるようになります」
-- 「簡易版だとどうしても大まかな傾向しかわからないんです。フルテストを受けていただければ、あなた固有の行動パターンや強み・課題が明確になって、コーチングの精度が格段に上がります」
-- 「この点についてもっと深くお話ししたいのですが、簡易版の診断結果だけだと限界があります。フルテストの結果があれば、もっと的確なアドバイスができます」
+### フルテストについて触れる時の言い方
+- 「簡易版なので大まかな傾向として見ています。フルテストでは、より具体的な行動パターンまで見やすくなります」
+- 「ここはもう少し深掘りできます。フルテストの結果があると、今の悩みに対してさらに具体的に見立てられます」
+- 「気になれば、無料オンライン勉強会でフルテストについて確認できます」
 
-### 無料オンライン勉強会への誘導（最重要）
-毎回の返答の最後に、必ず勉強会への誘導を入れてください：
-- 「ちなみに、今なら無料オンライン勉強会に参加するだけで、フルテスト（120問以上）＋2週間のAIコーチング無制限利用がすべて無料でプレゼントされます。勉強会自体も無料で、意識レベルの仕組みを学べる貴重な機会です。ぜひ参加してみてください！」
-- 「フルテストを受けたい方は、無料オンライン勉強会に参加するのが一番お得です。勉強会参加者には、フルテスト＋2週間AIコーチング無制限が無料で付いてきます。申し込みは30秒で完了しますよ」
-- 「今の簡易版だと1日3回までしかお話しできませんが、勉強会に参加すれば2週間は回数無制限でじっくりお話しできます。勉強会自体も完全無料なので、損することは何もありません」
+### 無料オンライン勉強会への誘導
+- 誘導は自然な流れがある時だけ、最後に短く添える。
+- 長い宣伝文、強い煽り、毎回同じ文章は禁止。
+- ユーザーが「詳しく知りたい」「もっと診断したい」と言った時は、勉強会案内を少し丁寧にする。
 
 ### トーン
-- 熱意を持って積極的に勧めてください
-- 「あなたのためを思って」という姿勢で、本気で勉強会参加を推してください
-- 遠慮は不要です。ユーザーの成長のために、フルテストと勉強会がいかに有益かを力強く伝えてください
-- ただし、ユーザーの質問や悩みには必ず真摯に向き合った上で提案すること
+- 売り込みではなく、必要な情報をそっと添える。
+- ユーザーが話し続けたくなる自然な温度感を守る。
+- 返答の中心は、あくまでコーチング体験にする。
 
 ### 提案リンク
 無料オンライン勉強会へは以下のURLで案内できます：
@@ -84,7 +87,7 @@ ${diagnosisCode ? `## クライアント診断情報\n\nクライアントの診
 export async function POST(request: NextRequest) {
   try {
     const body: RequestBody = await request.json();
-    const { messages, diagnosisCode, email, attachments = [] } = body;
+    const { messages, diagnosisCode, email, attachments = [], stream = false } = body;
 
     if (!messages || messages.length === 0) {
       return NextResponse.json(
@@ -179,48 +182,49 @@ export async function POST(request: NextRequest) {
     // Build system prompt with sales layer
     const systemPrompt = getFreeCoachingSystemPrompt(diagnosisCode);
 
-    // Prepare conversation history for Gemini
-    const rawHistory = messages.slice(0, -1).map((msg) => ({
-      role: msg.role === 'assistant' ? ('model' as const) : ('user' as const),
-      parts: [{ text: stripAttachmentMarkdown(msg.content) || '画像を添付しました。' }],
-    }));
-
-    // Strip leading 'model' messages since Gemini requires 'user' first
-    const firstUserIndex = rawHistory.findIndex((msg) => msg.role === 'user');
-    const geminiHistory = firstUserIndex >= 0 ? rawHistory.slice(firstUserIndex) : [];
-
     const lastUserMessage = messages[messages.length - 1];
     const lastUserText = stripAttachmentMarkdown(lastUserMessage.content);
     const lastUserParts = buildGeminiParts(lastUserText, attachments);
+    const historyMessages = messages.slice(0, -1);
 
-    // Create Gemini model with system instruction
-    const model = genAI.getGenerativeModel({
-      model: 'gemini-2.5-flash',
-      systemInstruction: systemPrompt,
-      generationConfig: {
-        temperature: 0.7,
-        maxOutputTokens: 2048,
-      },
-    });
+    const completeSuccessfulResponse = async () => {
+      const newChatCount = chatCountToday + 1;
+      await supabase
+        .from('free_users')
+        .update({
+          chat_count_today: newChatCount,
+          last_chat_date: today,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('email', email);
 
-    // Start chat with history
-    const chat = model.startChat({
-      history: geminiHistory,
-    });
+      return {
+        remaining: Math.max(0, 3 - newChatCount),
+      };
+    };
 
-    // Send the last user message
-    const GEMINI_TIMEOUT_MS = 55000;
-    let result;
+    if (stream) {
+      return new Response(
+        createJsonLineStream({
+          systemPrompt,
+          historyMessages,
+          lastUserParts,
+          onDone: completeSuccessfulResponse,
+        }),
+        { headers: getStreamHeaders() }
+      );
+    }
+
+    let assistantMessage: string;
+    let usage;
     try {
-      result = await Promise.race([
-        chat.sendMessage(lastUserParts),
-        new Promise<never>((_, reject) =>
-          setTimeout(
-            () => reject(new Error('GEMINI_TIMEOUT')),
-            GEMINI_TIMEOUT_MS
-          )
-        ),
-      ]);
+      const result = await generateCoachingText({
+        systemPrompt,
+        historyMessages,
+        lastUserParts,
+      });
+      assistantMessage = result.text;
+      usage = result.usage;
     } catch (genErr) {
       const isTimeout =
         genErr instanceof Error && genErr.message === 'GEMINI_TIMEOUT';
@@ -234,31 +238,13 @@ export async function POST(request: NextRequest) {
         { status: isTimeout ? 504 : 502 }
       );
     }
-    const response = result.response;
-    const assistantMessage =
-      response.text() || 'すみません、応答に失敗しました。もう一度お試しください。';
 
-    // Increment chat count for this free user
-    const newChatCount = chatCountToday + 1;
-    await supabase
-      .from('free_users')
-      .update({
-        chat_count_today: newChatCount,
-        last_chat_date: today,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('email', email);
-
-    const remaining = Math.max(0, 3 - newChatCount);
+    const { remaining } = await completeSuccessfulResponse();
 
     return NextResponse.json({
       message: assistantMessage,
       remaining,
-      usage: {
-        prompt_tokens: response.usageMetadata?.promptTokenCount,
-        completion_tokens: response.usageMetadata?.candidatesTokenCount,
-        total_tokens: response.usageMetadata?.totalTokenCount,
-      },
+      usage,
     });
   } catch (error) {
     console.error('Free chat API error:', error);
@@ -295,27 +281,6 @@ function validateInlineAttachments(attachments: InlineImageAttachment[]) {
   }
 
   return '';
-}
-
-function buildGeminiParts(text: string, attachments: InlineImageAttachment[]) {
-  const parts: Array<
-    { text: string } | { inlineData: { mimeType: string; data: string } }
-  > = [
-    {
-      text: text.trim() || '添付画像について見てください。',
-    },
-  ];
-
-  attachments.forEach((attachment) => {
-    parts.push({
-      inlineData: {
-        mimeType: attachment.mimeType,
-        data: attachment.data,
-      },
-    });
-  });
-
-  return parts;
 }
 
 function base64ByteSize(base64: string) {

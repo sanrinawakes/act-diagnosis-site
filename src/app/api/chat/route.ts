@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { genAI } from '@/lib/openai';
 import { getContextualizedPrompt } from '@/data/coaching-system-prompt';
 import {
   isAllowedImageType,
@@ -9,6 +8,12 @@ import {
   stripAttachmentMarkdown,
   type InlineImageAttachment,
 } from '@/lib/attachments';
+import {
+  buildGeminiParts,
+  createJsonLineStream,
+  generateCoachingText,
+  getStreamHeaders,
+} from '@/lib/coaching-gemini';
 
 export const runtime = 'nodejs';
 // Vercel関数のデフォルト打ち切り(Hobby 10s)を延長し、Gemini生成の途中切断を防ぐ
@@ -29,6 +34,7 @@ interface RequestBody {
   messages: ChatMessage[];
   diagnosisCode?: string;
   attachments?: InlineImageAttachment[];
+  stream?: boolean;
 }
 
 export async function POST(request: NextRequest) {
@@ -121,7 +127,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body: RequestBody = await request.json();
-    const { messages, diagnosisCode, attachments = [] } = body;
+    const { messages, diagnosisCode, attachments = [], stream = false } = body;
 
     if (!messages || messages.length === 0) {
       return NextResponse.json(
@@ -147,48 +153,51 @@ You provide compassionate, insightful coaching based on the user's ACT type diag
 
 Always communicate in Japanese, with respect and curiosity. Help users understand their strengths, growth areas, and pathways to higher consciousness levels.`;
 
-    // Prepare conversation history for Gemini
-    // Gemini requires the first message in history to be 'user' role
-    const rawHistory = messages.slice(0, -1).map((msg) => ({
-      role: msg.role === 'assistant' ? 'model' as const : 'user' as const,
-      parts: [{ text: stripAttachmentMarkdown(msg.content) || '画像を添付しました。' }],
-    }));
-    // Strip leading 'model' messages (e.g. welcome message) since Gemini requires 'user' first
-    const firstUserIndex = rawHistory.findIndex((msg) => msg.role === 'user');
-    const geminiHistory = firstUserIndex >= 0 ? rawHistory.slice(firstUserIndex) : [];
-
     const lastUserMessage = messages[messages.length - 1];
     const lastUserText = stripAttachmentMarkdown(lastUserMessage.content);
     const lastUserParts = buildGeminiParts(lastUserText, attachments);
+    const historyMessages = messages.slice(0, -1);
 
-    // Create Gemini model with system instruction
-    const model = genAI.getGenerativeModel({
-      model: 'gemini-2.5-flash',
-      systemInstruction: systemPrompt,
-      generationConfig: {
-        temperature: 0.7,
-        maxOutputTokens: 2048,
-      },
-    });
+    const completeSuccessfulResponse = async () => {
+      const currentCount = profile && profile.last_chat_date === today ? (profile.chat_count_today || 0) : 0;
+      const newCount = currentCount + 1;
 
-    // Start chat with history
-    const chat = model.startChat({
-      history: geminiHistory,
-    });
+      await supabaseAdmin
+        .from('profiles')
+        .update({
+          chat_count_today: newCount,
+          last_chat_date: today,
+        })
+        .eq('id', user.id);
 
-    // Send the last user message（サーバ側でも55秒で打ち切り、ハング時はクリーンに504を返す）
-    const GEMINI_TIMEOUT_MS = 55000;
-    let result;
+      return {
+        remaining: profile?.role === 'admin' ? DAILY_CHAT_LIMIT : Math.max(0, DAILY_CHAT_LIMIT - newCount),
+        limit: DAILY_CHAT_LIMIT,
+      };
+    };
+
+    if (stream) {
+      return new Response(
+        createJsonLineStream({
+          systemPrompt,
+          historyMessages,
+          lastUserParts,
+          onDone: completeSuccessfulResponse,
+        }),
+        { headers: getStreamHeaders() }
+      );
+    }
+
+    let assistantMessage: string;
+    let usage;
     try {
-      result = await Promise.race([
-        chat.sendMessage(lastUserParts),
-        new Promise<never>((_, reject) =>
-          setTimeout(
-            () => reject(new Error('GEMINI_TIMEOUT')),
-            GEMINI_TIMEOUT_MS
-          )
-        ),
-      ]);
+      const result = await generateCoachingText({
+        systemPrompt,
+        historyMessages,
+        lastUserParts,
+      });
+      assistantMessage = result.text;
+      usage = result.usage;
     } catch (genErr) {
       const isTimeout =
         genErr instanceof Error && genErr.message === 'GEMINI_TIMEOUT';
@@ -202,33 +211,15 @@ Always communicate in Japanese, with respect and curiosity. Help users understan
         { status: isTimeout ? 504 : 502 }
       );
     }
-    const response = result.response;
-    const assistantMessage =
-      response.text() || 'すみません、応答に失敗しました。もう一度お試しください。';
 
     // Increment daily chat count
-    const currentCount = profile && profile.last_chat_date === today ? (profile.chat_count_today || 0) : 0;
-    const newCount = currentCount + 1;
-
-    await supabaseAdmin
-      .from('profiles')
-      .update({
-        chat_count_today: newCount,
-        last_chat_date: today,
-      })
-      .eq('id', user.id);
-
-    const remaining = profile?.role === 'admin' ? DAILY_CHAT_LIMIT : Math.max(0, DAILY_CHAT_LIMIT - newCount);
+    const { remaining, limit } = await completeSuccessfulResponse();
 
     return NextResponse.json({
       message: assistantMessage,
       remaining,
-      limit: DAILY_CHAT_LIMIT,
-      usage: {
-        prompt_tokens: response.usageMetadata?.promptTokenCount,
-        completion_tokens: response.usageMetadata?.candidatesTokenCount,
-        total_tokens: response.usageMetadata?.totalTokenCount,
-      },
+      limit,
+      usage,
     });
   } catch (error) {
     console.error('Chat API error:', error);
@@ -268,27 +259,6 @@ function validateInlineAttachments(attachments: InlineImageAttachment[]) {
   }
 
   return '';
-}
-
-function buildGeminiParts(text: string, attachments: InlineImageAttachment[]) {
-  const parts: Array<
-    { text: string } | { inlineData: { mimeType: string; data: string } }
-  > = [
-    {
-      text: text.trim() || '添付画像について見てください。',
-    },
-  ];
-
-  attachments.forEach((attachment) => {
-    parts.push({
-      inlineData: {
-        mimeType: attachment.mimeType,
-        data: attachment.data,
-      },
-    });
-  });
-
-  return parts;
 }
 
 function base64ByteSize(base64: string) {

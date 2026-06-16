@@ -12,6 +12,7 @@ import {
   validatePendingImageFiles,
   type PendingImageAttachment,
 } from '@/lib/client-attachments';
+import { readChatStream } from '@/lib/chat-stream-client';
 
 interface Message {
   id: string;
@@ -176,6 +177,8 @@ export default function FreeCoachingPage() {
     setLoading(true);
     setAttachmentError(null);
     let userMessageAdded = false;
+    let assistantMessageId: string | null = null;
+    let assistantContent = '';
 
     try {
       const {
@@ -212,41 +215,60 @@ export default function FreeCoachingPage() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          Accept: 'application/x-ndjson',
         },
         body: JSON.stringify({
           email: email,
           diagnosisCode: diagnosisCode,
           messages: messages.concat({ ...userMessage, content: apiContent }),
           attachments: inlineAttachments,
+          stream: true,
         }),
       });
 
       if (response.status === 429) {
         // Rate limited
-        const errorData = await response.json();
+        await response.json();
         setRateLimitModal({ isOpen: true });
         setLoading(false);
         return;
       }
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to get response');
-      }
-
-      const data = await response.json();
-
+      assistantMessageId = (Date.now() + 1).toString();
       const assistantMessage: Message = {
-        id: (Date.now() + 1).toString(),
+        id: assistantMessageId,
         role: 'assistant',
-        content: data.message,
+        content: '',
         createdAt: new Date().toISOString(),
       };
-
       setMessages((prev) => [...prev, assistantMessage]);
 
-      // Update messages used today
-      const newUsed = messagesUsedToday + 1;
+      const data = await readChatStream(response, (chunk) => {
+        assistantContent += chunk;
+        setMessages((prev) =>
+          prev.map((message) =>
+            message.id === assistantMessageId
+              ? { ...message, content: assistantContent }
+              : message
+          )
+        );
+      });
+
+      if (data.message && data.message !== assistantContent) {
+        assistantContent = data.message;
+        setMessages((prev) =>
+          prev.map((message) =>
+            message.id === assistantMessageId
+              ? { ...message, content: assistantContent }
+              : message
+          )
+        );
+      }
+
+      const newUsed =
+        data.remaining !== undefined
+          ? DAILY_MESSAGE_LIMIT - data.remaining
+          : messagesUsedToday + 1;
       setMessagesUsedToday(newUsed);
       localStorage.setItem('free_coaching_used', newUsed.toString());
     } catch (err) {
@@ -255,16 +277,26 @@ export default function FreeCoachingPage() {
         setAttachmentError(err instanceof Error ? err.message : '送信に失敗しました。');
         return;
       }
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: (Date.now() + 2).toString(),
-          role: 'assistant',
-          content:
-            'すみません、応答に失敗しました。もう一度お試しください。',
-          createdAt: new Date().toISOString(),
-        },
-      ]);
+      const failContent = 'すみません、応答に失敗しました。もう一度お試しください。';
+      if (assistantMessageId) {
+        setMessages((prev) =>
+          prev.map((message) =>
+            message.id === assistantMessageId
+              ? { ...message, content: failContent }
+              : message
+          )
+        );
+      } else {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: (Date.now() + 2).toString(),
+            role: 'assistant',
+            content: failContent,
+            createdAt: new Date().toISOString(),
+          },
+        ]);
+      }
     } finally {
       setLoading(false);
     }
@@ -465,15 +497,6 @@ export default function FreeCoachingPage() {
                   rows={3}
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    const isTouch =
-                      typeof window !== 'undefined' &&
-                      window.matchMedia('(pointer: coarse)').matches;
-                    if (e.key === 'Enter' && !e.shiftKey && !isTouch) {
-                      e.preventDefault();
-                      sendMessage();
-                    }
-                  }}
                   placeholder={
                     remainingMessages > 0
                       ? 'メッセージを入力...'
@@ -483,6 +506,7 @@ export default function FreeCoachingPage() {
                   disabled={loading || remainingMessages <= 0}
                 />
                 <button
+                  type="button"
                   onClick={sendMessage}
                   disabled={
                     loading || (!input.trim() && pendingAttachments.length === 0) || remainingMessages <= 0

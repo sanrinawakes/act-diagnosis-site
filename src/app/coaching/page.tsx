@@ -21,6 +21,7 @@ import {
   validatePendingImageFiles,
   type PendingImageAttachment,
 } from '@/lib/client-attachments';
+import { readChatStream } from '@/lib/chat-stream-client';
 
 interface Message {
   id: string;
@@ -506,6 +507,8 @@ function CoachingContent() {
     setAttachmentError(null);
 
     let shouldPersistFallback = false;
+    let assistantMessageId: string | null = null;
+    let assistantContent = '';
 
     try {
       const {
@@ -554,12 +557,14 @@ function CoachingContent() {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
+            Accept: 'application/x-ndjson',
             ...(authSession?.access_token ? { 'Authorization': `Bearer ${authSession.access_token}` } : {}),
           },
           body: JSON.stringify({
             messages: messages.concat({ ...userMessage, content: apiContent }),
             diagnosisCode,
             attachments: inlineAttachments,
+            stream: true,
           }),
           signal: controller.signal,
         });
@@ -567,33 +572,53 @@ function CoachingContent() {
         clearTimeout(timeoutId);
       }
 
-      const data = await response.json();
+      if (response.status === 429) {
+        const data = await response.json();
+        setRateLimitReached(true);
+        setRemainingChats(0);
+        throw new Error(data.error || '本日の利用上限に達しました。');
+      }
 
-      if (!response.ok) {
-        if (response.status === 429) {
-          setRateLimitReached(true);
-          setRemainingChats(0);
-          throw new Error(data.error || '本日の利用上限に達しました。');
-        }
-        throw new Error(data.error || 'Failed to get response');
+      assistantMessageId = (Date.now() + 1).toString();
+      const assistantMessage: Message = {
+        id: assistantMessageId,
+        role: 'assistant',
+        content: '',
+        createdAt: new Date().toISOString(),
+      };
+      setMessages((prev) => [...prev, assistantMessage]);
+
+      const data = await readChatStream(response, (chunk) => {
+        assistantContent += chunk;
+        setMessages((prev) =>
+          prev.map((message) =>
+            message.id === assistantMessageId
+              ? { ...message, content: assistantContent }
+              : message
+          )
+        );
+      });
+
+      if (data.message && data.message !== assistantContent) {
+        assistantContent = data.message;
+        setMessages((prev) =>
+          prev.map((message) =>
+            message.id === assistantMessageId
+              ? { ...message, content: assistantContent }
+              : message
+          )
+        );
       }
 
       if (data.remaining !== undefined) setRemainingChats(data.remaining);
       if (data.limit !== undefined) setChatLimit(data.limit);
 
-      const assistantMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: data.message,
-        createdAt: new Date().toISOString(),
-      };
-
-      setMessages((prev) => [...prev, assistantMessage]);
-
       await supabase.from('chat_messages').insert({
         session_id: sessionId,
         role: 'assistant',
-        content: data.message,
+        content:
+          assistantContent ||
+          'すみません、応答に失敗しました。もう一度お試しください。',
       });
 
       const { data: sessionData } = await supabase
@@ -624,15 +649,25 @@ function CoachingContent() {
       const failContent = isAbort
         ? '応答に時間がかかりすぎたため中断しました。お手数ですが、もう一度お試しください。'
         : 'すみません、応答に失敗しました。もう一度お試しください。';
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: (Date.now() + 2).toString(),
-          role: 'assistant',
-          content: failContent,
-          createdAt: new Date().toISOString(),
-        },
-      ]);
+      if (assistantMessageId) {
+        setMessages((prev) =>
+          prev.map((message) =>
+            message.id === assistantMessageId
+              ? { ...message, content: failContent }
+              : message
+          )
+        );
+      } else {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: (Date.now() + 2).toString(),
+            role: 'assistant',
+            content: failContent,
+            createdAt: new Date().toISOString(),
+          },
+        ]);
+      }
       // 失敗時もassistant行を保存し、再読込で「ユーザー発言だけ残り返事が消える」状態を防ぐ（大森さんの症状）
       try {
         await supabase.from('chat_messages').insert({
@@ -1099,22 +1134,12 @@ function CoachingContent() {
                     rows={3}
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      // PC: Enter送信 / Shift+Enter改行。
-                      // スマホ(IME/ソフトキーボード)はEnterで送信せず改行を許可する。
-                      const isTouch =
-                        typeof window !== 'undefined' &&
-                        window.matchMedia('(pointer: coarse)').matches;
-                      if (e.key === 'Enter' && !e.shiftKey && !isTouch) {
-                        e.preventDefault();
-                        sendMessage();
-                      }
-                    }}
                     placeholder={t('coaching.placeholder')}
                     className="flex-1 min-h-24 max-h-48 bg-white border border-blue-200 text-base leading-relaxed text-gray-900 placeholder-gray-500 rounded-lg px-4 py-3 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-400/50 transition-all resize-y"
                     disabled={loading}
                   />
                   <button
+                    type="button"
                     onClick={sendMessage}
                     disabled={loading || (!input.trim() && pendingAttachments.length === 0)}
                     className="bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 disabled:from-gray-400 disabled:to-gray-400 text-white font-semibold py-3 px-6 rounded-lg transition-all duration-200 disabled:cursor-not-allowed"
