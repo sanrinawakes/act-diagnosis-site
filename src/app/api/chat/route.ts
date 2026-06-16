@@ -4,6 +4,8 @@ import { genAI } from '@/lib/openai';
 import { getContextualizedPrompt } from '@/data/coaching-system-prompt';
 
 export const runtime = 'nodejs';
+// Vercel関数のデフォルト打ち切り(Hobby 10s)を延長し、Gemini生成の途中切断を防ぐ
+export const maxDuration = 60;
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
@@ -56,12 +58,26 @@ export async function POST(request: NextRequest) {
     const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
     const { data: profile, error: profileError } = await supabaseAdmin
       .from('profiles')
-      .select('chat_count_today, last_chat_date, role')
+      .select('chat_count_today, last_chat_date, role, subscription_status, is_active, paid_test_credits')
       .eq('id', user.id)
       .single();
 
     if (profileError) {
       console.error('Profile fetch error:', profileError);
+    }
+
+    // 有料機能ガード（middleware.ts / useSubscriptionGuard.ts と同条件）。
+    // 通常UIはmiddlewareで弾かれるが、APIを直接叩く経路の防御。
+    if (profile && profile.role !== 'admin') {
+      const hasActiveSubscription =
+        profile.subscription_status === 'active' && profile.is_active;
+      const hasPaidTestCredits = (profile.paid_test_credits || 0) > 0;
+      if (!hasActiveSubscription && !hasPaidTestCredits) {
+        return NextResponse.json(
+          { error: '有料会員のみご利用いただけます。' },
+          { status: 403 }
+        );
+      }
     }
 
     if (profile && profile.role !== 'admin') {
@@ -145,8 +161,32 @@ Always communicate in Japanese, with respect and curiosity. Help users understan
       history: geminiHistory,
     });
 
-    // Send the last user message
-    const result = await chat.sendMessage(lastUserMessage.content);
+    // Send the last user message（サーバ側でも55秒で打ち切り、ハング時はクリーンに504を返す）
+    const GEMINI_TIMEOUT_MS = 55000;
+    let result;
+    try {
+      result = await Promise.race([
+        chat.sendMessage(lastUserMessage.content),
+        new Promise<never>((_, reject) =>
+          setTimeout(
+            () => reject(new Error('GEMINI_TIMEOUT')),
+            GEMINI_TIMEOUT_MS
+          )
+        ),
+      ]);
+    } catch (genErr) {
+      const isTimeout =
+        genErr instanceof Error && genErr.message === 'GEMINI_TIMEOUT';
+      console.error('Gemini generation error:', genErr);
+      return NextResponse.json(
+        {
+          error: isTimeout
+            ? '応答に時間がかかりすぎたため中断しました。もう一度お試しください。'
+            : 'AIの応答生成に失敗しました。もう一度お試しください。',
+        },
+        { status: isTimeout ? 504 : 502 }
+      );
+    }
     const response = result.response;
     const assistantMessage =
       response.text() || 'すみません、応答に失敗しました。もう一度お試しください。';
