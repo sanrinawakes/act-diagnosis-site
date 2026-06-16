@@ -16,6 +16,8 @@ type ReplyTarget = {
 const REPLY_TO_EMAIL = 'silversense.fzco@gmail.com';
 const SEND_CONFIRMATION = 'send-20260616-support-replies';
 const TEST_TICKET_IDS = ['c196f970-a4e6-45f9-8d0f-8ae663340052'];
+const SEND_INTERVAL_MS = 350;
+const RATE_LIMIT_RETRY_MS = 1500;
 
 const replyTargets: ReplyTarget[] = [
   {
@@ -329,6 +331,10 @@ async function sendReply(target: ReplyTarget, fromEmail: string, resendApiKey: s
   };
 }
 
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export async function POST(request: NextRequest) {
   try {
     const sendSecret = request.headers.get('x-send-secret');
@@ -350,9 +356,40 @@ export async function POST(request: NextRequest) {
     const fromEmail = process.env.FROM_EMAIL || 'noreply@silversense.cc';
     const adminClient = createAdminClient();
 
+    const targetTicketIds = replyTargets.flatMap((target) => target.ticketIds);
+    const { data: existingTickets, error: existingTicketsError } = await adminClient
+      .from('support_tickets')
+      .select('id, status')
+      .in('id', targetTicketIds);
+
+    if (existingTicketsError) {
+      return NextResponse.json(
+        { error: 'Failed to load ticket statuses', details: existingTicketsError },
+        { status: 500 }
+      );
+    }
+
+    const ticketStatusById = new Map(
+      (existingTickets || []).map((ticket) => [ticket.id, ticket.status])
+    );
+    const pendingTargets = replyTargets.filter((target) =>
+      target.ticketIds.some((ticketId) => ticketStatusById.get(ticketId) === 'open')
+    );
+
     const sendResults = [];
-    for (const target of replyTargets) {
-      sendResults.push(await sendReply(target, fromEmail, resendApiKey));
+    for (const [index, target] of pendingTargets.entries()) {
+      if (index > 0) {
+        await sleep(SEND_INTERVAL_MS);
+      }
+
+      let result = await sendReply(target, fromEmail, resendApiKey);
+
+      if (!result.ok && result.status === 429) {
+        await sleep(RATE_LIMIT_RETRY_MS);
+        result = await sendReply(target, fromEmail, resendApiKey);
+      }
+
+      sendResults.push(result);
     }
 
     const successfulTicketIds = sendResults
@@ -405,6 +442,8 @@ export async function POST(request: NextRequest) {
         from: `ACTI サポート <${fromEmail}>`,
         replyTo: REPLY_TO_EMAIL,
         requestedRecipients: replyTargets.length,
+        pendingRecipients: pendingTargets.length,
+        skippedRecipients: replyTargets.length - pendingTargets.length,
         sentRecipients: sendResults.filter((result) => result.ok).length,
         failedRecipients: failedSends.length,
         dbErrorCount: dbErrors.length,
