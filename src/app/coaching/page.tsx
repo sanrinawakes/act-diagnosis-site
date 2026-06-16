@@ -906,7 +906,7 @@ function CoachingContent() {
                   <p className="text-gray-500 text-sm mt-1">明日またご利用ください。</p>
                 </div>
               ) : (
-                <div className="max-w-4xl mx-auto flex gap-3">
+                <div className="max-w-4xl mx-auto flex gap-3 items-end">
                   <button
                     type="button"
                     onClick={handleVoiceInput}
@@ -918,7 +918,7 @@ function CoachingContent() {
                     {isListening ? '🛑' : '🎤'}
                   </button>
                   <textarea
-                    rows={1}
+                    rows={3}
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
                     onKeyDown={(e) => {
@@ -933,7 +933,7 @@ function CoachingContent() {
                       }
                     }}
                     placeholder={t('coaching.placeholder')}
-                    className="flex-1 bg-white border border-blue-200 text-gray-900 placeholder-gray-500 rounded-lg px-4 py-3 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-400/50 transition-all resize-none max-h-40"
+                    className="flex-1 min-h-24 max-h-48 bg-white border border-blue-200 text-base leading-relaxed text-gray-900 placeholder-gray-500 rounded-lg px-4 py-3 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-400/50 transition-all resize-y"
                     disabled={loading}
                   />
                   <button

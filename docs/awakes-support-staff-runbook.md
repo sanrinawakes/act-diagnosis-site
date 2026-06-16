@@ -1,166 +1,163 @@
-# AWAKES/ACTI Support Staff Runbook
+# AWAKES / ACTI サポート運用マニュアル
 
-Last updated: 2026-06-16
-Audience: AWAKES/ACTI support staff and Codex operators
+最終更新: 2026-06-16
+対象: AWAKES / ACTI のサポート担当者、Codexで保守対応するスタッフ
 
-## Overview
+## 目的
 
-This runbook explains how staff should monitor ACTI support issues, respond to customers, and escalate technical problems without relying on Satoshi to manually check the admin screen.
+ACTIの問い合わせ、不具合、会員有効化、AIコーチング障害を、Satoshiが毎回手作業で確認しなくてもスタッフが対応できるようにするための手順書です。
 
-The main support inbox is `awakes2025@gmail.com`. Satoshi's operational inbox is `181wyc@gmail.com`, and the restored notification fallback inbox is `silversense.fzco@gmail.com`.
+主担当メールは `awakes2025@gmail.com` です。
+Satoshiの管理用メールは `181wyc@gmail.com`、通知復旧確認用の暫定受信先は `silversense.fzco@gmail.com` です。
 
-## Current State As Of 2026-06-16
+## 現在の運用状態
 
-- Support ticket notifications now use the verified sender domain `noreply@silversense.cc`.
-- Notifications are sent to `silversense.fzco@gmail.com` and copied to `awakes2025@gmail.com`.
-- The old Resend sender `onboarding@resend.dev` caused external-send 403 errors and must not be used for production support notifications.
-- The 2026-06-16 backlog was audited: 24 support tickets were found, 23 customer tickets were replied to, and 1 Codex test ticket was resolved.
-- All audited affected customer profiles were active and `pending_activations` were already activated.
-- The AI coaching failure path was patched before the backlog replies:
-  - `src/app/api/chat/route.ts` has a longer function limit and Gemini timeout handling.
-  - `src/app/coaching/page.tsx` has client timeout handling, saved fallback messages, and textarea input.
-  - `src/data/coaching-system-prompt.ts` has prompt non-disclosure guardrails.
+- サポート通知メールは検証済みドメインの `noreply@silversense.cc` から送信します。
+- サポート通知は `silversense.fzco@gmail.com` と `awakes2025@gmail.com` に届く設定です。
+- `onboarding@resend.dev` は本番サポート通知に使ってはいけません。外部宛送信で403になった原因です。
+- `awakes2025@gmail.com` はACTI管理者としてログインできます。
+- サポート画面から返信したメールは、チケット内の返信履歴に残す運用です。
+- 2026-06-16時点で、画像・スクリーンショット添付機能は未実装です。ユーザーにはメール返信で画像添付を依頼してください。
 
-## Access Required
+## スタッフに必要なアクセス
 
-For ticket handling only, staff need:
+通常のサポート対応だけなら、最低限以下が必要です。
 
-- Gmail access to `awakes2025@gmail.com`.
-- ACTI login access for `awakes2025@gmail.com`.
-- ACTI admin access at `https://act-diagnosis-site.vercel.app/admin/support`.
+- `awakes2025@gmail.com` のGmail
+- ACTIの `awakes2025@gmail.com` アカウント
+- ACTI管理画面: `https://act-diagnosis-site.vercel.app/admin/support`
 
-For Codex-assisted technical work, staff also need:
+Codexで技術調査や修正まで行うスタッフには、追加で以下が必要です。
 
-- GitHub write access to `sanrinawakes/act-diagnosis-site`.
-- Vercel access to project `act-diagnosis-site` under `sanrinawakes-projects`.
-- Supabase access to project `yszqmhgicggyrnmcqlde`.
-- Resend access for email logs and delivery failures.
-- MyASP access for AWAKES member exports and webhook checks.
-- Secrets through a secure password manager or private handoff, not through this repository.
+- GitHub: `sanrinawakes/act-diagnosis-site`
+- Vercel: `sanrinawakes-projects` の `act-diagnosis-site`
+- Supabase: `yszqmhgicggyrnmcqlde`
+- Resend: 送信ログ確認
+- MyASP: AWAKES会員CSV、Webhook設定確認
+- APIキーやWebhook secretを保管するパスワードマネージャ
 
-Do not commit secrets, API keys, webhook secrets, exported customer CSVs, or private incident data into the public repository.
+APIキー、Webhook secret、顧客CSV、個人情報をGitHubや公開ドキュメントに貼ってはいけません。
 
-## Daily Support Workflow
+## 毎日の確認手順
 
-1. Open `awakes2025@gmail.com`.
-2. Search for subjects beginning with `[ACTI サポート]`.
-3. Open the linked admin page: `https://act-diagnosis-site.vercel.app/admin/support`.
-4. Filter by `未対応`.
-5. For each ticket, record:
-   - Customer name
-   - Customer email
-   - Subject
-   - Exact error message or symptom
-   - Date/time
-   - Screenshot availability
-6. Decide the category:
-   - Account/access problem
-   - AI coaching reply failure or slow response
-   - Diagnosis/result mismatch
-   - Feature request
-   - Other
-7. If responding immediately, set the ticket to `対応中`.
-8. After the customer confirms resolution, set the ticket to `解決済み`.
-9. If the issue is technical and not confirmed, leave it `対応中` until verified.
+1. `awakes2025@gmail.com` を開く。
+2. 件名 `[ACTI サポート]` のメールを確認する。
+3. メール内リンク、または以下から管理画面を開く。
+   `https://act-diagnosis-site.vercel.app/admin/support`
+4. `未対応` フィルターを見る。
+5. チケットごとに以下を確認する。
+   - 名前
+   - メールアドレス
+   - 件名
+   - 症状またはエラーメッセージ
+   - 発生日
+   - スクリーンショットの有無
+6. すぐ返信できるものは管理画面から返信する。
+7. 返信後は `対応中` にする。
+8. ユーザーから解決確認が取れたら `解決済み` にする。
+9. 原因未確認の技術問題は `対応中` のままにして、Codexまたは開発担当へ回す。
 
-## Customer Reply Rules
+## チケット分類
 
-- Apologize for the delay or inconvenience first.
-- State what was checked or fixed.
-- Ask the customer to reload, log out and log in again, or send a screenshot if the issue persists.
-- Do not promise that all past ChatGPT conversations can be fully migrated into ACTI.
-- Do not say a bug is fixed unless there is code, DB, log, or test evidence.
+- アカウント / ログイン: 確認メール未達、ログイン不可、無料会員表示
+- AIコーチング不具合: 応答失敗、送信中のまま止まる、履歴が出ない
+- 診断不具合: 診断結果、回答、表示の問題
+- 要望: 画像添付、文字サイズ、入力欄、操作性
+- 支払い / 会員状態: MyASP決済、会員有効化、解約
+- その他: 上記以外
 
-## Common Reply Templates
+## 返信ルール
 
-### AI Coaching Failure
+- 最初に遅延や不便へのお詫びを書く。
+- 「確認した事実」と「対応した内容」を分けて書く。
+- 不明点は不明と書く。推測で断定しない。
+- 「修正済み」と言う場合は、DB、コード、ログ、テスト結果の根拠を確認する。
+- 画像添付が必要な場合は、メール返信でスクリーンショットを依頼する。
+- 解決確認が取れるまで、チケットを `解決済み` にしない。
 
-Subject: `ACTIコーチング不具合の件`
+## よく使う返信文
 
-```
+### AIコーチングの応答失敗
+
+件名: `ACTIコーチング不具合の件`
+
+```text
 〇〇様
 
 ご連絡いただいていたにもかかわらず、確認とご返信が遅くなり申し訳ございません。
 
-ACTIコーチングで「応答に失敗しました」と表示される不具合について、原因箇所を確認し、修正を反映いたしました。
+ACTIコーチングで返信が返ってこない、送信中のまま止まる、「応答に失敗しました」と表示される件について、関連する処理を確認し、修正を進めております。
 
-お手数ですが、一度ページを再読み込み、またはログアウト→再ログインのうえ、再度AIコーチングをお試しください。
+お手数ですが、一度ページを再読み込み、またはログアウト後に再ログインしてから、AIコーチングを再度お試しください。
 
-再度同じ症状が出る場合は、表示された画面のスクリーンショットをお送りください。個別に確認いたします。
+もし同じ症状が続く場合は、表示されたエラーメッセージと画面のスクリーンショットをこのメールに返信でお送りください。個別に確認いたします。
 
 ACTIサポート
 ```
 
-### Account Shows Free User
+### アカウント有効化 / ログイン
 
-Subject: `ACTIアカウント有効化状況のご確認`
+件名: `ACTIアカウント状況のご確認`
 
-```
+```text
 〇〇様
 
 ご連絡いただいていたにもかかわらず、確認とご返信が遅くなり申し訳ございません。
 
-現在のアカウント状態を確認したところ、ご登録メールアドレスはACTI上で有料会員として有効化されています。
+ご登録メールアドレスの状態を確認し、ACTI上で利用できる状態になっているか確認いたします。
 
-お手数ですが、同じメールアドレスでログインし直していただき、AIコーチングをご確認ください。
-
-まだ無料会員表示になる場合は、ログイン中のメールアドレスが分かる画面、または表示画面のスクリーンショットをお送りください。すぐ確認いたします。
+お手数ですが、ACTIにログインする際は、ご登録メールアドレスと同じアドレスを使用してください。
+もしログインできない場合は、表示されたエラー文言をそのままお送りください。
 
 ACTIサポート
 ```
 
-### ChatGPT Bot Migration
+### 画像添付要望
 
-Subject: `ACTIコーチングへの移行について`
+件名: `スクリーンショット送付について`
 
-```
+```text
 〇〇様
 
-ご連絡いただいていたにもかかわらず、確認とご返信が遅くなり申し訳ございません。
+ご連絡ありがとうございます。
 
-以前ご利用いただいていたChatGPT版のコーチングBotについては、現在ACTIサイト側での利用へ移行しております。
+現在、ACTIのサポートフォーム上では画像やスクリーンショットの添付に対応しておりません。
+お手数ですが、このメールへの返信でスクリーンショットを添付してお送りください。
 
-お手数ですが、ACTIサイトにログインのうえ、AIコーチングをご利用ください。
-なお、ChatGPT版での過去の会話内容をACTI側へ完全に自動引き継ぎすることは、現状できておりません。ご不便をおかけし申し訳ございません。
-
-ACTI側でログインや利用ができない場合は、表示画面のスクリーンショットをお送りください。個別に確認いたします。
+届き次第、画面の状態を確認して個別に対応いたします。
 
 ACTIサポート
 ```
 
-## Codex Operating Rules For Staff
+## Codexに依頼するときの必須文
 
-Before asking Codex to change anything, tell it:
+スタッフがCodexで調査や修正を依頼する場合、最初に必ず以下を書いてください。
 
-```
+```text
 必ず /Users/sunsat/Documents/Claude/Projects/ACTI/AGENTS.md のルールを読んでから動いてください。
 検証なしに「完了」と言わないでください。
+DB、コード、ログ、テスト結果のいずれかで根拠を示してください。
 ```
 
-For customer-impacting issues, ask Codex to produce evidence:
+Codexの回答で以下のような表現が出た場合は、証拠を出させてください。
 
-- DB state: exact profile/ticket/subscription rows.
-- Code: exact file and behavior.
-- Logs: Vercel, Supabase, or Resend evidence.
-- Test result: exact request/response or browser verification.
+- `たぶん直っています`
+- `問題ないと思います`
+- `完了です`
+- `おそらく`
+- `確認したはず`
 
-Never accept a vague answer like:
+## DB作業の絶対禁止事項
 
-- "たぶん直っています"
-- "問題ないと思います"
-- "完了です" without evidence
+- `subscription_status <> 'active'` のような条件で一括更新しない。
+- `subscription_status='cancelled'` のユーザーを一括救済で触らない。
+- 有料会員の救済は `subscription_status = 'none'` または `subscription_status is null` のみを対象にする。
+- 個別救済では、`profiles`、`pending_activations`、AWAKES有料会員の根拠を必ず確認する。
+- `is_active`、`subscription_status`、`subscribed_at` を整合させる。
 
-## Database Safety Rules
+## AWAKES / MyASP CSVの読み方
 
-- Never bulk-update `subscription_status <> 'active'`.
-- Never overwrite `subscription_status='cancelled'` in a bulk rescue.
-- For bulk rescue, only target `subscription_status = 'none'` or `subscription_status is null`.
-- Always confirm `profiles`, `pending_activations`, and AWAKES paid-member evidence before changing access.
-- If using AWAKES/MyASP CSV, read it as CP932 and compare counts across encodings.
-
-## AWAKES/MyASP CSV Rule
-
-AWAKES exports often contain CP932-only characters. Before using a CSV, compare encodings:
+AWAKES / MyASP のCSVはCP932文字を含むことがあります。SHIFT_JIS決め打ちは禁止です。
 
 ```bash
 file -i target.csv
@@ -173,50 +170,44 @@ for enc in UTF-8 SHIFT_JIS CP932 EUC-JP UTF-16 UTF-16LE; do
 done
 ```
 
-Use the encoding with the highest sane record count. For AWAKES/MyASP, CP932 is usually correct.
+件数が最大で、ファイルサイズやメールアドレス数と矛盾しないエンコーディングを採用してください。
+AWAKES / MyASPは原則CP932を第一候補にします。
 
-## Escalation Checklist
+## エスカレーション基準
 
-Escalate to Satoshi when:
+すぐSatoshiへ共有するもの:
 
-- A customer asks for a refund or cancellation.
-- A customer is angry, posting publicly, or threatening to leave.
-- The problem affects multiple customers.
-- Vercel/Supabase/Resend credentials or billing access is needed.
-- MyASP payment status is unclear.
+- 返金、解約、強いクレーム
+- 複数ユーザーで同じ不具合が出ている
+- 有料会員なのに利用できない
+- 内部プロンプトや本来見えない情報が表示された
+- ユーザーが離脱しそう、または外部に不満を出しそう
 
-Escalate to engineering/Codex when:
+Codex / 開発へ回すもの:
 
-- AI coaching returns "応答に失敗しました".
-- Chat replies hang or history fails to load.
-- Paid users are shown as free users.
-- Support notifications stop arriving.
-- Diagnosis answers/results mismatch.
+- AIコーチングが応答しない
+- 送信中のまま固まる
+- 履歴が保存されない、または表示されない
+- サポート通知が届かない
+- MyASP webhookや会員有効化が怪しい
+- Resendで送信失敗が出ている
 
-## What Staff Should Not Do
+## 新しいスタッフPCの準備
 
-- Do not manually change many users at once without a written query and verification result.
-- Do not delete support tickets.
-- Do not close a ticket only because a reply was sent; use `対応中` until confirmed.
-- Do not send passwords in plain chat.
-- Do not paste API keys or webhook secrets into public docs or GitHub issues.
-- Do not tell customers that every ChatGPT conversation history can be restored inside ACTI.
+1. `awakes2025@gmail.com` にログインできることを確認する。
+2. ACTIに `awakes2025@gmail.com` でログインできることを確認する。
+3. `/admin/support` を開けることを確認する。
+4. Codexでコード修正まで行う場合は、GitHub権限を追加する。
+5. 本番ログを見る場合は、Vercel、Supabase、Resendの権限を追加する。
+6. MyASP確認を行う場合は、AWAKES側MyASPへのアクセスを追加する。
+7. APIキーやsecretはパスワードマネージャで共有する。
+8. このマニュアルと `AGENTS.md` を読ませる。
 
-## Recommended Onboarding For A New Staff PC
+## 全体配信用のお詫びメール案
 
-1. Confirm the staff can log into `awakes2025@gmail.com`.
-2. Confirm the staff can log into ACTI with `awakes2025@gmail.com`.
-3. Confirm the staff can open `/admin/support`.
-4. Confirm GitHub repository access if the staff will ask Codex to make code changes.
-5. Confirm Vercel/Supabase/Resend read access if the staff will investigate production incidents.
-6. Keep secrets in a password manager.
-7. Share this runbook and the ACTI `AGENTS.md` rules.
+件名: `ACTIコーチングの不具合修正とお詫び`
 
-## Broadcast Email Draft
-
-Subject: `ACTIコーチングの不具合修正とお詫び`
-
-```
+```text
 ACTIをご利用いただいている皆さま
 
 いつもACTIをご利用いただきありがとうございます。
@@ -231,7 +222,7 @@ ACTIをご利用いただいている皆さま
 ACTIログインページ:
 https://act-diagnosis-site.vercel.app/login
 
-もし現在も同じ症状が出る場合は、サポートページから以下を添えてご連絡ください。
+もし現在も同じ症状が出る場合は、サポートページ、またはこのメールへの返信で以下をお知らせください。
 
 - ご登録メールアドレス
 - 表示されたエラーメッセージ
