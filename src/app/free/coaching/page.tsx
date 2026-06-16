@@ -497,6 +497,24 @@ export default function FreeCoachingPage() {
                   rows={3}
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    const nativeEvent = e.nativeEvent as KeyboardEvent;
+                    const isComposing =
+                      nativeEvent.isComposing || nativeEvent.keyCode === 229;
+                    const isTouch =
+                      typeof window !== 'undefined' &&
+                      window.matchMedia('(pointer: coarse)').matches;
+
+                    if (
+                      e.key === 'Enter' &&
+                      !e.shiftKey &&
+                      !isComposing &&
+                      !isTouch
+                    ) {
+                      e.preventDefault();
+                      sendMessage();
+                    }
+                  }}
                   placeholder={
                     remainingMessages > 0
                       ? 'メッセージを入力...'

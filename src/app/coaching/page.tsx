@@ -1134,6 +1134,24 @@ function CoachingContent() {
                     rows={3}
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      const nativeEvent = e.nativeEvent as KeyboardEvent;
+                      const isComposing =
+                        nativeEvent.isComposing || nativeEvent.keyCode === 229;
+                      const isTouch =
+                        typeof window !== 'undefined' &&
+                        window.matchMedia('(pointer: coarse)').matches;
+
+                      if (
+                        e.key === 'Enter' &&
+                        !e.shiftKey &&
+                        !isComposing &&
+                        !isTouch
+                      ) {
+                        e.preventDefault();
+                        sendMessage();
+                      }
+                    }}
                     placeholder={t('coaching.placeholder')}
                     className="flex-1 min-h-24 max-h-48 bg-white border border-blue-200 text-base leading-relaxed text-gray-900 placeholder-gray-500 rounded-lg px-4 py-3 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-400/50 transition-all resize-y"
                     disabled={loading}
