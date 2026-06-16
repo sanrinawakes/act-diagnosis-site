@@ -5,7 +5,9 @@ export const runtime = 'nodejs';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-const SUPPORT_NOTIFICATION_EMAIL = process.env.SUPPORT_NOTIFICATION_EMAIL || '';
+const DEFAULT_SUPPORT_NOTIFICATION_EMAIL = 'silversense.fzco@gmail.com';
+const SUPPORT_NOTIFICATION_EMAIL =
+  process.env.SUPPORT_NOTIFICATION_EMAIL || DEFAULT_SUPPORT_NOTIFICATION_EMAIL;
 const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
 // Resend's onboarding@resend.dev sender is testing-only and fails for external recipients.
 // Use the same verified sender domain as welcome/deactivation emails.
@@ -51,6 +53,12 @@ export async function POST(request: NextRequest) {
     // Send email notification via Resend (if email settings are configured)
     if (RESEND_API_KEY && SUPPORT_NOTIFICATION_EMAIL) {
       try {
+        if (!process.env.SUPPORT_NOTIFICATION_EMAIL) {
+          console.log(
+            `SUPPORT_NOTIFICATION_EMAIL not configured - using default ${DEFAULT_SUPPORT_NOTIFICATION_EMAIL}`
+          );
+        }
+
         const categoryLabel = getCategoryLabel(category);
         const emailBody = `
 新しいサポートチケットが届きました。
