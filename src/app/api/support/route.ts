@@ -38,7 +38,19 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    validateImageFiles(attachmentFiles);
+    try {
+      validateImageFiles(attachmentFiles);
+    } catch (validationError) {
+      return NextResponse.json(
+        {
+          error:
+            validationError instanceof Error
+              ? validationError.message
+              : '添付画像を確認してください',
+        },
+        { status: 400 }
+      );
+    }
 
     const supabase = createClient(supabaseUrl, supabaseServiceRoleKey);
 
