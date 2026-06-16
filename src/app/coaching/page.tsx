@@ -450,17 +450,27 @@ function CoachingContent() {
       });
 
       const { data: { session: authSession } } = await supabase.auth.getSession();
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(authSession?.access_token ? { 'Authorization': `Bearer ${authSession.access_token}` } : {}),
-        },
-        body: JSON.stringify({
-          messages: messages.concat(userMessage),
-          diagnosisCode,
-        }),
-      });
+      // クライアント側でも60秒で打ち切る。これが無いとfetchが永遠に解決せず
+      // finallyが走らず「送信中…」が固着し、次の送信もブロックされる（中村さんの症状）。
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 60000);
+      let response: Response;
+      try {
+        response = await fetch('/api/chat', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(authSession?.access_token ? { 'Authorization': `Bearer ${authSession.access_token}` } : {}),
+          },
+          body: JSON.stringify({
+            messages: messages.concat(userMessage),
+            diagnosisCode,
+          }),
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timeoutId);
+      }
 
       const data = await response.json();
 
@@ -511,15 +521,29 @@ function CoachingContent() {
       fetchSidebarSessions(sidebarSearch, sidebarTab, sidebarPage);
     } catch (err) {
       console.error('Failed to send message:', err);
+      const isAbort = err instanceof DOMException && err.name === 'AbortError';
+      const failContent = isAbort
+        ? '応答に時間がかかりすぎたため中断しました。お手数ですが、もう一度お試しください。'
+        : 'すみません、応答に失敗しました。もう一度お試しください。';
       setMessages((prev) => [
         ...prev,
         {
           id: (Date.now() + 2).toString(),
           role: 'assistant',
-          content: 'すみません、応答に失敗しました。もう一度お試しください。',
+          content: failContent,
           createdAt: new Date().toISOString(),
         },
       ]);
+      // 失敗時もassistant行を保存し、再読込で「ユーザー発言だけ残り返事が消える」状態を防ぐ（大森さんの症状）
+      try {
+        await supabase.from('chat_messages').insert({
+          session_id: sessionId,
+          role: 'assistant',
+          content: failContent,
+        });
+      } catch (saveErr) {
+        console.error('Failed to persist fallback message:', saveErr);
+      }
     } finally {
       setLoading(false);
     }
@@ -893,18 +917,23 @@ function CoachingContent() {
                   >
                     {isListening ? '🛑' : '🎤'}
                   </button>
-                  <input
-                    type="text"
+                  <textarea
+                    rows={1}
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
-                    onKeyPress={(e) => {
-                      if (e.key === 'Enter' && !e.shiftKey) {
+                    onKeyDown={(e) => {
+                      // PC: Enter送信 / Shift+Enter改行。
+                      // スマホ(IME/ソフトキーボード)はEnterで送信せず改行を許可する。
+                      const isTouch =
+                        typeof window !== 'undefined' &&
+                        window.matchMedia('(pointer: coarse)').matches;
+                      if (e.key === 'Enter' && !e.shiftKey && !isTouch) {
                         e.preventDefault();
                         sendMessage();
                       }
                     }}
                     placeholder={t('coaching.placeholder')}
-                    className="flex-1 bg-white border border-blue-200 text-gray-900 placeholder-gray-500 rounded-lg px-4 py-3 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-400/50 transition-all"
+                    className="flex-1 bg-white border border-blue-200 text-gray-900 placeholder-gray-500 rounded-lg px-4 py-3 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-400/50 transition-all resize-none max-h-40"
                     disabled={loading}
                   />
                   <button
