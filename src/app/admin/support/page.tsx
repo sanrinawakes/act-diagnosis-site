@@ -5,6 +5,7 @@ import Link from 'next/link';
 import AdminGuard from '@/components/AdminGuard';
 import Header from '@/components/Header';
 import { createClient } from '@/lib/supabase';
+import { splitSupportMessage } from '@/lib/support-reply-log';
 
 interface SupportTicket {
   id: string;
@@ -47,11 +48,34 @@ export default function AdminSupportPage() {
   const [loading, setLoading] = useState(true);
   const [selectedTicket, setSelectedTicket] = useState<SupportTicket | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [replySubject, setReplySubject] = useState('');
+  const [replyBody, setReplyBody] = useState('');
+  const [replySending, setReplySending] = useState(false);
+  const [replyError, setReplyError] = useState('');
+  const [replySuccess, setReplySuccess] = useState('');
   const supabase = createClient();
+  const selectedMessage = selectedTicket
+    ? splitSupportMessage(selectedTicket.message || '')
+    : null;
 
   useEffect(() => {
     fetchTickets();
   }, [statusFilter]);
+
+  useEffect(() => {
+    if (!selectedTicket) {
+      return;
+    }
+
+    setReplySubject(
+      selectedTicket.subject.startsWith('Re:')
+        ? selectedTicket.subject
+        : `Re: ${selectedTicket.subject}`
+    );
+    setReplyBody('');
+    setReplyError('');
+    setReplySuccess('');
+  }, [selectedTicket?.id]);
 
   const fetchTickets = async () => {
     setLoading(true);
@@ -94,6 +118,56 @@ export default function AdminSupportPage() {
       }
     } catch (error) {
       console.error('Failed to update ticket status:', error);
+    }
+  };
+
+  const sendReply = async () => {
+    if (!selectedTicket || replySending) {
+      return;
+    }
+
+    const subject = replySubject.trim();
+    const message = replyBody.trim();
+
+    if (!subject || !message) {
+      setReplyError('件名と本文を入力してください。');
+      setReplySuccess('');
+      return;
+    }
+
+    setReplySending(true);
+    setReplyError('');
+    setReplySuccess('');
+
+    try {
+      const response = await fetch('/api/admin/support/reply', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          ticket_id: selectedTicket.id,
+          subject,
+          message,
+        }),
+      });
+      const result = await response.json().catch(() => ({}));
+
+      if (!response.ok || !result.success || !result.ticket) {
+        throw new Error(result.error || '返信の送信に失敗しました。');
+      }
+
+      const updatedTicket = result.ticket as SupportTicket;
+      setTickets((prev) =>
+        prev.map((ticket) => (ticket.id === updatedTicket.id ? updatedTicket : ticket))
+      );
+      setSelectedTicket(updatedTicket);
+      setReplyBody('');
+      setReplySuccess('返信を送信しました。');
+    } catch (error) {
+      setReplyError(error instanceof Error ? error.message : '返信の送信に失敗しました。');
+    } finally {
+      setReplySending(false);
     }
   };
 
@@ -140,9 +214,9 @@ export default function AdminSupportPage() {
               <p className="text-gray-500">チケットがありません</p>
             </div>
           ) : (
-            <div className="flex gap-6">
+            <div className="flex flex-col lg:flex-row gap-6">
               {/* Ticket List */}
-              <div className={`${selectedTicket ? 'w-1/2' : 'w-full'} transition-all`}>
+              <div className={`${selectedTicket ? 'lg:w-1/2' : 'w-full'} transition-all`}>
                 <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
                   <table className="w-full">
                     <thead>
@@ -198,7 +272,7 @@ export default function AdminSupportPage() {
 
               {/* Ticket Detail */}
               {selectedTicket && (
-                <div className="w-1/2">
+                <div className="lg:w-1/2">
                   <div className="bg-white border border-gray-200 rounded-lg p-6 sticky top-20">
                     <div className="flex items-start justify-between mb-4">
                       <h2 className="text-lg font-bold text-gray-900">{selectedTicket.subject}</h2>
@@ -239,10 +313,65 @@ export default function AdminSupportPage() {
                     </div>
 
                     {/* Message */}
-                    <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 mb-6">
-                      <p className="text-sm text-gray-900 whitespace-pre-wrap">
-                        {selectedTicket.message}
-                      </p>
+                    <div className="mb-6 space-y-4">
+                      <div>
+                        <h3 className="text-sm font-semibold text-gray-700 mb-2">
+                          問い合わせ内容
+                        </h3>
+                        <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                          <p className="text-sm text-gray-900 whitespace-pre-wrap">
+                            {selectedMessage?.customerMessage || selectedTicket.message}
+                          </p>
+                        </div>
+                      </div>
+
+                      {selectedMessage?.replyLog && (
+                        <div>
+                          <h3 className="text-sm font-semibold text-gray-700 mb-2">
+                            返信履歴
+                          </h3>
+                          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                            <pre className="text-xs text-gray-900 whitespace-pre-wrap font-sans">
+                              {selectedMessage.replyLog}
+                            </pre>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Reply */}
+                    <div className="border-t border-gray-200 pt-5 mb-6">
+                      <h3 className="text-sm font-semibold text-gray-700 mb-3">メール返信</h3>
+                      <div className="space-y-3">
+                        <input
+                          type="text"
+                          value={replySubject}
+                          onChange={(e) => setReplySubject(e.target.value)}
+                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-400/50"
+                          placeholder="件名"
+                        />
+                        <textarea
+                          rows={8}
+                          value={replyBody}
+                          onChange={(e) => setReplyBody(e.target.value)}
+                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 leading-relaxed focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-400/50 resize-y"
+                          placeholder="返信本文"
+                        />
+                        {replyError && (
+                          <p className="text-sm text-red-600">{replyError}</p>
+                        )}
+                        {replySuccess && (
+                          <p className="text-sm text-green-700">{replySuccess}</p>
+                        )}
+                        <button
+                          type="button"
+                          onClick={sendReply}
+                          disabled={replySending || !replySubject.trim() || !replyBody.trim()}
+                          className="px-4 py-2 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white text-sm font-semibold rounded-lg transition-colors"
+                        >
+                          {replySending ? '送信中...' : '返信を送信'}
+                        </button>
+                      </div>
                     </div>
 
                     {/* Status Update */}

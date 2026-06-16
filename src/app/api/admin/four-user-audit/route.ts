@@ -117,7 +117,7 @@ export async function POST(request: NextRequest) {
           .select('id, user_id, title, created_at, updated_at, last_message_at, message_count')
           .in('user_id', profileIds)
           .order('last_message_at', { ascending: false })
-          .limit(100)
+          .limit(500)
       : { data: [], error: null };
 
     if (sessionsError) {
@@ -131,7 +131,7 @@ export async function POST(request: NextRequest) {
           .select('id, session_id, role, content, created_at')
           .in('session_id', sessionIds)
           .order('created_at', { ascending: false })
-          .limit(120)
+          .limit(1000)
       : { data: [], error: null };
 
     if (messagesError) {
