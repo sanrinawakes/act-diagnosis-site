@@ -1,5 +1,6 @@
 'use client';
 
+
 import { Suspense, useEffect, useRef, useState, useCallback, type ChangeEvent } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
@@ -23,12 +24,14 @@ import {
 } from '@/lib/client-attachments';
 import { readChatStream } from '@/lib/chat-stream-client';
 
+
 interface Message {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   createdAt: string;
 }
+
 
 interface ChatSession {
   id: string;
@@ -42,12 +45,14 @@ interface ChatSession {
   preview: string | null;
 }
 
+
 interface PaginatedResponse {
   sessions: ChatSession[];
   total: number;
   page: number;
   limit: number;
 }
+
 
 function CoachingContent() {
   const { loading: subscriptionLoading, allowed } = useSubscriptionGuard();
@@ -68,6 +73,7 @@ function CoachingContent() {
   const [pendingAttachments, setPendingAttachments] = useState<PendingImageAttachment[]>([]);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
 
+
   // Sidebar state
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [sidebarSessions, setSidebarSessions] = useState<ChatSession[]>([]);
@@ -78,6 +84,7 @@ function CoachingContent() {
   const [sidebarTotal, setSidebarTotal] = useState(0);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
+
   const router = useRouter();
   const searchParams = useSearchParams();
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -87,19 +94,24 @@ function CoachingContent() {
   const { t } = useI18n();
   const sidebarLimit = 20;
 
+
   const isReady = !subscriptionLoading && allowed;
+
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
+
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
 
+
   useEffect(() => {
     pendingAttachmentsRef.current = pendingAttachments;
   }, [pendingAttachments]);
+
 
   useEffect(() => {
     return () => {
@@ -108,6 +120,7 @@ function CoachingContent() {
       });
     };
   }, []);
+
 
   // ─── Sidebar: fetch sessions ───
   const fetchSidebarSessions = useCallback(
@@ -118,7 +131,9 @@ function CoachingContent() {
           data: { session: authSession },
         } = await supabase.auth.getSession();
 
+
         if (!authSession?.access_token) return;
+
 
         const params = new URLSearchParams();
         if (tab === 'pinned') params.append('pinned', 'true');
@@ -126,11 +141,14 @@ function CoachingContent() {
         params.append('page', (pageNum || 1).toString());
         params.append('limit', sidebarLimit.toString());
 
+
         const response = await fetch(`/api/chat/sessions?${params.toString()}`, {
           headers: { Authorization: `Bearer ${authSession.access_token}` },
         });
 
+
         if (!response.ok) return;
+
 
         const data: PaginatedResponse = await response.json();
         setSidebarSessions(data.sessions);
@@ -145,11 +163,13 @@ function CoachingContent() {
     [supabase]
   );
 
+
   // Fetch sidebar sessions on mount and when tab/search changes
   useEffect(() => {
     if (!isReady) return;
     fetchSidebarSessions(sidebarSearch, sidebarTab, 1);
   }, [isReady, sidebarTab, fetchSidebarSessions, sidebarSearch]);
+
 
   // ─── Sidebar: pin/unpin ───
   const handlePin = async (sid: string, isPinned: boolean) => {
@@ -158,6 +178,7 @@ function CoachingContent() {
         data: { session: authSession },
       } = await supabase.auth.getSession();
       if (!authSession?.access_token) return;
+
 
       await fetch('/api/chat/sessions', {
         method: 'PATCH',
@@ -168,11 +189,13 @@ function CoachingContent() {
         body: JSON.stringify({ session_id: sid, is_pinned: !isPinned }),
       });
 
+
       await fetchSidebarSessions(sidebarSearch, sidebarTab, sidebarPage);
     } catch (error) {
       console.error('Error pinning session:', error);
     }
   };
+
 
   // ─── Sidebar: delete ───
   const handleDeleteSession = async (sid: string) => {
@@ -181,6 +204,7 @@ function CoachingContent() {
         data: { session: authSession },
       } = await supabase.auth.getSession();
       if (!authSession?.access_token) return;
+
 
       await fetch('/api/chat/sessions', {
         method: 'DELETE',
@@ -191,12 +215,15 @@ function CoachingContent() {
         body: JSON.stringify({ session_id: sid }),
       });
 
+
       setConfirmDeleteId(null);
+
 
       // If we deleted the current session, start a new chat
       if (sid === sessionId) {
         router.push('/coaching');
       }
+
 
       await fetchSidebarSessions(sidebarSearch, sidebarTab, 1);
     } catch (error) {
@@ -204,16 +231,19 @@ function CoachingContent() {
     }
   };
 
+
   // ─── Sidebar: switch session ───
   const handleSessionClick = (sid: string) => {
     if (sid === sessionId) return;
     router.push(`/coaching?session=${sid}`);
   };
 
+
   // ─── Sidebar: new chat ───
   const handleNewChat = () => {
     router.push('/coaching');
   };
+
 
   // ─── Hide sidebar on mobile by default ───
   useEffect(() => {
@@ -221,9 +251,11 @@ function CoachingContent() {
     if (mql.matches) setSidebarOpen(false);
   }, []);
 
+
   // ─── Chat initialization ───
   useEffect(() => {
     if (!isReady) return;
+
 
     const initializeChat = async () => {
       try {
@@ -231,12 +263,15 @@ function CoachingContent() {
           data: { user },
         } = await supabase.auth.getUser();
 
+
         if (!user) {
           router.push('/login');
           return;
         }
 
+
         const sessionIdParam = searchParams.get('session');
+
 
         // サイト設定確認
         const { data: settings } = await supabase
@@ -244,11 +279,13 @@ function CoachingContent() {
           .select('bot_enabled')
           .single();
 
+
         if (settings && !settings.bot_enabled) {
           setBotDisabled(true);
           setInitialized(true);
           return;
         }
+
 
         // 既存セッションを再開する場合
         if (sessionIdParam) {
@@ -259,19 +296,23 @@ function CoachingContent() {
             .eq('user_id', user.id)
             .single();
 
+
           if (sessionError || !existingSession) {
             console.error('Session not found');
             setInitialized(true);
             return;
           }
 
+
           setSessionId(existingSession.id);
+
 
           const { data: msgs, error: messagesError } = await supabase
             .from('chat_messages')
             .select('*')
             .eq('session_id', existingSession.id)
             .order('created_at', { ascending: true });
+
 
           if (messagesError) {
             console.error('Failed to load messages:', messagesError);
@@ -287,6 +328,7 @@ function CoachingContent() {
             setMessages(loadedMessages);
           }
 
+
           let code: string | null = null;
           if (existingSession.diagnosis_result_id) {
             const { data: diagnosis } = await supabase
@@ -295,6 +337,7 @@ function CoachingContent() {
               .eq('id', existingSession.diagnosis_result_id)
               .single();
 
+
             if (diagnosis) {
               code = `${diagnosis.type_code}-${diagnosis.consciousness_level}`;
               setDiagnosisCode(code);
@@ -302,12 +345,15 @@ function CoachingContent() {
             }
           }
 
+
           setInitialized(true);
           return;
         }
 
+
         // 新しいセッションを作成
         let code = searchParams.get('code');
+
 
         if (!code) {
           const { data: diagnosisData } = await supabase
@@ -317,13 +363,16 @@ function CoachingContent() {
             .order('created_at', { ascending: false })
             .limit(1);
 
+
           if (diagnosisData && diagnosisData.length > 0) {
             setLatestDiagnosis(diagnosisData[0]);
             code = `${diagnosisData[0].type_code}-${diagnosisData[0].consciousness_level}`;
           }
         }
 
+
         setDiagnosisCode(code);
+
 
         const { data: session, error: sessionError } = await supabase
           .from('chat_sessions')
@@ -335,14 +384,18 @@ function CoachingContent() {
           .select()
           .single();
 
+
         if (sessionError) throw sessionError;
+
 
         setSessionId(session.id);
         setInitialized(true);
 
+
         if (code) {
           sendInitialMessage(session.id, code);
         }
+
 
         // Refresh sidebar to include the new session
         fetchSidebarSessions(sidebarSearch, sidebarTab, 1);
@@ -352,8 +405,10 @@ function CoachingContent() {
       }
     };
 
+
     initializeChat();
   }, [router, supabase, searchParams, isReady]);
+
 
   const sendInitialMessage = async (sid: string, code: string) => {
     try {
@@ -363,6 +418,7 @@ function CoachingContent() {
         content: `ACTIの結果: ${code}\nこのコードに基づいてパーソナライズされたコーチングを提供します。`,
       });
 
+
       const welcomeMsg: Message = {
         id: Date.now().toString(),
         role: 'assistant',
@@ -370,13 +426,16 @@ function CoachingContent() {
         createdAt: new Date().toISOString(),
       };
 
+
       setMessages([welcomeMsg]);
+
 
       await supabase.from('chat_messages').insert({
         session_id: sid,
         role: 'assistant',
         content: welcomeMsg.content,
       });
+
 
       await supabase
         .from('chat_sessions')
@@ -389,6 +448,7 @@ function CoachingContent() {
       console.error('Failed to send initial message:', err);
     }
   };
+
 
   // Voice input (speech recognition)
   const handleVoiceInput = () => {
@@ -434,6 +494,7 @@ function CoachingContent() {
     setIsListening(true);
   };
 
+
   // Voice output (text-to-speech)
   const handleSpeak = (messageId: string, text: string) => {
     if (typeof window === 'undefined' || !window.speechSynthesis) {
@@ -456,13 +517,16 @@ function CoachingContent() {
     setSpeakingMessageId(messageId);
   };
 
+
   const handleAttachmentSelect = (event: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files || []);
     event.target.value = '';
 
+
     if (files.length === 0) {
       return;
     }
+
 
     const validationError = validatePendingImageFiles(pendingAttachments.length, files);
     if (validationError) {
@@ -470,15 +534,18 @@ function CoachingContent() {
       return;
     }
 
+
     const nextAttachments = files.map((file) => ({
       id: globalThis.crypto?.randomUUID?.() || `${Date.now()}-${file.name}`,
       file,
       previewUrl: URL.createObjectURL(file),
     }));
 
+
     setPendingAttachments((prev) => [...prev, ...nextAttachments]);
     setAttachmentError(null);
   };
+
 
   const removePendingAttachment = (attachmentId: string) => {
     setPendingAttachments((prev) => {
@@ -491,6 +558,7 @@ function CoachingContent() {
     setAttachmentError(null);
   };
 
+
   const clearPendingAttachments = (attachmentsToClear = pendingAttachments) => {
     attachmentsToClear.forEach((attachment) => {
       URL.revokeObjectURL(attachment.previewUrl);
@@ -498,26 +566,33 @@ function CoachingContent() {
     setPendingAttachments([]);
   };
 
+
   const sendMessage = async () => {
     const messageText = input.trim();
     const attachmentsToSend = pendingAttachments;
     if ((!messageText && attachmentsToSend.length === 0) || loading || !sessionId) return;
 
+
     setLoading(true);
     setAttachmentError(null);
+
 
     let shouldPersistFallback = false;
     let assistantMessageId: string | null = null;
     let assistantContent = '';
+    let chatTimeoutId: ReturnType<typeof setTimeout> | null = null;
+
 
     try {
       const {
         data: { session: authSession },
       } = await supabase.auth.getSession();
 
+
       if (!authSession?.access_token) {
         throw new Error('ログイン状態を確認できませんでした。再ログインしてからお試しください。');
       }
+
 
       const files = attachmentsToSend.map((attachment) => attachment.file);
       const [uploadedAttachments, inlineAttachments] = await Promise.all([
@@ -536,10 +611,12 @@ function CoachingContent() {
         createdAt: new Date().toISOString(),
       };
 
+
       setMessages((prev) => [...prev, userMessage]);
       setInput('');
       clearPendingAttachments(attachmentsToSend);
       shouldPersistFallback = true;
+
 
       await supabase.from('chat_messages').insert({
         session_id: sessionId,
@@ -547,30 +624,28 @@ function CoachingContent() {
         content: userVisibleContent,
       });
 
-      // クライアント側でも60秒で打ち切る。これが無いとfetchが永遠に解決せず
-      // finallyが走らず「送信中…」が固着し、次の送信もブロックされる（中村さんの症状）。
+
+      // クライアント側でも60秒で打ち切る。fetch開始からストリーム読み取り完了までを対象にし、
+      // 途中で応答が止まっても「送信中…」が固着しないようにする。
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 60000);
+      chatTimeoutId = setTimeout(() => controller.abort(), 60000);
       let response: Response;
-      try {
-        response = await fetch('/api/chat', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Accept: 'application/x-ndjson',
-            ...(authSession?.access_token ? { 'Authorization': `Bearer ${authSession.access_token}` } : {}),
-          },
-          body: JSON.stringify({
-            messages: messages.concat({ ...userMessage, content: apiContent }),
-            diagnosisCode,
-            attachments: inlineAttachments,
-            stream: true,
-          }),
-          signal: controller.signal,
-        });
-      } finally {
-        clearTimeout(timeoutId);
-      }
+      response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/x-ndjson',
+          ...(authSession?.access_token ? { 'Authorization': `Bearer ${authSession.access_token}` } : {}),
+        },
+        body: JSON.stringify({
+          messages: messages.concat({ ...userMessage, content: apiContent }),
+          diagnosisCode,
+          attachments: inlineAttachments,
+          stream: true,
+        }),
+        signal: controller.signal,
+      });
+
 
       if (response.status === 429) {
         const data = await response.json();
@@ -578,6 +653,7 @@ function CoachingContent() {
         setRemainingChats(0);
         throw new Error(data.error || '本日の利用上限に達しました。');
       }
+
 
       assistantMessageId = (Date.now() + 1).toString();
       const assistantMessage: Message = {
@@ -587,6 +663,7 @@ function CoachingContent() {
         createdAt: new Date().toISOString(),
       };
       setMessages((prev) => [...prev, assistantMessage]);
+
 
       const data = await readChatStream(response, (chunk) => {
         assistantContent += chunk;
@@ -598,6 +675,9 @@ function CoachingContent() {
           )
         );
       });
+      clearTimeout(chatTimeoutId);
+      chatTimeoutId = null;
+
 
       if (data.message && data.message !== assistantContent) {
         assistantContent = data.message;
@@ -610,8 +690,10 @@ function CoachingContent() {
         );
       }
 
+
       if (data.remaining !== undefined) setRemainingChats(data.remaining);
       if (data.limit !== undefined) setChatLimit(data.limit);
+
 
       await supabase.from('chat_messages').insert({
         session_id: sessionId,
@@ -621,13 +703,16 @@ function CoachingContent() {
           'すみません、応答に失敗しました。もう一度お試しください。',
       });
 
+
       const { data: sessionData } = await supabase
         .from('chat_sessions')
         .select('message_count')
         .eq('id', sessionId)
         .single();
 
+
       const currentCount = sessionData?.message_count || 0;
+
 
       await supabase
         .from('chat_sessions')
@@ -636,6 +721,7 @@ function CoachingContent() {
           message_count: currentCount + 2,
         })
         .eq('id', sessionId);
+
 
       // Refresh sidebar to update preview/count
       fetchSidebarSessions(sidebarSearch, sidebarTab, sidebarPage);
@@ -679,9 +765,13 @@ function CoachingContent() {
         console.error('Failed to persist fallback message:', saveErr);
       }
     } finally {
+      if (chatTimeoutId) {
+        clearTimeout(chatTimeoutId);
+      }
       setLoading(false);
     }
   };
+
 
   // ─── Loading / Guard states ───
   if (subscriptionLoading) {
@@ -698,7 +788,9 @@ function CoachingContent() {
     );
   }
 
+
   if (!allowed) return null;
+
 
   if (!initialized) {
     return (
@@ -714,7 +806,9 @@ function CoachingContent() {
     );
   }
 
+
   const sidebarTotalPages = Math.ceil(sidebarTotal / sidebarLimit);
+
 
   return (
     <AuthGuard>
@@ -740,6 +834,7 @@ function CoachingContent() {
             </button>
           </div>
 
+
           {/* Search */}
           <div className="p-3 border-b border-gray-200 flex-shrink-0">
             <input
@@ -750,6 +845,7 @@ function CoachingContent() {
               className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-400/50 bg-white"
             />
           </div>
+
 
           {/* Tabs */}
           <div className="flex border-b border-gray-200 flex-shrink-0">
@@ -774,6 +870,7 @@ function CoachingContent() {
               ピン留め
             </button>
           </div>
+
 
           {/* Sessions List */}
           <div className="flex-1 overflow-y-auto">
@@ -818,6 +915,7 @@ function CoachingContent() {
                         </div>
                       </div>
 
+
                       {/* Actions (visible on hover or when active) */}
                       <div className={`flex items-center gap-0.5 flex-shrink-0 ${s.id === sessionId ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} transition-opacity`}>
                         <button
@@ -832,6 +930,7 @@ function CoachingContent() {
                             {s.is_pinned ? '★' : '☆'}
                           </span>
                         </button>
+
 
                         {confirmDeleteId === s.id ? (
                           <div className="flex gap-0.5" onClick={(e) => e.stopPropagation()}>
@@ -869,6 +968,7 @@ function CoachingContent() {
               </div>
             )}
 
+
             {/* Pagination */}
             {sidebarTotalPages > 1 && (
               <div className="flex justify-center gap-2 p-3 border-t border-gray-200">
@@ -893,6 +993,7 @@ function CoachingContent() {
             )}
           </div>
         </div>
+
 
         {/* ━━━ Main Chat Area ━━━ */}
         <div className="flex-1 flex flex-col min-w-0">
@@ -937,6 +1038,7 @@ function CoachingContent() {
             </div>
           </div>
 
+
           {/* Messages Area */}
           <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">
             {botDisabled && (
@@ -944,6 +1046,7 @@ function CoachingContent() {
                 <p className="font-semibold">{t('coaching.botDisabled')}</p>
               </div>
             )}
+
 
             {messages.length === 0 && !botDisabled && !diagnosisCode && (
               <div className="flex flex-col items-center justify-center h-full text-center">
@@ -963,11 +1066,13 @@ function CoachingContent() {
               </div>
             )}
 
+
             {messages.length === 0 && !botDisabled && diagnosisCode && (
               <div className="flex items-center justify-center h-full text-gray-600">
                 <p>コーチングを準備中...</p>
               </div>
             )}
+
 
             {messages.map((message) => (
               <div
@@ -998,198 +1103,3 @@ function CoachingContent() {
                               <a
                                 key={attachment.url}
                                 href={attachment.url}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="block overflow-hidden rounded-lg border border-white/60 bg-white/10"
-                              >
-                                <img
-                                  src={attachment.url}
-                                  alt={attachment.label || '添付画像'}
-                                  className="h-28 w-full object-cover"
-                                />
-                              </a>
-                            ))}
-                          </div>
-                        )}
-                      </>
-                    );
-                  })()}
-                  {message.role === 'assistant' && (
-                    <button
-                      type="button"
-                      onClick={() => handleSpeak(message.id, stripAttachmentMarkdown(message.content))}
-                      className="text-xs text-blue-500 hover:text-blue-700 mt-1 mr-2"
-                      title={speakingMessageId === message.id ? '読み上げ停止' : '音声で聞く'}
-                    >
-                      {speakingMessageId === message.id ? '⏸ 停止' : '🔊 読み上げ'}
-                    </button>
-                  )}
-                  <p
-                    className={`text-xs mt-2 ${
-                      message.role === 'user' ? 'text-blue-100' : 'text-gray-500'
-                    }`}
-                  >
-                    {new Date(message.createdAt).toLocaleTimeString('ja-JP', {
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
-                  </p>
-                </div>
-              </div>
-            ))}
-
-            {loading && (
-              <div className="flex justify-start">
-                <div className="bg-white border border-blue-200 text-gray-900 px-4 py-3 rounded-lg">
-                  <div className="flex gap-2">
-                    <div className="h-2 w-2 bg-blue-400 rounded-full animate-bounce"></div>
-                    <div
-                      className="h-2 w-2 bg-blue-400 rounded-full animate-bounce"
-                      style={{ animationDelay: '0.1s' }}
-                    ></div>
-                    <div
-                      className="h-2 w-2 bg-blue-400 rounded-full animate-bounce"
-                      style={{ animationDelay: '0.2s' }}
-                    ></div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            <div ref={messagesEndRef} />
-          </div>
-
-          {/* Input Area */}
-          {!botDisabled && (
-            <div className="border-t border-blue-200 bg-white p-4 sm:p-6 flex-shrink-0">
-              {rateLimitReached ? (
-                <div className="max-w-4xl mx-auto text-center py-2">
-                  <p className="text-red-600 font-semibold">本日の利用上限（{chatLimit}往復）に達しました。</p>
-                  <p className="text-gray-500 text-sm mt-1">明日またご利用ください。</p>
-                </div>
-              ) : (
-                <div className="max-w-4xl mx-auto">
-                  {pendingAttachments.length > 0 && (
-                    <div className="mb-3 flex flex-wrap gap-2">
-                      {pendingAttachments.map((attachment) => (
-                        <div
-                          key={attachment.id}
-                          className="relative h-20 w-20 overflow-hidden rounded-lg border border-blue-200 bg-blue-50"
-                        >
-                          <img
-                            src={attachment.previewUrl}
-                            alt={attachment.file.name}
-                            className="h-full w-full object-cover"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => removePendingAttachment(attachment.id)}
-                            className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-black/60 text-xs text-white"
-                            title="添付を削除"
-                            aria-label="添付を削除"
-                          >
-                            ×
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  {attachmentError && (
-                    <p className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-                      {attachmentError}
-                    </p>
-                  )}
-                  <div className="flex gap-3 items-end">
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/jpeg,image/png,image/webp,image/gif"
-                    multiple
-                    className="hidden"
-                    onChange={handleAttachmentSelect}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={loading}
-                    className="flex-shrink-0 p-3 rounded-lg bg-blue-100 hover:bg-blue-200 text-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    title="画像を添付"
-                    aria-label="画像を添付"
-                  >
-                    <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.586-6.586a4 4 0 10-5.657-5.657l-6.586 6.586a6 6 0 108.485 8.485L20.5 13" />
-                    </svg>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleVoiceInput}
-                    disabled={loading}
-                    className={`flex-shrink-0 px-4 py-3 rounded-lg transition-colors ${isListening ? 'bg-red-500 hover:bg-red-600 text-white animate-pulse' : 'bg-blue-100 hover:bg-blue-200 text-blue-600'} disabled:opacity-50 disabled:cursor-not-allowed`}
-                    title={isListening ? '録音停止' : '音声入力'}
-                    aria-label={isListening ? '録音停止' : '音声入力'}
-                  >
-                    {isListening ? '🛑' : '🎤'}
-                  </button>
-                  <textarea
-                    rows={3}
-                    value={input}
-                    onChange={(e) => setInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      const nativeEvent = e.nativeEvent as KeyboardEvent;
-                      const isComposing =
-                        nativeEvent.isComposing || nativeEvent.keyCode === 229;
-                      const isTouch =
-                        typeof window !== 'undefined' &&
-                        window.matchMedia('(pointer: coarse)').matches;
-
-                      if (
-                        e.key === 'Enter' &&
-                        !e.shiftKey &&
-                        !isComposing &&
-                        !isTouch
-                      ) {
-                        e.preventDefault();
-                        sendMessage();
-                      }
-                    }}
-                    placeholder={t('coaching.placeholder')}
-                    className="flex-1 min-h-24 max-h-48 bg-white border border-blue-200 text-base leading-relaxed text-gray-900 placeholder-gray-500 rounded-lg px-4 py-3 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-400/50 transition-all resize-y"
-                    disabled={loading}
-                  />
-                  <button
-                    type="button"
-                    onClick={sendMessage}
-                    disabled={loading || (!input.trim() && pendingAttachments.length === 0)}
-                    className="bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 disabled:from-gray-400 disabled:to-gray-400 text-white font-semibold py-3 px-6 rounded-lg transition-all duration-200 disabled:cursor-not-allowed"
-                  >
-                    {loading ? '送信中...' : t('coaching.send')}
-                  </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
-    </AuthGuard>
-  );
-}
-
-export default function CoachingPage() {
-  const { t } = useI18n();
-
-  return (
-    <Suspense
-      fallback={
-        <div className="min-h-screen flex items-center justify-center">
-          <div className="flex flex-col items-center gap-4">
-            <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-400"></div>
-            <p className="text-gray-700">{t('common.loading')}</p>
-          </div>
-        </div>
-      }
-    >
-      <CoachingContent />
-    </Suspense>
-  );
-}
