@@ -49,6 +49,35 @@ interface PaginatedResponse {
   limit: number;
 }
 
+const CHAT_RESPONSE_TIMEOUT_MS = 60000;
+const CHAT_PERSIST_TIMEOUT_MS = 10000;
+
+const createTimeoutError = (message: string) =>
+  new DOMException(message, 'AbortError');
+
+const withTimeout = async <T,>(
+  promise: PromiseLike<T>,
+  timeoutMs: number,
+  message: string,
+  onTimeout?: () => void
+): Promise<T> => {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  try {
+    return await Promise.race([
+      Promise.resolve(promise),
+      new Promise<T>((_, reject) => {
+        timeoutId = setTimeout(() => {
+          onTimeout?.();
+          reject(createTimeoutError(message));
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+};
+
+
 function CoachingContent() {
   const { loading: subscriptionLoading, allowed } = useSubscriptionGuard();
   const [messages, setMessages] = useState<Message[]>([]);
@@ -509,21 +538,30 @@ function CoachingContent() {
     let shouldPersistFallback = false;
     let assistantMessageId: string | null = null;
     let assistantContent = '';
+    let controller: AbortController | null = null;
 
     try {
       const {
         data: { session: authSession },
-      } = await supabase.auth.getSession();
+      } = await withTimeout(
+        supabase.auth.getSession(),
+        CHAT_PERSIST_TIMEOUT_MS,
+        'ログイン状態の確認に時間がかかりすぎました。もう一度お試しください。'
+      );
 
       if (!authSession?.access_token) {
         throw new Error('ログイン状態を確認できませんでした。再ログインしてからお試しください。');
       }
 
       const files = attachmentsToSend.map((attachment) => attachment.file);
-      const [uploadedAttachments, inlineAttachments] = await Promise.all([
-        uploadChatImageAttachments(files, authSession.access_token),
-        Promise.all(files.map((file) => fileToInlineImageAttachment(file))),
-      ]);
+      const [uploadedAttachments, inlineAttachments] = await withTimeout(
+        Promise.all([
+          uploadChatImageAttachments(files, authSession.access_token),
+          Promise.all(files.map((file) => fileToInlineImageAttachment(file))),
+        ]),
+        20000,
+        '添付画像の準備に時間がかかりすぎました。もう一度お試しください。'
+      );
       const userVisibleContent = appendAttachmentMarkdown(
         messageText || '画像を添付しました。',
         uploadedAttachments
@@ -541,32 +579,40 @@ function CoachingContent() {
       clearPendingAttachments(attachmentsToSend);
       shouldPersistFallback = true;
 
-      await supabase.from('chat_messages').insert({
-        session_id: sessionId,
-        role: 'user',
-        content: userVisibleContent,
-      });
+      await withTimeout(
+        supabase.from('chat_messages').insert({
+          session_id: sessionId,
+          role: 'user',
+          content: userVisibleContent,
+        }),
+        CHAT_PERSIST_TIMEOUT_MS,
+        'メッセージの保存に時間がかかりすぎました。もう一度お試しください。'
+      );
 
       // クライアント側でも60秒で打ち切る。fetch開始からストリーム読み取り完了までを対象にし、
       // 途中で応答が止まっても「送信中…」が固着しないようにする。
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 60000);
+      controller = new AbortController();
       let response: Response;
-      response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Accept: 'application/x-ndjson',
-          ...(authSession?.access_token ? { 'Authorization': `Bearer ${authSession.access_token}` } : {}),
-        },
-        body: JSON.stringify({
-          messages: messages.concat({ ...userMessage, content: apiContent }),
-          diagnosisCode,
-          attachments: inlineAttachments,
-          stream: true,
+      response = await withTimeout(
+        fetch('/api/chat', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/x-ndjson',
+            ...(authSession?.access_token ? { 'Authorization': `Bearer ${authSession.access_token}` } : {}),
+          },
+          body: JSON.stringify({
+            messages: messages.concat({ ...userMessage, content: apiContent }),
+            diagnosisCode,
+            attachments: inlineAttachments,
+            stream: true,
+          }),
+          signal: controller.signal,
         }),
-        signal: controller.signal,
-      });
+        CHAT_RESPONSE_TIMEOUT_MS,
+        'AIへの接続に時間がかかりすぎました。もう一度お試しください。',
+        () => controller?.abort()
+      );
 
       if (response.status === 429) {
         const data = await response.json();
@@ -585,8 +631,8 @@ function CoachingContent() {
       setMessages((prev) => [...prev, assistantMessage]);
 
       let data;
-      try {
-        data = await readChatStream(response, (chunk) => {
+      data = await withTimeout(
+        readChatStream(response, (chunk) => {
           assistantContent += chunk;
           setMessages((prev) =>
             prev.map((message) =>
@@ -595,10 +641,11 @@ function CoachingContent() {
                 : message
             )
           );
-        });
-      } finally {
-        clearTimeout(timeoutId);
-      }
+        }),
+        CHAT_RESPONSE_TIMEOUT_MS,
+        'AIの応答に時間がかかりすぎました。もう一度お試しください。',
+        () => controller?.abort()
+      );
 
       if (data.message && data.message !== assistantContent) {
         assistantContent = data.message;
@@ -614,31 +661,47 @@ function CoachingContent() {
       if (data.remaining !== undefined) setRemainingChats(data.remaining);
       if (data.limit !== undefined) setChatLimit(data.limit);
 
-      await supabase.from('chat_messages').insert({
-        session_id: sessionId,
-        role: 'assistant',
-        content:
-          assistantContent ||
-          'すみません、応答に失敗しました。もう一度お試しください。',
-      });
+      try {
+        await withTimeout(
+          supabase.from('chat_messages').insert({
+            session_id: sessionId,
+            role: 'assistant',
+            content:
+              assistantContent ||
+              'すみません、応答に失敗しました。もう一度お試しください。',
+          }),
+          CHAT_PERSIST_TIMEOUT_MS,
+          'AI応答の保存に時間がかかりすぎました。'
+        );
 
-      const { data: sessionData } = await supabase
-        .from('chat_sessions')
-        .select('message_count')
-        .eq('id', sessionId)
-        .single();
+        const { data: sessionData } = await withTimeout(
+          supabase
+            .from('chat_sessions')
+            .select('message_count')
+            .eq('id', sessionId)
+            .single(),
+          CHAT_PERSIST_TIMEOUT_MS,
+          'セッション情報の取得に時間がかかりすぎました。'
+        );
 
-      const currentCount = sessionData?.message_count || 0;
+        const currentCount = sessionData?.message_count || 0;
 
-      await supabase
-        .from('chat_sessions')
-        .update({
-          last_message_at: new Date().toISOString(),
-          message_count: currentCount + 2,
-        })
-        .eq('id', sessionId);
+        await withTimeout(
+          supabase
+            .from('chat_sessions')
+            .update({
+              last_message_at: new Date().toISOString(),
+              message_count: currentCount + 2,
+            })
+            .eq('id', sessionId),
+          CHAT_PERSIST_TIMEOUT_MS,
+          'セッション情報の更新に時間がかかりすぎました。'
+        );
+      } catch (persistErr) {
+        console.error('Failed to persist assistant message or session update:', persistErr);
+      }
 
-      // Refresh sidebar to update preview/count
+      // Refresh sidebar to update preview/count. Do not block the send button on sidebar refresh.
       fetchSidebarSessions(sidebarSearch, sidebarTab, sidebarPage);
     } catch (err) {
       console.error('Failed to send message:', err);
@@ -646,6 +709,7 @@ function CoachingContent() {
         setAttachmentError(err instanceof Error ? err.message : '送信に失敗しました。');
         return;
       }
+      controller?.abort();
       const isAbort = err instanceof DOMException && err.name === 'AbortError';
       const failContent = isAbort
         ? '応答に時間がかかりすぎたため中断しました。お手数ですが、もう一度お試しください。'
@@ -671,11 +735,15 @@ function CoachingContent() {
       }
       // 失敗時もassistant行を保存し、再読込で「ユーザー発言だけ残り返事が消える」状態を防ぐ（大森さんの症状）
       try {
-        await supabase.from('chat_messages').insert({
-          session_id: sessionId,
-          role: 'assistant',
-          content: failContent,
-        });
+        await withTimeout(
+          supabase.from('chat_messages').insert({
+            session_id: sessionId,
+            role: 'assistant',
+            content: failContent,
+          }),
+          CHAT_PERSIST_TIMEOUT_MS,
+          'エラー応答の保存に時間がかかりすぎました。'
+        );
       } catch (saveErr) {
         console.error('Failed to persist fallback message:', saveErr);
       }
