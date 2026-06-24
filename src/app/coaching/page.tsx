@@ -50,6 +50,8 @@ interface PaginatedResponse {
 }
 
 const CHAT_RESPONSE_TIMEOUT_MS = 60000;
+const CHAT_AUTH_TIMEOUT_MS = 45000;
+const CHAT_AUTH_RETRY_DELAY_MS = 800;
 const CHAT_PERSIST_TIMEOUT_MS = 10000;
 
 const createTimeoutError = (message: string) =>
@@ -76,6 +78,8 @@ const withTimeout = async <T,>(
     if (timeoutId) clearTimeout(timeoutId);
   }
 };
+
+const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 
 function CoachingContent() {
@@ -541,13 +545,28 @@ function CoachingContent() {
     let controller: AbortController | null = null;
 
     try {
-      const {
-        data: { session: authSession },
-      } = await withTimeout(
-        supabase.auth.getSession(),
-        CHAT_PERSIST_TIMEOUT_MS,
-        'ログイン状態の確認に時間がかかりすぎました。もう一度お試しください。'
-      );
+      const getCurrentAuthSession = async () => {
+        const {
+          data: { session },
+        } = await withTimeout(
+          supabase.auth.getSession(),
+          CHAT_AUTH_TIMEOUT_MS,
+          'ログイン状態の確認に時間がかかりすぎました。通信状態を確認して、もう一度送信してください。'
+        );
+        return session;
+      };
+
+      let authSession: { access_token: string } | null;
+      try {
+        authSession = await getCurrentAuthSession();
+      } catch (sessionError) {
+        if (sessionError instanceof DOMException && sessionError.name === 'AbortError') {
+          await delay(CHAT_AUTH_RETRY_DELAY_MS);
+          authSession = await getCurrentAuthSession();
+        } else {
+          throw sessionError;
+        }
+      }
 
       if (!authSession?.access_token) {
         throw new Error('ログイン状態を確認できませんでした。再ログインしてからお試しください。');
