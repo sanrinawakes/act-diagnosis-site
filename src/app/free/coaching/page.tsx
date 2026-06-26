@@ -25,6 +25,9 @@ interface RateLimitModal {
   isOpen: boolean;
 }
 
+const ATTACHMENT_PRIVACY_NOTICE =
+  'クリップボタンを押して写真選択画面を開いただけでは、画像は送信されません。選んだ画像も、送信ボタンを押す前なら削除できます。';
+
 export default function FreeCoachingPage() {
   const router = useRouter();
   const supabase = createClient();
@@ -467,6 +470,9 @@ export default function FreeCoachingPage() {
                   ))}
                 </div>
               )}
+              <p className="mb-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs leading-relaxed text-blue-700">
+                {ATTACHMENT_PRIVACY_NOTICE}
+              </p>
               {attachmentError && (
                 <p className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
                   {attachmentError}
@@ -486,8 +492,8 @@ export default function FreeCoachingPage() {
                   onClick={() => fileInputRef.current?.click()}
                   disabled={loading || remainingMessages <= 0}
                   className="flex-shrink-0 p-3 rounded-lg bg-blue-100 hover:bg-blue-200 text-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  title="画像を添付"
-                  aria-label="画像を添付"
+                  title="画像を選ぶ（選んだだけでは送信されません）"
+                  aria-label="画像を選ぶ。選んだだけでは送信されません"
                 >
                   <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.586-6.586a4 4 0 10-5.657-5.657l-6.586 6.586a6 6 0 108.485 8.485L20.5 13" />
