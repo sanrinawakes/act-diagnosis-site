@@ -1,17 +1,22 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+import { normalizeAuthRedirect, withAuthTimeout } from '@/lib/auth-flow';
+
+function redirectToLogin(origin: string, error: string, next: string) {
+  const loginUrl = new URL('/login', origin);
+  loginUrl.searchParams.set('error', error);
+  loginUrl.searchParams.set('redirect', next);
+  return NextResponse.redirect(loginUrl);
+}
 
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get('code');
   const tokenHash = searchParams.get('token_hash');
   const type = searchParams.get('type');
-  const next = searchParams.get('next') || '/dashboard';
-
-  if (!code && !tokenHash) {
-    return NextResponse.redirect(new URL('/login?error=' + encodeURIComponent('認証コードが取得できませんでした'), origin));
-  }
+  const providerError = searchParams.get('error_description') || searchParams.get('error');
+  const next = normalizeAuthRedirect(searchParams.get('next'));
 
   let response = NextResponse.redirect(new URL(next, origin));
 
@@ -32,26 +37,63 @@ export async function GET(request: NextRequest) {
     }
   );
 
+  if (providerError) {
+    return redirectToLogin(
+      origin,
+      `ログイン連携が完了しませんでした: ${providerError}`,
+      next
+    );
+  }
+
+  if (!code && !tokenHash) {
+    try {
+      const {
+        data: { user },
+      } = await withAuthTimeout(
+        supabase.auth.getUser(),
+        'ログイン状態の確認に時間がかかりすぎました。'
+      );
+
+      if (user) {
+        return response;
+      }
+    } catch (error) {
+      console.error('[AUTH/CALLBACK] Existing session check failed:', error);
+    }
+
+    return redirectToLogin(
+      origin,
+      'ログイン情報を確認できませんでした。お手数ですが、もう一度ログインしてください。',
+      next
+    );
+  }
+
   // Magic link / OTP flow (signInWithOtp emailRedirectTo)
   if (tokenHash) {
-    const { error } = await supabase.auth.verifyOtp({
-      type: (type as any) || 'email',
-      token_hash: tokenHash,
-    });
+    const { error } = await withAuthTimeout(
+      supabase.auth.verifyOtp({
+        type: (type as any) || 'email',
+        token_hash: tokenHash,
+      }),
+      'ログインリンクの確認に時間がかかりすぎました。'
+    );
     if (error) {
-      return NextResponse.redirect(new URL('/login?error=' + encodeURIComponent('ログインリンクの検証に失敗しました: ' + error.message), origin));
+      return redirectToLogin(origin, 'ログインリンクの検証に失敗しました: ' + error.message, next);
     }
     return response;
   }
 
   // OAuth PKCE flow (Google / LINE)
   if (code) {
-    const { error } = await supabase.auth.exchangeCodeForSession(code);
+    const { error } = await withAuthTimeout(
+      supabase.auth.exchangeCodeForSession(code),
+      'ログイン連携の完了に時間がかかりすぎました。'
+    );
     if (error) {
-      return NextResponse.redirect(new URL('/login?error=' + encodeURIComponent('セッション取得に失敗しました: ' + error.message), origin));
+      return redirectToLogin(origin, 'セッション取得に失敗しました: ' + error.message, next);
     }
     return response;
   }
 
-  return NextResponse.redirect(new URL('/login?error=' + encodeURIComponent('予期しないエラー'), origin));
+  return redirectToLogin(origin, '予期しないエラー', next);
 }
