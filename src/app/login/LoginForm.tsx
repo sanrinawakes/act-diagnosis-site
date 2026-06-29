@@ -5,6 +5,8 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase';
 import { useI18n } from '@/lib/i18n';
+import { normalizeAuthRedirect, withAuthTimeout } from '@/lib/auth-flow';
+import { restoreSessionFromCookie } from '@/lib/restore-session';
 
 export default function LoginForm() {
   const [email, setEmail] = useState('');
@@ -21,20 +23,70 @@ export default function LoginForm() {
 
   // URLパラメータからエラーを読み取り、既存セッションがあればリダイレクト
   useEffect(() => {
-    const urlError = searchParams.get('error');
-    if (urlError) {
-      setError(urlError);
-      return;
-    }
+    let cancelled = false;
 
     const checkExistingSession = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        const redirect = searchParams.get('redirect') || '/dashboard';
-        router.push(redirect);
+      const urlError = searchParams.get('error');
+      const redirect = normalizeAuthRedirect(searchParams.get('redirect'));
+
+      try {
+        if (typeof window !== 'undefined' && window.location.hash) {
+          const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+          const accessToken = hashParams.get('access_token');
+          const refreshToken = hashParams.get('refresh_token');
+
+          if (accessToken && refreshToken) {
+            const { error: sessionError } = await withAuthTimeout(
+              supabase.auth.setSession({
+                access_token: accessToken,
+                refresh_token: refreshToken,
+              }),
+              'ログイン情報の保存に時間がかかりすぎました。'
+            );
+
+            if (!sessionError) {
+              window.history.replaceState(null, '', `/login?redirect=${encodeURIComponent(redirect)}`);
+              router.replace(redirect);
+              return;
+            }
+          }
+        }
+
+        let {
+          data: { user },
+        } = await withAuthTimeout(supabase.auth.getUser());
+
+        if (!user) {
+          const restored = await withAuthTimeout(restoreSessionFromCookie(supabase));
+          if (restored) {
+            const { data } = await withAuthTimeout(supabase.auth.getUser());
+            user = data.user;
+          }
+        }
+
+        if (cancelled) return;
+
+        if (user) {
+          router.replace(redirect);
+          return;
+        }
+
+        if (urlError) {
+          setError(urlError);
+        }
+      } catch (sessionError) {
+        console.error('Login session check failed:', sessionError);
+        if (!cancelled && urlError) {
+          setError(urlError);
+        }
       }
     };
+
     checkExistingSession();
+
+    return () => {
+      cancelled = true;
+    };
   }, [searchParams, supabase, router]);
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -73,7 +125,7 @@ export default function LoginForm() {
         return;
       }
 
-      const redirect = searchParams.get('redirect') || '/dashboard';
+      const redirect = normalizeAuthRedirect(searchParams.get('redirect'));
       router.push(redirect);
       router.refresh();
     } catch {
@@ -98,7 +150,7 @@ export default function LoginForm() {
     setMagicLoading(true);
     setMagicSent(false);
     try {
-      const redirect = searchParams.get('redirect') || '/dashboard';
+      const redirect = normalizeAuthRedirect(searchParams.get('redirect'));
       const { error: otpError } = await supabase.auth.signInWithOtp({
         email: magicEmail,
         options: {
@@ -123,7 +175,7 @@ export default function LoginForm() {
     setError('');
 
     try {
-      const redirectTo = `${window.location.origin}/api/auth/callback?next=${encodeURIComponent(searchParams.get('redirect') || '/dashboard')}`;
+      const redirectTo = `${window.location.origin}/api/auth/callback?next=${encodeURIComponent(normalizeAuthRedirect(searchParams.get('redirect')))}`;
 
       const oauthOptions: { redirectTo: string; queryParams?: Record<string, string> } = {
         redirectTo,
@@ -212,7 +264,7 @@ export default function LoginForm() {
 
           {/* Form - action/method provide native HTML fallback if React JS fails */}
           <form action="/api/auth/login" method="POST" onSubmit={handleLogin} className="space-y-5">
-            <input type="hidden" name="redirect" value={searchParams.get('redirect') || '/dashboard'} />
+            <input type="hidden" name="redirect" value={normalizeAuthRedirect(searchParams.get('redirect'))} />
             {/* Email Field */}
             <div>
               <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
