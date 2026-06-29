@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase';
 import { restoreSessionFromCookie } from '@/lib/restore-session';
+import { withAuthTimeout } from '@/lib/auth-flow';
 
 /**
  * Hook that checks subscription status on the client-side
@@ -21,32 +22,37 @@ export function useSubscriptionGuard() {
         // Get current user
         let {
           data: { user },
-        } = await supabase.auth.getUser();
+        } = await withAuthTimeout(supabase.auth.getUser());
 
         // If no user found in localStorage, try restoring from cookie
         if (!user) {
-          const restored = await restoreSessionFromCookie(supabase);
+          const restored = await withAuthTimeout(restoreSessionFromCookie(supabase));
           if (restored) {
-            const { data } = await supabase.auth.getUser();
+            const { data } = await withAuthTimeout(supabase.auth.getUser());
             user = data.user;
           }
         }
 
         if (!user) {
           // Not logged in - redirect to login
+          setLoading(false);
           router.push('/login');
           return;
         }
 
         // Get user profile with subscription status
-        const { data: profile, error } = await supabase
-          .from('profiles')
-          .select('subscription_status, is_active, role, paid_test_credits')
-          .eq('id', user.id)
-          .single();
+        const { data: profile, error } = await withAuthTimeout(
+          supabase
+            .from('profiles')
+            .select('subscription_status, is_active, role, paid_test_credits')
+            .eq('id', user.id)
+            .single(),
+          '会員状態の確認に時間がかかりすぎました。'
+        );
 
         if (error) {
           console.error('Failed to fetch profile:', error);
+          setLoading(false);
           router.push('/subscription-required');
           return;
         }
@@ -63,6 +69,7 @@ export function useSubscriptionGuard() {
         const hasPaidTestCredits = (profile?.paid_test_credits || 0) > 0;
 
         if (!hasActiveSubscription && !hasPaidTestCredits) {
+          setLoading(false);
           router.push('/subscription-required');
           return;
         }
@@ -72,6 +79,7 @@ export function useSubscriptionGuard() {
         setLoading(false);
       } catch (err) {
         console.error('Subscription check error:', err);
+        setLoading(false);
         router.push('/subscription-required');
       }
     };
