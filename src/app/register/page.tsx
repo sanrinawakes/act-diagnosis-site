@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase';
 import { useI18n } from '@/lib/i18n';
+import { normalizeAuthRedirect } from '@/lib/auth-flow';
 
 export default function RegisterPage() {
   const [email, setEmail] = useState('');
@@ -79,7 +80,7 @@ export default function RegisterPage() {
     setError('');
 
     try {
-      const redirectTo = `${window.location.origin}/api/auth/callback?next=${encodeURIComponent('/dashboard')}`;
+      const redirectTo = `${window.location.origin}/api/auth/callback?next=${encodeURIComponent(normalizeAuthRedirect('/dashboard'))}`;
 
       const oauthOptions: { redirectTo: string; queryParams?: Record<string, string> } = {
         redirectTo,
