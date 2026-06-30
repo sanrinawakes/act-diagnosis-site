@@ -22,6 +22,7 @@ import {
   type PendingImageAttachment,
 } from '@/lib/client-attachments';
 import { readChatStream } from '@/lib/chat-stream-client';
+import { getSessionFromCookie, restoreSessionFromCookie } from '@/lib/restore-session';
 
 interface Message {
   id: string;
@@ -50,7 +51,7 @@ interface PaginatedResponse {
 }
 
 const CHAT_RESPONSE_TIMEOUT_MS = 60000;
-const CHAT_AUTH_TIMEOUT_MS = 45000;
+const CHAT_AUTH_TIMEOUT_MS = 12000;
 const CHAT_AUTH_RETRY_DELAY_MS = 800;
 const CHAT_PERSIST_TIMEOUT_MS = 10000;
 const ATTACHMENT_PRIVACY_NOTICE =
@@ -124,6 +125,43 @@ function CoachingContent() {
 
   const isReady = !subscriptionLoading && allowed;
 
+  const getAuthSession = useCallback(async () => {
+    const cookieSession = getSessionFromCookie();
+    if (cookieSession?.access_token) {
+      return cookieSession;
+    }
+
+    const {
+      data: { session },
+    } = await withTimeout(
+      supabase.auth.getSession(),
+      CHAT_AUTH_TIMEOUT_MS,
+      'ログイン状態の確認に時間がかかりすぎました。通信状態を確認して、もう一度送信してください。'
+    );
+
+    if (session?.access_token) {
+      return { access_token: session.access_token, refresh_token: session.refresh_token };
+    }
+
+    const restored = await restoreSessionFromCookie(supabase);
+    if (!restored) return null;
+
+    const restoredCookieSession = getSessionFromCookie();
+    if (restoredCookieSession?.access_token) {
+      return restoredCookieSession;
+    }
+
+    const {
+      data: { session: restoredSession },
+    } = await supabase.auth.getSession();
+    return restoredSession?.access_token
+      ? {
+          access_token: restoredSession.access_token,
+          refresh_token: restoredSession.refresh_token,
+        }
+      : null;
+  }, [supabase]);
+
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
@@ -149,9 +187,7 @@ function CoachingContent() {
     async (search?: string, tab?: 'all' | 'pinned', pageNum?: number) => {
       try {
         setSidebarLoading(true);
-        const {
-          data: { session: authSession },
-        } = await supabase.auth.getSession();
+        const authSession = await getAuthSession();
 
         if (!authSession?.access_token) return;
 
@@ -177,7 +213,7 @@ function CoachingContent() {
         setSidebarLoading(false);
       }
     },
-    [supabase]
+    [getAuthSession]
   );
 
   // Fetch sidebar sessions on mount and when tab/search changes
@@ -189,9 +225,7 @@ function CoachingContent() {
   // ─── Sidebar: pin/unpin ───
   const handlePin = async (sid: string, isPinned: boolean) => {
     try {
-      const {
-        data: { session: authSession },
-      } = await supabase.auth.getSession();
+      const authSession = await getAuthSession();
       if (!authSession?.access_token) return;
 
       await fetch('/api/chat/sessions', {
@@ -212,9 +246,7 @@ function CoachingContent() {
   // ─── Sidebar: delete ───
   const handleDeleteSession = async (sid: string) => {
     try {
-      const {
-        data: { session: authSession },
-      } = await supabase.auth.getSession();
+      const authSession = await getAuthSession();
       if (!authSession?.access_token) return;
 
       await fetch('/api/chat/sessions', {
@@ -547,24 +579,13 @@ function CoachingContent() {
     let controller: AbortController | null = null;
 
     try {
-      const getCurrentAuthSession = async () => {
-        const {
-          data: { session },
-        } = await withTimeout(
-          supabase.auth.getSession(),
-          CHAT_AUTH_TIMEOUT_MS,
-          'ログイン状態の確認に時間がかかりすぎました。通信状態を確認して、もう一度送信してください。'
-        );
-        return session;
-      };
-
       let authSession: { access_token: string } | null;
       try {
-        authSession = await getCurrentAuthSession();
+        authSession = await getAuthSession();
       } catch (sessionError) {
         if (sessionError instanceof DOMException && sessionError.name === 'AbortError') {
           await delay(CHAT_AUTH_RETRY_DELAY_MS);
-          authSession = await getCurrentAuthSession();
+          authSession = await getAuthSession();
         } else {
           throw sessionError;
         }
