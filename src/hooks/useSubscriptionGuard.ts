@@ -6,6 +6,8 @@ import { createClient } from '@/lib/supabase';
 import { restoreSessionFromCookie } from '@/lib/restore-session';
 import { withAuthTimeout } from '@/lib/auth-flow';
 
+const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
 /**
  * Hook that checks subscription status on the client-side
  * Guards against bypassing server middleware via client-side navigation
@@ -40,8 +42,9 @@ export function useSubscriptionGuard() {
           return;
         }
 
-        // Get user profile with subscription status
-        const { data: profile, error } = await withAuthTimeout(
+        // Get user profile with subscription status. Retry once so a temporary
+        // mobile network delay does not incorrectly show the paid-content block.
+        let { data: profile, error } = await withAuthTimeout(
           supabase
             .from('profiles')
             .select('subscription_status, is_active, role, paid_test_credits')
@@ -49,6 +52,20 @@ export function useSubscriptionGuard() {
             .single(),
           '会員状態の確認に時間がかかりすぎました。'
         );
+
+        if (error) {
+          await delay(800);
+          const retry = await withAuthTimeout(
+            supabase
+              .from('profiles')
+              .select('subscription_status, is_active, role, paid_test_credits')
+              .eq('id', user.id)
+              .single(),
+            '会員状態の再確認に時間がかかりすぎました。'
+          );
+          profile = retry.data;
+          error = retry.error;
+        }
 
         if (error) {
           console.error('Failed to fetch profile:', error);
