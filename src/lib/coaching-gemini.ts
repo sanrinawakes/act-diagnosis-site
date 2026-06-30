@@ -30,14 +30,53 @@ const RECENT_HISTORY_LIMIT = 18;
 const SUMMARY_CHAR_LIMIT = 3600;
 const GEMINI_TIMEOUT_MS = 55000;
 
+const TYPE_SUMMARIES: Record<string, string> = {
+  SVA: '思索探求者。理想や思想を深く掘り下げ、自分なりの真理を探す力があります。',
+  SVM: '慎重な調整者。急がず丁寧に状況を見て、無理のないバランスを取る力があります。',
+  SVE: '共感リーダー。人の気持ちを受け取りながら、あたたかく周囲を導く力があります。',
+  SMA: '内省的戦略家。自分を深く見つめ、改善点を見つけて計画的に進む力があります。',
+  SMM: '平和主義の調和者。場の空気を読み、穏やかに関係性を整える力があります。',
+  SME: '感性豊かな癒し手。人の痛みや違和感に気づき、安心感を与える力があります。',
+  SGA: '緻密な現実主義者。細部まで丁寧に見て、現実的に物事を整える力があります。',
+  SGM: '安定志向のバランサー。安心できる土台を大切にし、着実に整える力があります。',
+  SGE: '現場に強い共感実務家。人の気持ちを汲みながら、現場で実際に動ける力があります。',
+  MVA: '理想現実の橋渡し人。理想と現実の両方を見ながら、接点を作る力があります。',
+  MVM: 'バランス思考の調整役。全体を見渡し、偏りを整える力があります。',
+  MVE: '感性とビジョンの共創者。未来像と感覚を結びつけ、新しい可能性を作る力があります。',
+  MMA: '論理と実行の精密設計者。筋道を立てて考え、計画を形にする力があります。',
+  MMM: '中心軸を持つ均衡型。自分の軸を保ちながら、周囲とのバランスを取る力があります。',
+  MME: '穏やかなる共感調整者。落ち着いた共感力で、人と人の間を整える力があります。',
+  MGA: '現実に強い着実実行者。現実的な判断で、必要なことを一歩ずつ進める力があります。',
+  MGM: '堅実な安定構築者。長く続く仕組みや安心できる基盤を作る力があります。',
+  MGE: '地に足ついた感情調整者。感情を受け止めつつ、現実的に整える力があります。',
+  PVA: '革新的アイデアマン。新しい発想で可能性を広げ、人に刺激を与える力があります。',
+  PVM: '現場志向の推進者。動きながら状況を前に進める力があります。',
+  PVE: '熱意あふれる表現者。思いや感情を表現し、人を明るく動かす力があります。',
+  PMA: '論理で切り拓く挑戦者。分析力と挑戦心で、困難を突破する力があります。',
+  PMM: '行動する安定志向者。安定を大切にしながら、必要な行動を起こす力があります。',
+  PME: '感情と創造の実験家。感情のエネルギーを創造や挑戦につなげる力があります。',
+  PGA: '結果にこだわる実行者。目標を定め、結果に向けて力強く動く力があります。',
+  PGM: '効率的な現実構築者。効率と現実性を重視し、形にしていく力があります。',
+  PGE: '感情を動力にする達成者。気持ちの強さを行動力に変えて達成する力があります。',
+};
+
+const LEVEL_SUMMARIES: Record<string, string> = {
+  '1': '今は安全や安心を重視しやすい段階です。小さく試せる行動から始めると進みやすくなります。',
+  '2': '内側に葛藤が出やすい段階です。どちらかを否定せず、両方の思いを整理することが助けになります。',
+  '3': '自分の価値観で判断し、自立して進もうとする段階です。自分の軸を大切にしながら、周囲と協力する視点を持つと広がります。',
+  '4': '自分と周囲の調和を大切にできる段階です。遠慮しすぎず、自分の望みも丁寧に扱うことが成長につながります。',
+  '5': '創造性や貢献意識が高まりやすい段階です。ビジョンを具体的な行動に落とすことで力が発揮されます。',
+  '6': '広い視点で物事を捉えやすい段階です。大きな視野と日常の実践をつなげることが鍵になります。',
+};
+
 export function getCoachingGeminiModel(systemPrompt: string) {
   return getGenAI().getGenerativeModel({
-    model: 'gemini-2.5-flash',
+    model: 'gemini-2.0-flash',
     systemInstruction: systemPrompt,
     generationConfig: {
-      temperature: 0.78,
-      topP: 0.92,
-      maxOutputTokens: 2048,
+      temperature: 0.65,
+      topP: 0.9,
+      maxOutputTokens: 768,
     },
   });
 }
@@ -190,11 +229,26 @@ export function createJsonLineStream(params: {
         const isTimeout =
           error instanceof Error && error.message === 'GEMINI_TIMEOUT';
         console.error('Gemini stream error:', error);
+
+        if (isTimeout) {
+          const fallbackText = buildTimeoutFallbackResponse(
+            params.systemPrompt,
+            params.lastUserParts
+          );
+          const donePayload = await params.onDone({});
+          write({ type: 'chunk', text: fallbackText });
+          write({
+            type: 'done',
+            message: fallbackText,
+            usage: {},
+            ...donePayload,
+          });
+          return;
+        }
+
         write({
           type: 'error',
-          error: isTimeout
-            ? '応答に時間がかかりすぎたため中断しました。もう一度お試しください。'
-            : 'AIの応答生成に失敗しました。もう一度お試しください。',
+          error: 'AIの応答生成に失敗しました。もう一度お試しください。',
         });
       } finally {
         controller.close();
@@ -267,6 +321,53 @@ function getUsage(response: {
     completion_tokens: response.usageMetadata?.candidatesTokenCount,
     total_tokens: response.usageMetadata?.totalTokenCount,
   };
+}
+
+function buildTimeoutFallbackResponse(
+  systemPrompt: string,
+  parts: GeminiPart[]
+) {
+  const diagnosisCode = extractDiagnosisCode(systemPrompt);
+  const userText = extractTextFromParts(parts);
+  const [typeCode, level] = diagnosisCode?.split('-') || [];
+  const typeSummary = typeCode ? TYPE_SUMMARIES[typeCode] : null;
+  const levelSummary = level ? LEVEL_SUMMARIES[level] : null;
+
+  if (typeSummary || levelSummary) {
+    return [
+      'お待たせしました。AIの応答生成に時間がかかったため、まず要点でお伝えします。',
+      '',
+      diagnosisCode ? `あなたのタイプ「${diagnosisCode}」は、${typeSummary || '自分らしさを大切にしながら成長していくタイプです。'}` : typeSummary,
+      levelSummary,
+      '',
+      userText.includes('特徴') || userText.includes('タイプ')
+        ? '強みは、周囲の変化や人の気持ちに気づきやすいことです。一方で、相手を優先しすぎると自分の本音が後回しになりやすいので、「私はどう感じているか」を一度確認する時間を持つと、より自分らしく動きやすくなります。'
+        : '今の質問については、まず「自分が何を感じているか」を短く言葉にしてみるのがおすすめです。そこから、無理なくできる小さな一歩を一緒に整理していきましょう。',
+      '',
+      'もう少し詳しく知りたい場合は、「強み」「注意点」「人間関係」「仕事での活かし方」のどれを知りたいか送ってください。',
+    ]
+      .filter(Boolean)
+      .join('\n');
+  }
+
+  return [
+    'お待たせしました。AIの応答生成に時間がかかったため、まず簡潔にお返しします。',
+    '',
+    '今のテーマは、すぐに結論を出すよりも「自分が何を感じているか」を一度言葉にすることが大切です。',
+    'まずは、今いちばん気になっていることを一文で書いてみてください。そこから一緒に整理していきましょう。',
+  ].join('\n');
+}
+
+function extractDiagnosisCode(systemPrompt: string) {
+  const match = systemPrompt.match(/診断コード:\s*([A-Z]{3}-[1-6])/);
+  return match?.[1] || null;
+}
+
+function extractTextFromParts(parts: GeminiPart[]) {
+  return parts
+    .map((part) => ('text' in part ? part.text : ''))
+    .join('\n')
+    .trim();
 }
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number) {
