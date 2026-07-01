@@ -30,6 +30,8 @@ const RECENT_HISTORY_LIMIT = 18;
 const SUMMARY_CHAR_LIMIT = 3600;
 const GEMINI_TIMEOUT_MS = 55000;
 const GEMINI_RETRY_DELAYS_MS = [800, 1600];
+const MAX_TOKENS_CONTINUATION_NOTICE =
+  '\n\n（返答が長くなったため、ここで一度区切ります。続きが必要な場合は「続き」と送ってください。）';
 
 const TYPE_SUMMARIES: Record<string, string> = {
   SVA: '思索探求者。理想や思想を深く掘り下げ、自分なりの真理を探す力があります。',
@@ -77,7 +79,7 @@ export function getCoachingGeminiModel(systemPrompt: string) {
     generationConfig: {
       temperature: 0.65,
       topP: 0.9,
-      maxOutputTokens: 768,
+      maxOutputTokens: 2048,
     },
   });
 }
@@ -178,7 +180,7 @@ export async function generateCoachingText(params: {
   }
 
   return {
-    text,
+    text: appendContinuationNoticeIfNeeded(text, response),
     usage: getUsage(response),
   };
 }
@@ -202,6 +204,7 @@ export function createJsonLineStream(params: {
       try {
         let response:
           | {
+              candidates?: Array<{ finishReason?: string }>;
               usageMetadata?: {
                 promptTokenCount?: number;
                 candidatesTokenCount?: number;
@@ -246,6 +249,10 @@ export function createJsonLineStream(params: {
         }
 
         const usage = getUsage(response);
+        if (isMaxTokensFinish(response)) {
+          fullText += MAX_TOKENS_CONTINUATION_NOTICE;
+          write({ type: 'chunk', text: MAX_TOKENS_CONTINUATION_NOTICE });
+        }
         const donePayload = await params.onDone(usage);
 
         write({
@@ -418,6 +425,23 @@ function getUsage(response: {
     completion_tokens: response.usageMetadata?.candidatesTokenCount,
     total_tokens: response.usageMetadata?.totalTokenCount,
   };
+}
+
+function appendContinuationNoticeIfNeeded(
+  text: string,
+  response: { candidates?: Array<{ finishReason?: string }> }
+) {
+  return isMaxTokensFinish(response)
+    ? `${text}${MAX_TOKENS_CONTINUATION_NOTICE}`
+    : text;
+}
+
+function isMaxTokensFinish(response: {
+  candidates?: Array<{ finishReason?: string }>;
+}) {
+  return response.candidates?.some(
+    (candidate) => candidate.finishReason === 'MAX_TOKENS'
+  );
 }
 
 function buildTimeoutFallbackResponse(
