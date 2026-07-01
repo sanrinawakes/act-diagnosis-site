@@ -29,6 +29,7 @@ type GeminiHistoryItem = {
 const RECENT_HISTORY_LIMIT = 18;
 const SUMMARY_CHAR_LIMIT = 3600;
 const GEMINI_TIMEOUT_MS = 55000;
+const GEMINI_RETRY_DELAYS_MS = [800, 1600];
 
 const TYPE_SUMMARIES: Record<string, string> = {
   SVA: '思索探求者。理想や思想を深く掘り下げ、自分なりの真理を探す力があります。',
@@ -158,18 +159,23 @@ export async function generateCoachingText(params: {
   historyMessages: CoachingChatMessage[];
   lastUserParts: GeminiPart[];
 }) {
-  const model = getCoachingGeminiModel(params.systemPrompt);
-  const chat = model.startChat({
-    history: prepareGeminiHistory(params.historyMessages),
-  });
+  const result = await runWithGeminiRetry(async () => {
+    const model = getCoachingGeminiModel(params.systemPrompt);
+    const chat = model.startChat({
+      history: prepareGeminiHistory(params.historyMessages),
+    });
 
-  const result = await withTimeout(
-    chat.sendMessage(params.lastUserParts),
-    GEMINI_TIMEOUT_MS
-  );
+    return withTimeout(
+      chat.sendMessage(params.lastUserParts),
+      GEMINI_TIMEOUT_MS
+    );
+  });
   const response = result.response;
-  const text =
-    response.text() || 'すみません、応答に失敗しました。もう一度お試しください。';
+  const text = response.text();
+
+  if (!text.trim()) {
+    throw new Error('GEMINI_EMPTY_RESPONSE');
+  }
 
   return {
     text,
@@ -194,30 +200,53 @@ export function createJsonLineStream(params: {
       };
 
       try {
-        const model = getCoachingGeminiModel(params.systemPrompt);
-        const chat = model.startChat({
-          history: prepareGeminiHistory(params.historyMessages),
-        });
-        const result = await withTimeout(
-          chat.sendMessageStream(params.lastUserParts),
-          GEMINI_TIMEOUT_MS
-        );
+        let response:
+          | {
+              usageMetadata?: {
+                promptTokenCount?: number;
+                candidatesTokenCount?: number;
+                totalTokenCount?: number;
+              };
+            }
+          | undefined;
 
-        for await (const chunk of result.stream) {
-          const text = chunk.text();
-          if (!text) continue;
-          fullText += text;
-          write({ type: 'chunk', text });
+        await runWithGeminiRetry(async () => {
+          const model = getCoachingGeminiModel(params.systemPrompt);
+          const chat = model.startChat({
+            history: prepareGeminiHistory(params.historyMessages),
+          });
+          const result = await withTimeout(
+            chat.sendMessageStream(params.lastUserParts),
+            GEMINI_TIMEOUT_MS
+          );
+
+          try {
+            for await (const chunk of result.stream) {
+              const text = chunk.text();
+              if (!text) continue;
+              fullText += text;
+              write({ type: 'chunk', text });
+            }
+          } catch (streamError) {
+            if (fullText.trim()) {
+              throw new Error('GEMINI_PARTIAL_STREAM_INTERRUPTED');
+            }
+            throw streamError;
+          }
+
+          response = await result.response;
+
+          if (!fullText.trim()) {
+            throw new Error('GEMINI_EMPTY_RESPONSE');
+          }
+        });
+
+        if (!response) {
+          throw new Error('GEMINI_EMPTY_RESPONSE');
         }
 
-        const response = await result.response;
         const usage = getUsage(response);
         const donePayload = await params.onDone(usage);
-
-        if (!fullText.trim()) {
-          fullText = 'すみません、応答に失敗しました。もう一度お試しください。';
-          write({ type: 'chunk', text: fullText });
-        }
 
         write({
           type: 'done',
@@ -230,7 +259,10 @@ export function createJsonLineStream(params: {
           error instanceof Error && error.message === 'GEMINI_TIMEOUT';
         console.error('Gemini stream error:', error);
 
-        if (isTimeout) {
+        if (
+          isTimeout ||
+          (error instanceof Error && error.message === 'GEMINI_EMPTY_RESPONSE')
+        ) {
           const fallbackText = buildTimeoutFallbackResponse(
             params.systemPrompt,
             params.lastUserParts
@@ -263,6 +295,71 @@ export function getStreamHeaders() {
     'Cache-Control': 'no-cache, no-transform',
     Connection: 'keep-alive',
   };
+}
+
+async function runWithGeminiRetry<T>(operation: () => Promise<T>): Promise<T> {
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt <= GEMINI_RETRY_DELAYS_MS.length; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+      if (
+        attempt >= GEMINI_RETRY_DELAYS_MS.length ||
+        !shouldRetryGeminiError(error)
+      ) {
+        break;
+      }
+
+      await delay(GEMINI_RETRY_DELAYS_MS[attempt]);
+    }
+  }
+
+  throw lastError;
+}
+
+function shouldRetryGeminiError(error: unknown) {
+  if (error instanceof Error && error.message === 'GEMINI_TIMEOUT') {
+    return false;
+  }
+
+  if (error instanceof Error && error.message === 'GEMINI_EMPTY_RESPONSE') {
+    return true;
+  }
+
+  const status =
+    typeof error === 'object' && error !== null && 'status' in error
+      ? Number((error as { status?: unknown }).status)
+      : 0;
+
+  if ([429, 500, 502, 503, 504].includes(status)) {
+    return true;
+  }
+
+  const message =
+    error instanceof Error
+      ? error.message.toLowerCase()
+      : String(error).toLowerCase();
+
+  return [
+    '429',
+    '500',
+    '502',
+    '503',
+    '504',
+    'overloaded',
+    'temporarily unavailable',
+    'try again',
+    'fetch failed',
+    'econnreset',
+    'etimedout',
+    'rate limit',
+  ].some((keyword) => message.includes(keyword));
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function normalizeAlternatingHistory(
