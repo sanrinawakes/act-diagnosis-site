@@ -72,7 +72,7 @@ const LEVEL_SUMMARIES: Record<string, string> = {
 
 export function getCoachingGeminiModel(systemPrompt: string) {
   return getGenAI().getGenerativeModel({
-    model: 'gemini-2.0-flash',
+    model: 'gemini-2.5-flash',
     systemInstruction: systemPrompt,
     generationConfig: {
       temperature: 0.65,
