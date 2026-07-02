@@ -28,7 +28,7 @@ type GeminiHistoryItem = {
 
 const RECENT_HISTORY_LIMIT = 18;
 const SUMMARY_CHAR_LIMIT = 3600;
-const GEMINI_TIMEOUT_MS = 55000;
+const GEMINI_TIMEOUT_MS = 35000;
 const GEMINI_RETRY_DELAYS_MS = [800, 1600];
 const MAX_TOKENS_CONTINUATION_NOTICE =
   '\n\n（返答が長くなったため、ここで一度区切ります。続きが必要な場合は「続き」と送ってください。）';
@@ -79,7 +79,7 @@ export function getCoachingGeminiModel(systemPrompt: string) {
     generationConfig: {
       temperature: 0.65,
       topP: 0.9,
-      maxOutputTokens: 2048,
+      maxOutputTokens: 1024,
     },
   });
 }
@@ -456,26 +456,22 @@ function buildTimeoutFallbackResponse(
 
   if (typeSummary || levelSummary) {
     return [
-      'お待たせしました。AIの応答生成に時間がかかったため、まず要点でお伝えします。',
-      '',
+      'お待たせしました。まず短くお返しします。',
       diagnosisCode ? `あなたのタイプ「${diagnosisCode}」は、${typeSummary || '自分らしさを大切にしながら成長していくタイプです。'}` : typeSummary,
       levelSummary,
-      '',
       userText.includes('特徴') || userText.includes('タイプ')
-        ? '強みは、周囲の変化や人の気持ちに気づきやすいことです。一方で、相手を優先しすぎると自分の本音が後回しになりやすいので、「私はどう感じているか」を一度確認する時間を持つと、より自分らしく動きやすくなります。'
-        : '今の質問については、まず「自分が何を感じているか」を短く言葉にしてみるのがおすすめです。そこから、無理なくできる小さな一歩を一緒に整理していきましょう。',
-      '',
-      'もう少し詳しく知りたい場合は、「強み」「注意点」「人間関係」「仕事での活かし方」のどれを知りたいか送ってください。',
+        ? '強みは、変化や人の気持ちに気づきやすいことです。まず「私はどう感じたか」を一言で置いてみると、次の行動が見えやすくなります。'
+        : '今は、結論を急ぐより「何が一番引っかかっているか」を一言にするのがおすすめです。',
+      '続ける場合は、気になる点を一つだけ送ってください。',
     ]
       .filter(Boolean)
       .join('\n');
   }
 
   return [
-    'お待たせしました。AIの応答生成に時間がかかったため、まず簡潔にお返しします。',
-    '',
-    '今のテーマは、すぐに結論を出すよりも「自分が何を感じているか」を一度言葉にすることが大切です。',
-    'まずは、今いちばん気になっていることを一文で書いてみてください。そこから一緒に整理していきましょう。',
+    'お待たせしました。まず短くお返しします。',
+    '今は、いちばん気になっていることを一文にするところから始めるのが良さそうです。',
+    'その一文を送っていただければ、そこから一緒に整理します。',
   ].join('\n');
 }
 
