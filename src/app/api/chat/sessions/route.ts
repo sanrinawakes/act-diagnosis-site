@@ -5,7 +5,6 @@ export const runtime = 'nodejs';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
 interface SessionWithPreview {
   id: string;
@@ -131,30 +130,6 @@ export async function GET(request: NextRequest) {
         page,
         limit,
       });
-    }
-
-    // For unpinned sessions, only keep the latest 100, and delete older ones
-    const pinnedSessions = sessions.filter((s) => s.is_pinned);
-    const unpinnedSessions = sessions.filter((s) => !s.is_pinned);
-
-    if (unpinnedSessions.length > 100) {
-      const sessionsToDelete = unpinnedSessions.slice(100);
-      const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey);
-
-      // Delete old unpinned sessions (cascade will delete messages)
-      await supabaseAdmin
-        .from('chat_sessions')
-        .delete()
-        .in(
-          'id',
-          sessionsToDelete.map((s) => s.id)
-        );
-
-      // Keep only the latest 100 unpinned sessions
-      sessions.splice(
-        sessions.indexOf(sessionsToDelete[0]),
-        sessionsToDelete.length
-      );
     }
 
     // Fetch first user message as preview for each session
