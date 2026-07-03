@@ -338,6 +338,13 @@ function CoachingContent() {
               setLatestDiagnosis(diagnosis as any);
             }
           }
+          if (!code && existingSession.title) {
+            const titleCode = existingSession.title.match(/Coaching:\s*([A-Z]{3}-[1-6])/);
+            if (titleCode?.[1]) {
+              code = titleCode[1];
+              setDiagnosisCode(code);
+            }
+          }
 
           setInitialized(true);
           return;
@@ -361,6 +368,7 @@ function CoachingContent() {
 
         // 新しいセッションを作成
         let code = codeParam;
+        let diagnosisResultId: string | null = null;
 
         if (!code) {
           const { data: diagnosisData } = await supabase
@@ -372,6 +380,7 @@ function CoachingContent() {
 
           if (diagnosisData && diagnosisData.length > 0) {
             setLatestDiagnosis(diagnosisData[0]);
+            diagnosisResultId = diagnosisData[0].id;
             code = `${diagnosisData[0].type_code}-${diagnosisData[0].consciousness_level}`;
           }
         }
@@ -382,7 +391,7 @@ function CoachingContent() {
           .from('chat_sessions')
           .insert({
             user_id: user.id,
-            diagnosis_result_id: null,
+            diagnosis_result_id: diagnosisResultId,
             title: code ? `Coaching: ${code}` : 'Chat Session',
           })
           .select()
