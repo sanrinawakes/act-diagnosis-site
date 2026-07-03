@@ -22,7 +22,6 @@ import {
   type PendingImageAttachment,
 } from '@/lib/client-attachments';
 import { readChatStream } from '@/lib/chat-stream-client';
-import { getSessionFromCookie, restoreSessionFromCookie } from '@/lib/restore-session';
 
 interface Message {
   id: string;
@@ -51,7 +50,7 @@ interface PaginatedResponse {
 }
 
 const CHAT_RESPONSE_TIMEOUT_MS = 60000;
-const CHAT_AUTH_TIMEOUT_MS = 12000;
+const CHAT_AUTH_TIMEOUT_MS = 45000;
 const CHAT_AUTH_RETRY_DELAY_MS = 800;
 const CHAT_PERSIST_TIMEOUT_MS = 10000;
 const ATTACHMENT_PRIVACY_NOTICE =
@@ -125,43 +124,6 @@ function CoachingContent() {
 
   const isReady = !subscriptionLoading && allowed;
 
-  const getAuthSession = useCallback(async () => {
-    const cookieSession = getSessionFromCookie();
-    if (cookieSession?.access_token) {
-      return cookieSession;
-    }
-
-    const {
-      data: { session },
-    } = await withTimeout(
-      supabase.auth.getSession(),
-      CHAT_AUTH_TIMEOUT_MS,
-      'ログイン状態の確認に時間がかかりすぎました。通信状態を確認して、もう一度送信してください。'
-    );
-
-    if (session?.access_token) {
-      return { access_token: session.access_token, refresh_token: session.refresh_token };
-    }
-
-    const restored = await restoreSessionFromCookie(supabase);
-    if (!restored) return null;
-
-    const restoredCookieSession = getSessionFromCookie();
-    if (restoredCookieSession?.access_token) {
-      return restoredCookieSession;
-    }
-
-    const {
-      data: { session: restoredSession },
-    } = await supabase.auth.getSession();
-    return restoredSession?.access_token
-      ? {
-          access_token: restoredSession.access_token,
-          refresh_token: restoredSession.refresh_token,
-        }
-      : null;
-  }, [supabase]);
-
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
@@ -187,7 +149,9 @@ function CoachingContent() {
     async (search?: string, tab?: 'all' | 'pinned', pageNum?: number) => {
       try {
         setSidebarLoading(true);
-        const authSession = await getAuthSession();
+        const {
+          data: { session: authSession },
+        } = await supabase.auth.getSession();
 
         if (!authSession?.access_token) return;
 
@@ -213,7 +177,7 @@ function CoachingContent() {
         setSidebarLoading(false);
       }
     },
-    [getAuthSession]
+    [supabase]
   );
 
   // Fetch sidebar sessions on mount and when tab/search changes
@@ -225,7 +189,9 @@ function CoachingContent() {
   // ─── Sidebar: pin/unpin ───
   const handlePin = async (sid: string, isPinned: boolean) => {
     try {
-      const authSession = await getAuthSession();
+      const {
+        data: { session: authSession },
+      } = await supabase.auth.getSession();
       if (!authSession?.access_token) return;
 
       await fetch('/api/chat/sessions', {
@@ -246,7 +212,9 @@ function CoachingContent() {
   // ─── Sidebar: delete ───
   const handleDeleteSession = async (sid: string) => {
     try {
-      const authSession = await getAuthSession();
+      const {
+        data: { session: authSession },
+      } = await supabase.auth.getSession();
       if (!authSession?.access_token) return;
 
       await fetch('/api/chat/sessions', {
@@ -279,7 +247,7 @@ function CoachingContent() {
 
   // ─── Sidebar: new chat ───
   const handleNewChat = () => {
-    router.push('/coaching');
+    router.push('/coaching?new=1');
   };
 
   // ─── Hide sidebar on mobile by default ───
@@ -304,6 +272,8 @@ function CoachingContent() {
         }
 
         const sessionIdParam = searchParams.get('session');
+        const forceNewSession = searchParams.get('new') === '1';
+        const codeParam = searchParams.get('code');
 
         // サイト設定確認
         const { data: settings } = await supabase
@@ -373,8 +343,24 @@ function CoachingContent() {
           return;
         }
 
+        if (!forceNewSession && !codeParam) {
+          const { data: latestSession } = await supabase
+            .from('chat_sessions')
+            .select('id')
+            .eq('user_id', user.id)
+            .order('last_message_at', { ascending: false, nullsFirst: false })
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+          if (latestSession?.id) {
+            router.replace(`/coaching?session=${latestSession.id}`);
+            return;
+          }
+        }
+
         // 新しいセッションを作成
-        let code = searchParams.get('code');
+        let code = codeParam;
 
         if (!code) {
           const { data: diagnosisData } = await supabase
@@ -408,11 +394,12 @@ function CoachingContent() {
         setInitialized(true);
 
         if (code) {
-          sendInitialMessage(session.id, code);
+          await sendInitialMessage(session.id, code);
         }
 
         // Refresh sidebar to include the new session
         fetchSidebarSessions(sidebarSearch, sidebarTab, 1);
+        router.replace(`/coaching?session=${session.id}`);
       } catch (err) {
         console.error('Chat initialization error:', err);
         setInitialized(true);
@@ -455,6 +442,26 @@ function CoachingContent() {
     } catch (err) {
       console.error('Failed to send initial message:', err);
     }
+  };
+
+  const refreshSessionActivity = async (sid: string) => {
+    const { count } = await supabase
+      .from('chat_messages')
+      .select('id', { count: 'exact', head: true })
+      .eq('session_id', sid);
+
+    const updateData: { last_message_at: string; message_count?: number } = {
+      last_message_at: new Date().toISOString(),
+    };
+
+    if (typeof count === 'number') {
+      updateData.message_count = count;
+    }
+
+    await supabase
+      .from('chat_sessions')
+      .update(updateData)
+      .eq('id', sid);
   };
 
   // Voice input (speech recognition)
@@ -579,13 +586,24 @@ function CoachingContent() {
     let controller: AbortController | null = null;
 
     try {
+      const getCurrentAuthSession = async () => {
+        const {
+          data: { session },
+        } = await withTimeout(
+          supabase.auth.getSession(),
+          CHAT_AUTH_TIMEOUT_MS,
+          'ログイン状態の確認に時間がかかりすぎました。通信状態を確認して、もう一度送信してください。'
+        );
+        return session;
+      };
+
       let authSession: { access_token: string } | null;
       try {
-        authSession = await getAuthSession();
+        authSession = await getCurrentAuthSession();
       } catch (sessionError) {
         if (sessionError instanceof DOMException && sessionError.name === 'AbortError') {
           await delay(CHAT_AUTH_RETRY_DELAY_MS);
-          authSession = await getAuthSession();
+          authSession = await getCurrentAuthSession();
         } else {
           throw sessionError;
         }
@@ -716,26 +734,8 @@ function CoachingContent() {
           'AI応答の保存に時間がかかりすぎました。'
         );
 
-        const { data: sessionData } = await withTimeout(
-          supabase
-            .from('chat_sessions')
-            .select('message_count')
-            .eq('id', sessionId)
-            .single(),
-          CHAT_PERSIST_TIMEOUT_MS,
-          'セッション情報の取得に時間がかかりすぎました。'
-        );
-
-        const currentCount = sessionData?.message_count || 0;
-
         await withTimeout(
-          supabase
-            .from('chat_sessions')
-            .update({
-              last_message_at: new Date().toISOString(),
-              message_count: currentCount + 2,
-            })
-            .eq('id', sessionId),
+          refreshSessionActivity(sessionId),
           CHAT_PERSIST_TIMEOUT_MS,
           'セッション情報の更新に時間がかかりすぎました。'
         );
@@ -753,9 +753,12 @@ function CoachingContent() {
       }
       controller?.abort();
       const isAbort = err instanceof DOMException && err.name === 'AbortError';
-      const failContent = isAbort
-        ? '応答に時間がかかりすぎたため中断しました。お手数ですが、もう一度お試しください。'
-        : 'すみません、応答に失敗しました。もう一度お試しください。';
+      const failContent =
+        isAbort && assistantContent.trim()
+          ? `${assistantContent}\n\n（途中で接続が不安定になったため、ここで一度区切りました。続きが必要な場合は「続き」と送ってください。）`
+          : isAbort
+            ? '応答に時間がかかりすぎたため中断しました。お手数ですが、もう一度お試しください。'
+            : 'すみません、応答に失敗しました。もう一度お試しください。';
       if (assistantMessageId) {
         setMessages((prev) =>
           prev.map((message) =>
@@ -775,7 +778,7 @@ function CoachingContent() {
           },
         ]);
       }
-      // 失敗時もassistant行を保存し、再読込で「ユーザー発言だけ残り返事が消える」状態を防ぐ（大森さんの症状）
+      // 失敗時もassistant行とセッション更新を保存し、再読込で履歴が消えたように見える状態を防ぐ。
       try {
         await withTimeout(
           supabase.from('chat_messages').insert({
@@ -786,6 +789,12 @@ function CoachingContent() {
           CHAT_PERSIST_TIMEOUT_MS,
           'エラー応答の保存に時間がかかりすぎました。'
         );
+        await withTimeout(
+          refreshSessionActivity(sessionId),
+          CHAT_PERSIST_TIMEOUT_MS,
+          'セッション情報の更新に時間がかかりすぎました。'
+        );
+        fetchSidebarSessions(sidebarSearch, sidebarTab, sidebarPage);
       } catch (saveErr) {
         console.error('Failed to persist fallback message:', saveErr);
       }
