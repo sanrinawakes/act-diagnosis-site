@@ -31,7 +31,7 @@ const SUMMARY_CHAR_LIMIT = 3600;
 const GEMINI_TIMEOUT_MS = 35000;
 const GEMINI_RETRY_DELAYS_MS = [800, 1600];
 const MAX_TOKENS_CONTINUATION_NOTICE =
-  '\n\n（返答が長くなったため、ここで一度区切ります。続きが必要な場合は「続き」と送ってください。）';
+  '\n\n（ここで自然に区切ります。続きが必要な場合は「続き」と送ってください。）';
 
 const TYPE_SUMMARIES: Record<string, string> = {
   SVA: '思索探求者。理想や思想を深く掘り下げ、自分なりの真理を探す力があります。',
@@ -79,7 +79,7 @@ export function getCoachingGeminiModel(systemPrompt: string) {
     generationConfig: {
       temperature: 0.65,
       topP: 0.9,
-      maxOutputTokens: 1024,
+      maxOutputTokens: 1536,
     },
   });
 }
@@ -250,6 +250,7 @@ export function createJsonLineStream(params: {
 
         const usage = getUsage(response);
         if (isMaxTokensFinish(response)) {
+          fullText = trimToNaturalContinuationBoundary(fullText);
           fullText += MAX_TOKENS_CONTINUATION_NOTICE;
           write({ type: 'chunk', text: MAX_TOKENS_CONTINUATION_NOTICE });
         }
@@ -432,8 +433,51 @@ function appendContinuationNoticeIfNeeded(
   response: { candidates?: Array<{ finishReason?: string }> }
 ) {
   return isMaxTokensFinish(response)
-    ? `${text}${MAX_TOKENS_CONTINUATION_NOTICE}`
+    ? `${trimToNaturalContinuationBoundary(text)}${MAX_TOKENS_CONTINUATION_NOTICE}`
     : text;
+}
+
+function trimToNaturalContinuationBoundary(text: string) {
+  const trimmed = text.trim();
+  if (!trimmed) return trimmed;
+
+  if (endsAtNaturalBoundary(trimmed) && !hasDanglingMarkdown(trimmed)) {
+    return trimmed;
+  }
+
+  const boundaryIndex = findLastNaturalBoundary(trimmed);
+  if (boundaryIndex >= 80) {
+    return cleanupTrailingMarkdown(trimmed.slice(0, boundaryIndex + 1));
+  }
+
+  const paragraphIndex = trimmed.lastIndexOf('\n\n');
+  if (paragraphIndex >= 80) {
+    return cleanupTrailingMarkdown(trimmed.slice(0, paragraphIndex));
+  }
+
+  return cleanupTrailingMarkdown(trimmed);
+}
+
+function endsAtNaturalBoundary(text: string) {
+  return /[。！？!?）)]$/.test(text);
+}
+
+function findLastNaturalBoundary(text: string) {
+  const boundaryChars = ['。', '！', '？', '!', '?'];
+  return Math.max(...boundaryChars.map((char) => text.lastIndexOf(char)));
+}
+
+function hasDanglingMarkdown(text: string) {
+  const boldMarkerCount = (text.match(/\*\*/g) || []).length;
+  return boldMarkerCount % 2 === 1;
+}
+
+function cleanupTrailingMarkdown(text: string) {
+  return text
+    .replace(/\s+\*\*[^*\n]*$/g, '')
+    .replace(/\*\*$/g, '')
+    .replace(/[#*_`「『（(、,，:：-]+$/g, '')
+    .trim();
 }
 
 function isMaxTokensFinish(response: {
