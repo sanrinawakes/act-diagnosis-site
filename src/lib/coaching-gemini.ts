@@ -28,6 +28,7 @@ type GeminiHistoryItem = {
 
 const RECENT_HISTORY_LIMIT = 18;
 const SUMMARY_CHAR_LIMIT = 3600;
+const HISTORY_MESSAGE_CHAR_LIMIT = 1200;
 const GEMINI_TIMEOUT_MS = 35000;
 const GEMINI_RETRY_DELAYS_MS = [800, 1600];
 const MAX_TOKENS_CONTINUATION_NOTICE =
@@ -80,7 +81,10 @@ export function getCoachingGeminiModel(systemPrompt: string) {
       temperature: 0.65,
       topP: 0.9,
       maxOutputTokens: 1536,
-    },
+      // Gemini 2.5 Flash has thinking enabled by default. Coaching chat needs
+      // low first-token latency more than deep reasoning, so disable it here.
+      thinkingConfig: { thinkingBudget: 0 },
+    } as any,
   });
 }
 
@@ -90,9 +94,10 @@ export function prepareGeminiHistory(
   const cleaned = messages
     .map((message) => ({
       role: message.role === 'assistant' ? ('model' as const) : ('user' as const),
-      text:
+      text: truncateHistoryText(
         stripAttachmentMarkdown(message.content).trim() ||
-        (message.role === 'user' ? '画像を添付しました。' : ''),
+          (message.role === 'user' ? '画像を添付しました。' : '')
+      ),
     }))
     .filter((message) => message.text);
 
@@ -412,6 +417,11 @@ function buildConversationSummary(
 
   if (text.length <= SUMMARY_CHAR_LIMIT) return text;
   return text.slice(-SUMMARY_CHAR_LIMIT);
+}
+
+function truncateHistoryText(text: string) {
+  if (text.length <= HISTORY_MESSAGE_CHAR_LIMIT) return text;
+  return `${text.slice(0, HISTORY_MESSAGE_CHAR_LIMIT)}\n（長文のため一部省略）`;
 }
 
 function getUsage(response: {
