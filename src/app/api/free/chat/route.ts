@@ -79,7 +79,7 @@ https://example.com/study-session
 
 ---
 
-${diagnosisCode ? `## クライアント診断情報\n\nクライアントの診断コード: ${diagnosisCode}\n\nこのコード情報を念頭に置きながら、クライアントに最適なコーチングを提供してください。` : ''}`;
+${diagnosisCode ? `## クライアント診断情報\n\nクライアントの診断コード: ${diagnosisCode}\n\nこのコード情報は、返答の背景に使うための内部文脈です。通常の相談では診断コード・タイプ名・意識レベル名を表示せず、ユーザーの言葉と感情を中心に返答してください。` : ''}`;
 
   return baseFreePrompt;
 }
