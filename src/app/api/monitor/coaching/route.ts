@@ -22,6 +22,7 @@ type MonitorResult = {
   totalMs: number;
   hasDone: boolean;
   outputChars: number;
+  returnedFallback: boolean;
   remaining: number | null;
 };
 
@@ -207,6 +208,9 @@ async function runCoachingMonitor(params: {
     totalMs: Date.now() - startedAt,
     hasDone: Boolean(donePayload),
     outputChars: message.length,
+    returnedFallback: /応答に時間がかかりすぎ|応答に失敗|中断しました/.test(
+      message
+    ),
     remaining:
       typeof donePayload?.remaining === 'number' ? donePayload.remaining : null,
   };
@@ -227,8 +231,12 @@ function assertHealthyMonitorResult(result: MonitorResult) {
     throw new Error(`monitor total too slow: ${result.totalMs}ms`);
   }
 
-  if (result.outputChars < 20) {
+  if (result.outputChars <= 0) {
     throw new Error(`monitor output too short: ${result.outputChars} chars`);
+  }
+
+  if (result.returnedFallback) {
+    throw new Error('monitor returned fallback/error text');
   }
 }
 
