@@ -669,7 +669,7 @@ function hasClosingCoachingMove(message) {
 
   return (
     countSemanticQuestions(finalSentence) === 1 ||
-    /(?:してください|してみてください|してみましょう|しましょう|始めてみて|書き出してみて|伝えてみて|休んでください|休みましょう|置いてみてください)(?:ね)?[。！]?$/.test(
+    /(?:してください|してみてください|してみましょう|しましょう|始めてみて|書き出してみて|伝えてみて|休んでください|休みましょう|置いてみてください|考えてください)(?:ね)?[。！]?$/.test(
       finalSentence
     )
   );
