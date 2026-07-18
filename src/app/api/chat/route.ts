@@ -267,14 +267,14 @@ export async function POST(request: NextRequest) {
       usage,
     });
   } catch (error) {
-    console.error('Chat API error:', error);
-
     if (error instanceof SyntaxError) {
       return NextResponse.json(
         { error: 'Invalid request body' },
         { status: 400 }
       );
     }
+
+    console.error('Chat API error:', error);
 
     return NextResponse.json(
       {
