@@ -187,9 +187,15 @@ export function buildGeminiParts(
 }
 
 function buildResponseStyleHint(text: string) {
-  if (!requestsSingleAnswerFormat(text)) return '';
+  if (requestsSingleAnswerFormat(text)) {
+    return '【内部応答形式】ユーザーの指定を優先し、答えまたは提案を一つだけ簡潔に返してください。補足の提案や確認質問は付けず、答えた時点で終了してください。';
+  }
 
-  return '【内部応答形式】ユーザーの指定を優先し、答えまたは提案を一つだけ簡潔に返してください。補足の提案や確認質問は付けず、答えた時点で終了してください。';
+  if (requestsRestWithoutQuestions(text)) {
+    return '【内部応答形式】今は掘り下げず、疲れを短く受け止めて、休んでよいと伝えてください。質問や追加の提案は付けないでください。';
+  }
+
+  return '';
 }
 
 export function compactCoachingMessages(
@@ -817,7 +823,7 @@ function extractTextFromParts(parts: GeminiPart[]) {
 }
 
 export function normalizeCoachingOutput(text: string, lastUserText: string) {
-  const questionLimit = requestsSingleAnswerFormat(lastUserText) ? 0 : 1;
+  const questionLimit = requestsNoFollowUpQuestion(lastUserText) ? 0 : 1;
   const naturalText = text
     .replace(/心中お察しいたします[。]?/g, 'それはつらかったですね。')
     .replace(/お気持ちをお察しいたします[。]?/g, 'その気持ちは自然だと思います。')
@@ -826,13 +832,14 @@ export function normalizeCoachingOutput(text: string, lastUserText: string) {
     .replace(/いらっしゃる/g, 'いる')
     .replace(/ご自身/g, '自分')
     .replace(/と伝えてみるのはいかがでしょうか[。]?/g, 'と伝えてみてください。')
+    .replace(/と伝えてみてはいかがでしょうか[。]?/g, 'と伝えてみてください。')
     .replace(/してみてはいかがでしょうか[。]?/g, 'してみてください。');
   const paragraphs = naturalText
     .trim()
     .split(/\n{2,}/)
     .filter((paragraph) => {
       if (questionLimit !== 0) return true;
-      return !/もしよろしければ|差し支えなければ|また.{0,12}(?:聞かせ|教えて)|お話しいただけ/.test(
+      return !/もし(?:よろしければ|よかったら)|差し支えなければ|また.{0,12}(?:聞かせ|教えて)|お話しいただけ/.test(
         paragraph
       );
     });
@@ -840,17 +847,28 @@ export function normalizeCoachingOutput(text: string, lastUserText: string) {
     .join('\n\n')
     .match(/[^。！？?\n]+[。！？?]?|\n+/g) || [];
   let questions = 0;
+  let quoteDepth = 0;
+  const keptSegments: string[] = [];
 
-  const normalized = segments
-    .filter((segment) => {
-      const questionCount = isQuestionSegment(segment)
-        ? Math.max(1, (segment.match(/[？?]/g) || []).length)
+  segments.forEach((segment) => {
+    const opens = countMatches(segment, /[「『]/g);
+    const closes = countMatches(segment, /[」』]/g);
+    const questionIsQuoted = isQuestionInsideJapaneseQuote(segment, quoteDepth);
+    const questionCount =
+      isQuestionSegment(segment) && !questionIsQuoted
+        ? Math.max(1, countMatches(segment, /[？?]/g))
         : 0;
-      if (questionCount === 0) return true;
-      if (questions >= questionLimit) return false;
+    const withinLimit =
+      questionCount === 0 || questions + questionCount <= questionLimit;
+
+    if (withinLimit) {
+      keptSegments.push(segment);
       questions += questionCount;
-      return questions <= questionLimit;
-    })
+    }
+    quoteDepth = Math.max(0, quoteDepth + opens - closes);
+  });
+
+  const normalized = keptSegments
     .join('')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
@@ -885,8 +903,42 @@ function isQuestionSegment(segment: string) {
   );
 }
 
+function isQuestionInsideJapaneseQuote(segment: string, depthBefore: number) {
+  const punctuationIndex = Math.max(
+    segment.lastIndexOf('？'),
+    segment.lastIndexOf('?')
+  );
+  const semanticEnding = segment.match(/か[。]?\s*$/);
+  const questionIndex =
+    punctuationIndex >= 0
+      ? punctuationIndex
+      : semanticEnding?.index ?? segment.length;
+  let depth = depthBefore;
+
+  for (let index = 0; index < questionIndex; index += 1) {
+    if (/[「『]/.test(segment[index])) depth += 1;
+    if (/[」』]/.test(segment[index])) depth = Math.max(0, depth - 1);
+  }
+
+  return depth > 0;
+}
+
 function requestsSingleAnswerFormat(text: string) {
   return /(?:(?:一つ|ひとつ|1つ)だけ.{0,24}(?:教|提案|答|挙|示|伝|お願)|(?:教|提案|答|挙|示|伝|お願).{0,24}(?:一つ|ひとつ|1つ)だけ|一言(?:だけ|で)|質問(?:は|を)?(?:なし|不要|しない)|短く(?:答|教|返))/.test(text);
+}
+
+function requestsRestWithoutQuestions(text: string) {
+  return /何も考えたくない|もう考えたくない|今日はもう(?:無理|限界)|疲れ(?:た|ました)|しんどい|休みたい/.test(
+    text
+  );
+}
+
+function requestsNoFollowUpQuestion(text: string) {
+  return requestsSingleAnswerFormat(text) || requestsRestWithoutQuestions(text);
+}
+
+function countMatches(text: string, pattern: RegExp) {
+  return (text.match(pattern) || []).length;
 }
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number) {

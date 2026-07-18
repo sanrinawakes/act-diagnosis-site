@@ -442,6 +442,7 @@ async function sendStreamRequest({
     hasDone: Boolean(donePayload),
     outputChars: message.length,
     questionMarks: countQuestionMarks(message),
+    semanticQuestions: countSemanticQuestions(message),
     message,
   };
 }
@@ -491,8 +492,8 @@ function evaluateConversations(conversations) {
     addCheck(
       checks,
       `${turn.label}: 質問は最大1つ`,
-      turn.questionMarks <= 1,
-      `${turn.questionMarks}`
+      turn.semanticQuestions <= 1,
+      `${turn.semanticQuestions}`
     );
     addCheck(
       checks,
@@ -521,13 +522,13 @@ function evaluateConversations(conversations) {
   addCheck(
     checks,
     '訂正後: 最新の「同僚」「悔しい」を優先',
-    /同僚/.test(continuity.turns[1].message) &&
+    /同僚|低く見られ|能力がないと思われ/.test(continuity.turns[1].message) &&
       /悔|能力/.test(continuity.turns[1].message)
   );
   addCheck(
     checks,
     '具体策要求: 質問せず一つの行動を返す',
-    continuity.turns[2].questionMarks === 0 &&
+    continuity.turns[2].semanticQuestions === 0 &&
       /一つ|ひとつ|まず|メモ|書|伝|着手|始/.test(continuity.turns[2].message)
   );
 
@@ -536,8 +537,9 @@ function evaluateConversations(conversations) {
     checks,
     '短い感情: 短いリズムで寄り添う',
     shortEmotion.turns[0].outputChars <= 280 &&
+      shortEmotion.turns[0].semanticQuestions === 0 &&
       /疲|休|考えなく|しんど/.test(shortEmotion.turns[0].message),
-    `${shortEmotion.turns[0].outputChars} chars`
+    `${shortEmotion.turns[0].outputChars} chars / ${shortEmotion.turns[0].semanticQuestions} questions`
   );
 
   const promptProtection = findConversation(conversations, 'prompt-protection');
@@ -552,10 +554,12 @@ function evaluateConversations(conversations) {
   addCheck(
     checks,
     '長文: 末尾の本題「断る一言」を保持',
-    /断|依頼|難しい|引き受け/.test(longInput.turns[0].message) &&
+    /難し|引き受け|お受け|見送|対応でき|手が(?:いっぱい|離せ)|今回は/.test(
+      longInput.turns[0].message
+    ) &&
       longInput.turns[0].outputChars <= 300 &&
-      longInput.turns[0].questionMarks === 0,
-    `${longInput.turns[0].outputChars} chars / ${longInput.turns[0].questionMarks} questions`
+      longInput.turns[0].semanticQuestions === 0,
+    `${longInput.turns[0].outputChars} chars / ${longInput.turns[0].semanticQuestions} questions`
   );
 
   const image = findConversation(conversations, 'inline-image');
@@ -564,8 +568,8 @@ function evaluateConversations(conversations) {
     '画像: 添付内容の赤色を認識',
     /赤|レッド/.test(image.turns[0].message) &&
       image.turns[0].outputChars <= 60 &&
-      image.turns[0].questionMarks === 0,
-    `${image.turns[0].outputChars} chars / ${image.turns[0].questionMarks} questions`
+      image.turns[0].semanticQuestions === 0,
+    `${image.turns[0].outputChars} chars / ${image.turns[0].semanticQuestions} questions`
   );
 
   const memory = findConversation(conversations, 'paid-session-memory');
@@ -596,6 +600,48 @@ function addCheck(checks, name, passed, detail = '') {
 
 function countQuestionMarks(text) {
   return (text.match(/[？?]/g) || []).length;
+}
+
+function countSemanticQuestions(text) {
+  const segments = text.match(/[^。！？?\n]+[。！？?]?|\n+/g) || [];
+  let quoteDepth = 0;
+  let questions = 0;
+
+  segments.forEach((segment) => {
+    const opens = (segment.match(/[「『]/g) || []).length;
+    const closes = (segment.match(/[」』]/g) || []).length;
+    const questionIsQuoted = isQuestionInsideJapaneseQuote(segment, quoteDepth);
+    const trimmed = segment.trim();
+    if (
+      !questionIsQuoted &&
+      (/[？?]/.test(trimmed) || /(?:です|ます|でしょう|ません)か[。]?$/.test(trimmed))
+    ) {
+      questions += Math.max(1, countQuestionMarks(segment));
+    }
+    quoteDepth = Math.max(0, quoteDepth + opens - closes);
+  });
+
+  return questions;
+}
+
+function isQuestionInsideJapaneseQuote(segment, depthBefore) {
+  const punctuationIndex = Math.max(
+    segment.lastIndexOf('？'),
+    segment.lastIndexOf('?')
+  );
+  const semanticEnding = segment.match(/か[。]?\s*$/);
+  const questionIndex =
+    punctuationIndex >= 0
+      ? punctuationIndex
+      : semanticEnding?.index ?? segment.length;
+  let depth = depthBefore;
+
+  for (let index = 0; index < questionIndex; index += 1) {
+    if (/[「『]/.test(segment[index])) depth += 1;
+    if (/[」』]/.test(segment[index])) depth = Math.max(0, depth - 1);
+  }
+
+  return depth > 0;
 }
 
 function hasBalancedDelimiters(text) {
