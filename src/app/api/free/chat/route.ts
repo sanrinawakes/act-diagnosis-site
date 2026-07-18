@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { randomUUID } from 'crypto';
 import { coachingSystemPrompt } from '@/data/coaching-system-prompt';
 import {
   isAllowedImageType,
@@ -188,6 +189,15 @@ export async function POST(request: NextRequest) {
     const lastUserText = stripAttachmentMarkdown(lastUserMessage.content);
     const lastUserParts = buildGeminiParts(lastUserText, attachments);
     const historyMessages = compactMessages.slice(0, -1);
+    const telemetry = {
+      route: '/api/free/chat',
+      requestId: randomUUID(),
+      requestMessages: messages.length,
+      compactMessages: compactMessages.length,
+      historyMessages: historyMessages.length,
+      attachments: attachments.length,
+      lastUserChars: lastUserText.length,
+    };
 
     const completeSuccessfulResponse = async () => {
       const newChatCount = chatCountToday + 1;
@@ -212,6 +222,7 @@ export async function POST(request: NextRequest) {
           historyMessages,
           lastUserParts,
           onDone: completeSuccessfulResponse,
+          telemetry,
         }),
         { headers: getStreamHeaders() }
       );
@@ -227,10 +238,24 @@ export async function POST(request: NextRequest) {
       });
       assistantMessage = result.text;
       usage = result.usage;
+      console.info(
+        JSON.stringify({
+          event: 'chat_nonstream_done',
+          ...telemetry,
+          outputChars: assistantMessage.length,
+          usage,
+        })
+      );
     } catch (genErr) {
       const isTimeout =
         genErr instanceof Error && genErr.message === 'GEMINI_TIMEOUT';
-      console.error('Free Gemini generation error:', genErr);
+      console.error(
+        JSON.stringify({
+          event: 'chat_nonstream_error',
+          ...telemetry,
+          error: genErr instanceof Error ? genErr.message : String(genErr),
+        })
+      );
       return NextResponse.json(
         {
           error: isTimeout

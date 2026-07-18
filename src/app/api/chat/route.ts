@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { randomUUID } from 'crypto';
 import { getContextualizedPrompt } from '@/data/coaching-system-prompt';
 import {
   isAllowedImageType,
@@ -159,6 +160,15 @@ Always communicate in Japanese, with respect and curiosity. Help users understan
     const lastUserText = stripAttachmentMarkdown(lastUserMessage.content);
     const lastUserParts = buildGeminiParts(lastUserText, attachments);
     const historyMessages = compactMessages.slice(0, -1);
+    const telemetry = {
+      route: '/api/chat',
+      requestId: randomUUID(),
+      requestMessages: messages.length,
+      compactMessages: compactMessages.length,
+      historyMessages: historyMessages.length,
+      attachments: attachments.length,
+      lastUserChars: lastUserText.length,
+    };
 
     const completeSuccessfulResponse = async () => {
       const currentCount = profile && profile.last_chat_date === today ? (profile.chat_count_today || 0) : 0;
@@ -185,6 +195,7 @@ Always communicate in Japanese, with respect and curiosity. Help users understan
           historyMessages,
           lastUserParts,
           onDone: completeSuccessfulResponse,
+          telemetry,
         }),
         { headers: getStreamHeaders() }
       );
@@ -200,10 +211,24 @@ Always communicate in Japanese, with respect and curiosity. Help users understan
       });
       assistantMessage = result.text;
       usage = result.usage;
+      console.info(
+        JSON.stringify({
+          event: 'chat_nonstream_done',
+          ...telemetry,
+          outputChars: assistantMessage.length,
+          usage,
+        })
+      );
     } catch (genErr) {
       const isTimeout =
         genErr instanceof Error && genErr.message === 'GEMINI_TIMEOUT';
-      console.error('Gemini generation error:', genErr);
+      console.error(
+        JSON.stringify({
+          event: 'chat_nonstream_error',
+          ...telemetry,
+          error: genErr instanceof Error ? genErr.message : String(genErr),
+        })
+      );
       return NextResponse.json(
         {
           error: isTimeout

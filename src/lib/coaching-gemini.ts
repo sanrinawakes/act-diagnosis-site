@@ -15,6 +15,16 @@ export interface CoachingUsage {
   total_tokens?: number;
 }
 
+export interface CoachingTelemetry {
+  route: string;
+  requestId: string;
+  requestMessages: number;
+  compactMessages: number;
+  historyMessages: number;
+  attachments: number;
+  lastUserChars: number;
+}
+
 type GeminiRole = 'user' | 'model';
 
 type GeminiTextPart = { text: string };
@@ -225,12 +235,15 @@ export function createJsonLineStream(params: {
   historyMessages: CoachingChatMessage[];
   lastUserParts: GeminiPart[];
   onDone: (usage: CoachingUsage) => Promise<Record<string, unknown>>;
+  telemetry?: CoachingTelemetry;
 }) {
   const encoder = new TextEncoder();
 
   return new ReadableStream<Uint8Array>({
     async start(controller) {
       let fullText = '';
+      const startedAt = Date.now();
+      let firstChunkMs: number | null = null;
 
       const write = (payload: Record<string, unknown>) => {
         controller.enqueue(encoder.encode(`${JSON.stringify(payload)}\n`));
@@ -262,6 +275,7 @@ export function createJsonLineStream(params: {
             await withTimeout(
               consumeGeminiStream(result.stream, (text) => {
                 fullText += text;
+                firstChunkMs ??= Date.now() - startedAt;
                 write({ type: 'chunk', text });
               }),
               GEMINI_TIMEOUT_MS
@@ -298,6 +312,13 @@ export function createJsonLineStream(params: {
         }
         const donePayload = await resolveDonePayload(params.onDone, usage);
 
+        logChatTelemetry('done', params.telemetry, {
+          elapsedMs: Date.now() - startedAt,
+          firstChunkMs,
+          outputChars: fullText.length,
+          usage,
+        });
+
         write({
           type: 'done',
           message: fullText,
@@ -316,6 +337,12 @@ export function createJsonLineStream(params: {
             write({ type: 'chunk', text: PARTIAL_STREAM_TIMEOUT_NOTICE });
           }
           const donePayload = await resolveDonePayload(params.onDone, {});
+          logChatTelemetry('partial_done', params.telemetry, {
+            elapsedMs: Date.now() - startedAt,
+            firstChunkMs,
+            outputChars: fullText.length,
+            error: getErrorMessage(error),
+          });
           write({
             type: 'done',
             message: fullText,
@@ -335,6 +362,12 @@ export function createJsonLineStream(params: {
           );
           const donePayload = await resolveDonePayload(params.onDone, {});
           write({ type: 'chunk', text: fallbackText });
+          logChatTelemetry('fallback_done', params.telemetry, {
+            elapsedMs: Date.now() - startedAt,
+            firstChunkMs,
+            outputChars: fallbackText.length,
+            error: getErrorMessage(error),
+          });
           write({
             type: 'done',
             message: fallbackText,
@@ -348,11 +381,47 @@ export function createJsonLineStream(params: {
           type: 'error',
           error: 'AIの応答生成に失敗しました。もう一度お試しください。',
         });
+        logChatTelemetry('error', params.telemetry, {
+          elapsedMs: Date.now() - startedAt,
+          firstChunkMs,
+          outputChars: fullText.length,
+          error: getErrorMessage(error),
+        });
       } finally {
         controller.close();
       }
     },
   });
+}
+
+function logChatTelemetry(
+  status: 'done' | 'partial_done' | 'fallback_done' | 'error',
+  telemetry: CoachingTelemetry | undefined,
+  details: Record<string, unknown>
+) {
+  if (!telemetry) return;
+
+  const payload = {
+    event: `chat_stream_${status}`,
+    ...telemetry,
+    ...details,
+  };
+
+  const elapsedMs =
+    typeof details.elapsedMs === 'number' ? details.elapsedMs : 0;
+  const shouldWarn = status !== 'done' || elapsedMs >= 10000;
+  const message = JSON.stringify(payload);
+
+  if (shouldWarn) {
+    console.warn(message);
+    return;
+  }
+
+  console.info(message);
+}
+
+function getErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
 }
 
 async function consumeGeminiStream(
