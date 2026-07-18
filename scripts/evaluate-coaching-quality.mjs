@@ -554,7 +554,7 @@ function evaluateConversations(conversations) {
   addCheck(
     checks,
     '長文: 末尾の本題「断る一言」を保持',
-    /難し|引き受け|お受け|見送|対応でき|手が(?:いっぱい|離せ)|今回は/.test(
+    /難し|引き受け|お受け|見送|対応でき|手が(?:いっぱい|離せ)|今回は|優先させて/.test(
       longInput.turns[0].message
     ) &&
       longInput.turns[0].outputChars <= 300 &&

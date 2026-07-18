@@ -826,13 +826,25 @@ export function normalizeCoachingOutput(text: string, lastUserText: string) {
   const questionLimit = requestsNoFollowUpQuestion(lastUserText) ? 0 : 1;
   const naturalText = text
     .replace(/心中お察しいたします[。]?/g, 'それはつらかったですね。')
-    .replace(/お気持ちをお察しいたします[。]?/g, 'その気持ちは自然だと思います。')
+    .replace(/お気持ち(?:を)?お察しいたします[。]?/g, 'その気持ちは自然だと思います。')
+    .replace(/お察しいたします[。]?/g, 'その気持ちは自然だと思います。')
     .replace(/承知いたしました[。]?/g, 'わかりました。')
     .replace(/いらっしゃるのですね/g, 'いるんですね')
     .replace(/いらっしゃる/g, 'いる')
     .replace(/ご自身/g, '自分')
+    .replace(/よろしければ/g, 'よかったら')
+    .replace(/差し支えなければ/g, 'よかったら')
+    .replace(/お辛い/g, 'つらい')
+    .replace(
+      /(?:お聞かせ|聞かせて|教えて|お話し|話して)いただけますか/g,
+      '聞かせてもらえますか'
+    )
+    .replace(/お聞かせください/g, '聞かせてください')
+    .replace(/どうぞゆっくりお休みください[。]?/g, '今日はゆっくり休んでくださいね。')
+    .replace(/のが良いでしょう[。]?/g, 'のがよさそうです。')
     .replace(/と伝えてみるのはいかがでしょうか[。]?/g, 'と伝えてみてください。')
     .replace(/と伝えてみてはいかがでしょうか[。]?/g, 'と伝えてみてください。')
+    .replace(/みるのはいかがでしょうか[。]?/g, 'みてください。')
     .replace(/してみてはいかがでしょうか[。]?/g, 'してみてください。');
   const paragraphs = naturalText
     .trim()

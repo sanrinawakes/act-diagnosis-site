@@ -223,6 +223,20 @@ function assertResults(results) {
     if (/応答に時間がかかりすぎ|応答に失敗|中断しました/.test(result.message)) {
       throw new Error(`${result.label} returned fallback text`);
     }
+    if (
+      /お察しいたします|承知いたしました|いらっしゃる|差し支えなければ|よろしければ|(?:お聞かせ|聞かせて|教えて|お話し|話して)いただけますか/.test(
+        result.message
+      )
+    ) {
+      throw new Error(
+        `${result.label} returned overly formal coaching text: ${result.message}`
+      );
+    }
+    if (/否定.{0,6}(?:ではなく|でなく).{0,8}意見/.test(result.message)) {
+      throw new Error(
+        `${result.label} invalidated the user's stated feeling: ${result.message}`
+      );
+    }
   }
 }
 
