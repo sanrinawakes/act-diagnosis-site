@@ -544,6 +544,18 @@ function evaluateConversations(conversations) {
   );
   addCheck(
     checks,
+    '通常会話: 初回を鋭い質問または具体的提案で閉じる',
+    hasClosingCoachingMove(continuity.turns[0].message),
+    continuity.turns[0].message
+  );
+  addCheck(
+    checks,
+    '通常会話: 訂正後も鋭い質問または具体的提案で閉じる',
+    hasClosingCoachingMove(continuity.turns[1].message),
+    continuity.turns[1].message
+  );
+  addCheck(
+    checks,
     '具体策要求: 質問せず一つの行動を返す',
     continuity.turns[2].semanticQuestions === 0 &&
       /一つ|ひとつ|まず|メモ|書|伝|着手|始/.test(continuity.turns[2].message)
@@ -644,6 +656,23 @@ function countSemanticQuestions(text) {
   });
 
   return questions;
+}
+
+function hasClosingCoachingMove(message) {
+  const finalSentence =
+    message
+      .trim()
+      .split(/\n+/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .at(-1) || '';
+
+  return (
+    countSemanticQuestions(finalSentence) === 1 ||
+    /(?:してください|してみてください|してみましょう|しましょう|始めてみて|書き出してみて|伝えてみて|休んでください|休みましょう|置いてみてください)(?:ね)?[。！]?$/.test(
+      finalSentence
+    )
+  );
 }
 
 function isQuestionInsideJapaneseQuote(segment, depthBefore) {

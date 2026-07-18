@@ -904,9 +904,60 @@ export function normalizeCoachingOutput(text: string, lastUserText: string) {
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 
-  return balanceJapaneseDelimiters(
+  const balanced = balanceJapaneseDelimiters(
     softenRepeatedAcknowledgement(normalized || naturalText.trim())
   );
+
+  return ensureCoachingClose(balanced, lastUserText);
+}
+
+function ensureCoachingClose(text: string, lastUserText: string) {
+  if (requestsSingleAnswerFormat(lastUserText) || hasClosingCoachingMove(text)) {
+    return text;
+  }
+
+  if (requestsRestWithoutQuestions(lastUserText)) {
+    return `${text}\n\n今日はここまでにして、ゆっくり休んでください。`;
+  }
+
+  return `${text}\n\n${buildClosingCoachingQuestion(lastUserText)}`;
+}
+
+function hasClosingCoachingMove(text: string) {
+  const finalSentence =
+    text
+      .trim()
+      .split(/\n+/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .at(-1) || '';
+
+  return (
+    isQuestionSegment(finalSentence) ||
+    /(?:してみてください|してください|してみましょう|しましょう|始めてみて|書き出してみて|伝えてみて|休んでください|休みましょう|置いてみてください)(?:ね)?[。！]?$/.test(
+      finalSentence
+    )
+  );
+}
+
+function buildClosingCoachingQuestion(lastUserText: string) {
+  if (/怒|腹が立|悔|許せな|むかつ/.test(lastUserText)) {
+    return 'その気持ちを通して、本当は相手に何をわかってほしいですか？';
+  }
+  if (/怖|不安|心配|緊張/.test(lastUserText)) {
+    return 'その不安の奥で、いちばん守りたいものは何ですか？';
+  }
+  if (/夫|妻|家族|親|子ども|友人|同僚|上司|相手|関係/.test(lastUserText)) {
+    return 'この関係の中で、自分が本当に大切にしたいことは何ですか？';
+  }
+  if (/仕事|職場|業務|会社|タスク|働/.test(lastUserText)) {
+    return '明日ひとつだけ状況を動かすなら、何から始めますか？';
+  }
+  if (/迷|決め|選|どちら|どうすれば|どうしたら/.test(lastUserText)) {
+    return 'どちらを選べば、あとで自分に正直だったと思えそうですか？';
+  }
+
+  return '今の話の中で、いちばん見過ごしたくない本音は何ですか？';
 }
 
 function softenRepeatedAcknowledgement(text: string) {
