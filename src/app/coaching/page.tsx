@@ -59,6 +59,7 @@ const CHAT_BUSY_MESSAGE =
   'AIが前の返信を処理中です。完了すると送信できます。入力内容はこのまま残ります。';
 const CHAT_NOT_READY_MESSAGE =
   'チャットを準備中です。数秒待ってからもう一度送信してください。';
+const CHAT_API_MESSAGE_LIMIT = 24;
 
 const createTimeoutError = (message: string) =>
   new DOMException(message, 'AbortError');
@@ -493,7 +494,8 @@ function CoachingContent() {
           .select('role, content, created_at')
           .eq('session_id', sid)
           .in('role', ['user', 'assistant'])
-          .order('created_at', { ascending: true }),
+          .order('created_at', { ascending: false })
+          .limit(CHAT_API_MESSAGE_LIMIT),
         CHAT_PERSIST_TIMEOUT_MS,
         '会話履歴の読み込みに時間がかかりすぎました。'
       );
@@ -501,6 +503,7 @@ function CoachingContent() {
       if (error) throw error;
 
       const loaded = (data || [])
+        .reverse()
         .filter((message) => message.role === 'user' || message.role === 'assistant')
         .map((message) => ({
           role: message.role as 'user' | 'assistant',

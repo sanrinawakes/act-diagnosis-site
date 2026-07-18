@@ -10,6 +10,7 @@ import {
 } from '@/lib/attachments';
 import {
   buildGeminiParts,
+  compactCoachingMessages,
   createJsonLineStream,
   generateCoachingText,
   getStreamHeaders,
@@ -182,10 +183,11 @@ export async function POST(request: NextRequest) {
     // Build system prompt with sales layer
     const systemPrompt = getFreeCoachingSystemPrompt(diagnosisCode);
 
-    const lastUserMessage = messages[messages.length - 1];
+    const compactMessages = compactCoachingMessages(messages);
+    const lastUserMessage = compactMessages[compactMessages.length - 1];
     const lastUserText = stripAttachmentMarkdown(lastUserMessage.content);
     const lastUserParts = buildGeminiParts(lastUserText, attachments);
-    const historyMessages = messages.slice(0, -1);
+    const historyMessages = compactMessages.slice(0, -1);
 
     const completeSuccessfulResponse = async () => {
       const newChatCount = chatCountToday + 1;

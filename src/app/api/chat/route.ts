@@ -10,6 +10,7 @@ import {
 } from '@/lib/attachments';
 import {
   buildGeminiParts,
+  compactCoachingMessages,
   createJsonLineStream,
   generateCoachingText,
   getStreamHeaders,
@@ -153,10 +154,11 @@ You provide compassionate, insightful coaching based on the user's ACT type diag
 
 Always communicate in Japanese, with respect and curiosity. Help users understand their strengths, growth areas, and pathways to higher consciousness levels.`;
 
-    const lastUserMessage = messages[messages.length - 1];
+    const compactMessages = compactCoachingMessages(messages);
+    const lastUserMessage = compactMessages[compactMessages.length - 1];
     const lastUserText = stripAttachmentMarkdown(lastUserMessage.content);
     const lastUserParts = buildGeminiParts(lastUserText, attachments);
-    const historyMessages = messages.slice(0, -1);
+    const historyMessages = compactMessages.slice(0, -1);
 
     const completeSuccessfulResponse = async () => {
       const currentCount = profile && profile.last_chat_date === today ? (profile.chat_count_today || 0) : 0;

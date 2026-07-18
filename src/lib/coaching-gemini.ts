@@ -26,9 +26,12 @@ type GeminiHistoryItem = {
   parts: GeminiTextPart[];
 };
 
-const RECENT_HISTORY_LIMIT = 18;
-const SUMMARY_CHAR_LIMIT = 3600;
-const HISTORY_MESSAGE_CHAR_LIMIT = 1200;
+const RECENT_HISTORY_LIMIT = 12;
+const SUMMARY_CHAR_LIMIT = 1400;
+const HISTORY_MESSAGE_CHAR_LIMIT = 700;
+const API_HISTORY_LIMIT = 14;
+const API_HISTORY_CHAR_LIMIT = 700;
+const API_LAST_USER_CHAR_LIMIT = 2500;
 const GEMINI_TIMEOUT_MS = 35000;
 const GEMINI_FINALIZE_TIMEOUT_MS = 4000;
 const GEMINI_RETRY_DELAYS_MS = [800, 1600];
@@ -162,6 +165,30 @@ export function buildGeminiParts(
   });
 
   return parts;
+}
+
+export function compactCoachingMessages(
+  messages: CoachingChatMessage[]
+): CoachingChatMessage[] {
+  if (messages.length === 0) return [];
+
+  const lastMessage = messages[messages.length - 1];
+  const historyMessages = dedupeConsecutiveMessages(
+    messages.slice(0, -1).filter((message) => !isGenericFailureMessage(message))
+  ).slice(-API_HISTORY_LIMIT);
+
+  return [
+    ...historyMessages.map((message) => ({
+      role: message.role,
+      content: truncateForApiPrompt(message.content, API_HISTORY_CHAR_LIMIT),
+    })),
+    {
+      role: lastMessage.role,
+      content:
+        truncateForApiPrompt(lastMessage.content, API_LAST_USER_CHAR_LIMIT) ||
+        (lastMessage.role === 'user' ? '添付画像について見てください。' : '続けて聞かせてください。'),
+    },
+  ].filter((message) => message.content.trim());
 }
 
 export async function generateCoachingText(params: {
@@ -470,6 +497,48 @@ function buildConversationSummary(
 function truncateHistoryText(text: string) {
   if (text.length <= HISTORY_MESSAGE_CHAR_LIMIT) return text;
   return `${text.slice(0, HISTORY_MESSAGE_CHAR_LIMIT)}\n（長文のため一部省略）`;
+}
+
+function truncateForApiPrompt(content: string, limit: number) {
+  const text = stripAttachmentMarkdown(content).trim();
+  if (text.length <= limit) return text;
+  return `${text.slice(0, limit)}\n（長文のため一部省略）`;
+}
+
+function isGenericFailureMessage(message: CoachingChatMessage) {
+  if (message.role !== 'assistant') return false;
+
+  return [
+    '応答に時間がかかりすぎたため中断しました',
+    'すみません、応答に失敗しました',
+    'AIの応答生成に失敗しました',
+  ].some((text) => message.content.includes(text));
+}
+
+function dedupeConsecutiveMessages(messages: CoachingChatMessage[]) {
+  const deduped: CoachingChatMessage[] = [];
+
+  messages.forEach((message) => {
+    const previous = deduped[deduped.length - 1];
+    const normalizedContent = stripAttachmentMarkdown(message.content)
+      .replace(/\s+/g, ' ')
+      .trim();
+    const previousContent = previous
+      ? stripAttachmentMarkdown(previous.content).replace(/\s+/g, ' ').trim()
+      : '';
+
+    if (
+      previous &&
+      previous.role === message.role &&
+      previousContent === normalizedContent
+    ) {
+      return;
+    }
+
+    deduped.push(message);
+  });
+
+  return deduped;
 }
 
 function getUsage(response: {
