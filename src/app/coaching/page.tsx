@@ -764,6 +764,7 @@ function CoachingContent() {
             ...(authSession?.access_token ? { 'Authorization': `Bearer ${authSession.access_token}` } : {}),
           },
           body: JSON.stringify({
+            sessionId: activeSessionId,
             messages: apiMessages,
             diagnosisCode,
             attachments: inlineAttachments,

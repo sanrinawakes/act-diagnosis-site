@@ -3,6 +3,7 @@ import {
   stripAttachmentMarkdown,
   type InlineImageAttachment,
 } from '@/lib/attachments';
+import { sendCoachingAlert } from '@/lib/coaching-alerts';
 
 export interface CoachingChatMessage {
   role: 'user' | 'assistant';
@@ -45,10 +46,14 @@ const API_LAST_USER_CHAR_LIMIT = 2500;
 const GEMINI_TIMEOUT_MS = 35000;
 const GEMINI_FINALIZE_TIMEOUT_MS = 4000;
 const GEMINI_RETRY_DELAYS_MS = [800, 1600];
+const ALERT_SLOW_RESPONSE_MS = 10000;
+const ALERT_THROTTLE_MS = 5 * 60 * 1000;
 const MAX_TOKENS_CONTINUATION_NOTICE =
   '\n\n（ここで自然に区切ります。続きが必要な場合は「続き」と送ってください。）';
 const PARTIAL_STREAM_TIMEOUT_NOTICE =
   '\n\n（応答処理に時間がかかったため、ここで一度区切りました。続きが必要な場合は「続き」と送ってください。）';
+
+const alertLastSentAt = new Map<string, number>();
 
 const TYPE_SUMMARIES: Record<string, string> = {
   SVA: '思索探求者。理想や思想を深く掘り下げ、自分なりの真理を探す力があります。',
@@ -409,15 +414,44 @@ function logChatTelemetry(
 
   const elapsedMs =
     typeof details.elapsedMs === 'number' ? details.elapsedMs : 0;
-  const shouldWarn = status !== 'done' || elapsedMs >= 10000;
+  const shouldWarn = status !== 'done' || elapsedMs >= ALERT_SLOW_RESPONSE_MS;
   const message = JSON.stringify(payload);
 
   if (shouldWarn) {
     console.warn(message);
+    queueCoachingAlert(status, payload);
     return;
   }
 
   console.info(message);
+}
+
+function queueCoachingAlert(
+  status: 'done' | 'partial_done' | 'fallback_done' | 'error',
+  payload: Record<string, unknown>
+) {
+  const route = typeof payload.route === 'string' ? payload.route : 'unknown';
+  const throttleKey = `${route}:${status}`;
+  const now = Date.now();
+  const lastSentAt = alertLastSentAt.get(throttleKey) || 0;
+
+  if (now - lastSentAt < ALERT_THROTTLE_MS) {
+    return;
+  }
+
+  alertLastSentAt.set(throttleKey, now);
+
+  void sendCoachingAlert({
+    subject:
+      status === 'done'
+        ? '[ACTI Bot] 応答遅延を検知しました'
+        : '[ACTI Bot] 応答失敗/中断を検知しました',
+    summary:
+      status === 'done'
+        ? 'AIコーチングbotで応答遅延を検知しました。VercelログのrequestIdで詳細を確認してください。'
+        : 'AIコーチングbotで応答失敗または中断を検知しました。VercelログのrequestIdで詳細を確認してください。',
+    details: payload,
+  });
 }
 
 function getErrorMessage(error: unknown) {
@@ -571,7 +605,7 @@ function truncateHistoryText(text: string) {
 function truncateForApiPrompt(content: string, limit: number) {
   const text = stripAttachmentMarkdown(content).trim();
   if (text.length <= limit) return text;
-  return `${text.slice(0, limit)}\n（長文のため一部省略）`;
+  return compactLongTextForApiPrompt(text, limit);
 }
 
 function isGenericFailureMessage(message: CoachingChatMessage) {
@@ -608,6 +642,44 @@ function dedupeConsecutiveMessages(messages: CoachingChatMessage[]) {
   });
 
   return deduped;
+}
+
+function compactLongTextForApiPrompt(text: string, limit: number) {
+  const sentences = text
+    .split(/(?<=[。！？!?])|\n+/)
+    .map((sentence) => sentence.trim())
+    .filter(Boolean);
+
+  const head = sentences.slice(0, 5).join('\n');
+  const tail = sentences.slice(-5).join('\n');
+  const middle = sentences
+    .slice(5, -5)
+    .filter((sentence) =>
+      /困|悩|不安|怒|怖|嫌|したい|ほしい|必要|大事|仕事|家族|人間関係|お金|SNS|講座|気づき/.test(
+        sentence
+      )
+    )
+    .slice(0, 8)
+    .join('\n');
+
+  const compacted = [
+    '（長文入力のため、AI処理用に要点を圧縮しています。ユーザーの原文は履歴に保存されています。）',
+    head ? `冒頭:\n${head}` : '',
+    middle ? `中盤の主な要点:\n${middle}` : '',
+    tail ? `末尾:\n${tail}` : '',
+  ]
+    .filter(Boolean)
+    .join('\n\n');
+
+  if (compacted.length <= limit) return compacted;
+
+  const half = Math.floor((limit - 80) / 2);
+  return [
+    '（長文入力のため、AI処理用に冒頭と末尾を中心に圧縮しています。ユーザーの原文は履歴に保存されています。）',
+    text.slice(0, half),
+    '...',
+    text.slice(-half),
+  ].join('\n');
 }
 
 function getUsage(response: {

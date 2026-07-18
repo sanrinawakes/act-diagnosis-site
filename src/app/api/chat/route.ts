@@ -16,6 +16,7 @@ import {
   generateCoachingText,
   getStreamHeaders,
 } from '@/lib/coaching-gemini';
+import { buildCoachingSessionContext } from '@/lib/coaching-session-memory';
 
 export const runtime = 'nodejs';
 // Vercel関数のデフォルト打ち切り(Hobby 10s)を延長し、Gemini生成の途中切断を防ぐ
@@ -37,6 +38,8 @@ interface RequestBody {
   diagnosisCode?: string;
   attachments?: InlineImageAttachment[];
   stream?: boolean;
+  sessionId?: string;
+  session_id?: string;
 }
 
 export async function POST(request: NextRequest) {
@@ -129,7 +132,14 @@ export async function POST(request: NextRequest) {
     }
 
     const body: RequestBody = await request.json();
-    const { messages, diagnosisCode, attachments = [], stream = false } = body;
+    const {
+      messages,
+      diagnosisCode,
+      attachments = [],
+      stream = false,
+      sessionId,
+      session_id,
+    } = body;
 
     if (!messages || messages.length === 0) {
       return NextResponse.json(
@@ -155,7 +165,15 @@ You provide compassionate, insightful coaching based on the user's ACT type diag
 
 Always communicate in Japanese, with respect and curiosity. Help users understand their strengths, growth areas, and pathways to higher consciousness levels.`;
 
-    const compactMessages = compactCoachingMessages(messages);
+    const sessionContext = await buildCoachingSessionContext({
+      supabaseAdmin,
+      sessionId: sessionId || session_id || null,
+      userId: user.id,
+      requestMessages: messages,
+    });
+    const compactMessages = sessionContext.messages.length
+      ? sessionContext.messages
+      : compactCoachingMessages(messages);
     const lastUserMessage = compactMessages[compactMessages.length - 1];
     const lastUserText = stripAttachmentMarkdown(lastUserMessage.content);
     const lastUserParts = buildGeminiParts(lastUserText, attachments);
@@ -168,6 +186,10 @@ Always communicate in Japanese, with respect and curiosity. Help users understan
       historyMessages: historyMessages.length,
       attachments: attachments.length,
       lastUserChars: lastUserText.length,
+      totalStoredMessages: sessionContext.totalStoredMessages,
+      memoryUsed: sessionContext.memoryUsed,
+      memoryRefreshed: sessionContext.memoryRefreshed,
+      memoryCoveredMessages: sessionContext.memoryCoveredMessages,
     };
 
     const completeSuccessfulResponse = async () => {
