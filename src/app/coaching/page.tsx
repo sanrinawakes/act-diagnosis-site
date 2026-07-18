@@ -55,6 +55,10 @@ const CHAT_AUTH_RETRY_DELAY_MS = 800;
 const CHAT_PERSIST_TIMEOUT_MS = 10000;
 const ATTACHMENT_PRIVACY_NOTICE =
   'クリップボタンを押して写真選択画面を開いただけでは、画像は送信されません。選んだ画像も、送信ボタンを押す前なら削除できます。';
+const CHAT_BUSY_MESSAGE =
+  'AIが前の返信を処理中です。完了すると送信できます。入力内容はこのまま残ります。';
+const CHAT_NOT_READY_MESSAGE =
+  'チャットを準備中です。数秒待ってからもう一度送信してください。';
 
 const createTimeoutError = (message: string) =>
   new DOMException(message, 'AbortError');
@@ -473,6 +477,44 @@ function CoachingContent() {
       .eq('id', sid);
   };
 
+  const loadApiMessages = async (
+    sid: string,
+    fallbackMessages: Message[]
+  ): Promise<Array<{ role: 'user' | 'assistant'; content: string }>> => {
+    const fallback = fallbackMessages.map((message) => ({
+      role: message.role,
+      content: message.content,
+    }));
+
+    try {
+      const { data, error } = await withTimeout(
+        supabase
+          .from('chat_messages')
+          .select('role, content, created_at')
+          .eq('session_id', sid)
+          .in('role', ['user', 'assistant'])
+          .order('created_at', { ascending: true }),
+        CHAT_PERSIST_TIMEOUT_MS,
+        '会話履歴の読み込みに時間がかかりすぎました。'
+      );
+
+      if (error) throw error;
+
+      const loaded = (data || [])
+        .filter((message) => message.role === 'user' || message.role === 'assistant')
+        .map((message) => ({
+          role: message.role as 'user' | 'assistant',
+          content: String(message.content || ''),
+        }))
+        .filter((message) => message.content.trim());
+
+      return loaded.length > 0 ? loaded : fallback;
+    } catch (error) {
+      console.warn('Failed to load persisted messages for chat API:', error);
+      return fallback;
+    }
+  };
+
   // Voice input (speech recognition)
   const handleVoiceInput = () => {
     if (isListening) {
@@ -584,7 +626,17 @@ function CoachingContent() {
   const sendMessage = async () => {
     const messageText = input.trim();
     const attachmentsToSend = pendingAttachments;
-    if ((!messageText && attachmentsToSend.length === 0) || loading || !sessionId) return;
+    const activeSessionId = sessionId;
+
+    if (!messageText && attachmentsToSend.length === 0) return;
+    if (loading) {
+      setAttachmentError(CHAT_BUSY_MESSAGE);
+      return;
+    }
+    if (!initialized || !activeSessionId) {
+      setAttachmentError(CHAT_NOT_READY_MESSAGE);
+      return;
+    }
 
     setLoading(true);
     setAttachmentError(null);
@@ -595,6 +647,48 @@ function CoachingContent() {
     let controller: AbortController | null = null;
 
     try {
+      const files = attachmentsToSend.map((attachment) => attachment.file);
+      const apiContent = messageText || '添付画像について見てください。';
+      let userVisibleContent = messageText || '画像を添付しました。';
+      let userMessage: Message = {
+        id: Date.now().toString(),
+        role: 'user',
+        content: userVisibleContent,
+        createdAt: new Date().toISOString(),
+      };
+      let userMessageAccepted = false;
+      let userMessagePersisted = false;
+
+      const acceptUserMessage = (content: string) => {
+        userVisibleContent = content;
+        userMessage = { ...userMessage, content };
+        setMessages((prev) => [...prev, userMessage]);
+        setInput('');
+        clearPendingAttachments(attachmentsToSend);
+        shouldPersistFallback = true;
+        userMessageAccepted = true;
+      };
+
+      const persistUserMessage = async () => {
+        await withTimeout(
+          supabase.from('chat_messages').insert({
+            session_id: activeSessionId,
+            role: 'user',
+            content: userVisibleContent,
+          }),
+          CHAT_PERSIST_TIMEOUT_MS,
+          'メッセージの保存に時間がかかりすぎました。もう一度お試しください。'
+        );
+        userMessagePersisted = true;
+      };
+
+      let inlineAttachments: Awaited<ReturnType<typeof fileToInlineImageAttachment>>[] = [];
+
+      if (files.length === 0) {
+        acceptUserMessage(userVisibleContent);
+        await persistUserMessage();
+      }
+
       const getCurrentAuthSession = async () => {
         const {
           data: { session },
@@ -622,41 +716,37 @@ function CoachingContent() {
         throw new Error('ログイン状態を確認できませんでした。再ログインしてからお試しください。');
       }
 
-      const files = attachmentsToSend.map((attachment) => attachment.file);
-      const [uploadedAttachments, inlineAttachments] = await withTimeout(
-        Promise.all([
-          uploadChatImageAttachments(files, authSession.access_token),
-          Promise.all(files.map((file) => fileToInlineImageAttachment(file))),
-        ]),
-        20000,
-        '添付画像の準備に時間がかかりすぎました。もう一度お試しください。'
-      );
-      const userVisibleContent = appendAttachmentMarkdown(
-        messageText || '画像を添付しました。',
-        uploadedAttachments
-      );
-      const apiContent = messageText || '添付画像について見てください。';
-      const userMessage: Message = {
-        id: Date.now().toString(),
-        role: 'user',
-        content: userVisibleContent,
-        createdAt: new Date().toISOString(),
-      };
+      if (files.length > 0) {
+        const [uploadedAttachments, preparedInlineAttachments] = await withTimeout(
+          Promise.all([
+            uploadChatImageAttachments(files, authSession.access_token),
+            Promise.all(files.map((file) => fileToInlineImageAttachment(file))),
+          ]),
+          20000,
+          '添付画像の準備に時間がかかりすぎました。もう一度お試しください。'
+        );
+        inlineAttachments = preparedInlineAttachments;
+        acceptUserMessage(
+          appendAttachmentMarkdown(
+            messageText || '画像を添付しました。',
+            uploadedAttachments
+          )
+        );
+        await persistUserMessage();
+      }
 
-      setMessages((prev) => [...prev, userMessage]);
-      setInput('');
-      clearPendingAttachments(attachmentsToSend);
-      shouldPersistFallback = true;
+      if (!userMessageAccepted) {
+        acceptUserMessage(userVisibleContent);
+      }
 
-      await withTimeout(
-        supabase.from('chat_messages').insert({
-          session_id: sessionId,
-          role: 'user',
-          content: userVisibleContent,
-        }),
-        CHAT_PERSIST_TIMEOUT_MS,
-        'メッセージの保存に時間がかかりすぎました。もう一度お試しください。'
-      );
+      if (!userMessagePersisted) {
+        await persistUserMessage();
+      }
+
+      const apiMessages = await loadApiMessages(activeSessionId, [
+        ...messages,
+        { ...userMessage, content: apiContent },
+      ]);
 
       // クライアント側でも60秒で打ち切る。fetch開始からストリーム読み取り完了までを対象にし、
       // 途中で応答が止まっても「送信中…」が固着しないようにする。
@@ -671,7 +761,7 @@ function CoachingContent() {
             ...(authSession?.access_token ? { 'Authorization': `Bearer ${authSession.access_token}` } : {}),
           },
           body: JSON.stringify({
-            messages: messages.concat({ ...userMessage, content: apiContent }),
+            messages: apiMessages,
             diagnosisCode,
             attachments: inlineAttachments,
             stream: true,
@@ -733,7 +823,7 @@ function CoachingContent() {
       try {
         await withTimeout(
           supabase.from('chat_messages').insert({
-            session_id: sessionId,
+            session_id: activeSessionId,
             role: 'assistant',
             content:
               assistantContent ||
@@ -744,7 +834,7 @@ function CoachingContent() {
         );
 
         await withTimeout(
-          refreshSessionActivity(sessionId),
+          refreshSessionActivity(activeSessionId),
           CHAT_PERSIST_TIMEOUT_MS,
           'セッション情報の更新に時間がかかりすぎました。'
         );
@@ -791,7 +881,7 @@ function CoachingContent() {
       try {
         await withTimeout(
           supabase.from('chat_messages').insert({
-            session_id: sessionId,
+            session_id: activeSessionId,
             role: 'assistant',
             content: failContent,
           }),
@@ -799,7 +889,7 @@ function CoachingContent() {
           'エラー応答の保存に時間がかかりすぎました。'
         );
         await withTimeout(
-          refreshSessionActivity(sessionId),
+          refreshSessionActivity(activeSessionId),
           CHAT_PERSIST_TIMEOUT_MS,
           'セッション情報の更新に時間がかかりすぎました。'
         );
@@ -844,6 +934,16 @@ function CoachingContent() {
   }
 
   const sidebarTotalPages = Math.ceil(sidebarTotal / sidebarLimit);
+  const chatInputDisabled = !initialized || !sessionId;
+  const sendButtonDisabled =
+    loading ||
+    chatInputDisabled ||
+    (!input.trim() && pendingAttachments.length === 0);
+  const sendButtonLabel = loading
+    ? '送信中...'
+    : chatInputDisabled
+      ? '準備中...'
+      : t('coaching.send');
 
   return (
     <AuthGuard>
@@ -1231,6 +1331,16 @@ function CoachingContent() {
                       {attachmentError}
                     </p>
                   )}
+                  {loading && input.trim() && (
+                    <p className="mb-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-700">
+                      {CHAT_BUSY_MESSAGE}
+                    </p>
+                  )}
+                  {chatInputDisabled && (
+                    <p className="mb-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-700">
+                      {CHAT_NOT_READY_MESSAGE}
+                    </p>
+                  )}
                   <div className="flex gap-3 items-end">
                     <input
                       ref={fileInputRef}
@@ -1243,7 +1353,7 @@ function CoachingContent() {
                     <button
                       type="button"
                       onClick={() => fileInputRef.current?.click()}
-                      disabled={loading}
+                      disabled={loading || chatInputDisabled}
                       className="flex-shrink-0 p-3 rounded-lg bg-blue-100 hover:bg-blue-200 text-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                       title="画像を選ぶ（選んだだけでは送信されません）"
                       aria-label="画像を選ぶ。選んだだけでは送信されません"
@@ -1255,7 +1365,7 @@ function CoachingContent() {
                   <button
                     type="button"
                     onClick={handleVoiceInput}
-                    disabled={loading}
+                    disabled={loading || chatInputDisabled}
                     className={`flex-shrink-0 px-4 py-3 rounded-lg transition-colors ${isListening ? 'bg-red-500 hover:bg-red-600 text-white animate-pulse' : 'bg-blue-100 hover:bg-blue-200 text-blue-600'} disabled:opacity-50 disabled:cursor-not-allowed`}
                     title={isListening ? '録音停止' : '音声入力'}
                     aria-label={isListening ? '録音停止' : '音声入力'}
@@ -1286,15 +1396,15 @@ function CoachingContent() {
                     }}
                     placeholder={t('coaching.placeholder')}
                     className="flex-1 min-h-24 max-h-48 bg-white border border-blue-200 text-base leading-relaxed text-gray-900 placeholder-gray-500 rounded-lg px-4 py-3 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-400/50 transition-all resize-y"
-                    disabled={loading}
+                    disabled={chatInputDisabled}
                   />
                   <button
                     type="button"
                     onClick={sendMessage}
-                    disabled={loading || (!input.trim() && pendingAttachments.length === 0)}
+                    disabled={sendButtonDisabled}
                     className="bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 disabled:from-gray-400 disabled:to-gray-400 text-white font-semibold py-3 px-6 rounded-lg transition-all duration-200 disabled:cursor-not-allowed"
                   >
-                    {loading ? '送信中...' : t('coaching.send')}
+                    {sendButtonLabel}
                   </button>
                   </div>
                 </div>

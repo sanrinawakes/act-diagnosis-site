@@ -30,9 +30,12 @@ const RECENT_HISTORY_LIMIT = 18;
 const SUMMARY_CHAR_LIMIT = 3600;
 const HISTORY_MESSAGE_CHAR_LIMIT = 1200;
 const GEMINI_TIMEOUT_MS = 35000;
+const GEMINI_FINALIZE_TIMEOUT_MS = 4000;
 const GEMINI_RETRY_DELAYS_MS = [800, 1600];
 const MAX_TOKENS_CONTINUATION_NOTICE =
   '\n\n（ここで自然に区切ります。続きが必要な場合は「続き」と送ってください。）';
+const PARTIAL_STREAM_TIMEOUT_NOTICE =
+  '\n\n（応答処理に時間がかかったため、ここで一度区切りました。続きが必要な場合は「続き」と送ってください。）';
 
 const TYPE_SUMMARIES: Record<string, string> = {
   SVA: '思索探求者。理想や思想を深く掘り下げ、自分なりの真理を探す力があります。',
@@ -229,20 +232,27 @@ export function createJsonLineStream(params: {
           );
 
           try {
-            for await (const chunk of result.stream) {
-              const text = chunk.text();
-              if (!text) continue;
-              fullText += text;
-              write({ type: 'chunk', text });
-            }
+            await withTimeout(
+              consumeGeminiStream(result.stream, (text) => {
+                fullText += text;
+                write({ type: 'chunk', text });
+              }),
+              GEMINI_TIMEOUT_MS
+            );
           } catch (streamError) {
             if (fullText.trim()) {
+              if (
+                streamError instanceof Error &&
+                streamError.message === 'GEMINI_TIMEOUT'
+              ) {
+                throw streamError;
+              }
               throw new Error('GEMINI_PARTIAL_STREAM_INTERRUPTED');
             }
             throw streamError;
           }
 
-          response = await result.response;
+          response = await withTimeout(result.response, GEMINI_FINALIZE_TIMEOUT_MS);
 
           if (!fullText.trim()) {
             throw new Error('GEMINI_EMPTY_RESPONSE');
@@ -259,7 +269,7 @@ export function createJsonLineStream(params: {
           fullText += MAX_TOKENS_CONTINUATION_NOTICE;
           write({ type: 'chunk', text: MAX_TOKENS_CONTINUATION_NOTICE });
         }
-        const donePayload = await params.onDone(usage);
+        const donePayload = await resolveDonePayload(params.onDone, usage);
 
         write({
           type: 'done',
@@ -272,6 +282,22 @@ export function createJsonLineStream(params: {
           error instanceof Error && error.message === 'GEMINI_TIMEOUT';
         console.error('Gemini stream error:', error);
 
+        if (fullText.trim()) {
+          fullText = trimToNaturalContinuationBoundary(fullText);
+          if (isTimeout) {
+            fullText += PARTIAL_STREAM_TIMEOUT_NOTICE;
+            write({ type: 'chunk', text: PARTIAL_STREAM_TIMEOUT_NOTICE });
+          }
+          const donePayload = await resolveDonePayload(params.onDone, {});
+          write({
+            type: 'done',
+            message: fullText,
+            usage: {},
+            ...donePayload,
+          });
+          return;
+        }
+
         if (
           isTimeout ||
           (error instanceof Error && error.message === 'GEMINI_EMPTY_RESPONSE')
@@ -280,7 +306,7 @@ export function createJsonLineStream(params: {
             params.systemPrompt,
             params.lastUserParts
           );
-          const donePayload = await params.onDone({});
+          const donePayload = await resolveDonePayload(params.onDone, {});
           write({ type: 'chunk', text: fallbackText });
           write({
             type: 'done',
@@ -300,6 +326,28 @@ export function createJsonLineStream(params: {
       }
     },
   });
+}
+
+async function consumeGeminiStream(
+  stream: AsyncIterable<{ text: () => string }>,
+  onText: (text: string) => void
+) {
+  for await (const chunk of stream) {
+    const text = chunk.text();
+    if (text) onText(text);
+  }
+}
+
+async function resolveDonePayload(
+  onDone: (usage: CoachingUsage) => Promise<Record<string, unknown>>,
+  usage: CoachingUsage
+) {
+  try {
+    return await withTimeout(onDone(usage), GEMINI_FINALIZE_TIMEOUT_MS);
+  } catch (error) {
+    console.error('Failed to finalize chat stream metadata:', error);
+    return {};
+  }
 }
 
 export function getStreamHeaders() {
