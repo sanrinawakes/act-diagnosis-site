@@ -504,14 +504,24 @@ function evaluateConversations(conversations) {
     addCheck(
       checks,
       `${turn.label}: 定型的な受け止めを反復しない`,
-      (turn.message.match(/(?:いらっしゃる)?のですね/g) || []).length <= 1
+      (turn.message.match(/(?:いらっしゃる)?のですね/g) || []).length <= 1,
+      turn.message
     );
     addCheck(
       checks,
       `${turn.label}: 硬い接客表現・既知の誤字なし`,
-      !/お察しいたします|承知いたしました|いらっしゃる|差し支えなければ|よろしければ|(?:お聞かせ|聞かせて|教えて|お話し|話して)いただけますか|お聞かせいただけますでしょうか|となっております|お気軽に(?:ご質問|お尋ね)|頑張られました|サポートさせていただきます|ご無理なさらず|お過ごしください|タースク|タムスケジュール/.test(
+      !/お察し(?:いた)?します|承知いたしました|いらっしゃる|差し支えなければ|よろしければ|(?:お聞かせ|聞かせて|教えて|お話し|話して)いただけますか|お聞かせいただけますでしょうか|となっております|お伺いいたします|お気軽に(?:ご質問|お尋ね|ご相談)|頑張られました|サポートさせていただきます|ご無理なさらず|お過ごしください|タースク|タムスケジュール/.test(
         turn.message
-      )
+      ),
+      turn.message
+    );
+    addCheck(
+      checks,
+      `${turn.label}: ユーザーの感情を打ち消さない`,
+      !/否定.{0,6}(?:ではなく|でなく).{0,8}意見|感情.{0,12}(?:横|脇)に置|感情.{0,8}切り離|客観的に見つめ直/.test(
+        turn.message
+      ),
+      turn.message
     );
     addCheck(
       checks,
@@ -563,15 +573,15 @@ function evaluateConversations(conversations) {
   );
 
   const longInput = findConversation(conversations, 'long-user-input');
+  const quotedRefusal = longInput.turns[0].message.match(/「([^」]+)」/)?.[1] || '';
   addCheck(
     checks,
     '長文: 末尾の本題「断る一言」を保持',
-    /難し|引き受け|お受け|見送|対応でき|手が(?:いっぱい|離せ)|今回は|優先させて|業務に集中したい/.test(
-      longInput.turns[0].message
-    ) &&
+    quotedRefusal.length >= 18 &&
+      /ただ|今|今回は|難し|業務|仕事|申し訳|お願い|優先/.test(quotedRefusal) &&
       longInput.turns[0].outputChars <= 300 &&
       longInput.turns[0].semanticQuestions === 0,
-    `${longInput.turns[0].outputChars} chars / ${longInput.turns[0].semanticQuestions} questions`
+    `${longInput.turns[0].outputChars} chars / ${longInput.turns[0].semanticQuestions} questions: ${longInput.turns[0].message}`
   );
 
   const image = findConversation(conversations, 'inline-image');

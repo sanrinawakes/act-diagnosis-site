@@ -824,21 +824,29 @@ function extractTextFromParts(parts: GeminiPart[]) {
 
 export function normalizeCoachingOutput(text: string, lastUserText: string) {
   const questionLimit = requestsNoFollowUpQuestion(lastUserText) ? 0 : 1;
-  const naturalText = text
+  const safeText = invalidatesUserFeeling(text)
+    ? '相手に伝えたいことを、まず短いメモに書き出してみてください。'
+    : text;
+  const naturalText = safeText
     .replace(/タースク/g, 'タスク')
     .replace(/タムスケジュール/g, 'タイムスケジュール')
     .replace(/心中お察しいたします[。]?/g, 'それはつらかったですね。')
     .replace(/お気持ち(?:を)?お察しいたします[。]?/g, 'その気持ちは自然だと思います。')
     .replace(/お察しいたします[。]?/g, 'その気持ちは自然だと思います。')
+    .replace(/お察しします/g, '思います')
     .replace(/承知いたしました[。]?/g, 'わかりました。')
     .replace(/いらっしゃるのですね/g, 'いるんですね')
     .replace(/いらっしゃる/g, 'いる')
     .replace(/ご自身/g, '自分')
     .replace(/よろしければ/g, 'よかったら')
     .replace(/差し支えなければ/g, 'よかったら')
-    .replace(/情報となっております/g, '情報です')
+    .replace(/となっております/g, 'です')
     .replace(/どうぞお気軽にご質問ください[。]?/g, '気になることがあれば聞いてください。')
     .replace(/お気軽にお尋ねください[。]?/g, '気になることがあれば聞いてください。')
+    .replace(/喜んでお伺いいたします[。]?/g, '一緒に考えます。')
+    .replace(/どのようなことでもお気軽にご相談ください[。]?/g, '気になることがあれば聞いてください。')
+    .replace(/(?:喜んで)?お伺いいたします[。]?/g, '一緒に考えます。')
+    .replace(/(?:どうぞ)?お気軽に(?:ご質問|お尋ね|ご相談)ください[。]?/g, '気になることがあれば聞いてください。')
     .replace(/どうぞ(?=気になることがあれば)/g, '')
     .replace(/今日は(?:もう、?)?たくさん頑張られましたね[。]?/g, '今日は本当にお疲れ様でした。')
     .replace(/全力でサポートさせていただきます[。]?/g, '一緒に整理します。')
@@ -896,7 +904,20 @@ export function normalizeCoachingOutput(text: string, lastUserText: string) {
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 
-  return balanceJapaneseDelimiters(normalized || naturalText.trim());
+  return balanceJapaneseDelimiters(
+    softenRepeatedAcknowledgement(normalized || naturalText.trim())
+  );
+}
+
+function softenRepeatedAcknowledgement(text: string) {
+  let seen = false;
+  return text.replace(/のですね/g, (phrase) => {
+    if (!seen) {
+      seen = true;
+      return phrase;
+    }
+    return 'んですね';
+  });
 }
 
 function balanceJapaneseDelimiters(text: string) {
@@ -948,6 +969,12 @@ function isQuestionInsideJapaneseQuote(segment: string, depthBefore: number) {
 
 function requestsSingleAnswerFormat(text: string) {
   return /(?:(?:一つ|ひとつ|1つ)だけ.{0,24}(?:教|提案|答|挙|示|伝|お願)|(?:教|提案|答|挙|示|伝|お願).{0,24}(?:一つ|ひとつ|1つ)だけ|一言(?:だけ|で)|質問(?:は|を)?(?:なし|不要|しない)|短く(?:答|教|返))/.test(text);
+}
+
+function invalidatesUserFeeling(text: string) {
+  return /否定.{0,6}(?:ではなく|でなく).{0,8}意見|感情.{0,12}(?:横|脇)に置|感情.{0,8}切り離|客観的に見つめ直/.test(
+    text
+  );
 }
 
 function requestsRestWithoutQuestions(text: string) {
