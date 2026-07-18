@@ -825,6 +825,8 @@ function extractTextFromParts(parts: GeminiPart[]) {
 export function normalizeCoachingOutput(text: string, lastUserText: string) {
   const questionLimit = requestsNoFollowUpQuestion(lastUserText) ? 0 : 1;
   const naturalText = text
+    .replace(/タースク/g, 'タスク')
+    .replace(/タムスケジュール/g, 'タイムスケジュール')
     .replace(/心中お察しいたします[。]?/g, 'それはつらかったですね。')
     .replace(/お気持ち(?:を)?お察しいたします[。]?/g, 'その気持ちは自然だと思います。')
     .replace(/お察しいたします[。]?/g, 'その気持ちは自然だと思います。')
@@ -834,11 +836,20 @@ export function normalizeCoachingOutput(text: string, lastUserText: string) {
     .replace(/ご自身/g, '自分')
     .replace(/よろしければ/g, 'よかったら')
     .replace(/差し支えなければ/g, 'よかったら')
+    .replace(/情報となっております/g, '情報です')
+    .replace(/どうぞお気軽にご質問ください[。]?/g, '気になることがあれば聞いてください。')
+    .replace(/お気軽にお尋ねください[。]?/g, '気になることがあれば聞いてください。')
+    .replace(/どうぞ(?=気になることがあれば)/g, '')
+    .replace(/今日は(?:もう、?)?たくさん頑張られましたね[。]?/g, '今日は本当にお疲れ様でした。')
+    .replace(/全力でサポートさせていただきます[。]?/g, '一緒に整理します。')
+    .replace(/ご無理なさらず/g, '無理せず')
+    .replace(/ゆっくりお過ごしください/g, 'ゆっくり休んでください')
     .replace(/お辛い/g, 'つらい')
     .replace(
       /(?:お聞かせ|聞かせて|教えて|お話し|話して)いただけますか/g,
       '聞かせてもらえますか'
     )
+    .replace(/お聞かせいただけますでしょうか/g, '聞かせてもらえますか')
     .replace(/お聞かせください/g, '聞かせてください')
     .replace(/どうぞゆっくりお休みください[。]?/g, '今日はゆっくり休んでくださいね。')
     .replace(/のが良いでしょう[。]?/g, 'のがよさそうです。')
