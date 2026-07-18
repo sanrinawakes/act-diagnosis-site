@@ -1,7 +1,10 @@
 /**
  * Shared AI coaching logic for web chat and messaging platforms (LINE, WhatsApp, etc.)
  */
-import { getContextualizedPrompt } from '@/data/coaching-system-prompt';
+import {
+  getCoachingSystemPrompt,
+  getContextualizedPrompt,
+} from '@/data/coaching-system-prompt';
 import {
   buildGeminiParts,
   generateCoachingText,
@@ -11,15 +14,6 @@ interface ConversationMessage {
   role: 'user' | 'assistant';
   content: string;
 }
-
-const DEFAULT_SYSTEM_PROMPT = `You are an ACT (Awakening Consciousness Type) coaching AI designed to help users understand themselves better through personalized coaching.
-
-You provide compassionate, insightful coaching based on the user's ACT type diagnosis. Your approach includes:
-1. Deep empathy and understanding of the user's situation
-2. Insightful observations about patterns and possibilities they might not see
-3. Actionable next steps and practical suggestions
-
-Always communicate in Japanese, with respect and curiosity. Help users understand their strengths, growth areas, and pathways to higher consciousness levels.`;
 
 /**
  * Generate a coaching response from the AI
@@ -35,7 +29,7 @@ export async function generateCoachingResponse(
 ): Promise<string> {
   const systemPrompt = diagnosisCode
     ? getContextualizedPrompt(diagnosisCode)
-    : DEFAULT_SYSTEM_PROMPT;
+    : getCoachingSystemPrompt();
 
   const result = await generateCoachingText({
     systemPrompt,

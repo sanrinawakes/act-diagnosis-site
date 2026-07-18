@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { randomUUID } from 'crypto';
-import { getContextualizedPrompt } from '@/data/coaching-system-prompt';
+import {
+  getCoachingSystemPrompt,
+  getContextualizedPrompt,
+} from '@/data/coaching-system-prompt';
 import {
   isAllowedImageType,
   MAX_IMAGE_ATTACHMENTS,
@@ -156,14 +159,7 @@ export async function POST(request: NextRequest) {
     // Build system prompt
     const systemPrompt = diagnosisCode
       ? getContextualizedPrompt(diagnosisCode)
-      : `You are an ACT (Awakening Consciousness Type) coaching AI designed to help users understand themselves better through personalized coaching.
-
-You provide compassionate, insightful coaching based on the user's ACT type diagnosis. Your approach includes:
-1. Deep empathy and understanding of the user's situation
-2. Insightful observations about patterns and possibilities they might not see
-3. Actionable next steps and practical suggestions
-
-Always communicate in Japanese, with respect and curiosity. Help users understand their strengths, growth areas, and pathways to higher consciousness levels.`;
+      : getCoachingSystemPrompt();
 
     const sessionContext = await buildCoachingSessionContext({
       supabaseAdmin,

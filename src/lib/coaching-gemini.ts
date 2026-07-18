@@ -164,9 +164,13 @@ export function buildGeminiParts(
   text: string,
   attachments: InlineImageAttachment[]
 ): GeminiPart[] {
+  const normalizedText = text.trim() || '添付画像について見てください。';
+  const responseStyleHint = buildResponseStyleHint(normalizedText);
   const parts: GeminiPart[] = [
     {
-      text: text.trim() || '添付画像について見てください。',
+      text: responseStyleHint
+        ? `${normalizedText}\n\n${responseStyleHint}`
+        : normalizedText,
     },
   ];
 
@@ -180,6 +184,12 @@ export function buildGeminiParts(
   });
 
   return parts;
+}
+
+function buildResponseStyleHint(text: string) {
+  if (!requestsSingleAnswerFormat(text)) return '';
+
+  return '【内部応答形式】ユーザーの指定を優先し、答えまたは提案を一つだけ簡潔に返してください。補足の提案や確認質問は付けず、答えた時点で終了してください。';
 }
 
 export function compactCoachingMessages(
@@ -223,7 +233,10 @@ export async function generateCoachingText(params: {
     );
   });
   const response = result.response;
-  const text = response.text();
+  const text = normalizeCoachingOutput(
+    response.text(),
+    extractTextFromParts(params.lastUserParts)
+  );
 
   if (!text.trim()) {
     throw new Error('GEMINI_EMPTY_RESPONSE');
@@ -309,6 +322,10 @@ export function createJsonLineStream(params: {
           throw new Error('GEMINI_EMPTY_RESPONSE');
         }
 
+        fullText = normalizeCoachingOutput(
+          fullText,
+          extractTextFromParts(params.lastUserParts)
+        );
         const usage = getUsage(response);
         if (isMaxTokensFinish(response)) {
           fullText = trimToNaturalContinuationBoundary(fullText);
@@ -797,6 +814,79 @@ function extractTextFromParts(parts: GeminiPart[]) {
     .map((part) => ('text' in part ? part.text : ''))
     .join('\n')
     .trim();
+}
+
+export function normalizeCoachingOutput(text: string, lastUserText: string) {
+  const questionLimit = requestsSingleAnswerFormat(lastUserText) ? 0 : 1;
+  const naturalText = text
+    .replace(/心中お察しいたします[。]?/g, 'それはつらかったですね。')
+    .replace(/お気持ちをお察しいたします[。]?/g, 'その気持ちは自然だと思います。')
+    .replace(/承知いたしました[。]?/g, 'わかりました。')
+    .replace(/いらっしゃるのですね/g, 'いるんですね')
+    .replace(/いらっしゃる/g, 'いる')
+    .replace(/ご自身/g, '自分')
+    .replace(/と伝えてみるのはいかがでしょうか[。]?/g, 'と伝えてみてください。')
+    .replace(/してみてはいかがでしょうか[。]?/g, 'してみてください。');
+  const paragraphs = naturalText
+    .trim()
+    .split(/\n{2,}/)
+    .filter((paragraph) => {
+      if (questionLimit !== 0) return true;
+      return !/もしよろしければ|差し支えなければ|また.{0,12}(?:聞かせ|教えて)|お話しいただけ/.test(
+        paragraph
+      );
+    });
+  const segments = paragraphs
+    .join('\n\n')
+    .match(/[^。！？?\n]+[。！？?]?|\n+/g) || [];
+  let questions = 0;
+
+  const normalized = segments
+    .filter((segment) => {
+      const questionCount = isQuestionSegment(segment)
+        ? Math.max(1, (segment.match(/[？?]/g) || []).length)
+        : 0;
+      if (questionCount === 0) return true;
+      if (questions >= questionLimit) return false;
+      questions += questionCount;
+      return questions <= questionLimit;
+    })
+    .join('')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+
+  return balanceJapaneseDelimiters(normalized || naturalText.trim());
+}
+
+function balanceJapaneseDelimiters(text: string) {
+  const pairs = [
+    ['「', '」'],
+    ['『', '』'],
+    ['（', '）'],
+  ] as const;
+  let balanced = text;
+
+  pairs.forEach(([open, close]) => {
+    const openCount = balanced.split(open).length - 1;
+    const closeCount = balanced.split(close).length - 1;
+    if (openCount > closeCount) {
+      balanced += close.repeat(openCount - closeCount);
+    }
+  });
+
+  return balanced;
+}
+
+function isQuestionSegment(segment: string) {
+  const trimmed = segment.trim();
+  return (
+    /[？?]/.test(trimmed) ||
+    /(?:です|ます|でしょう|ません)か[。]?$/.test(trimmed)
+  );
+}
+
+function requestsSingleAnswerFormat(text: string) {
+  return /(?:(?:一つ|ひとつ|1つ)だけ.{0,24}(?:教|提案|答|挙|示|伝|お願)|(?:教|提案|答|挙|示|伝|お願).{0,24}(?:一つ|ひとつ|1つ)だけ|一言(?:だけ|で)|質問(?:は|を)?(?:なし|不要|しない)|短く(?:答|教|返))/.test(text);
 }
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number) {

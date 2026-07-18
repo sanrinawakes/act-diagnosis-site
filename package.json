@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "smoke:coaching": "node scripts/smoke-coaching-chat.mjs"
+    "smoke:coaching": "node scripts/smoke-coaching-chat.mjs",
+    "test:coaching-quality": "node scripts/evaluate-coaching-quality.mjs"
   },
   "dependencies": {
     "@google/generative-ai": "^0.21.0",

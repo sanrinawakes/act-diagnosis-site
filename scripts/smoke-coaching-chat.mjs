@@ -23,6 +23,7 @@ const supabase =
 
 const shouldRunNormal = mode === 'all' || mode === 'normal';
 const shouldRunLongHistory = mode === 'all' || mode === 'long';
+const shouldRunConcurrency = mode === 'all' || mode === 'concurrent';
 const createdEmails = [];
 
 try {
@@ -34,6 +35,10 @@ try {
 
   if (shouldRunLongHistory) {
     results.push(await runLongHistoryConversation());
+  }
+
+  if (shouldRunConcurrency) {
+    results.push(...(await runConcurrentConversations()));
   }
 
   assertResults(results);
@@ -95,6 +100,26 @@ async function runLongHistoryConversation() {
     messages,
     label: 'long-history-437',
   });
+}
+
+async function runConcurrentConversations() {
+  return Promise.all(
+    Array.from({ length: 5 }, async (_, index) => {
+      const email = uniqueEmail(`concurrent-${index + 1}`);
+      createdEmails.push(email);
+      return sendStreamRequest({
+        email,
+        diagnosisCode: 'MME-3',
+        messages: [
+          {
+            role: 'user',
+            content: `同時接続テスト${index + 1}です。今日は少し疲れました。短く返してください。`,
+          },
+        ],
+        label: `concurrent-${index + 1}`,
+      });
+    })
+  );
 }
 
 async function sendStreamRequest({ email, diagnosisCode, messages, label }) {

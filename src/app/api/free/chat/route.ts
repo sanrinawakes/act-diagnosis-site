@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { randomUUID } from 'crypto';
-import { coachingSystemPrompt } from '@/data/coaching-system-prompt';
+import {
+  coachingConversationPriorityPrompt,
+  getCoachingSystemPrompt,
+  getContextualizedPrompt,
+} from '@/data/coaching-system-prompt';
 import {
   isAllowedImageType,
   MAX_IMAGE_ATTACHMENTS,
@@ -46,7 +50,10 @@ function createAdminClient() {
  * Free version coaching prompt with a light study-session guidance layer.
  */
 function getFreeCoachingSystemPrompt(diagnosisCode?: string): string {
-  const baseFreePrompt = `${coachingSystemPrompt}
+  const personalizedPrompt = diagnosisCode
+    ? getContextualizedPrompt(diagnosisCode)
+    : getCoachingSystemPrompt();
+  const baseFreePrompt = `${personalizedPrompt}
 
 ---
 
@@ -82,7 +89,7 @@ https://example.com/study-session
 
 ---
 
-${diagnosisCode ? `## クライアント診断情報\n\nクライアントの診断コード: ${diagnosisCode}\n\nこのコード情報は、返答の背景に使うための内部文脈です。通常の相談では診断コード・タイプ名・意識レベル名を表示せず、ユーザーの言葉と感情を中心に返答してください。` : ''}`;
+${coachingConversationPriorityPrompt}`;
 
   return baseFreePrompt;
 }
