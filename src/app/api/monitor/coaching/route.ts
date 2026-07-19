@@ -78,12 +78,21 @@ export async function GET(request: NextRequest) {
     };
 
     console.error(JSON.stringify(details));
-    await sendCoachingAlert({
+    const alertDelivery = await sendCoachingAlert({
       subject: '[ACTI Bot] 定期監視で異常を検知しました',
       summary:
         'AIコーチングbotの定期監視で、遅延・失敗・stream未完了のいずれかを検知しました。',
       details,
     });
+    console.info(
+      JSON.stringify({
+        event: 'coaching_monitor_alert_delivery',
+        delivered: alertDelivery.delivered,
+        status: alertDelivery.status || null,
+        resendId: alertDelivery.id || null,
+        reason: alertDelivery.reason || null,
+      })
+    );
 
     return NextResponse.json(
       {
@@ -91,6 +100,7 @@ export async function GET(request: NextRequest) {
         checkedAt: new Date().toISOString(),
         elapsedMs: Date.now() - startedAt,
         error: details.error,
+        alertDelivered: alertDelivery.delivered,
       },
       { status: 500, headers: { 'Cache-Control': 'no-store' } }
     );

@@ -49,6 +49,14 @@ interface PaginatedResponse {
   limit: number;
 }
 
+type ChatClientFailureStage =
+  | 'prepare_attachments'
+  | 'save_user_message'
+  | 'load_history'
+  | 'connect_chat'
+  | 'read_stream'
+  | 'save_response';
+
 const CHAT_RESPONSE_TIMEOUT_MS = 60000;
 const CHAT_PERSIST_TIMEOUT_MS = 10000;
 const ATTACHMENT_PRIVACY_NOTICE =
@@ -82,6 +90,32 @@ const withTimeout = async <T,>(
   } finally {
     if (timeoutId) clearTimeout(timeoutId);
   }
+};
+
+const reportClientChatFailure = (params: {
+  stage: ChatClientFailureStage;
+  sessionId: string;
+  elapsedMs: number;
+  hadPartialResponse: boolean;
+  error: unknown;
+}) => {
+  const error = params.error;
+  void fetch('/api/monitor/coaching/client-error', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'same-origin',
+    keepalive: true,
+    body: JSON.stringify({
+      stage: params.stage,
+      sessionId: params.sessionId,
+      elapsedMs: params.elapsedMs,
+      hadPartialResponse: params.hadPartialResponse,
+      errorName: error instanceof Error ? error.name : typeof error,
+      errorMessage: error instanceof Error ? error.message : String(error),
+    }),
+  }).catch((reportError) => {
+    console.error('Failed to report client chat error:', reportError);
+  });
 };
 
 function CoachingContent() {
@@ -475,7 +509,8 @@ function CoachingContent() {
 
   const loadApiMessages = async (
     sid: string,
-    fallbackMessages: Message[]
+    fallbackMessages: Message[],
+    onFailure?: (error: unknown) => void
   ): Promise<Array<{ role: 'user' | 'assistant'; content: string }>> => {
     const fallback = fallbackMessages.map((message) => ({
       role: message.role,
@@ -509,6 +544,7 @@ function CoachingContent() {
       return loaded.length > 0 ? loaded : fallback;
     } catch (error) {
       console.warn('Failed to load persisted messages for chat API:', error);
+      onFailure?.(error);
       return fallback;
     }
   };
@@ -643,6 +679,9 @@ function CoachingContent() {
     let assistantMessageId: string | null = null;
     let assistantContent = '';
     let controller: AbortController | null = null;
+    const sendStartedAt = Date.now();
+    let failureStage: ChatClientFailureStage = 'save_user_message';
+    let shouldReportFailure = true;
 
     try {
       const files = attachmentsToSend.map((attachment) => attachment.file);
@@ -684,10 +723,12 @@ function CoachingContent() {
 
       if (files.length === 0) {
         acceptUserMessage(userVisibleContent);
+        failureStage = 'save_user_message';
         await persistUserMessage();
       }
 
       if (files.length > 0) {
+        failureStage = 'prepare_attachments';
         const [uploadedAttachments, preparedInlineAttachments] = await withTimeout(
           Promise.all([
             uploadChatImageAttachments(files),
@@ -703,6 +744,7 @@ function CoachingContent() {
             uploadedAttachments
           )
         );
+        failureStage = 'save_user_message';
         await persistUserMessage();
       }
 
@@ -711,18 +753,29 @@ function CoachingContent() {
       }
 
       if (!userMessagePersisted) {
+        failureStage = 'save_user_message';
         await persistUserMessage();
       }
 
+      failureStage = 'load_history';
       const apiMessages = await loadApiMessages(activeSessionId, [
         ...messages,
         { ...userMessage, content: apiContent },
-      ]);
+      ], (historyError) => {
+        reportClientChatFailure({
+          stage: 'load_history',
+          sessionId: activeSessionId,
+          elapsedMs: Date.now() - sendStartedAt,
+          hadPartialResponse: false,
+          error: historyError,
+        });
+      });
 
       // クライアント側でも60秒で打ち切る。fetch開始からストリーム読み取り完了までを対象にし、
       // 途中で応答が止まっても「送信中…」が固着しないようにする。
       controller = new AbortController();
       let response: Response;
+      failureStage = 'connect_chat';
       response = await withTimeout(
         fetch('/api/chat', {
           method: 'POST',
@@ -748,6 +801,7 @@ function CoachingContent() {
         const data = await response.json();
         setRateLimitReached(true);
         setRemainingChats(0);
+        shouldReportFailure = false;
         throw new Error(data.error || '本日の利用上限に達しました。');
       }
 
@@ -761,6 +815,7 @@ function CoachingContent() {
       setMessages((prev) => [...prev, assistantMessage]);
 
       let data;
+      failureStage = 'read_stream';
       data = await withTimeout(
         readChatStream(response, (chunk) => {
           assistantContent += chunk;
@@ -792,6 +847,7 @@ function CoachingContent() {
       if (data.limit !== undefined) setChatLimit(data.limit);
 
       try {
+        failureStage = 'save_response';
         await withTimeout(
           supabase.from('chat_messages').insert({
             session_id: activeSessionId,
@@ -811,12 +867,28 @@ function CoachingContent() {
         );
       } catch (persistErr) {
         console.error('Failed to persist assistant message or session update:', persistErr);
+        reportClientChatFailure({
+          stage: 'save_response',
+          sessionId: activeSessionId,
+          elapsedMs: Date.now() - sendStartedAt,
+          hadPartialResponse: Boolean(assistantContent.trim()),
+          error: persistErr,
+        });
       }
 
       // Refresh sidebar to update preview/count. Do not block the send button on sidebar refresh.
       fetchSidebarSessions(sidebarSearch, sidebarTab, sidebarPage);
     } catch (err) {
       console.error('Failed to send message:', err);
+      if (shouldReportFailure) {
+        reportClientChatFailure({
+          stage: failureStage,
+          sessionId: activeSessionId,
+          elapsedMs: Date.now() - sendStartedAt,
+          hadPartialResponse: Boolean(assistantContent.trim()),
+          error: err,
+        });
+      }
       if (!shouldPersistFallback) {
         setAttachmentError(err instanceof Error ? err.message : '送信に失敗しました。');
         return;
@@ -866,6 +938,13 @@ function CoachingContent() {
         fetchSidebarSessions(sidebarSearch, sidebarTab, sidebarPage);
       } catch (saveErr) {
         console.error('Failed to persist fallback message:', saveErr);
+        reportClientChatFailure({
+          stage: 'save_response',
+          sessionId: activeSessionId,
+          elapsedMs: Date.now() - sendStartedAt,
+          hadPartialResponse: Boolean(assistantContent.trim()),
+          error: saveErr,
+        });
       }
     } finally {
       setLoading(false);
