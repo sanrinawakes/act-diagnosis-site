@@ -364,10 +364,11 @@ async function testIncompleteStreamRecovery(page) {
   await page.locator('button', { hasText: /^送信$/ }).click();
   const result = await waitForCompletedTurn(marker, 30000);
   addCheck(
-    '途中切断: 相談文と途中回答を履歴へ保存',
+    '途中切断: 相談文と再試行案内を履歴へ保存',
     result.userRows === 1 &&
-      result.assistantContent.includes('途中までの回答です。') &&
-      result.assistantContent.includes('接続が不安定'),
+      result.assistantContent.includes('AIの応答が途中で切れました。') &&
+      result.assistantContent.includes('入力内容は保存されています。') &&
+      !result.assistantContent.includes('途中までの回答です。'),
     JSON.stringify(result)
   );
 
@@ -377,8 +378,9 @@ async function testIncompleteStreamRecovery(page) {
   addCheck(
     '途中切断: 再読み込み後も相談文と案内を表示',
     pageText.includes(marker) &&
-      pageText.includes('途中までの回答です。') &&
-      pageText.includes('接続が不安定'),
+      pageText.includes('AIの応答が途中で切れました。') &&
+      pageText.includes('入力内容は保存されています。') &&
+      !pageText.includes('途中までの回答です。'),
     pageText.slice(-500)
   );
 }
@@ -417,7 +419,8 @@ async function testImageAttachment(page) {
       /白|ホワイト/.test(result.assistantContent) &&
       result.assistantContent.length <= 30 &&
       !/行動|始め|一緒に考え/.test(result.assistantContent) &&
-      /\(4\.0 MB\)/.test(savedUserRows?.[0]?.content || '') &&
+      /\([\d.]+ (?:KB|MB)\)/.test(savedUserRows?.[0]?.content || '') &&
+      !/\(4\.0 MB\)/.test(savedUserRows?.[0]?.content || '') &&
       /添付画像:\s*\n!\[/.test(savedUserRows?.[0]?.content || ''),
     JSON.stringify(result)
   );
@@ -634,7 +637,7 @@ async function cleanup() {
     process.exitCode = 1;
   }
   const testAttachmentPaths = (attachmentFiles || [])
-    .filter((file) => file.name.includes('acti-e2e-red.png'))
+    .filter((file) => file.name.includes('acti-e2e-red'))
     .map((file) => `${attachmentFolder}/${file.name}`);
   if (testAttachmentPaths.length > 0) {
     const { error: attachmentRemoveError } = await admin.storage
@@ -666,7 +669,7 @@ async function cleanup() {
   const { data: remainingAttachments, error: attachmentVerifyError } =
     await admin.storage.from(attachmentBucket).list(attachmentFolder, { limit: 100 });
   const remainingTestAttachments = (remainingAttachments || []).filter((file) =>
-    file.name.includes('acti-e2e-red.png')
+    file.name.includes('acti-e2e-red')
   );
   if (
     profileError ||
