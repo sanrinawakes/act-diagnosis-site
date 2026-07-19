@@ -956,6 +956,18 @@ function evaluateConversations(conversations) {
       `${turn.label}: 引用符・括弧が閉じている`,
       hasBalancedDelimiters(turn.message)
     );
+    if (
+      requestsSingleAnswerInTest(turn.user) &&
+      !requestsExplicitClosingQuestionInTest(turn.user)
+    ) {
+      addCheck(
+        checks,
+        `${turn.label}: 一つだけ指定は一段落で返す`,
+        turn.message.split(/\n{2,}/).filter(Boolean).length === 1 &&
+          turn.semanticQuestions === 0,
+        turn.message
+      );
+    }
   });
 
   const continuity = findConversation(conversations, 'continuity-and-correction');
@@ -1196,6 +1208,26 @@ function isQuestionInsideJapaneseQuote(segment, depthBefore) {
   }
 
   return depth > 0;
+}
+
+function requestsSingleAnswerInTest(text) {
+  return /(?:(?:一つ|ひとつ|1つ)(?:だけ)?.{0,24}(?:教|提案|答|挙|示|伝|お願)|(?:教|提案|答|挙|示|伝|お願).{0,24}(?:一つ|ひとつ|1つ)(?:だけ)?|一言(?:だけ|で)|質問(?:は|を)?(?:なし|不要|しない)|短く(?:答|教|返))/.test(
+    text
+  );
+}
+
+function requestsExplicitClosingQuestionInTest(text) {
+  if (
+    /質問(?:は|を)?(?:なし|不要|しない|せず)|質問を付けない|質問で終わらない/.test(
+      text
+    )
+  ) {
+    return false;
+  }
+
+  return /(?:最後|末尾|終わり|締め).{0,40}質問|質問(?:を|は)?[^。！？?\n]{0,20}(?:一つ|ひとつ|1つ)(?:だけ)?[^。！？?\n]{0,12}(?:して|付け|添え|ください|お願い)/.test(
+    text
+  );
 }
 
 function hasBalancedDelimiters(text) {

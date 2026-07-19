@@ -64,6 +64,21 @@ describe('normalizeCoachingOutput', () => {
     expect(result).not.toMatch(/3つ|三つ/);
   });
 
+  it('一つだけ指定された時は二つ目の提案段落を除く', () => {
+    const result = normalizeCoachingOutput(
+      [
+        '上司に「先日の件で、少し話す時間をいただけますか」と伝えてみてください。',
+        '今できる最小の行動を一つだけ決めて、そこから始めてみてください。',
+      ].join('\n\n'),
+      '明日まず何をすればいいか一つだけ教えてください。'
+    );
+
+    expect(result).toBe(
+      '上司に「先日の件で、少し話す時間をいただけますか」と伝えてみてください。'
+    );
+    expect(result.split(/\n{2,}/)).toHaveLength(1);
+  });
+
   it('怖さを脇へ置かせず、感情を抱えたままできる一歩へ戻す', () => {
     const result = normalizeCoachingOutput(
       'その「能力がないと思われる怖さ」を少しだけ横に置いて、小さな一歩を踏み出してみませんか？',

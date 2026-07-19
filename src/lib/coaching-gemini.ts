@@ -1016,6 +1016,13 @@ export function normalizeCoachingOutput(text: string, lastUserText: string) {
     return firstNonEmptyParagraph(singleAnswerSafe);
   }
 
+  if (
+    requestsSingleAnswerFormat(lastUserText) &&
+    !requestsExplicitClosingQuestion(lastUserText)
+  ) {
+    return selectSingleAnswerBlock(singleAnswerSafe, lastUserText);
+  }
+
   return ensureCoachingClose(singleAnswerSafe, lastUserText);
 }
 
@@ -1037,6 +1044,22 @@ function firstNonEmptyParagraph(text: string) {
       .map((paragraph) => paragraph.trim())
       .find(Boolean) || text.trim()
   );
+}
+
+function selectSingleAnswerBlock(text: string, lastUserText: string) {
+  const paragraphs = text
+    .split(/\n{2,}/)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean);
+  const concreteParagraph = paragraphs.find((paragraph) =>
+    hasConcreteAction(paragraph, lastUserText)
+  );
+  const selected = concreteParagraph || paragraphs[0] || '';
+
+  return requestsConcreteSuggestion(lastUserText) &&
+    !hasConcreteAction(selected, lastUserText)
+    ? buildNoQuestionFallback(lastUserText)
+    : selected;
 }
 
 function ensureCoachingClose(text: string, lastUserText: string) {

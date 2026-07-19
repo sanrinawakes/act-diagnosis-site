@@ -201,6 +201,7 @@ async function sendStreamRequest({ email, diagnosisCode, messages, label }) {
 
   return {
     label,
+    lastUserText: messages.at(-1)?.content || '',
     status: response.status,
     inputMessages: messages.length,
     payloadBytes,
@@ -231,6 +232,15 @@ function assertResults(results) {
       throw new Error(`${result.label} returned fallback text`);
     }
     if (
+      requestsSingleAnswerInSmoke(result.lastUserText) &&
+      !requestsExplicitClosingQuestionInSmoke(result.lastUserText) &&
+      result.message.split(/\n{2,}/).filter(Boolean).length !== 1
+    ) {
+      throw new Error(
+        `${result.label} returned multiple answer blocks: ${result.message}`
+      );
+    }
+    if (
       /お察し(?:いた)?します|承知(?:いた)?しました|いらっしゃる|差し支えなければ|よろしければ|(?:お聞かせ|聞かせて|教えて|お話し|話して)いただけますか|お聞かせいただけますでしょうか|となっております|お伺いいたします|お気軽に(?:ご質問|お尋ね|ご相談)|頑張られました|サポートさせていただきます|ご無理なさらず|ご安心ください|お過ごしください|教えてくださりありがとうございます|(?:お気持ち|気持ち).{0,8}よく(?:分|わ)かります|何か(?:具体的に|続けて)?(?:お話し|話して)(?:みたい|したい)?ことはありますか|何か[、,]?(?:今)?(?:感じていることや[、,]?)?(?:話したい|話してみたい)ことはありますか|今[、,]?(?:この瞬間に)?(?:最も|一番)?(?:話したい|話してみたい)ことは何ですか|あなたの言葉一つ一つを大切に受け止めています|見捨てられ|承認欲求|トラウマ|幼少期|愛着障害|共依存|タタスク|タースク|タムスケジュール/.test(
         result.message
       )
@@ -249,6 +259,26 @@ function assertResults(results) {
       );
     }
   }
+}
+
+function requestsSingleAnswerInSmoke(text) {
+  return /(?:(?:一つ|ひとつ|1つ)(?:だけ)?.{0,24}(?:教|提案|答|挙|示|伝|お願)|(?:教|提案|答|挙|示|伝|お願).{0,24}(?:一つ|ひとつ|1つ)(?:だけ)?|一言(?:だけ|で)|質問(?:は|を)?(?:なし|不要|しない)|短く(?:答|教|返))/.test(
+    text
+  );
+}
+
+function requestsExplicitClosingQuestionInSmoke(text) {
+  if (
+    /質問(?:は|を)?(?:なし|不要|しない|せず)|質問を付けない|質問で終わらない/.test(
+      text
+    )
+  ) {
+    return false;
+  }
+
+  return /(?:最後|末尾|終わり|締め).{0,40}質問|質問(?:を|は)?[^。！？?\n]{0,20}(?:一つ|ひとつ|1つ)(?:だけ)?[^。！？?\n]{0,12}(?:して|付け|添え|ください|お願い)/.test(
+    text
+  );
 }
 
 async function cleanup() {
