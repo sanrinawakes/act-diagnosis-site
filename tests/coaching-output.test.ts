@@ -100,6 +100,33 @@ describe('normalizeCoachingOutput', () => {
     expect(result).not.toContain('今できる最小の行動');
   });
 
+  it('人物が履歴にいるだけで会話文を作らず、仕事の着手へ戻す', () => {
+    const result = normalizeCoachingOutput(
+      '明日の一歩ですね。',
+      'そうです。今は分析より、明日の朝にできることを一つだけ、質問なしで教えてください。',
+      [
+        {
+          role: 'user',
+          content:
+            '新しい仕事を任されたのですが、失敗して期待を裏切るのが怖くて、手をつけられません。',
+        },
+        {
+          role: 'assistant',
+          content: 'どこから始めるか一緒に整理しましょう。',
+        },
+        {
+          role: 'user',
+          content: '同僚に能力がないと思われるのが悔しいんです。',
+        },
+      ]
+    );
+
+    expect(result).toBe(
+      '明日の朝、今いちばん気になる仕事に5分だけ取り組んでください。'
+    );
+    expect(result).not.toContain('相手に最初に伝える一文');
+  });
+
   it('「一つだけ」に連続する三動作を詰め込まない', () => {
     const result = normalizeCoachingOutput(
       '明日の朝、上司に会う直前に「今日は自分の意見を一つだけ伝えきる」と心の中で決めてから、深呼吸を一つだけしてから席についてください。',
@@ -644,6 +671,17 @@ describe('normalizeCoachingOutput', () => {
     expect(result).toContain('いちばん避けたいことは何ですか？');
   });
 
+  it('感情を訂正した返答に読点付きの謝意を重ねない', () => {
+    const result = normalizeCoachingOutput(
+      '家事そのものよりも、自分の時間を軽く扱われているように感じることが嫌なのだと教えてくださり、ありがとうございます。\n\n自分の時間を軽く扱われているように感じることが嫌なんですね。\n\n今の話の中で、いちばん見過ごしたくない本音は何ですか？',
+      '家事そのものより、私の時間を軽く扱われているように感じることが嫌なんです。'
+    );
+
+    expect(result).not.toMatch(/教えてくださり|ありがとうございます/);
+    expect(result.match(/軽く扱われている/g) || []).toHaveLength(1);
+    expect(result).toContain('見過ごしたくない本音は何ですか？');
+  });
+
   it('本人未使用の身体反応を補わず、自分の次の一言を上司の返答と取り違えない', () => {
     const result = normalizeCoachingOutput(
       '上司に否定されたように感じて、次の一言が怖くなっているのですね。そう感じて身がすくむような気持ちになるのは、とても自然なことです。\n\nその「次の一言」として、上司からどのような言葉が返ってきそうだと感じていますか。',
@@ -810,6 +848,16 @@ describe('normalizeCoachingOutput', () => {
     expect(result).toContain('一番ひっかかっていることは何ですか？');
   });
 
+  it('訂正できたことを大切な一歩と採点しない', () => {
+    const result = normalizeCoachingOutput(
+      '怖さというより、同僚に能力がないと思われるのが悔しいと感じているのですね。その悔しさが本音だったと気づけたことは、とても大切な一歩です。\n\n本当は相手に何をわかってほしいですか？',
+      '怖いというより、同僚に能力がないと思われるのが悔しいんです。'
+    );
+
+    expect(result).not.toMatch(/気づけたこと|大切な一歩/);
+    expect(result).toContain('本当は相手に何をわかってほしいですか？');
+  });
+
   it('一つだけ指定された時は二つ目の提案段落を除く', () => {
     const result = normalizeCoachingOutput(
       [
@@ -882,6 +930,18 @@ describe('normalizeCoachingOutput', () => {
     expect(result).toContain('今回はお引き受けが難しいです');
     expect(result).not.toContain('このように伝えて');
     expect(result.split(/\n{2,}/)).toHaveLength(1);
+  });
+
+  it('長文末尾で断る一言を求めた時は一般的な仕事提案へ置き換えない', () => {
+    const result = normalizeCoachingOutput(
+      '明日の朝、今いちばん気になる仕事に5分だけ取り組んでください。',
+      '長くなりました。本当に相談したいのは、明日また急な依頼をされた時に、角を立てずに断る一言です。一つだけ提案してください。'
+    );
+
+    expect(result).toBe(
+      '「ありがとうございます。ただ、今は手一杯のため、今回はお引き受けできません。」'
+    );
+    expect(result).not.toContain('5分だけ取り組んで');
   });
 
   it('「最初の一言」は説明や追加質問を除いて引用文一つだけにする', () => {
@@ -989,6 +1049,29 @@ describe('normalizeCoachingOutput', () => {
       '具体的な事実・感情・希望'
     );
     expect('text' in part ? part.text : '').toContain('「」で一つだけ');
+  });
+
+  it('長文末尾の断る一言も発言文の依頼として扱う', () => {
+    const [part] = buildGeminiParts(
+      '本当に相談したいのは、明日また急な依頼をされた時に、角を立てずに断る一言です。一つだけ提案してください。',
+      []
+    );
+    const text = 'text' in part ? part.text : '';
+
+    expect(text).toContain('そのまま読める一文');
+    expect(text).toContain('「」で一つだけ');
+  });
+
+  it('名前を一言で聞く事実質問を発言文の依頼と取り違えない', () => {
+    const [part] = buildGeminiParts(
+      '以前話した、大切にしている猫の名前を一言で教えてください。',
+      []
+    );
+    const text = 'text' in part ? part.text : '';
+
+    expect(text).toContain('答えまたは提案を一つだけ簡潔に');
+    expect(text).not.toContain('そのまま読める一文');
+    expect(text).not.toContain('「」で一つだけ');
   });
 
   it('断り文の回りくどい許可表現を直接的で丁寧な文へ直す', () => {
@@ -1228,6 +1311,18 @@ describe('normalizeCoachingOutput', () => {
 
     expect(result).not.toMatch(/素晴らしい一歩|我慢されている証拠/);
     expect(result).toContain('伝えたいことを一文だけ書いて');
+  });
+
+  it('感情が高まった時の提案に深呼吸と発言の二動作を重ねない', () => {
+    const result = normalizeCoachingOutput(
+      '途中で感情的になりそうで不安になるのも自然なことです。\n\nもし話している途中で感情が込み上げてきそうになったら、一度深呼吸をして「少し落ち着いて話したいから、1分だけ待ってね」と相手に伝えるのはいかがでしょうか。',
+      'その言い方ならできそうですが、途中で感情的になりそうで不安です。'
+    );
+
+    expect(result).not.toContain('深呼吸');
+    expect(result).toContain(
+      '「少し落ち着いて話したいから、1分だけ待ってね」と相手に伝えてみてください。'
+    );
   });
 
   it('短い疲労表現を硬い敬語のまま残さない', () => {

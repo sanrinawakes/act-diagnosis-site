@@ -990,9 +990,12 @@ export function normalizeCoachingOutput(
     .replace(/承知いたしました[。]?/g, 'わかりました。')
     .replace(/[、,]?と承知しました[。]?/g, '、確認しました。')
     .replace(/承知しました[。]?/g, 'わかりました。')
-    .replace(/[、,]?と教えてくださりありがとうございます[。]?/g, '、確認しました。')
     .replace(
-      /[^。\n]{0,100}(?:教えて|伝えて|話して|書いて|声をかけて|相談して)(?:くださり|くれて)ありがとうございます[。]?/g,
+      /^([^。、,\n]{1,12})[、,]?と教えてくださり[、,]?ありがとうございます[。]?/gm,
+      '$1、確認しました。'
+    )
+    .replace(
+      /[^。\n]{0,100}(?:教えて|伝えて|話して|書いて|声をかけて|相談して)(?:くださり|くれて)[、,]?ありがとうございます[。]?/g,
       ''
     )
     .replace(
@@ -1038,6 +1041,10 @@ export function normalizeCoachingOutput(
       'かなり疲れているんですね。'
     )
     .replace(/(?:それは)?素晴らしい一歩です[。！]?/g, '')
+    .replace(
+      /[^。\n]{0,100}気づけたことは[、,]?(?:とても)?大切な一歩です[。！]?/g,
+      ''
+    )
     .replace(/全力でサポートさせていただきます[。]?/g, '一緒に整理します。')
     .replace(/ご無理なさらず/g, '無理せず')
     .replace(/(?:ので[、,]?)?ご安心ください[。]?/g, '。')
@@ -1060,6 +1067,11 @@ export function normalizeCoachingOutput(
     .replace(/お聞かせください/g, '聞かせてください')
     .replace(/どうぞゆっくりお休みください[。]?/g, '今日はゆっくり休んでくださいね。')
     .replace(/のが良いでしょう[。]?/g, 'のがよさそうです。')
+    .replace(/(?:一度|一回)(?:だけ)?深呼吸(?:を)?(?:して|してから)[、,]?/g, '')
+    .replace(
+      /([」』])と(?:相手に)?伝えるのはいかがでしょうか[。]?/g,
+      '$1と相手に伝えてみてください。'
+    )
     .replace(/と伝えてみるのはいかがでしょうか[。]?/g, 'と伝えてみてください。')
     .replace(/と伝えてみてはいかがでしょうか[。]?/g, 'と伝えてみてください。')
     .replace(/(て|で)みるのはいかがでしょうか[。？?]?/g, '$1みてください。')
@@ -1451,16 +1463,20 @@ function selectSingleAnswerBlock(
   const eligibleParagraphs = paragraphs.filter(
     (paragraph) => !containsMultipleRequestedItems(paragraph)
   );
-  const quotedAnswer = requestsDirectWording(lastUserText)
+  const directWordingRequested = requestsDirectWording(lastUserText);
+  const quotedAnswer = directWordingRequested
     ? eligibleParagraphs.find((paragraph) => /「[^」]{4,}」/.test(paragraph))
     : undefined;
-  if (requestsDirectWording(lastUserText) && quotedAnswer) {
+  if (directWordingRequested && quotedAnswer) {
     if (isGroundedDirectWording(quotedAnswer, historyMessages)) {
       return quotedAnswer;
     }
 
     const groundedFallback = buildGroundedDirectWording(historyMessages);
     if (groundedFallback) return groundedFallback;
+  }
+  if (directWordingRequested) {
+    return buildNoQuestionFallback(lastUserText, historyMessages);
   }
   const concreteParagraph = eligibleParagraphs.find((paragraph) =>
     hasConcreteAction(paragraph, lastUserText) &&
@@ -1834,12 +1850,20 @@ function buildNoQuestionFallback(
   lastUserText: string,
   historyMessages: CoachingChatMessage[] = []
 ) {
-  const userContext = [
-    ...historyMessages
-      .filter((message) => message.role === 'user')
-      .map((message) => stripAttachmentMarkdown(message.content)),
-    lastUserText,
-  ].join('\n');
+  const historicalUserContext = historyMessages
+    .filter((message) => message.role === 'user')
+    .map((message) => stripAttachmentMarkdown(message.content))
+    .join('\n');
+  const userContext = [historicalUserContext, lastUserText]
+    .filter(Boolean)
+    .join('\n');
+  const hasHistoricalCommunicationIntent =
+    /上司|同僚|夫|妻|家族|親|子ども|友人|相手/.test(
+      historicalUserContext
+    ) &&
+    /話|伝|言葉|一言|言い方|文面|会話|相談|連絡|返事|頼ん|断/.test(
+      historicalUserContext
+    );
 
   if (requestsDirectWording(lastUserText)) {
     return buildDirectWordingFallback(lastUserText, userContext);
@@ -1854,13 +1878,13 @@ function buildNoQuestionFallback(
   if (/企画|資料|文章|書|作成/.test(lastUserText)) {
     return '完成を目指さず、まず最初の15分で見出しを一つだけ書いてみてください。';
   }
-  if (/話|伝|相手|夫|妻|家族|同僚|上司/.test(lastUserText)) {
+  if (/話|伝|言葉|一言|言い方|文面|会話|相談|連絡|返事/.test(lastUserText)) {
     return '明日の朝、相手に最初に伝える一文だけをメモに書いてください。';
   }
   if (/疲|休|しんど|限界/.test(lastUserText)) {
     return '今日はゆっくり休んでください。';
   }
-  if (/話|伝|相手|夫|妻|家族|同僚|上司/.test(userContext)) {
+  if (hasHistoricalCommunicationIntent) {
     return '明日の朝、相手に最初に伝える一文だけをメモに書いてください。';
   }
   if (/SNS|投稿|発信/.test(userContext)) {
@@ -2037,7 +2061,15 @@ function requestsSingleAnswerFormat(text: string) {
 }
 
 function requestsDirectWording(text: string) {
-  return /最初の一言|(?:一言|言い方|文面|返事|言葉)[^。！？\n]{0,28}(?:教えて|提案して|考えて|作って|示して|どうすれば|どうしたら)|(?:教えて|提案して|考えて|作って|示して)[^。！？\n]{0,28}(?:一言|言い方|文面|返事|言葉)|(?:どう|何と|なんて)(?:言|伝え)(?:え|たら|れば|る|う)/.test(
+  if (
+    /(?:名前|色|枚数|個数|数|種類|日時|日付|時刻|場所|金額|価格|コード|タイプ)[^。！？\n]{0,28}一言で(?:教えて|答えて)/.test(
+      text
+    )
+  ) {
+    return false;
+  }
+
+  return /最初の一言|断(?:る|りたい|り方)[^。！？\n]{0,24}(?:一言|言い方|文面|返事|言葉)|(?:一言|言い方|文面|返事|言葉)[^。！？\n]{0,28}(?:教えて|提案して|考えて|作って|示して|どうすれば|どうしたら)|(?:教えて|提案して|考えて|作って|示して)[^。！？\n]{0,28}(?:一言|言い方|文面|返事|言葉)|(?:どう|何と|なんて)(?:言|伝え)(?:え|たら|れば|る|う)/.test(
     text
   );
 }
