@@ -1045,6 +1045,10 @@ export function normalizeCoachingOutput(
       /[^。\n]{0,100}気づけたことは[、,]?(?:とても)?大切な一歩です[。！]?/g,
       ''
     )
+    .replace(
+      /その[^。\n]{0,60}(?:大切な)?本音が隠れていそうです[。！]?/g,
+      ''
+    )
     .replace(/全力でサポートさせていただきます[。]?/g, '一緒に整理します。')
     .replace(/ご無理なさらず/g, '無理せず')
     .replace(/(?:ので[、,]?)?ご安心ください[。]?/g, '。')
@@ -1138,9 +1142,14 @@ export function normalizeCoachingOutput(
     naturalText,
     lastUserText
   );
+  const referenceSafeText = rewriteUngroundedWordingReference(
+    contextualText,
+    lastUserText,
+    historyMessages
+  );
   const temporallyAlignedText = /明日/.test(lastUserText)
-    ? contextualText.replace(/先ほど/g, '前回')
-    : contextualText;
+    ? referenceSafeText.replace(/先ほど/g, '前回')
+    : referenceSafeText;
   const responsiveText = removeAnsweredEmotionQuestion(
     temporallyAlignedText,
     lastUserText
@@ -1468,7 +1477,13 @@ function selectSingleAnswerBlock(
     ? eligibleParagraphs.find((paragraph) => /「[^」]{4,}」/.test(paragraph))
     : undefined;
   if (directWordingRequested && quotedAnswer) {
-    if (isGroundedDirectWording(quotedAnswer, historyMessages)) {
+    if (
+      isGroundedDirectWording(
+        quotedAnswer,
+        historyMessages,
+        lastUserText
+      )
+    ) {
       return quotedAnswer;
     }
 
@@ -1660,8 +1675,18 @@ function selectGroundingStatement(historyMessages: CoachingChatMessage[]) {
 
 function isGroundedDirectWording(
   answer: string,
-  historyMessages: CoachingChatMessage[]
+  historyMessages: CoachingChatMessage[],
+  lastUserText = ''
 ) {
+  if (
+    /断(?:る|りたい|り方)|断る一言/.test(lastUserText) &&
+    !/(?:今回は|今は|本日は|今回の依頼は)[^。！？?\n]{0,40}(?:引き受けられ|引き受けでき|お受けでき|対応でき|難しい|見送)|(?:お断り|辞退)します/.test(
+      answer
+    )
+  ) {
+    return false;
+  }
+
   const statement = selectGroundingStatement(historyMessages);
   if (!statement) return true;
 
@@ -1812,6 +1837,9 @@ function hasAnyCoachingQuestion(text: string) {
 }
 
 function buildClosingCoachingQuestion(lastUserText: string) {
+  if (/責め/.test(lastUserText) && /喧嘩|落ち着いて伝/.test(lastUserText)) {
+    return '相手にまず何をわかってほしいですか？';
+  }
   if (/感情的|感情が強|冷静でいられ|落ち着け.{0,8}不安/.test(lastUserText)) {
     return '途中で感情が強くなった時、相手に何と伝えたいですか？';
   }
@@ -2000,6 +2028,36 @@ function buildDirectContextQuestion(lastUserText: string) {
     return `家事の負担を減らすために、${otherPerson}にまず何を変えてほしいですか？`;
   }
 
+  return buildClosingCoachingQuestion(lastUserText);
+}
+
+function rewriteUngroundedWordingReference(
+  text: string,
+  lastUserText: string,
+  historyMessages: CoachingChatMessage[]
+) {
+  const conversationContext = [
+    ...historyMessages.map((message) =>
+      stripAttachmentMarkdown(message.content)
+    ),
+    lastUserText,
+  ].join('\n');
+  const unsupportedQuotedReference = [
+    ...text.matchAll(/この[「『]([^」』]{2,80})[」』]/g),
+  ].some((match) => !conversationContext.includes(match[1]));
+  const textWithoutQuotedReferences = text.replace(
+    /この[「『][^」』]{2,80}[」』]/g,
+    ''
+  );
+  const hasAvailableWording =
+    /[「『][^」』]{4,}[」』]/.test(conversationContext) ||
+    /[「『][^」』]{4,}[」』]/.test(textWithoutQuotedReferences);
+  const referencesMissingWording =
+    /この(?:言い方|言葉|一言)[^。！？?\n]{0,80}(?:どう|しっくり|感じ|思い|聞いて|準備|できそう|できますか)/.test(
+      text
+    ) && !hasAvailableWording;
+
+  if (!unsupportedQuotedReference && !referencesMissingWording) return text;
   return buildClosingCoachingQuestion(lastUserText);
 }
 
@@ -2275,7 +2333,7 @@ function removeUnsupportedPsychologicalInference(
   if (
     requestsDirectWording(lastUserText) &&
     /「[^」]{4,}」/.test(candidateText) &&
-    !isGroundedDirectWording(candidateText, historyMessages)
+    !isGroundedDirectWording(candidateText, historyMessages, lastUserText)
   ) {
     const groundedFallback = buildGroundedDirectWording(historyMessages);
     if (groundedFallback) candidateText = groundedFallback;

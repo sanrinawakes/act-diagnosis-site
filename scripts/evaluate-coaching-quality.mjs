@@ -1096,7 +1096,7 @@ function evaluateConversations(conversations) {
     addCheck(
       checks,
       `${turn.label}: 硬い接客表現・既知の誤字なし`,
-      !/お察し(?:いた)?します|承知(?:いた)?しました|いらっしゃる|差し支えなければ|よろしければ|(?:お聞かせ|聞かせて|教えて|お話し|話して)いただけますか|お聞かせいただけますでしょうか|させていただけますでしょうか|となっております|お伺いいたします|お気軽に(?:ご質問|お尋ね|ご相談)|頑張られ|(?:素晴らしい|大切な)一歩|サポートさせていただきます|ご無理なさらず|ご安心ください|お過ごしください|(?:教えて|伝えて|書いて|声をかけて|相談して|お話しして|話して)くださ(?:り|って)[、,]?ありがとうございます|(?:気持ち|状況|悩み)を言葉にしていただけて(?:よかった|うれしい)です|(?:お気持ち|気持ち).{0,8}よく(?:分|わ)かります|何か(?:具体的に|続けて)?(?:お話し|話して)(?:みたい|したい)?ことはありますか|何か[、,]?(?:今)?(?:感じていることや[、,]?)?(?:話したい|話してみたい)ことはありますか|今[、,]?(?:この瞬間に)?(?:最も|一番)?(?:話したい|話してみたい)ことは何ですか|この(?:提案|方法|考え)(?:について)?[、,]?(?:どのように|どう)(?:感じ|思い)ますか|あなたの言葉一つ一つを大切に受け止めています|受け止めさせてください|受け止めたいと思います|細かく分析する前に|見捨てられ|承認欲求|トラウマ|幼少期|愛着障害|共依存|我慢.{0,12}証拠|という喧嘩|タタスク|タースク|タムスケジュール|(?:です|ます)[。．]\s*か[？?]|途中で止まることはありません|必ず(?:回答|返答)します/.test(
+      !/お察し(?:いた)?します|承知(?:いた)?しました|いらっしゃる|差し支えなければ|よろしければ|(?:お聞かせ|聞かせて|教えて|お話し|話して)いただけますか|お聞かせいただけますでしょうか|させていただけますでしょうか|となっております|お伺いいたします|お気軽に(?:ご質問|お尋ね|ご相談)|頑張られ|(?:素晴らしい|大切な)一歩|大切な視点|本音が隠れて|サポートさせていただきます|ご無理なさらず|ご安心ください|お過ごしください|(?:教えて|伝えて|書いて|声をかけて|相談して|お話しして|話して)くださ(?:り|って)[、,]?ありがとうございます|(?:気持ち|状況|悩み)を言葉にしていただけて(?:よかった|うれしい)です|(?:お気持ち|気持ち).{0,8}よく(?:分|わ)かります|何か(?:具体的に|続けて)?(?:お話し|話して)(?:みたい|したい)?ことはありますか|何か[、,]?(?:今)?(?:感じていることや[、,]?)?(?:話したい|話してみたい)ことはありますか|今[、,]?(?:この瞬間に)?(?:最も|一番)?(?:話したい|話してみたい)ことは何ですか|この(?:提案|方法|考え)(?:について)?[、,]?(?:どのように|どう)(?:感じ|思い)ますか|あなたの言葉一つ一つを大切に受け止めています|受け止めさせてください|受け止めたいと思います|細かく分析する前に|見捨てられ|承認欲求|トラウマ|幼少期|愛着障害|共依存|我慢.{0,12}証拠|という喧嘩|タタスク|タースク|タムスケジュール|(?:です|ます)[。．]\s*か[？?]|途中で止まることはありません|必ず(?:回答|返答)します/.test(
         turn.message
       ),
       turn.message
@@ -1410,7 +1410,12 @@ function evaluateConversations(conversations) {
     checks,
     '長文: 末尾の本題「断る一言」を保持',
     quotedRefusal.length >= 18 &&
-      /ただ|今|今回は|難し|業務|仕事|申し訳|お願い|優先/.test(quotedRefusal) &&
+      /(?:(?:今回は|今は|本日は|今回の依頼は)[^。！？?\n]{0,50}(?:引き受けられ|引き受けでき|お受けでき|対応でき|難しい|見送)|(?:お断り|辞退)します)/.test(
+        quotedRefusal
+      ) &&
+      !/明日以降[^。！？?\n]{0,30}(?:よろしい|可能|お願い)/.test(
+        quotedRefusal
+      ) &&
       longInput.turns[0].outputChars <= 300 &&
       longInput.turns[0].semanticQuestions === 0 &&
       /^「/.test(longInput.turns[0].message.trim()),
@@ -1512,6 +1517,13 @@ function evaluateConversations(conversations) {
   );
   addCheck(
     checks,
+    '6往復会話: 文面をまだ示していない時に「この言い方」と参照しない',
+    !/この(?:言い方|言葉|一言)/.test(sixTurn.turns[2].message) &&
+      /相手|夫|伝|何をわかってほしい/.test(sixTurn.turns[2].message),
+    sixTurn.turns[2].message
+  );
+  addCheck(
+    checks,
     '6往復会話: 既に明言した感情を聞き直さない',
     !/どんな気持ち(?:ですか|になりますか)/.test(sixTurn.turns[0].message),
     sixTurn.turns[0].message
@@ -1538,6 +1550,19 @@ function evaluateConversations(conversations) {
     /感情|不安|途中|何と伝え|一度止|休憩|区切/.test(
       sixTurn.turns[4].message
     ) && !/家事そのものより/.test(sixTurn.turns[4].message),
+    sixTurn.turns[4].message
+  );
+  const contextBeforeFifthTurn = sixTurn.turns
+    .slice(0, 4)
+    .map((turn) => `${turn.user}\n${turn.message}`)
+    .join('\n');
+  addCheck(
+    checks,
+    '6往復会話: 履歴にない引用を既出の言葉として参照しない',
+    !hasUnsupportedQuotedReference(
+      sixTurn.turns[4].message,
+      contextBeforeFifthTurn
+    ),
     sixTurn.turns[4].message
   );
   addCheck(
@@ -1647,6 +1672,12 @@ function asksForMultipleAnswerDimensions(text) {
         ))
     );
   });
+}
+
+function hasUnsupportedQuotedReference(text, priorContext) {
+  return [...text.matchAll(/この[「『]([^」』]{2,80})[」』]/g)].some(
+    (match) => !priorContext.includes(match[1])
+  );
 }
 
 function hasStandaloneSuggestedWordingAndQuestion(text) {

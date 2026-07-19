@@ -890,6 +890,16 @@ describe('normalizeCoachingOutput', () => {
     expect(result).toContain('本当は相手に何をわかってほしいですか？');
   });
 
+  it('訂正後の悔しさへ本音が隠れていると決めつけない', () => {
+    const result = normalizeCoachingOutput(
+      '怖さというよりも、同僚に能力がないと思われるのが悔しいと感じているのですね。その悔しさに大切な本音が隠れていそうです。\n\nこの仕事で最初に示したいことは何ですか？',
+      '怖いというより、同僚に能力がないと思われるのが悔しいんです。'
+    );
+
+    expect(result).not.toMatch(/本音が隠れ|大切な本音/);
+    expect(result).toContain('最初に示したいことは何ですか？');
+  });
+
   it('一つだけ指定された時は二つ目の提案段落を除く', () => {
     const result = normalizeCoachingOutput(
       [
@@ -905,14 +915,16 @@ describe('normalizeCoachingOutput', () => {
     expect(result.split(/\n{2,}/)).toHaveLength(1);
   });
 
-  it('一つだけ指定の具体文を一般的な代替文で上書きしない', () => {
+  it('断る依頼を「明日でもよいですか」という延期で済ませない', () => {
     const result = normalizeCoachingOutput(
       '急な依頼を受けたら、「今日は予定があるため、明日でもよいですか」と答えます。',
       '明日また急な依頼をされた時に、角を立てずに断る一言を一つだけ提案してください。'
     );
 
-    expect(result).toContain('今日は予定があるため、明日でもよいですか');
-    expect(result).not.toContain('今できる最小の行動');
+    expect(result).toBe(
+      '「ありがとうございます。ただ、今は手一杯のため、今回はお引き受けできません。」'
+    );
+    expect(result).not.toContain('明日でもよいですか');
   });
 
   it('既知の動詞一覧にない具体的な単回答も一般論へ置き換えない', () => {
@@ -974,6 +986,18 @@ describe('normalizeCoachingOutput', () => {
       '「ありがとうございます。ただ、今は手一杯のため、今回はお引き受けできません。」'
     );
     expect(result).not.toContain('5分だけ取り組んで');
+  });
+
+  it('断る一言を延期の打診で済ませず、今回は引き受けないと伝える', () => {
+    const result = normalizeCoachingOutput(
+      '「お声がけいただき嬉しいのですが、あいにく本日中は手一杯のため、明日以降の着手でもよろしいでしょうか」',
+      '本当に相談したいのは、明日また急な依頼をされた時に、角を立てずに断る一言です。一つだけ提案してください。'
+    );
+
+    expect(result).toBe(
+      '「ありがとうございます。ただ、今は手一杯のため、今回はお引き受けできません。」'
+    );
+    expect(result).not.toContain('明日以降');
   });
 
   it('「最初の一言」は説明や追加質問を除いて引用文一つだけにする', () => {
@@ -1355,6 +1379,50 @@ describe('normalizeCoachingOutput', () => {
     expect(result).toContain(
       '「少し落ち着いて話したいから、1分だけ待ってね」と相手に伝えてみてください。'
     );
+  });
+
+  it('履歴にない引用を以前の言葉として参照しない', () => {
+    const result = normalizeCoachingOutput(
+      '自分のペースを保つための心強いお守りになります。\n\n今夜話す前に、この「少し待ってね」という言葉をあらかじめ自分の中で準備しておけそうですか？',
+      'その言い方ならできそうですが、途中で感情的になりそうで不安です。',
+      [
+        {
+          role: 'assistant',
+          content:
+            '「家事そのものより、私の時間を軽く扱われているように感じるのが嫌です。」',
+        },
+      ]
+    );
+
+    expect(result).toBe(
+      '途中で感情が強くなった時、相手に何と伝えたいですか？'
+    );
+    expect(result).not.toContain('少し待ってね');
+  });
+
+  it('履歴に実在する引用は以前の言葉として参照できる', () => {
+    const result = normalizeCoachingOutput(
+      '今夜話す前に、この「少し待ってね」という言葉を一度だけ確認してください。',
+      '話す前にできることを一つだけ教えてください。',
+      [
+        {
+          role: 'assistant',
+          content: '感情が強くなったら「少し待ってね」と伝えてください。',
+        },
+      ]
+    );
+
+    expect(result).toContain('この「少し待ってね」という言葉');
+  });
+
+  it('具体的な文面を示していないのに「この言い方」と参照しない', () => {
+    const result = normalizeCoachingOutput(
+      '相手を思いやる大切な視点だと思います。\n\nこの言い方を聞いてみて、自分の中でしっくりきそうな感覚はありますか？',
+      '責める言い方をすると喧嘩になるので、落ち着いて伝えたいです。'
+    );
+
+    expect(result).toBe('相手にまず何をわかってほしいですか？');
+    expect(result).not.toContain('この言い方');
   });
 
   it('短い疲労表現を硬い敬語のまま残さない', () => {
