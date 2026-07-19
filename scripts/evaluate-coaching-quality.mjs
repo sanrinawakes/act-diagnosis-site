@@ -905,9 +905,7 @@ function evaluateConversations(conversations) {
           tension: /緊張/.test(userContext),
           mistake: /ミス|失敗/.test(userContext),
           anticipatedReaction:
-            /(?:反応|返事|言葉|結果).{0,28}(?:恐れ|怖)|(?:恐れ|怖).{0,28}(?:反応|返事|言葉|結果)/.test(
-              userContext
-            ),
+            /反応|返事|返って|返され|返る/.test(userContext),
           hardship: /しんどい/.test(userContext),
           pain: /つらい|辛い/.test(userContext),
           sadness: /悲し/.test(userContext),
@@ -1032,7 +1030,7 @@ function evaluateConversations(conversations) {
     addCheck(
       checks,
       `${turn.label}: ユーザーの感情を打ち消さない`,
-      !/否定[」』]?[^。\n]{0,16}(?:ではなく|でなく)[「『]?(?:意見|別の視点|アドバイス)|(?:感情|気持ち|怖さ|不安|怒り|悲しさ|悩み|問題|課題).{0,16}(?:横|脇)[にへ]置|(?:感情|気持ち|怖さ|不安|怒り|悲しさ|悩み|問題|課題).{0,12}切り離|客観的に見つめ直/.test(
+      !/否定[」』]?[^。\n]{0,16}(?:ではなく|でなく)[「『]?(?:意見|別の視点|アドバイス)|(?:感情|気持ち|怖さ|不安|怒り|悲しさ|悩み|問題|課題).{0,16}(?:横|脇)[にへ]置|(?:感情|気持ち|怖さ|不安|怒り|悲しさ|悩み|問題|課題).{0,12}切り離|客観的に(?:見|捉え|考え|整理)/.test(
         turn.message
       ),
       turn.message
@@ -1054,9 +1052,8 @@ function evaluateConversations(conversations) {
         (/萎縮/.test(turn.message) && !turn.userGrounding.intimidation) ||
         (/緊張/.test(turn.message) && !turn.userGrounding.tension) ||
         (/ミス|失敗/.test(turn.message) && !turn.userGrounding.mistake) ||
-        (/(?:反応|返事|言葉|結果).{0,20}(?:返って|返され|来る|起きる|なる).{0,20}(?:恐れ|怖)/.test(
-          turn.message
-        ) && !turn.userGrounding.anticipatedReaction) ||
+        (/反応が返|返事が返/.test(turn.message) &&
+          !turn.userGrounding.anticipatedReaction) ||
         (/しんどい/.test(turn.message) && !turn.userGrounding.hardship) ||
         (/つらい|辛い/.test(turn.message) && !turn.userGrounding.pain) ||
         (/悲し/.test(turn.message) && !turn.userGrounding.sadness) ||

@@ -360,6 +360,16 @@ describe('normalizeCoachingOutput', () => {
     expect(result).toContain('次にその相手へ話す時');
   });
 
+  it('本人が話していない「安心できる反応」を質問側で持ち込まない', () => {
+    const result = normalizeCoachingOutput(
+      '上司に否定されたと感じ、次に言葉を交わすことが怖くなっているのですね。\n\n「次の一言」を交わす前に、まずは今の怖さを少しだけ和らげるために、その上司に対して「本当はどんな反応が返ってきたら安心できるか」を一つだけ教えてもらえますか？',
+      '上司に否定されたように感じて、次の一言が怖いです。'
+    );
+
+    expect(result).not.toMatch(/反応|安心できる/);
+    expect(result).toContain('次にその相手へ話す時');
+  });
+
   it('「落ち込んでいる」を質問で「一番しんどい」へ強めない', () => {
     const result = normalizeCoachingOutput(
       '仕事のことで落ち込んでしまっているのですね。\n\n今の状況で、特に「ここが一番しんどい」と感じるポイントはどこですか？',
@@ -494,6 +504,16 @@ describe('normalizeCoachingOutput', () => {
 
     expect(result).not.toMatch(/出来事や感情/);
     expect(result).toContain('仕事のことで、今いちばん気になっている出来事は何ですか？');
+  });
+
+  it('感情を客観視させる前置きを残さない', () => {
+    const result = normalizeCoachingOutput(
+      '仕事で落ち込むことがあり、今は気持ちの整理が必要な状態なんですね。\n\n今の状況を客観的に見るために、まずは「何が一番の引っかかりになっているか」を、一つだけ聞かせてもらえますか？',
+      '仕事のことで少し落ち込んでいます。短く整理を手伝ってください。'
+    );
+
+    expect(result).not.toContain('客観的に');
+    expect(result).toContain('何が一番の引っかかりになっているか');
   });
 
   it('本人の否定された感覚を別の視点だったと打ち消さない', () => {

@@ -229,9 +229,7 @@ async function sendStreamRequest({ email, diagnosisCode, messages, label }) {
       anticipatedReaction: messages.some(
         (message) =>
           message.role === 'user' &&
-          /(?:反応|返事|言葉|結果).{0,28}(?:恐れ|怖)|(?:恐れ|怖).{0,28}(?:反応|返事|言葉|結果)/.test(
-            message.content
-          )
+          /反応|返事|返って|返され|返る/.test(message.content)
       ),
       hardship: messages.some(
         (message) => message.role === 'user' && /しんどい/.test(message.content)
@@ -390,7 +388,7 @@ function assertResults(results) {
       );
     }
     if (
-      /否定[」』]?[^。\n]{0,16}(?:ではなく|でなく)[「『]?(?:意見|別の視点|アドバイス)|(?:感情|気持ち|怖さ|不安|怒り|悲しさ|悩み|問題|課題).{0,16}(?:横|脇)[にへ]置|(?:感情|気持ち|怖さ|不安|怒り|悲しさ|悩み|問題|課題).{0,12}切り離|客観的に見つめ直/.test(
+      /否定[」』]?[^。\n]{0,16}(?:ではなく|でなく)[「『]?(?:意見|別の視点|アドバイス)|(?:感情|気持ち|怖さ|不安|怒り|悲しさ|悩み|問題|課題).{0,16}(?:横|脇)[にへ]置|(?:感情|気持ち|怖さ|不安|怒り|悲しさ|悩み|問題|課題).{0,12}切り離|客観的に(?:見|捉え|考え|整理)/.test(
         result.message
       )
     ) {
@@ -413,9 +411,8 @@ function assertResults(results) {
       (/萎縮/.test(result.message) && !result.userGrounding.intimidation) ||
       (/緊張/.test(result.message) && !result.userGrounding.tension) ||
       (/ミス|失敗/.test(result.message) && !result.userGrounding.mistake) ||
-      (/(?:反応|返事|言葉|結果).{0,20}(?:返って|返され|来る|起きる|なる).{0,20}(?:恐れ|怖)/.test(
-        result.message
-      ) && !result.userGrounding.anticipatedReaction) ||
+      (/反応が返|返事が返/.test(result.message) &&
+        !result.userGrounding.anticipatedReaction) ||
       (/しんどい/.test(result.message) && !result.userGrounding.hardship) ||
       (/つらい|辛い/.test(result.message) && !result.userGrounding.pain) ||
       (/悲し/.test(result.message) && !result.userGrounding.sadness) ||
