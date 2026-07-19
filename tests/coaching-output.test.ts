@@ -251,6 +251,24 @@ describe('normalizeCoachingOutput', () => {
     expect(result).not.toMatch(/読み上げ|席に向か/);
   });
 
+  it('一つだけ指定で書く・入れる・話すの三動作を残さない', () => {
+    const result = normalizeCoachingOutput(
+      '明日の朝、上司と話す直前に「自分が今、何を伝えたいか」だけをメモに書き出し、その紙をポケットに入れてから話しかけてみてください。',
+      'では、明日まず何をすればいいか一つだけ教えてください。',
+      [
+        {
+          role: 'user',
+          content: '上司に否定されたように感じて、次の一言が怖いです。',
+        },
+      ]
+    );
+
+    expect(result).toBe(
+      '明日の朝、相手に最初に伝える一文だけをメモに書いてください。'
+    );
+    expect(result).not.toMatch(/ポケット|話しかけ/);
+  });
+
   it('AI自身の受け止め姿勢を宣言する文を残さない', () => {
     const result = normalizeCoachingOutput(
       '仕事のことで落ち込んでいるのですね。まずはその重たい気持ちを、そのまま受け止めさせてください。\n\n今、一番しんどいことは何ですか？',

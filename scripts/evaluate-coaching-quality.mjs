@@ -1304,15 +1304,29 @@ function evaluateConversations(conversations) {
 
 function countCoachingActionClauses(text) {
   const actionPattern =
-    /書き出|書い|書く|抜き出|箇条書|決め|選ん|伝えて|話し始め|話して|読み上げ|読み返|見直|繰り返|深呼吸|呼吸を|飲ん|休ん|休息|横にな|閉じ|眺め|確認|開い|移動|向か|座っ|席につ|立ち上が|歩い|片付|準備|通知.{0,6}オフ|送っ|連絡|相談|断っ|置い|取り組|始め/g;
-
-  return stripJapaneseQuotedContent(text)
+    /書き出|書い|書く|抜き出|箇条書|決め|選ん|伝えて|話し始め|話して|話しかけ|読み上げ|読み返|見直|繰り返|深呼吸|呼吸を|飲ん|休ん|休息|横にな|閉じ|眺め|確認|開い|移動|入れ|向か|座っ|席につ|立ち上が|歩い|片付|準備|通知.{0,6}オフ|送っ|連絡|相談|断っ|置い|取り組|始め/g;
+  const unquoted = stripJapaneseQuotedContent(text);
+  const lexicalCount = unquoted
     .split(/(?:て|で)から|その後|次に|続いて|[、,]/)
     .map((clause) => clause.trim())
     .reduce(
       (total, clause) => total + (clause.match(actionPattern) || []).length,
       0
     );
+  const chainedActions = (
+    unquoted.match(
+      /(?:て|で)から|(?:した|いた|いだ|んだ|った)後(?:で|に)?|(?:(?<!と)(?:し|して)|いて|いで|んで|って)[、,]/g
+    ) || []
+  ).length;
+  const hasDirective =
+    /(?:て|で)(?:ください|みてください|みましょう)|してください|しましょう/.test(
+      unquoted
+    );
+
+  return Math.max(
+    lexicalCount,
+    hasDirective && chainedActions > 0 ? chainedActions + 1 : 0
+  );
 }
 
 function containsAlternativeRequestedActions(text) {
