@@ -885,8 +885,14 @@ export function normalizeCoachingOutput(text: string, lastUserText: string) {
     ? '相手に伝えたいことを、まず短いメモに書き出してみてください。'
     : text;
   const naturalText = safeText
+    .replace(/タタスク/g, 'タスク')
     .replace(/タースク/g, 'タスク')
     .replace(/タムスケジュール/g, 'タイムスケジュール')
+    .replace(/(です|ます)[。．]\s*か[？?]/g, '$1か？')
+    .replace(
+      /長い(?:ご)?相談でも途中で止まることはありません(?:ので)?(?:ご安心ください)?[。]?/g,
+      '長い相談は、一度に詰め込まず、内容を分けて送るとやり取りしやすくなります。'
+    )
     .replace(/心中お察しいたします[。]?/g, 'それはつらかったですね。')
     .replace(/お気持ち(?:を)?お察しいたします[。]?/g, 'その気持ちは自然だと思います。')
     .replace(/お察しいたします[。]?/g, 'その気持ちは自然だと思います。')

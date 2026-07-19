@@ -12,6 +12,8 @@ const args = new Map(
   })
 );
 const baseUrl = args.get('base') || 'https://act-diagnosis-site.vercel.app';
+const vercelProtectionBypass =
+  process.env.VERCEL_AUTOMATION_BYPASS_SECRET || '';
 const supabaseUrl = requireEnv('NEXT_PUBLIC_SUPABASE_URL');
 const serviceRoleKey = requireEnv('SUPABASE_SERVICE_ROLE_KEY');
 const admin = createClient(supabaseUrl, serviceRoleKey, {
@@ -24,6 +26,7 @@ const password = `Browser-${randomUUID()}-9a!`;
 const checks = [];
 const timings = [];
 const browserErrors = [];
+const generatedCoachingOutputs = [];
 let userId = null;
 let sessionId = null;
 let browser = null;
@@ -37,6 +40,7 @@ try {
     locale: 'ja-JP',
     timezoneId: 'Asia/Tokyo',
   });
+  await configureVercelProtectionBypass(desktop);
   const desktopPage = await desktop.newPage();
   collectBrowserErrors(desktopPage, 'desktop');
   await loginAndOpenNewChat(desktopPage);
@@ -66,6 +70,7 @@ try {
     locale: 'ja-JP',
     timezoneId: 'Asia/Tokyo',
   });
+  await configureVercelProtectionBypass(mobile);
   const mobilePage = await mobile.newPage();
   collectBrowserErrors(mobilePage, 'mobile');
   await loginToExistingChat(mobilePage, sessionId);
@@ -80,6 +85,16 @@ try {
     'ブラウザ: JavaScript例外なし',
     browserErrors.length === 0,
     browserErrors.join(' | ')
+  );
+  const invalidOutputs = generatedCoachingOutputs.filter(({ content }) =>
+    /タタスク|タースク|タムスケジュール|(?:です|ます)[。．]\s*か[？?]|途中で止まることはありません|必ず(?:回答|返答)します/.test(
+      content
+    )
+  );
+  addCheck(
+    'AI回答: 既知の日本語崩れ・事実でない稼働保証なし',
+    invalidOutputs.length === 0,
+    JSON.stringify(invalidOutputs)
   );
 
   const failed = checks.filter((check) => !check.passed);
@@ -139,6 +154,20 @@ async function createTestMember() {
     chat_count_today: 0,
   });
   if (profileError) throw profileError;
+}
+
+async function configureVercelProtectionBypass(context) {
+  if (!vercelProtectionBypass) return;
+
+  const appOrigin = new URL(baseUrl).origin;
+  await context.route(`${appOrigin}/**`, async (route) => {
+    await route.continue({
+      headers: {
+        ...route.request().headers(),
+        'x-vercel-protection-bypass': vercelProtectionBypass,
+      },
+    });
+  });
 }
 
 async function loginAndOpenNewChat(page) {
@@ -226,6 +255,7 @@ async function testDesktopEnterSend(page) {
   await page.locator('textarea').fill(`${marker}。明日の一歩を一つ教えてください。`);
   await page.locator('textarea').press('Enter');
   const result = await waitForCompletedTurn(marker);
+  recordGeneratedOutput('desktop-enter', result.assistantContent);
   timings.push({ name: 'desktop-enter', elapsedMs: Date.now() - startedAt });
   addCheck(
     'PC: Enterで一度だけ送信して回答を保存',
@@ -242,6 +272,7 @@ async function testSynchronousDoubleSendGuard(page) {
     button.click();
   });
   const result = await waitForCompletedTurn(marker);
+  recordGeneratedOutput('double-send', result.assistantContent);
   addCheck(
     'PC: 同期的な二重クリックでもユーザー行は1件',
     result.userRows === 1,
@@ -263,6 +294,7 @@ async function testRepeatedConversation(page) {
     await page.locator('textarea').fill(`${marker} ${prompts[index]}`);
     await page.locator('button', { hasText: /^送信$/ }).click();
     const result = await waitForCompletedTurn(marker, 70000);
+    recordGeneratedOutput(`repeated-${index + 1}`, result.assistantContent);
     timings.push({
       name: `repeated-${index + 1}`,
       elapsedMs: Date.now() - startedAt,
@@ -360,6 +392,7 @@ async function testImageAttachment(page) {
   await page.locator('textarea').fill(`${marker}。この画像の色を一言で答えてください。`);
   await page.locator('button', { hasText: /^送信$/ }).click();
   const result = await waitForCompletedTurn(marker, 70000);
+  recordGeneratedOutput('image', result.assistantContent);
   const { data: savedUserRows, error } = await admin
     .from('chat_messages')
     .select('content')
@@ -421,6 +454,7 @@ async function testMobileEnterAndButton(page) {
 
   await page.locator('button', { hasText: /^送信$/ }).click();
   const result = await waitForCompletedTurn(marker, 70000);
+  recordGeneratedOutput('mobile', result.assistantContent);
   addCheck(
     'スマホ: 送信ボタンで回答と履歴を保存',
     result.userRows === 1 && result.assistantContent.length >= 8,
@@ -472,6 +506,10 @@ async function waitForCompletedTurn(marker, timeoutMs = 60000) {
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
   throw new Error(`Timed out waiting for completed turn: ${marker}`);
+}
+
+function recordGeneratedOutput(label, content) {
+  generatedCoachingOutputs.push({ label, content });
 }
 
 async function countMessages(sid) {

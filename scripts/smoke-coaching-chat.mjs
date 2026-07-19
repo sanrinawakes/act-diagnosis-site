@@ -11,6 +11,12 @@ const baseUrl = args.get('base') || 'https://act-diagnosis-site.vercel.app';
 const mode = args.get('mode') || 'all';
 const maxTotalMs = Number(args.get('max-ms') || 15000);
 const maxFirstChunkMs = Number(args.get('max-first-chunk-ms') || 10000);
+const vercelProtectionHeaders = process.env.VERCEL_AUTOMATION_BYPASS_SECRET
+  ? {
+      'x-vercel-protection-bypass':
+        process.env.VERCEL_AUTOMATION_BYPASS_SECRET,
+    }
+  : {};
 
 const supabase =
   process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -129,6 +135,7 @@ async function sendStreamRequest({ email, diagnosisCode, messages, label }) {
   const response = await fetch(`${baseUrl}/api/free/chat`, {
     method: 'POST',
     headers: {
+      ...vercelProtectionHeaders,
       'Content-Type': 'application/json',
       Accept: 'application/x-ndjson',
     },

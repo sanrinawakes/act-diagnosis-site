@@ -10,6 +10,12 @@ const args = new Map(
 );
 
 const baseUrl = args.get('base') || 'https://act-diagnosis-site.vercel.app';
+const vercelProtectionHeaders = process.env.VERCEL_AUTOMATION_BYPASS_SECRET
+  ? {
+      'x-vercel-protection-bypass':
+        process.env.VERCEL_AUTOMATION_BYPASS_SECRET,
+    }
+  : {};
 const maxTotalMs = Number(args.get('max-ms') || 15000);
 const maxFirstChunkMs = Number(args.get('max-first-chunk-ms') || 10000);
 const supabaseUrl = requireEnv('NEXT_PUBLIC_SUPABASE_URL');
@@ -380,7 +386,10 @@ async function runApiContractChecks() {
   });
   const unauthorized = await fetch(`${baseUrl}/api/chat`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      ...vercelProtectionHeaders,
+      'Content-Type': 'application/json',
+    },
     body: validBody,
   });
   addCheck(checks, 'API防御: 認証なしは401', unauthorized.status === 401, String(unauthorized.status));
@@ -523,6 +532,7 @@ async function runApiContractChecks() {
   const invalidJson = await fetch(`${baseUrl}/api/chat`, {
     method: 'POST',
     headers: {
+      ...vercelProtectionHeaders,
       'Content-Type': 'application/json',
       Authorization: `Bearer ${accessToken}`,
     },
@@ -599,7 +609,10 @@ async function runSessionApiChecks(checks) {
   const marker = `履歴検索マーカー-${runId}`;
   const sessionId = await createSession('session-api-contract');
   await insertMessage(sessionId, 'user', marker);
-  const headers = { Authorization: `Bearer ${accessToken}` };
+  const headers = {
+    ...vercelProtectionHeaders,
+    Authorization: `Bearer ${accessToken}`,
+  };
 
   const searchResponse = await fetch(
     `${baseUrl}/api/chat/sessions?search=${encodeURIComponent(marker)}&page=1&limit=20`,
@@ -712,6 +725,7 @@ function authenticatedJsonRequest(body) {
   return fetch(`${baseUrl}/api/chat`, {
     method: 'POST',
     headers: {
+      ...vercelProtectionHeaders,
       'Content-Type': 'application/json',
       Authorization: `Bearer ${accessToken}`,
     },
@@ -783,6 +797,7 @@ async function sendStreamRequest({
   const response = await fetch(`${baseUrl}/api/chat`, {
     method: 'POST',
     headers: {
+      ...vercelProtectionHeaders,
       'Content-Type': 'application/json',
       Accept: 'application/x-ndjson',
       Authorization: `Bearer ${accessToken}`,
@@ -923,7 +938,7 @@ function evaluateConversations(conversations) {
     addCheck(
       checks,
       `${turn.label}: 硬い接客表現・既知の誤字なし`,
-      !/お察し(?:いた)?します|承知いたしました|いらっしゃる|差し支えなければ|よろしければ|(?:お聞かせ|聞かせて|教えて|お話し|話して)いただけますか|お聞かせいただけますでしょうか|となっております|お伺いいたします|お気軽に(?:ご質問|お尋ね|ご相談)|頑張られました|サポートさせていただきます|ご無理なさらず|お過ごしください|タースク|タムスケジュール/.test(
+      !/お察し(?:いた)?します|承知いたしました|いらっしゃる|差し支えなければ|よろしければ|(?:お聞かせ|聞かせて|教えて|お話し|話して)いただけますか|お聞かせいただけますでしょうか|となっております|お伺いいたします|お気軽に(?:ご質問|お尋ね|ご相談)|頑張られました|サポートさせていただきます|ご無理なさらず|お過ごしください|タタスク|タースク|タムスケジュール|(?:です|ます)[。．]\s*か[？?]|途中で止まることはありません|必ず(?:回答|返答)します/.test(
         turn.message
       ),
       turn.message

@@ -31,6 +31,27 @@ describe('getCoachingGeminiModelName', () => {
 });
 
 describe('normalizeCoachingOutput', () => {
+  it('重複語と句点直後の疑問表現を自然な日本語へ直す', () => {
+    const result = normalizeCoachingOutput(
+      '最初のタタスクを選び、「どう進めるのがよさそうです。か？」と聞いてみてください。',
+      '明日どう動けばいいですか？'
+    );
+
+    expect(result).toContain('最初のタスク');
+    expect(result).toContain('よさそうですか？');
+    expect(result).not.toMatch(/タタスク|です。か？/);
+  });
+
+  it('技術的に止まらないという保証を利用者へ返さない', () => {
+    const result = normalizeCoachingOutput(
+      '長いご相談でも途中で止まることはありませんのでご安心ください。',
+      '長い相談でも止まりませんか？'
+    );
+
+    expect(result).not.toMatch(/途中で止まることはありません|ご安心ください/);
+    expect(result).toContain('内容を分けて送る');
+  });
+
   it('内部の回答形式指定を利用者本文から分離する', () => {
     const result = stripInternalResponseStyleHint(
       'この画像の色を一言で答えてください。\n\n【内部応答形式】答えまたは提案を一つだけ簡潔に返してください。'
