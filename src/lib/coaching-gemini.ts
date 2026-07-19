@@ -940,6 +940,10 @@ export function normalizeCoachingOutput(
     return 'その内容は公開できません。代わりに、今抱えている悩みや目標について一緒に考えます。今いちばん相談したいことは何ですか？';
   }
 
+  if (requestsShortRestResponse(lastUserText)) {
+    return '今日はゆっくり休んでください。';
+  }
+
   const requiresClosingQuestion = requestsExplicitClosingQuestion(lastUserText);
   const questionLimit =
     requiresClosingQuestion || requestsNoFollowUpQuestion(lastUserText) ? 0 : 1;
@@ -1038,8 +1042,12 @@ export function normalizeCoachingOutput(
     )
     .replace(/あなたの言葉一つ一つを大切に受け止めています[。]?/g, '')
     .replace(/。{2,}/g, '。');
+  const temporallyAlignedText =
+    /明日/.test(lastUserText) || /明日/.test(naturalText)
+      ? naturalText.replace(/先ほどのお話/g, '前回のお話')
+      : naturalText;
   const responsiveText = removeAnsweredEmotionQuestion(
-    naturalText,
+    temporallyAlignedText,
     lastUserText
   );
   const groundedText = removeUnsupportedPsychologicalInference(
@@ -1831,6 +1839,10 @@ function removeUnsupportedPsychologicalInference(
       output: /苦しめ/,
       supportedBy: /苦し|つら|辛|しんど/,
     },
+    {
+      output: /心が疲れ|心も疲れ/,
+      supportedBy: /疲れ|消耗/,
+    },
     { output: /気持ちの切り替え/, supportedBy: /切り替え/ },
     { output: /精一杯/, supportedBy: /精一杯|余裕がない|限界/ },
     {
@@ -1881,6 +1893,24 @@ function removeUnsupportedPsychologicalInference(
 function requestsRestWithoutQuestions(text: string) {
   return /何も考えたくない|もう考えたくない|今日はもう(?:無理|限界)|疲れ(?:た|ました)|しんどい|休みたい/.test(
     text
+  );
+}
+
+function requestsShortRestResponse(text: string) {
+  if (!requestsRestWithoutQuestions(text)) return false;
+
+  if (
+    requestsSingleAnswerFormat(text) ||
+    /何も考えたくない|もう考えたくない|今日はもう(?:無理|限界)|休みたい/.test(
+      text
+    )
+  ) {
+    return true;
+  }
+
+  return (
+    text.trim().length <= 24 &&
+    !/[？?]|どう|なぜ|原因|方法|対策|相談/.test(text)
   );
 }
 

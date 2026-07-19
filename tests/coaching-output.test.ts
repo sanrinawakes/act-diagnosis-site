@@ -180,6 +180,25 @@ describe('normalizeCoachingOutput', () => {
     expect(result).not.toMatch(/飲み物|休息/);
   });
 
+  it('短い疲労表現への返答を一つの自然な休息提案へ固定する', () => {
+    const result = normalizeCoachingOutput(
+      '今日はお疲れ様でした。まずは何よりも、今夜は早めに休息をとることを最優先にしてください。',
+      '今日は少し疲れました。短く返してください。'
+    );
+
+    expect(result).toBe('今日はゆっくり休んでください。');
+  });
+
+  it('疲れの対策を尋ねる相談を休息の一文だけで終わらせない', () => {
+    const result = normalizeCoachingOutput(
+      '仕事量が多い日が続いているのですね。まず今週減らせる予定を一つ決めてください。',
+      '最近仕事で疲れました。どう対策すればよいですか？'
+    );
+
+    expect(result).toContain('今週減らせる予定');
+    expect(result).not.toBe('今日はゆっくり休んでください。');
+  });
+
   it('読点なしでつないだ置く・閉じる・休むの三動作も一つへ戻す', () => {
     const result = normalizeCoachingOutput(
       '今日はお疲れ様でした。今すぐスマホを置いて5分間だけ目を閉じて休んでください。',
@@ -199,6 +218,26 @@ describe('normalizeCoachingOutput', () => {
     expect(result).toContain('一つだけ言葉にしてみてください。');
     expect(result).not.toContain('明日ひとつだけ状況を動かすなら');
     expect(result).not.toMatch(/[？?]/);
+  });
+
+  it('落ち込んだという発言を「心が疲れている」へ変えない', () => {
+    const result = normalizeCoachingOutput(
+      '仕事で落ち込むような出来事があったのですね。今は少し心が疲れている状態かもしれません。\n\n一番こうなればよかったと感じることは何ですか？',
+      '仕事のことで少し落ち込んでいます。短く整理を手伝ってください。'
+    );
+
+    expect(result).not.toContain('心が疲れている');
+    expect(result).toContain('こうなればよかった');
+  });
+
+  it('明日の会話を「先ほどのお話」と表現しない', () => {
+    const result = normalizeCoachingOutput(
+      '明日の会話の冒頭で、「先ほどのお話について、少し確認したいことがあります」とだけ伝えてください。',
+      'では、明日まず何をすればいいか一つだけ教えてください。'
+    );
+
+    expect(result).toContain('前回のお話');
+    expect(result).not.toContain('先ほどのお話');
   });
 
   it('句点で終わる質問と「教えてください」を重ねない', () => {
@@ -781,7 +820,7 @@ describe('normalizeCoachingOutput', () => {
       'もう今日は何も考えたくない。疲れた。'
     );
 
-    expect(result).toContain('かなり疲れているんですね。');
+    expect(result).toBe('今日はゆっくり休んでください。');
     expect(result).not.toMatch(/頑張られ|よく頑張/);
   });
 
