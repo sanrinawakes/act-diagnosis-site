@@ -37,13 +37,13 @@ type GeminiHistoryItem = {
   parts: GeminiTextPart[];
 };
 
-const RECENT_HISTORY_LIMIT = 12;
-const SUMMARY_CHAR_LIMIT = 1400;
+const RECENT_HISTORY_LIMIT = 8;
+const SUMMARY_CHAR_LIMIT = 1200;
 const HISTORY_MESSAGE_CHAR_LIMIT = 700;
 const API_HISTORY_LIMIT = 14;
 const API_HISTORY_CHAR_LIMIT = 700;
 const API_LAST_USER_CHAR_LIMIT = 2500;
-const GEMINI_TIMEOUT_MS = 35000;
+const GEMINI_TIMEOUT_MS = 45000;
 const GEMINI_FINALIZE_TIMEOUT_MS = 4000;
 const GEMINI_RETRY_DELAYS_MS = [800, 1600];
 const ALERT_SLOW_RESPONSE_MS = 10000;
@@ -52,6 +52,15 @@ const MAX_TOKENS_CONTINUATION_NOTICE =
   '\n\n（ここで自然に区切ります。続きが必要な場合は「続き」と送ってください。）';
 const PARTIAL_STREAM_TIMEOUT_NOTICE =
   '\n\n（応答処理に時間がかかったため、ここで一度区切りました。続きが必要な場合は「続き」と送ってください。）';
+const RESPONSE_SPEED_INSTRUCTION = [
+  '',
+  '---',
+  '## 応答速度と安定性のための追加ルール',
+  '- 1回の返答は原則180〜300字に収める。',
+  '- 質問が複数ある場合は、すべてを一度に深掘りせず、最初の1つを中心に返す。',
+  '- 長い前置き、網羅的な一覧、同じタイプ説明の繰り返しを避ける。',
+  '- 「私の内面を教えてください」のような広い相談では、短く受け止め、1つの見立てと次の小さな質問だけ返す。',
+].join('\n');
 
 const alertLastSentAt = new Map<string, number>();
 
@@ -97,11 +106,11 @@ const LEVEL_SUMMARIES: Record<string, string> = {
 export function getCoachingGeminiModel(systemPrompt: string) {
   return getGenAI().getGenerativeModel({
     model: 'gemini-2.5-flash',
-    systemInstruction: systemPrompt,
+    systemInstruction: `${systemPrompt}${RESPONSE_SPEED_INSTRUCTION}`,
     generationConfig: {
-      temperature: 0.65,
-      topP: 0.9,
-      maxOutputTokens: 1536,
+      temperature: 0.55,
+      topP: 0.85,
+      maxOutputTokens: 960,
       // Gemini 2.5 Flash has thinking enabled by default. Coaching chat needs
       // low first-token latency more than deep reasoning, so disable it here.
       thinkingConfig: { thinkingBudget: 0 },
@@ -616,8 +625,16 @@ function buildConversationSummary(
     })
     .join('\n');
 
-  if (text.length <= SUMMARY_CHAR_LIMIT) return text;
-  return text.slice(-SUMMARY_CHAR_LIMIT);
+  const compactText = compactLongLines(text);
+  if (compactText.length <= SUMMARY_CHAR_LIMIT) return compactText;
+  return compactText.slice(-SUMMARY_CHAR_LIMIT);
+}
+
+function compactLongLines(text: string) {
+  return text
+    .split('\n')
+    .map((line) => (line.length > 260 ? `${line.slice(0, 260)}…` : line))
+    .join('\n');
 }
 
 function truncateHistoryText(text: string) {
