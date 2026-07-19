@@ -1053,6 +1053,11 @@ export function normalizeCoachingOutput(
       /その悔しさ[^。\n]{0,100}(?:ブレーキ|手を止め)[^。\n]*[。！]?/g,
       ''
     )
+    .replace(/その[^。\n]{0,80}気持ちが伝わります[。！]?/g, '')
+    .replace(
+      /そのように[^。\n]{0,120}姿勢は(?:とても)?素敵です[。！]?/g,
+      ''
+    )
     .replace(/全力でサポートさせていただきます[。]?/g, '一緒に整理します。')
     .replace(/ご無理なさらず/g, '無理せず')
     .replace(/(?:ので[、,]?)?ご安心ください[。]?/g, '。')
@@ -1309,6 +1314,10 @@ function containsMultipleRequestedItems(text: string) {
     return true;
   }
 
+  if (/[「『][^」』]{1,100}[」』](?:や|または|もしくは|あるいは)[「『][^」』]{1,100}[」』]/.test(text)) {
+    return true;
+  }
+
   if (
     /(?:気持ち|感じたこと|伝えたいこと|気になっていること|出来事|状況|内容|言葉|一言|行動|作業|仕事|テーマ|頭に浮かんでくること)[^。！？\n]{0,12}(?:や|または|もしくは)[^。！？\n]{0,30}(?:気持ち|感じたこと|伝えたいこと|気になっていること|出来事|状況|内容|言葉|一言|行動|作業|仕事|テーマ|頭に浮かんでくること)/.test(
       text
@@ -1445,6 +1454,14 @@ function limitUnrequestedCoachingMoves(text: string, lastUserText: string) {
 }
 
 function containsAlternativeRequestedActions(text: string) {
+  if (
+    /[「『][^」』]{1,100}[」』](?:や|または|もしくは|あるいは)[「『][^」』]{1,100}[」』]/.test(
+      text
+    )
+  ) {
+    return true;
+  }
+
   return /(?:する|して|書く|書いて|伝える|話す|休む|閉じる|移動させる|オフにする|設定する|行う)か[、,]|(?:または|もしくは|あるいは)/.test(
     stripJapaneseQuotedContent(text)
   );
@@ -1856,6 +1873,16 @@ function reportsTimeTreatedLightly(text: string) {
   );
 }
 
+function buildTimeTreatedLightlyAcknowledgement(lastUserText: string) {
+  if (/準備(?:に使った)?時間/.test(lastUserText)) {
+    return '準備に使った時間を軽く扱われたことに腹が立っているのですね。';
+  }
+  if (/家事そのものより/.test(lastUserText)) {
+    return '家事そのものより、自分の時間を軽く扱われているように感じることが嫌なのですね。';
+  }
+  return '自分の時間を軽く扱われたことに腹が立っているのですね。';
+}
+
 function buildClosingCoachingQuestion(lastUserText: string) {
   if (reportsTimeTreatedLightly(lastUserText)) {
     return '自分の時間を軽く扱われないために、相手にまず何を変えてほしいですか？';
@@ -2021,10 +2048,23 @@ function rewriteContextualClosingQuestion(text: string, lastUserText: string) {
   }
 
   if (reportsTimeTreatedLightly(lastUserText)) {
-    return directText.replace(
+    const directQuestion = buildClosingCoachingQuestion(lastUserText);
+    const rewritten = directText.replace(
       /今の話の中で[、,]?いちばん見過ごしたくない本音は何ですか[？?]?/g,
-      buildClosingCoachingQuestion(lastUserText)
+      directQuestion
     );
+    const deflectsToWritingFeelings =
+      /(?:メモ|ノート|スマホ)[^。！？?\n]{0,100}(?:本音|気持ち)[^。！？?\n]{0,80}(?:書|整理)|(?:本音|気持ち)[^。！？?\n]{0,80}(?:メモ|書き出)/.test(
+        rewritten
+      );
+    if (
+      deflectsToWritingFeelings &&
+      !requestsDirectWording(lastUserText) &&
+      !requestsSingleAnswerFormat(lastUserText)
+    ) {
+      return `${buildTimeTreatedLightlyAcknowledgement(lastUserText)}\n\n${directQuestion}`;
+    }
+    return rewritten;
   }
 
   if (/次の一言が怖/.test(lastUserText)) {
@@ -2136,20 +2176,42 @@ function softenRepeatedAcknowledgement(text: string) {
 }
 
 function balanceJapaneseDelimiters(text: string) {
-  const pairs = [
+  const closeForOpen = new Map([
     ['「', '」'],
     ['『', '』'],
     ['（', '）'],
-  ] as const;
-  let balanced = text;
+  ]);
+  const openForClose = new Map(
+    [...closeForOpen.entries()].map(([open, close]) => [close, open])
+  );
+  const stack: string[] = [];
+  let balanced = '';
 
-  pairs.forEach(([open, close]) => {
-    const openCount = balanced.split(open).length - 1;
-    const closeCount = balanced.split(close).length - 1;
-    if (openCount > closeCount) {
-      balanced += close.repeat(openCount - closeCount);
+  for (const character of text) {
+    if (closeForOpen.has(character)) {
+      stack.push(character);
+      balanced += character;
+      continue;
     }
-  });
+
+    const matchingOpen = openForClose.get(character);
+    if (!matchingOpen) {
+      balanced += character;
+      continue;
+    }
+
+    const matchingIndex = stack.lastIndexOf(matchingOpen);
+    if (matchingIndex < 0) continue;
+    while (stack.length - 1 > matchingIndex) {
+      balanced += closeForOpen.get(stack.pop() || '') || '';
+    }
+    stack.pop();
+    balanced += character;
+  }
+
+  while (stack.length > 0) {
+    balanced += closeForOpen.get(stack.pop() || '') || '';
+  }
 
   return balanced;
 }
@@ -2293,7 +2355,7 @@ function rewriteCompoundAnswerQuestions(text: string, lastUserText: string) {
   const rewritten = parts
     .map((part) => {
       const asksForPairedDimensions =
-        /(?:出来事|事実|状況|理由|原因|気持ち|感情|思い|希望|望み|行動|タイミング|言い方|方法|内容|テーマ|気になっていること|頭に浮かんでくること)[」』]?(?:と|や|および|ならびに|、)[^。！？?\n]{0,32}[「『]?(?:出来事|事実|状況|理由|原因|気持ち|感情|思い|希望|望み|行動|タイミング|言い方|方法|内容|テーマ|気になっていること|頭に浮かんでくること)/.test(
+        /(?:出来事|事実|状況|理由|原因|気持ち|感情|思い|希望|望み|行動|タイミング|言い方|方法|内容|テーマ|強み|こだわり|気になっていること|頭に浮かんでくること)[」』]?(?:と|や|および|ならびに|、)[^。！？?\n]{0,32}[「『]?(?:出来事|事実|状況|理由|原因|気持ち|感情|思い|希望|望み|行動|タイミング|言い方|方法|内容|テーマ|強み|こだわり|気になっていること|頭に浮かんでくること)/.test(
           part
         );
       const asksForcedAlternative =
@@ -2447,6 +2509,15 @@ function removeUnsupportedPsychologicalInference(
     { output: /孤独感|孤独/, supportedBy: /孤独/ },
     { output: /不公平感|不公平/, supportedBy: /不公平/ },
     { output: /本当にお疲れ/, supportedBy: /疲れ/ },
+    { output: /悪気/, supportedBy: /悪気/ },
+    {
+      output: /(?:時間|労力)[^。！？?\n]{0,40}削られ/,
+      supportedBy: /削られ/,
+    },
+    {
+      output: /大切に考えていたこと|伝えたかった思い|思いが詰ま/,
+      supportedBy: /大切に考えていたこと|伝えたかった思い|思いが詰ま/,
+    },
     {
       output: /尊重されていない|軽んじられ|敬意が欠け/,
       supportedBy: /尊重されていない|軽んじられ|敬意が欠け/,

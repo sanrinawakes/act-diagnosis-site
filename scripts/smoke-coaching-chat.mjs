@@ -269,6 +269,19 @@ async function sendStreamRequest({ email, diagnosisCode, messages, label }) {
       heartResidue: messages.some(
         (message) => message.role === 'user' && /心残り/.test(message.content)
       ),
+      malice: messages.some(
+        (message) => message.role === 'user' && /悪気/.test(message.content)
+      ),
+      depleted: messages.some(
+        (message) => message.role === 'user' && /削られ/.test(message.content)
+      ),
+      cherishedThoughts: messages.some(
+        (message) =>
+          message.role === 'user' &&
+          /大切に考えていたこと|伝えたかった思い|思いが詰ま/.test(
+            message.content
+          )
+      ),
       anxiety: messages.some(
         (message) => message.role === 'user' && /不安/.test(message.content)
       ),
@@ -438,7 +451,7 @@ function assertResults(results) {
       );
     }
     if (
-      /お察し(?:いた)?します|承知(?:いた)?しました|いらっしゃる|差し支えなければ|よろしければ|(?:お聞かせ|聞かせて|教えて|お話し|話して)いただけますか|お聞かせいただけますでしょうか|させていただけますでしょうか|となっております|お伺いいたします|お気軽に(?:ご質問|お尋ね|ご相談)|頑張られ|(?:素晴らしい|大切な)一歩|大切な視点|本音が隠れて|サポートさせていただきます|ご無理なさらず|ご安心ください|お過ごしください|(?:教えて|伝えて|書いて|声をかけて|相談して|お話しして|話して)くださ(?:り|って)[、,]?ありがとうございます|(?:気持ち|状況|悩み)を言葉にしていただけて(?:よかった|うれしい)です|(?:お気持ち|気持ち).{0,8}よく(?:分|わ)かります|何か(?:具体的に|続けて)?(?:お話し|話して)(?:みたい|したい)?ことはありますか|何か[、,]?(?:今)?(?:感じていることや[、,]?)?(?:話したい|話してみたい)ことはありますか|今[、,]?(?:この瞬間に)?(?:最も|一番)?(?:話したい|話してみたい)ことは何ですか|この(?:提案|方法|考え)(?:について)?[、,]?(?:どのように|どう)(?:感じ|思い)ますか|この[^。！？?\n]{0,80}(?:いかがでしょうか|いかがですか|試せそうでしょうか|試せそうですか|できそうでしょうか|できそうですか|どう思いますか)|最後に[、,]?自分で判断を深めるための質問です|あなたの言葉一つ一つを大切に受け止めています|受け止めさせてください|受け止めたいと思います|細かく分析する前に|見捨てられ|承認欲求|トラウマ|幼少期|愛着障害|共依存|我慢.{0,12}証拠|という喧嘩|タタスク|タースク|タムスケジュール/.test(
+      /お察し(?:いた)?します|承知(?:いた)?しました|いらっしゃる|差し支えなければ|よろしければ|(?:お聞かせ|聞かせて|教えて|お話し|話して)いただけますか|お聞かせいただけますでしょうか|させていただけますでしょうか|となっております|お伺いいたします|お気軽に(?:ご質問|お尋ね|ご相談)|頑張られ|(?:素晴らしい|大切な)一歩|大切な視点|本音が隠れて|サポートさせていただきます|ご無理なさらず|ご安心ください|お過ごしください|(?:教えて|伝えて|書いて|声をかけて|相談して|お話しして|話して)くださ(?:り|って)[、,]?ありがとうございます|(?:気持ち|状況|悩み)を言葉にしていただけて(?:よかった|うれしい)です|(?:お気持ち|気持ち).{0,8}よく(?:分|わ)かります|何か(?:具体的に|続けて)?(?:お話し|話して)(?:みたい|したい)?ことはありますか|何か[、,]?(?:今)?(?:感じていることや[、,]?)?(?:話したい|話してみたい)ことはありますか|今[、,]?(?:この瞬間に)?(?:最も|一番)?(?:話したい|話してみたい)ことは何ですか|この(?:提案|方法|考え)(?:について)?[、,]?(?:どのように|どう)(?:感じ|思い)ますか|この[^。！？?\n]{0,80}(?:いかがでしょうか|いかがですか|試せそうでしょうか|試せそうですか|できそうでしょうか|できそうですか|どう思いますか)|最後に[、,]?自分で判断を深めるための質問です|その[^。！？?\n]{0,80}気持ちが伝わります|姿勢は(?:とても)?素敵です|あなたの言葉一つ一つを大切に受け止めています|受け止めさせてください|受け止めたいと思います|細かく分析する前に|見捨てられ|承認欲求|トラウマ|幼少期|愛着障害|共依存|我慢.{0,12}証拠|という喧嘩|タタスク|タースク|タムスケジュール/.test(
         result.message
       )
     ) {
@@ -496,6 +509,12 @@ function assertResults(results) {
       (/悲し/.test(result.message) && !result.userGrounding.sadness) ||
       (/悔し/.test(result.message) && !result.userGrounding.regret) ||
       (/心残り/.test(result.message) && !result.userGrounding.heartResidue) ||
+      (/悪気/.test(result.message) && !result.userGrounding.malice) ||
+      (/(?:時間|労力)[^。！？?\n]{0,40}削られ/.test(result.message) &&
+        !result.userGrounding.depleted) ||
+      (/大切に考えていたこと|伝えたかった思い|思いが詰ま/.test(
+        result.message
+      ) && !result.userGrounding.cherishedThoughts) ||
       (/不安/.test(result.message) && !result.userGrounding.anxiety) ||
       (/焦り|焦っ/.test(result.message) && !result.userGrounding.impatience) ||
       (/寂し/.test(result.message) && !result.userGrounding.loneliness) ||
@@ -777,6 +796,14 @@ function countCoachingMoves(text) {
 }
 
 function containsAlternativeRequestedActions(text) {
+  if (
+    /[「『][^」』]{1,100}[」』](?:や|または|もしくは|あるいは)[「『][^」』]{1,100}[」』]/.test(
+      text
+    )
+  ) {
+    return true;
+  }
+
   if (/（[^）]+(?:、|または|もしくは)[^）]+など）/.test(text)) {
     return true;
   }

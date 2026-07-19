@@ -958,6 +958,12 @@ function evaluateConversations(conversations) {
           sadness: /悲し/.test(userContext),
           regret: /悔し/.test(userContext),
           heartResidue: /心残り/.test(userContext),
+          malice: /悪気/.test(userContext),
+          depleted: /削られ/.test(userContext),
+          cherishedThoughts:
+            /大切に考えていたこと|伝えたかった思い|思いが詰ま/.test(
+              userContext
+            ),
           anxiety: /不安/.test(userContext),
           impatience: /焦り|焦っ/.test(userContext),
           loneliness: /寂し|孤独/.test(userContext),
@@ -1097,7 +1103,7 @@ function evaluateConversations(conversations) {
     addCheck(
       checks,
       `${turn.label}: 硬い接客表現・既知の誤字なし`,
-      !/お察し(?:いた)?します|承知(?:いた)?しました|いらっしゃる|差し支えなければ|よろしければ|(?:お聞かせ|聞かせて|教えて|お話し|話して)いただけますか|お聞かせいただけますでしょうか|させていただけますでしょうか|となっております|お伺いいたします|お気軽に(?:ご質問|お尋ね|ご相談)|頑張られ|(?:素晴らしい|大切な)一歩|大切な視点|本音が隠れて|サポートさせていただきます|ご無理なさらず|ご安心ください|お過ごしください|(?:教えて|伝えて|書いて|声をかけて|相談して|お話しして|話して)くださ(?:り|って)[、,]?ありがとうございます|(?:気持ち|状況|悩み)を言葉にしていただけて(?:よかった|うれしい)です|(?:お気持ち|気持ち).{0,8}よく(?:分|わ)かります|何か(?:具体的に|続けて)?(?:お話し|話して)(?:みたい|したい)?ことはありますか|何か[、,]?(?:今)?(?:感じていることや[、,]?)?(?:話したい|話してみたい)ことはありますか|今[、,]?(?:この瞬間に)?(?:最も|一番)?(?:話したい|話してみたい)ことは何ですか|この(?:提案|方法|考え)(?:について)?[、,]?(?:どのように|どう)(?:感じ|思い)ますか|この[^。！？?\n]{0,80}(?:いかがでしょうか|いかがですか|試せそうでしょうか|試せそうですか|できそうでしょうか|できそうですか|どう思いますか)|最後に[、,]?自分で判断を深めるための質問です|あなたの言葉一つ一つを大切に受け止めています|受け止めさせてください|受け止めたいと思います|細かく分析する前に|見捨てられ|承認欲求|トラウマ|幼少期|愛着障害|共依存|我慢.{0,12}証拠|という喧嘩|タタスク|タースク|タムスケジュール|(?:です|ます)[。．]\s*か[？?]|途中で止まることはありません|必ず(?:回答|返答)します/.test(
+      !/お察し(?:いた)?します|承知(?:いた)?しました|いらっしゃる|差し支えなければ|よろしければ|(?:お聞かせ|聞かせて|教えて|お話し|話して)いただけますか|お聞かせいただけますでしょうか|させていただけますでしょうか|となっております|お伺いいたします|お気軽に(?:ご質問|お尋ね|ご相談)|頑張られ|(?:素晴らしい|大切な)一歩|大切な視点|本音が隠れて|サポートさせていただきます|ご無理なさらず|ご安心ください|お過ごしください|(?:教えて|伝えて|書いて|声をかけて|相談して|お話しして|話して)くださ(?:り|って)[、,]?ありがとうございます|(?:気持ち|状況|悩み)を言葉にしていただけて(?:よかった|うれしい)です|(?:お気持ち|気持ち).{0,8}よく(?:分|わ)かります|何か(?:具体的に|続けて)?(?:お話し|話して)(?:みたい|したい)?ことはありますか|何か[、,]?(?:今)?(?:感じていることや[、,]?)?(?:話したい|話してみたい)ことはありますか|今[、,]?(?:この瞬間に)?(?:最も|一番)?(?:話したい|話してみたい)ことは何ですか|この(?:提案|方法|考え)(?:について)?[、,]?(?:どのように|どう)(?:感じ|思い)ますか|この[^。！？?\n]{0,80}(?:いかがでしょうか|いかがですか|試せそうでしょうか|試せそうですか|できそうでしょうか|できそうですか|どう思いますか)|最後に[、,]?自分で判断を深めるための質問です|その[^。！？?\n]{0,80}気持ちが伝わります|姿勢は(?:とても)?素敵です|あなたの言葉一つ一つを大切に受け止めています|受け止めさせてください|受け止めたいと思います|細かく分析する前に|見捨てられ|承認欲求|トラウマ|幼少期|愛着障害|共依存|我慢.{0,12}証拠|という喧嘩|タタスク|タースク|タムスケジュール|(?:です|ます)[。．]\s*か[？?]|途中で止まることはありません|必ず(?:回答|返答)します/.test(
         turn.message
       ),
       turn.message
@@ -1155,6 +1161,12 @@ function evaluateConversations(conversations) {
         (/悲し/.test(turn.message) && !turn.userGrounding.sadness) ||
         (/悔し/.test(turn.message) && !turn.userGrounding.regret) ||
         (/心残り/.test(turn.message) && !turn.userGrounding.heartResidue) ||
+        (/悪気/.test(turn.message) && !turn.userGrounding.malice) ||
+        (/(?:時間|労力)[^。！？?\n]{0,40}削られ/.test(turn.message) &&
+          !turn.userGrounding.depleted) ||
+        (/大切に考えていたこと|伝えたかった思い|思いが詰ま/.test(
+          turn.message
+        ) && !turn.userGrounding.cherishedThoughts) ||
         (/不安/.test(turn.message) && !turn.userGrounding.anxiety) ||
         (/焦り|焦っ/.test(turn.message) && !turn.userGrounding.impatience) ||
         (/寂し/.test(turn.message) && !turn.userGrounding.loneliness) ||
@@ -1365,8 +1377,24 @@ function evaluateConversations(conversations) {
   );
   addCheck(
     checks,
+    '訂正後: 強みとこだわりを同時に答えさせない',
+    !/強み[^。！？?\n]{0,24}(?:や|と)こだわり|こだわり[^。！？?\n]{0,24}(?:や|と)強み/.test(
+      continuity.turns[1].message
+    ),
+    continuity.turns[1].message
+  );
+  addCheck(
+    checks,
     '具体策要求: 括弧内へ複数の候補を詰めない',
     !/（[^）]+(?:、|または|もしくは)[^）]+など）/.test(
+      continuity.turns[2].message
+    ),
+    continuity.turns[2].message
+  );
+  addCheck(
+    checks,
+    '具体策要求: 引用した二つの候補を一つに見せかけない',
+    !/[「『][^」』]+[」』](?:や|または|もしくは|あるいは)[「『][^」』]+[」』]/.test(
       continuity.turns[2].message
     ),
     continuity.turns[2].message
@@ -1393,6 +1421,14 @@ function evaluateConversations(conversations) {
       !/落ち込|心残り|どんな気持ち(?:ですか|になりますか)|(?:怒り|腹が立)[^。！？?\n]{0,80}(?:感じている|強い|でしょうか|ですか)/.test(
         emotionFidelity.turns[0].message
       ),
+    emotionFidelity.turns[0].message
+  );
+  addCheck(
+    checks,
+    '感情保持: 準備へ込めた思いを本人の発言なしに補わない',
+    !/大切に考えていたこと|伝えたかった思い|思いが詰ま/.test(
+      emotionFidelity.turns[0].message
+    ),
     emotionFidelity.turns[0].message
   );
   const directWording = emotionFidelity.turns[1].message;
@@ -1554,6 +1590,14 @@ function evaluateConversations(conversations) {
   );
   addCheck(
     checks,
+    '6往復会話: 相手の悪気や利用者の消耗を勝手に決めない',
+    !/悪気|(?:時間|労力)[^。！？?\n]{0,40}削られ|気持ちが伝わります/.test(
+      sixTurn.turns[0].message
+    ),
+    sixTurn.turns[0].message
+  );
+  addCheck(
+    checks,
     '6往復会話: 時間を軽く扱われた核心から次へ進む',
     /時間|軽く扱/.test(sixTurn.turns[1].message) &&
       /変えてほしい|何をわかってほしい|どうしてほしい/.test(
@@ -1561,6 +1605,13 @@ function evaluateConversations(conversations) {
       ) &&
       !/見過ごしたくない本音/.test(sixTurn.turns[1].message),
     sixTurn.turns[1].message
+  );
+  addCheck(
+    checks,
+    '6往復会話: 利用者の姿勢を評価せず、括弧を壊さない',
+    !/姿勢は(?:とても)?素敵|(^|\n)」/.test(sixTurn.turns[2].message) &&
+      hasBalancedDelimiters(sixTurn.turns[2].message),
+    sixTurn.turns[2].message
   );
   addCheck(
     checks,
@@ -1666,6 +1717,14 @@ function countCoachingActionClauses(text) {
 }
 
 function containsAlternativeRequestedActions(text) {
+  if (
+    /[「『][^」』]{1,100}[」』](?:や|または|もしくは|あるいは)[「『][^」』]{1,100}[」』]/.test(
+      text
+    )
+  ) {
+    return true;
+  }
+
   if (/（[^）]+(?:、|または|もしくは)[^）]+など）/.test(text)) {
     return true;
   }
@@ -1697,7 +1756,7 @@ function asksForMultipleAnswerDimensions(text) {
         /(?:です|ます)か[、,]?(?:それとも|または|あるいは)[^。！？?\n]{1,100}(?:です|ます)か/.test(
           trimmed
         ) ||
-        /(?:出来事|事実|状況|理由|原因|気持ち|感情|思い|希望|望み|行動|タイミング|言い方|方法|内容|テーマ|気になっていること|頭に浮かんでくること)[」』]?(?:と|や|および|ならびに|、)[^。！？?\n]{0,32}[「『]?(?:出来事|事実|状況|理由|原因|気持ち|感情|思い|希望|望み|行動|タイミング|言い方|方法|内容|テーマ|気になっていること|頭に浮かんでくること)/.test(
+        /(?:出来事|事実|状況|理由|原因|気持ち|感情|思い|希望|望み|行動|タイミング|言い方|方法|内容|テーマ|強み|こだわり|気になっていること|頭に浮かんでくること)[」』]?(?:と|や|および|ならびに|、)[^。！？?\n]{0,32}[「『]?(?:出来事|事実|状況|理由|原因|気持ち|感情|思い|希望|望み|行動|タイミング|言い方|方法|内容|テーマ|強み|こだわり|気になっていること|頭に浮かんでくること)/.test(
           trimmed
         ))
     );
