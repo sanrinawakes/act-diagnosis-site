@@ -98,6 +98,24 @@ describe('normalizeCoachingOutput', () => {
     expect(result).not.toMatch(/決めてから|深呼吸|席について/);
   });
 
+  it('「一つだけ」に読点でつないだ二動作を詰め込まない', () => {
+    const result = normalizeCoachingOutput(
+      '明日、仕事やSNSに関することで「気になっていること」を一つだけ書き出し、それを5分間だけ眺めてみてください。',
+      '明日まず何をすればいいか、一つだけ短く教えてください。',
+      [
+        {
+          role: 'user',
+          content: '仕事の悩みとSNSへの抵抗感について相談しています。',
+        },
+      ]
+    );
+
+    expect(result).toBe(
+      '明日の朝、SNSで最初に伝えたい内容を一文だけメモに書いてください。'
+    );
+    expect(result).not.toContain('眺め');
+  });
+
   it('一つだけ指定された時は二つ目の提案段落を除く', () => {
     const result = normalizeCoachingOutput(
       [
@@ -153,7 +171,7 @@ describe('normalizeCoachingOutput', () => {
     );
 
     expect(result).toBe(
-      '今できる最小の行動を一つだけ決めて、そこから始めてみてください。'
+      '今いちばん気になっていることを一文だけメモに書いてください。'
     );
   });
 

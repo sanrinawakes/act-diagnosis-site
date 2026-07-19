@@ -1019,8 +1019,7 @@ function evaluateConversations(conversations) {
         `${turn.label}: 一つだけ指定は一段落で返す`,
         turn.message.split(/\n{2,}/).filter(Boolean).length === 1 &&
           turn.semanticQuestions === 0 &&
-          (turn.message.match(/(?:て|で)から|その後|次に|続いて/g) || [])
-            .length < 2,
+          countCoachingActionClauses(turn.message) < 2,
         turn.message
       );
     }
@@ -1243,6 +1242,16 @@ function evaluateConversations(conversations) {
   );
 
   return checks;
+}
+
+function countCoachingActionClauses(text) {
+  const actionPattern =
+    /書き出|書い|書く|決め|選ん|伝えて|話し始め|話して|深呼吸|呼吸を|飲ん|休ん|横にな|目を閉じ|眺め|確認|開い|送っ|連絡|相談|断っ|置い|取り組|始め/;
+
+  return text
+    .split(/(?:て|で)から|その後|次に|続いて|[、,]/)
+    .map((clause) => clause.trim())
+    .filter((clause) => actionPattern.test(clause)).length;
 }
 
 function findConversation(conversations, name) {

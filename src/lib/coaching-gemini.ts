@@ -1050,11 +1050,7 @@ export function normalizeCoachingOutput(
   const balanced = balanceJapaneseDelimiters(
     softenRepeatedAcknowledgement(normalized || fallbackText)
   );
-  const singleAnswerSafe =
-    requestsSingleAnswerFormat(lastUserText) &&
-    containsMultipleRequestedItems(balanced)
-      ? buildNoQuestionFallback(lastUserText, historyMessages)
-      : balanced;
+  const singleAnswerSafe = balanced;
 
   if (requestsOnePhraseAnswer(lastUserText)) {
     return firstNonEmptyParagraph(singleAnswerSafe);
@@ -1087,7 +1083,17 @@ function containsMultipleRequestedItems(text: string) {
     return true;
   }
 
-  return (text.match(/(?:て|で)から|その後|次に|続いて/g) || []).length >= 2;
+  return countCoachingActionClauses(text) >= 2;
+}
+
+function countCoachingActionClauses(text: string) {
+  const actionPattern =
+    /書き出|書い|書く|決め|選ん|伝えて|話し始め|話して|深呼吸|呼吸を|飲ん|休ん|横にな|目を閉じ|眺め|確認|開い|送っ|連絡|相談|断っ|置い|取り組|始め/;
+
+  return text
+    .split(/(?:て|で)から|その後|次に|続いて|[、,]/)
+    .map((clause) => clause.trim())
+    .filter((clause) => actionPattern.test(clause)).length;
 }
 
 function requestsOnePhraseAnswer(text: string) {
@@ -1113,8 +1119,11 @@ function selectSingleAnswerBlock(
     .split(/\n{2,}/)
     .map((paragraph) => paragraph.trim())
     .filter(Boolean);
+  const eligibleParagraphs = paragraphs.filter(
+    (paragraph) => !containsMultipleRequestedItems(paragraph)
+  );
   const quotedAnswer = /一言|言い方|文面|返事/.test(lastUserText)
-    ? paragraphs.find((paragraph) => /「[^」]{4,}」/.test(paragraph))
+    ? eligibleParagraphs.find((paragraph) => /「[^」]{4,}」/.test(paragraph))
     : undefined;
   if (requestsDirectWording(lastUserText) && quotedAnswer) {
     if (isGroundedDirectWording(quotedAnswer, historyMessages)) {
@@ -1124,15 +1133,15 @@ function selectSingleAnswerBlock(
     const groundedFallback = buildGroundedDirectWording(historyMessages);
     if (groundedFallback) return groundedFallback;
   }
-  const concreteParagraph = paragraphs.find((paragraph) =>
+  const concreteParagraph = eligibleParagraphs.find((paragraph) =>
     hasConcreteAction(paragraph, lastUserText)
   );
-  const substantiveParagraph = paragraphs.find(isSubstantiveSingleAnswer);
+  const substantiveParagraph = eligibleParagraphs.find(isSubstantiveSingleAnswer);
   const selected =
     quotedAnswer ||
     concreteParagraph ||
     substantiveParagraph ||
-    paragraphs.at(-1) ||
+    eligibleParagraphs.at(-1) ||
     '';
 
   return quotedAnswer ||
@@ -1386,7 +1395,7 @@ function buildNoQuestionFallback(
   if (/仕事|職場|業務|会社|タスク/.test(userContext)) {
     return '明日の朝、今いちばん気になる仕事に5分だけ取り組んでください。';
   }
-  return '今できる最小の行動を一つだけ決めて、そこから始めてみてください。';
+  return '今いちばん気になっていることを一文だけメモに書いてください。';
 }
 
 function softenRepeatedAcknowledgement(text: string) {

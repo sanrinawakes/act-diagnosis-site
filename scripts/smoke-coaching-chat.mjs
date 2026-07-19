@@ -264,8 +264,7 @@ function assertResults(results) {
       requestsSingleAnswerInSmoke(result.lastUserText) &&
       !requestsExplicitClosingQuestionInSmoke(result.lastUserText) &&
       (result.message.split(/\n{2,}/).filter(Boolean).length !== 1 ||
-        (result.message.match(/(?:て|で)から|その後|次に|続いて/g) || [])
-          .length >= 2)
+        countCoachingActionClauses(result.message) >= 2)
     ) {
       throw new Error(
         `${result.label} returned multiple requested actions: ${result.message}`
@@ -303,6 +302,16 @@ function assertResults(results) {
       );
     }
   }
+}
+
+function countCoachingActionClauses(text) {
+  const actionPattern =
+    /書き出|書い|書く|決め|選ん|伝えて|話し始め|話して|深呼吸|呼吸を|飲ん|休ん|横にな|目を閉じ|眺め|確認|開い|送っ|連絡|相談|断っ|置い|取り組|始め/;
+
+  return text
+    .split(/(?:て|で)から|その後|次に|続いて|[、,]/)
+    .map((clause) => clause.trim())
+    .filter((clause) => actionPattern.test(clause)).length;
 }
 
 function requestsSingleAnswerInSmoke(text) {
