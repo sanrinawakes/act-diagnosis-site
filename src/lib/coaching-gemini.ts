@@ -1054,6 +1054,7 @@ export function normalizeCoachingOutput(
       /今(?:一番|いちばん)(?:あなたの)?心を重くしているのは/g,
       '今いちばん気になっているのは'
     )
+    .replace(/何が一番心に引っかかっているか/g, '何が一番気になっているか')
     .replace(/あなたの言葉一つ一つを大切に受け止めています[。]?/g, '')
     .replace(/。{2,}/g, '。');
   const temporallyAlignedText = /明日/.test(lastUserText)
@@ -1859,17 +1860,24 @@ function removeUnsupportedPsychologicalInference(
       .map((message) => stripAttachmentMarkdown(message.content)),
     lastUserText,
   ].join('\n');
-  const candidateText = /ミス|失敗/.test(userContext)
-    ? text
-    : text
-        .replace(
-          /仕事で(?:ミス|失敗)(?:があり|をして|してしまい|し)[、,]?/g,
-          '仕事のことで、'
-        )
-        .replace(
-          /今(?:一番|いちばん)気になっている[「『]?(?:ミス|失敗)[^」』。\n]{0,24}(?:場面|出来事)[」』]?/g,
-          '今いちばん気になっている出来事'
-        );
+  let candidateText = text;
+  if (!/ミス|失敗/.test(userContext)) {
+    candidateText = candidateText
+      .replace(
+        /仕事で(?:ミス|失敗)(?:があり|をして|してしまい|し)[、,]?/g,
+        '仕事のことで、'
+      )
+      .replace(
+        /今(?:一番|いちばん)気になっている[「『]?(?:ミス|失敗)[^」』。\n]{0,24}(?:場面|出来事)[」』]?/g,
+        '今いちばん気になっている出来事'
+      );
+  }
+  if (/落ち込/.test(userContext) && !/沈ん/.test(userContext)) {
+    candidateText = candidateText.replace(
+      /(?:お気持ち|気持ち|心)が沈んでいる/g,
+      '落ち込んでいる'
+    );
+  }
   const loadedInferences = [
     { output: /見捨てられ/, supportedBy: /見捨てられ/ },
     { output: /承認欲求/, supportedBy: /承認欲求/ },
@@ -1888,12 +1896,20 @@ function removeUnsupportedPsychologicalInference(
       supportedBy: /予測|また.{0,12}否定/,
     },
     {
+      output: /予測/,
+      supportedBy: /予測|また.{0,12}否定/,
+    },
+    {
       output: /苦しめ/,
       supportedBy: /苦し|つら|辛|しんど/,
     },
     {
       output: /心が疲れ|心も疲れ/,
       supportedBy: /疲れ|消耗/,
+    },
+    {
+      output: /(?:お気持ち|気持ち|心)が沈/,
+      supportedBy: /沈ん/,
     },
     {
       output: /重(?:い|たい)/,

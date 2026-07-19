@@ -245,6 +245,9 @@ async function sendStreamRequest({ email, diagnosisCode, messages, label }) {
         (message) =>
           message.role === 'user' && /重(?:い|たい)/.test(message.content)
       ),
+      moodSinking: messages.some(
+        (message) => message.role === 'user' && /沈ん/.test(message.content)
+      ),
       emotionSwitching: messages.some(
         (message) => message.role === 'user' && /切り替え/.test(message.content)
       ),
@@ -383,12 +386,12 @@ function assertResults(results) {
       (/緊張/.test(result.message) && !result.userGrounding.tension) ||
       (/ミス|失敗/.test(result.message) && !result.userGrounding.mistake) ||
       (/身構え/.test(result.message) && !result.userGrounding.bracing) ||
-      (/予測.{0,12}(?:から来|が原因)|(?:から来|原因).{0,12}予測/.test(
-        result.message
-      ) && !result.userGrounding.prediction) ||
+      (/予測/.test(result.message) && !result.userGrounding.prediction) ||
       (/苦しめ/.test(result.message) && !result.userGrounding.suffering) ||
       (/心が疲れ|心も疲れ/.test(result.message) &&
         !result.userGrounding.heartFatigue) ||
+      (/(?:お気持ち|気持ち|心)が沈/.test(result.message) &&
+        !result.userGrounding.moodSinking) ||
       (/重(?:い|たい)/.test(result.message) &&
         !result.userGrounding.weightMetaphor) ||
       (/気持ちの切り替え/.test(result.message) &&

@@ -909,6 +909,7 @@ function evaluateConversations(conversations) {
           suffering: /苦し|つら|辛|しんど/.test(userContext),
           heartFatigue: /疲れ|消耗/.test(userContext),
           weightMetaphor: /重(?:い|たい)/.test(userContext),
+          moodSinking: /沈ん/.test(userContext),
           emotionSwitching: /切り替え/.test(userContext),
           emphaticCause: /(?:だからこそ|からこそ)/.test(userContext),
           overwhelmed: /精一杯|余裕がない|限界/.test(userContext),
@@ -1043,12 +1044,12 @@ function evaluateConversations(conversations) {
         (/緊張/.test(turn.message) && !turn.userGrounding.tension) ||
         (/ミス|失敗/.test(turn.message) && !turn.userGrounding.mistake) ||
         (/身構え/.test(turn.message) && !turn.userGrounding.bracing) ||
-        (/予測.{0,12}(?:から来|が原因)|(?:から来|原因).{0,12}予測/.test(
-          turn.message
-        ) && !turn.userGrounding.prediction) ||
+        (/予測/.test(turn.message) && !turn.userGrounding.prediction) ||
         (/苦しめ/.test(turn.message) && !turn.userGrounding.suffering) ||
         (/心が疲れ|心も疲れ/.test(turn.message) &&
           !turn.userGrounding.heartFatigue) ||
+        (/(?:お気持ち|気持ち|心)が沈/.test(turn.message) &&
+          !turn.userGrounding.moodSinking) ||
         (/重(?:い|たい)/.test(turn.message) &&
           !turn.userGrounding.weightMetaphor) ||
         (/気持ちの切り替え/.test(turn.message) &&

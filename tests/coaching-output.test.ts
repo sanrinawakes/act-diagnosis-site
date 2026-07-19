@@ -326,6 +326,28 @@ describe('normalizeCoachingOutput', () => {
     expect(result).toContain('落ち込');
   });
 
+  it('「落ち込んでいる」を「気持ちが沈んでいる」へ言い換えない', () => {
+    const result = normalizeCoachingOutput(
+      '仕事で落ち込むことがあり、今はお気持ちが沈んでいるのですね。\n\n今の状況を整理するために、まずは「何が一番心に引っかかっているか」を一つだけ聞かせてもらえますか？',
+      '仕事のことで少し落ち込んでいます。短く整理を手伝ってください。'
+    );
+
+    expect(result).not.toContain('沈んで');
+    expect(result).not.toContain('心に引っかかって');
+    expect(result).toContain('落ち込んで');
+    expect(result).toContain('何が一番気になっているか');
+  });
+
+  it('本人が話していない予測を誘導質問として持ち込まない', () => {
+    const result = normalizeCoachingOutput(
+      '上司に否定されたと感じ、次の一言を出すのが怖くなっているのですね。\n\nその「怖さ」を感じたとき、心の中で「もしこう言ったら、また否定されるかもしれない」という具体的な予測が浮かんでいませんか？',
+      '上司に否定されたように感じて、次の一言が怖いです。'
+    );
+
+    expect(result).not.toContain('予測');
+    expect(result).toContain('いちばん避けたいことは何ですか？');
+  });
+
   it('句点で終わる質問と「教えてください」を重ねない', () => {
     const result = normalizeCoachingOutput(
       [
