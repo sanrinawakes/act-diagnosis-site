@@ -1294,10 +1294,20 @@ export function normalizeCoachingOutput(
 function preserveRequestedActionTime(text: string, lastUserText: string) {
   if (!/明日/.test(lastUserText)) return text;
 
-  const aligned = text
+  let aligned = text
     .replace(/先ほど/g, '前回')
     .replace(/翌朝/g, '明日の朝')
     .replace(/翌日/g, '明日');
+  if (
+    requestsConcreteSuggestion(lastUserText) &&
+    !requestsDirectWording(lastUserText) &&
+    /明日の朝/.test(aligned)
+  ) {
+    aligned = aligned.replace(
+      /([「『])明日伝えたい(こと|内容)([」』])/g,
+      '$1最初に伝えたい$2$3'
+    );
+  }
   if (requestsDirectWording(lastUserText)) return aligned;
   if (
     requestsConcreteSuggestion(lastUserText) &&

@@ -569,6 +569,14 @@ function assertResults(results) {
         `${result.label} dropped the requested time reference: ${result.message}`
       );
     }
+    if (
+      /明日の朝/.test(result.message) &&
+      /[「『]明日伝えたい(?:こと|内容)[」』]/.test(result.message)
+    ) {
+      throw new Error(
+        `${result.label} shifted tomorrow morning's action to the following day: ${result.message}`
+      );
+    }
     if (asksForMultipleAnswerDimensions(result.message)) {
       throw new Error(
         `${result.label} asked for multiple answer fields: ${result.message}`

@@ -2044,4 +2044,22 @@ describe('normalizeCoachingOutput', () => {
     expect(result).not.toMatch(/それだけ|大切だから/);
     expect(result).toContain('メモ');
   });
+
+  it('明日の朝の行動で「明日伝えたいこと」と翌日へずらさない', () => {
+    const result = normalizeCoachingOutput(
+      '明日の朝、SNSを開く前に「明日伝えたいこと」をメモ帳に一言だけ書き出してみてください。',
+      '明日まず何をすればいいか、一つだけ短く教えてください。',
+      [
+        {
+          role: 'user',
+          content: 'SNSで発信したいのに、書き始めることへ抵抗があります。',
+        },
+      ]
+    );
+
+    expect(result).toBe(
+      '明日の朝、SNSを開く前に「最初に伝えたいこと」をメモ帳に一言だけ書き出してみてください。'
+    );
+    expect(result).not.toContain('「明日伝えたいこと」');
+  });
 });

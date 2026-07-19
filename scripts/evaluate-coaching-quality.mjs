@@ -1219,6 +1219,15 @@ function evaluateConversations(conversations) {
     );
     addCheck(
       checks,
+      `${turn.label}: 明日の朝の行動を翌日へずらさない`,
+      !(
+        /明日の朝/.test(turn.message) &&
+        /[「『]明日伝えたい(?:こと|内容)[」』]/.test(turn.message)
+      ),
+      turn.message
+    );
+    addCheck(
+      checks,
       `${turn.label}: 一つの質問で複数回答を要求しない`,
       !asksForMultipleAnswerDimensions(turn.message),
       turn.message
