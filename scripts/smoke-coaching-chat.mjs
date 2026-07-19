@@ -211,6 +211,14 @@ async function sendStreamRequest({ email, diagnosisCode, messages, label }) {
     hasDone: Boolean(donePayload),
     outputChars: message.length,
     remaining: donePayload?.remaining ?? null,
+    userGrounding: {
+      expectation: messages.some(
+        (message) => message.role === 'user' && /期待|応え/.test(message.content)
+      ),
+      intimidation: messages.some(
+        (message) => message.role === 'user' && /萎縮/.test(message.content)
+      ),
+    },
     message,
   };
 }
@@ -258,12 +266,21 @@ function assertResults(results) {
       );
     }
     if (
-      /否定.{0,6}(?:ではなく|でなく).{0,8}意見|(?:感情|気持ち|怖さ|不安|怒り|悲しさ).{0,16}(?:横|脇)に置|(?:感情|気持ち|怖さ|不安|怒り|悲しさ).{0,12}切り離|客観的に見つめ直/.test(
+      /否定.{0,6}(?:ではなく|でなく).{0,8}意見|(?:感情|気持ち|怖さ|不安|怒り|悲しさ|悩み|問題|課題).{0,16}(?:横|脇)[にへ]置|(?:感情|気持ち|怖さ|不安|怒り|悲しさ|悩み|問題|課題).{0,12}切り離|客観的に見つめ直/.test(
         result.message
       )
     ) {
       throw new Error(
         `${result.label} invalidated the user's stated feeling: ${result.message}`
+      );
+    }
+    if (
+      (/期待に応え/.test(result.message) &&
+        !result.userGrounding.expectation) ||
+      (/萎縮/.test(result.message) && !result.userGrounding.intimidation)
+    ) {
+      throw new Error(
+        `${result.label} invented an unsupported psychological inference: ${result.message}`
       );
     }
   }

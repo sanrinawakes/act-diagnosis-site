@@ -891,9 +891,7 @@ export function normalizeCoachingOutput(
   const requiresClosingQuestion = requestsExplicitClosingQuestion(lastUserText);
   const questionLimit =
     requiresClosingQuestion || requestsNoFollowUpQuestion(lastUserText) ? 0 : 1;
-  const safeText = invalidatesUserFeeling(text)
-    ? buildNoQuestionFallback(lastUserText)
-    : text;
+  const safeText = rewriteInvalidatingAdvice(text, lastUserText);
   const naturalText = safeText
     .replace(/タタスク/g, 'タスク')
     .replace(/タースク/g, 'タスク')
@@ -982,7 +980,8 @@ export function normalizeCoachingOutput(
   );
   const groundedText = removeUnsupportedPsychologicalInference(
     responsiveText,
-    lastUserText
+    lastUserText,
+    historyMessages
   );
   const diagnosisSafeText = requestsDiagnosisExplanation(lastUserText)
     ? groundedText
@@ -1447,8 +1446,26 @@ function removeUnrequestedDiagnosisExplanation(text: string) {
   return filtered || '今の状況でできることを、一つずつ一緒に考えていきましょう。';
 }
 
+function rewriteInvalidatingAdvice(text: string, lastUserText: string) {
+  const rewritten = text
+    .replace(
+      /((?:その|今の|この)?「[^」\n]{0,80}(?:感情|気持ち|怖さ|不安|怒り|悲しさ|悩み|問題|課題)[^」\n]{0,40}」)(?:を|は)(?:(?:少し|少しだけ|一旦|いったん|一度|まず|しばらく)\s*)?(?:(?:横|脇)[にへ]置(?:き|いて)(?:から)?|切り離し(?:て)?)[、,]?/g,
+      '$1があっても、'
+    )
+    .replace(
+      /((?:(?:その|今の|この|抱えている|SNSや仕事の)[^、。\n]{0,24}|[^、。\n]{0,18})?(?:感情|気持ち|怖さ|不安|怒り|悲しさ|悩み|問題|課題))(?:を|は)(?:(?:少し|少しだけ|一旦|いったん|一度|まず|しばらく)\s*)?(?:(?:横|脇)[にへ]置(?:き|いて)(?:から)?|切り離し(?:て)?)[、,]?/g,
+      '$1があっても、'
+    )
+    .replace(/、{2,}/g, '、')
+    .trim();
+
+  return invalidatesUserFeeling(rewritten)
+    ? buildNoQuestionFallback(lastUserText)
+    : rewritten;
+}
+
 function invalidatesUserFeeling(text: string) {
-  return /否定.{0,6}(?:ではなく|でなく).{0,8}意見|(?:感情|気持ち|怖さ|不安|怒り|悲しさ).{0,16}(?:横|脇)に置|(?:感情|気持ち|怖さ|不安|怒り|悲しさ).{0,12}切り離|客観的に見つめ直/.test(
+  return /否定.{0,6}(?:ではなく|でなく).{0,8}意見|(?:感情|気持ち|怖さ|不安|怒り|悲しさ|悩み|問題|課題).{0,16}(?:横|脇)[にへ]置|(?:感情|気持ち|怖さ|不安|怒り|悲しさ|悩み|問題|課題).{0,12}切り離|客観的に見つめ直/.test(
     text
   );
 }
@@ -1471,29 +1488,39 @@ function removeAnsweredEmotionQuestion(text: string, lastUserText: string) {
 
 function removeUnsupportedPsychologicalInference(
   text: string,
-  lastUserText: string
+  lastUserText: string,
+  historyMessages: CoachingChatMessage[] = []
 ) {
-  const loadedTerms = [
-    '見捨てられ',
-    '承認欲求',
-    'トラウマ',
-    '幼少期',
-    '愛着障害',
-    '共依存',
-    '証拠',
+  const userContext = [
+    ...historyMessages
+      .filter((message) => message.role === 'user')
+      .map((message) => stripAttachmentMarkdown(message.content)),
+    lastUserText,
+  ].join('\n');
+  const loadedInferences = [
+    { output: '見捨てられ', supportedBy: /見捨てられ/ },
+    { output: '承認欲求', supportedBy: /承認欲求/ },
+    { output: 'トラウマ', supportedBy: /トラウマ/ },
+    { output: '幼少期', supportedBy: /幼少期/ },
+    { output: '愛着障害', supportedBy: /愛着障害/ },
+    { output: '共依存', supportedBy: /共依存/ },
+    { output: '証拠', supportedBy: /証拠/ },
+    { output: '期待に応え', supportedBy: /期待|応え/ },
+    { output: '萎縮', supportedBy: /萎縮/ },
   ];
-  const unsupportedTerms = loadedTerms.filter(
-    (term) => text.includes(term) && !lastUserText.includes(term)
+  const unsupportedTerms = loadedInferences.filter(
+    ({ output, supportedBy }) =>
+      text.includes(output) && !supportedBy.test(userContext)
   );
   if (unsupportedTerms.length === 0) return text;
 
-  const grounded = text
-    .split(/\n{2,}/)
+  const grounded = (text.match(/[^。！？?\n]+[。！？?]?|\n+/g) || [])
     .filter(
-      (paragraph) =>
-        !unsupportedTerms.some((term) => paragraph.includes(term))
+      (segment) =>
+        !unsupportedTerms.some(({ output }) => segment.includes(output))
     )
-    .join('\n\n')
+    .join('')
+    .replace(/\n{3,}/g, '\n\n')
     .trim();
 
   return grounded || buildNoQuestionFallback(lastUserText);

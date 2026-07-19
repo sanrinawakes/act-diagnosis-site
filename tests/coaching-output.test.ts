@@ -262,7 +262,20 @@ describe('normalizeCoachingOutput', () => {
     );
 
     expect(result).not.toMatch(/横に置|脇に置|切り離/);
-    expect(result).toContain('最小の行動を一つだけ');
+    expect(result).toContain('怖さ」があっても');
+    expect(result).toContain('小さな一歩');
+  });
+
+  it('悩みを横へ置く提案を、悩みがあっても実行できる行動へ直す', () => {
+    const result = normalizeCoachingOutput(
+      '明日の朝、SNSや仕事の悩みを一旦横に置き、まずは「今日一番心に残ったこと」をメモ帳に一行だけ書き出してみてください。',
+      '明日まず何をすればいいか、一つだけ短く教えてください。'
+    );
+
+    expect(result).toBe(
+      '明日の朝、SNSや仕事の悩みがあっても、まずは「今日一番心に残ったこと」をメモ帳に一行だけ書き出してみてください。'
+    );
+    expect(result).not.toMatch(/横に置|脇に置|切り離/);
   });
 
   it('定型的な理解表現・接客語・安心保証を残さない', () => {
@@ -337,6 +350,37 @@ describe('normalizeCoachingOutput', () => {
     expect(result).not.toMatch(/見捨てられ|言葉一つ一つ|最も話したいこと/);
     expect(result).toContain('前の話は踏まえています。');
     expect(result).toContain('いちばん見過ごしたくない本音');
+  });
+
+  it('利用者が言っていない期待や萎縮を心理理由として補わない', () => {
+    const result = normalizeCoachingOutput(
+      [
+        '仕事で落ち込むことがあったのですね。',
+        '期待に応えたいという思いが強いからこそ、その重さを感じているのかもしれません。',
+        '上司の言葉で萎縮してしまったのですね。',
+        'まず、今日起きた事実を一行だけ書いてみてください。',
+      ].join(''),
+      '仕事のことで少し落ち込んでいます。短く整理を手伝ってください。'
+    );
+
+    expect(result).not.toMatch(/期待に応え|萎縮/);
+    expect(result).toContain('仕事で落ち込むことがあった');
+    expect(result).toContain('今日起きた事実を一行だけ');
+  });
+
+  it('過去の本人発言に根拠がある心理表現は削除しない', () => {
+    const result = normalizeCoachingOutput(
+      '期待に応えたいという思いが、行動を急がせているのですね。まず優先する仕事を一つ決めてください。',
+      'その続きから整理してください。',
+      [
+        {
+          role: 'user',
+          content: '上司の期待に応えたい気持ちが強くて、仕事を急いでしまいます。',
+        },
+      ]
+    );
+
+    expect(result).toContain('期待に応えたい');
   });
 
   it('短い入力への過剰な謝意と広すぎる質問を残さない', () => {

@@ -891,7 +891,20 @@ async function sendStreamRequest({
 
 function evaluateConversations(conversations) {
   const checks = [];
-  const allTurns = conversations.flatMap((conversation) => conversation.turns);
+  const allTurns = conversations.flatMap((conversation) => {
+    const userMessages = [];
+    return conversation.turns.map((turn) => {
+      userMessages.push(turn.user);
+      const userContext = userMessages.join('\n');
+      return {
+        ...turn,
+        userGrounding: {
+          expectation: /期待|応え/.test(userContext),
+          intimidation: /萎縮/.test(userContext),
+        },
+      };
+    });
+  });
 
   allTurns.forEach((turn) => {
     const minimumOutputChars =
@@ -967,8 +980,18 @@ function evaluateConversations(conversations) {
     addCheck(
       checks,
       `${turn.label}: ユーザーの感情を打ち消さない`,
-      !/否定.{0,6}(?:ではなく|でなく).{0,8}意見|(?:感情|気持ち|怖さ|不安|怒り|悲しさ).{0,16}(?:横|脇)に置|(?:感情|気持ち|怖さ|不安|怒り|悲しさ).{0,12}切り離|客観的に見つめ直/.test(
+      !/否定.{0,6}(?:ではなく|でなく).{0,8}意見|(?:感情|気持ち|怖さ|不安|怒り|悲しさ|悩み|問題|課題).{0,16}(?:横|脇)[にへ]置|(?:感情|気持ち|怖さ|不安|怒り|悲しさ|悩み|問題|課題).{0,12}切り離|客観的に見つめ直/.test(
         turn.message
+      ),
+      turn.message
+    );
+    addCheck(
+      checks,
+      `${turn.label}: 根拠のない期待・萎縮を補わない`,
+      !(
+        (/期待に応え/.test(turn.message) &&
+          !turn.userGrounding.expectation) ||
+        (/萎縮/.test(turn.message) && !turn.userGrounding.intimidation)
       ),
       turn.message
     );
