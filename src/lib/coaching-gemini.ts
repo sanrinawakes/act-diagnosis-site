@@ -1058,6 +1058,19 @@ export function normalizeCoachingOutput(
       /そのように[^。\n]{0,120}姿勢は(?:とても)?素敵です[。！]?/g,
       ''
     )
+    .replace(
+      /(?:まずは[、,]?)?(?:その[^。\n]{0,40}ために[、,]?)?(?:今日|今夜)?[^。\n]{0,20}(?:一つ|ひとつ|1つ)(?:だけ)?(?:試せる|できる)?(?:提案|方法|行動)があります[。！]?/g,
+      ''
+    )
+    .replace(/(?:それは)?(?:とても)?大切な本音です[。！]?/g, '')
+    .replace(
+      /[^。\n]{0,80}(?:思い|気持ち)(?:は|が)(?:とても)?大切です[。！]?/g,
+      ''
+    )
+    .replace(
+      /[^。\n]{0,80}それだけ[^。\n]{0,80}(?:大切|重要)[^。\n]{0,12}(?:から|ため)(?:ですね|です)?[。！]?/g,
+      ''
+    )
     .replace(/全力でサポートさせていただきます[。]?/g, '一緒に整理します。')
     .replace(/ご無理なさらず/g, '無理せず')
     .replace(/(?:ので[、,]?)?ご安心ください[。]?/g, '。')
@@ -1150,7 +1163,8 @@ export function normalizeCoachingOutput(
     .replace(/。{2,}/g, '。');
   const contextualText = rewriteContextualClosingQuestion(
     naturalText,
-    lastUserText
+    lastUserText,
+    historyMessages
   );
   const referenceSafeText = rewriteUngroundedWordingReference(
     contextualText,
@@ -1159,7 +1173,8 @@ export function normalizeCoachingOutput(
   );
   const followUpSafeText = rewriteGenericSuggestionFollowUp(
     referenceSafeText,
-    lastUserText
+    lastUserText,
+    historyMessages
   );
   const temporallyAlignedText = /明日/.test(lastUserText)
     ? followUpSafeText.replace(/先ほど/g, '前回')
@@ -1229,7 +1244,8 @@ export function normalizeCoachingOutput(
   const fallbackText =
     questionLimit === 0
       ? buildNoQuestionFallback(lastUserText, historyMessages)
-      : novelText.trim() || buildClosingCoachingQuestion(lastUserText);
+      : novelText.trim() ||
+        buildClosingCoachingQuestion(lastUserText, historyMessages);
   const balanced = balanceJapaneseDelimitersByParagraph(
     softenRepeatedAcknowledgement(normalized || fallbackText)
   );
@@ -1517,7 +1533,10 @@ function selectSingleAnswerBlock(
       return quotedAnswer;
     }
 
-    const groundedFallback = buildGroundedDirectWording(historyMessages);
+    const groundedFallback = buildGroundedDirectWording(
+      historyMessages,
+      lastUserText
+    );
     if (groundedFallback) return groundedFallback;
   }
   if (directWordingRequested) {
@@ -1708,6 +1727,13 @@ function isGroundedDirectWording(
   historyMessages: CoachingChatMessage[],
   lastUserText = ''
 ) {
+  const userContext = [
+    ...historyMessages
+      .filter((message) => message.role === 'user')
+      .map((message) => stripAttachmentMarkdown(message.content)),
+    lastUserText,
+  ].join('\n');
+
   if (
     /断(?:る|りたい|り方)|断る一言/.test(lastUserText) &&
     !/(?:今回は|今は|本日は|今回の依頼は)[^。！？?\n]{0,40}(?:引き受けられ|引き受けでき|お受けでき|対応でき|難しい|見送)|(?:お断り|辞退)します/.test(
@@ -1717,13 +1743,16 @@ function isGroundedDirectWording(
     return false;
   }
 
+  if (
+    /責め(?:ず|ない|る言い方)|落ち着いて伝/.test(userContext) &&
+    /嫌(?:です|だと|だ)|腹が立/.test(answer)
+  ) {
+    return false;
+  }
+
   const statement = selectGroundingStatement(historyMessages);
   if (!statement) return true;
 
-  const userContext = historyMessages
-    .filter((message) => message.role === 'user')
-    .map((message) => stripAttachmentMarkdown(message.content))
-    .join('\n');
   const replacesAngerWithSadness =
     /腹が立|怒|悔|嫌/.test(userContext) &&
     !/悲し|落ち込|残念|心残り/.test(userContext) &&
@@ -1746,9 +1775,31 @@ function isGroundedDirectWording(
   );
 }
 
-function buildGroundedDirectWording(historyMessages: CoachingChatMessage[]) {
+function buildGroundedDirectWording(
+  historyMessages: CoachingChatMessage[],
+  lastUserText = ''
+) {
   const statement = selectGroundingStatement(historyMessages);
   if (!statement) return '';
+
+  const userContext = [
+    ...historyMessages
+      .filter((message) => message.role === 'user')
+      .map((message) => stripAttachmentMarkdown(message.content)),
+    lastUserText,
+  ].join('\n');
+  if (
+    /会議|提案/.test(userContext) &&
+    /最後まで|却下|準備(?:に使った)?時間|準備時間/.test(userContext)
+  ) {
+    return '「前回は提案を最後までお伝えできなかったので、今回は結論まで聞いてからご意見をいただけると助かります。」';
+  }
+  if (
+    /家事|夫|妻/.test(userContext) &&
+    /後回し|時間[^。\n]{0,40}軽く扱/.test(userContext)
+  ) {
+    return '「私の時間も大切にしたいので、家事を頼んだ時に、いつ対応するかを一緒に決めたいです。」';
+  }
 
   const naturalStatement = statement
     .replace(
@@ -1793,7 +1844,7 @@ function ensureCoachingClose(
       !hasConcreteAction(text, lastUserText)
         ? `${text}\n\n${buildNoQuestionFallback(lastUserText, historyMessages)}`
         : text;
-    return `${body}\n\n${buildClosingCoachingQuestion(lastUserText)}`;
+    return `${body}\n\n${buildClosingCoachingQuestion(lastUserText, historyMessages)}`;
   }
 
   if (requestsSingleAnswerFormat(lastUserText)) {
@@ -1815,7 +1866,7 @@ function ensureCoachingClose(
     return `${text}\n\n今日はゆっくり休んでください。`;
   }
 
-  return `${text}\n\n${buildClosingCoachingQuestion(lastUserText)}`;
+  return `${text}\n\n${buildClosingCoachingQuestion(lastUserText, historyMessages)}`;
 }
 
 function requestsConcreteSuggestion(text: string) {
@@ -1878,16 +1929,26 @@ function buildTimeTreatedLightlyAcknowledgement(lastUserText: string) {
     return '準備に使った時間を軽く扱われたことに腹が立っているのですね。';
   }
   if (/家事そのものより/.test(lastUserText)) {
-    return '家事そのものより、自分の時間を軽く扱われているように感じることが嫌なのですね。';
+    return '自分の時間を軽く扱われているように感じることが嫌なんですね。';
   }
   return '自分の時間を軽く扱われたことに腹が立っているのですね。';
 }
 
-function buildClosingCoachingQuestion(lastUserText: string) {
+function buildClosingCoachingQuestion(
+  lastUserText: string,
+  historyMessages: CoachingChatMessage[] = []
+) {
   if (reportsTimeTreatedLightly(lastUserText)) {
     return '自分の時間を軽く扱われないために、相手にまず何を変えてほしいですか？';
   }
   if (/責め/.test(lastUserText) && /喧嘩|落ち着いて伝/.test(lastUserText)) {
+    const previousAssistantText = historyMessages
+      .filter((message) => message.role === 'assistant')
+      .map((message) => message.content)
+      .join('\n');
+    if (/何を(?:変えて|わかって)|どうしてほしい/.test(previousAssistantText)) {
+      return '今夜の最初の一言で、相手にどんなお願いを伝えたいですか？';
+    }
     return '相手にまず何をわかってほしいですか？';
   }
   if (/感情的|感情が強|冷静でいられ|落ち着け.{0,8}不安/.test(lastUserText)) {
@@ -1979,11 +2040,10 @@ function buildDirectWordingFallback(lastUserText: string, userContext: string) {
     return '「ありがとうございます。ただ、今は手一杯のため、今回はお引き受けできません。」';
   }
   if (/会議|提案/.test(userContext)) {
-    return '「前回の会議で最後までお伝えできなかった提案について、最初に要点を共有させてください。」';
+    return '「前回は提案を最後までお伝えできなかったので、今回は結論まで聞いてからご意見をいただけると助かります。」';
   }
   if (/家事|夫|妻/.test(userContext)) {
-    const timing = /今夜/.test(lastUserText) ? '今夜、' : '';
-    return `「${timing}家事のことで責めたいわけではなく、私の時間についてどう考えているか、落ち着いて話したいです。」`;
+    return '「私の時間も大切にしたいので、家事を頼んだ時に、いつ対応するかを一緒に決めたいです。」';
   }
   if (/今夜/.test(lastUserText)) {
     return '「今夜、責めたいのではなく、これからどうするかを落ち着いて話したいです。」';
@@ -2029,10 +2089,14 @@ function canonicalizeAssistantParagraph(text: string) {
     .trim();
 }
 
-function rewriteContextualClosingQuestion(text: string, lastUserText: string) {
+function rewriteContextualClosingQuestion(
+  text: string,
+  lastUserText: string,
+  historyMessages: CoachingChatMessage[] = []
+) {
   const directText = text.replace(
     /この(?:提案|方法|考え)(?:について)?[、,]?(?:どのように|どう)(?:感じ|思い)ますか[？?]?/g,
-    buildDirectContextQuestion(lastUserText)
+    buildDirectContextQuestion(lastUserText, historyMessages)
   );
 
   if (/仕事|職場|業務|会社|タスク/.test(lastUserText) && /落ち込/.test(lastUserText)) {
@@ -2048,7 +2112,16 @@ function rewriteContextualClosingQuestion(text: string, lastUserText: string) {
   }
 
   if (reportsTimeTreatedLightly(lastUserText)) {
-    const directQuestion = buildClosingCoachingQuestion(lastUserText);
+    const directQuestion = buildClosingCoachingQuestion(
+      lastUserText,
+      historyMessages
+    );
+    if (
+      !requestsDirectWording(lastUserText) &&
+      !requestsSingleAnswerFormat(lastUserText)
+    ) {
+      return `${buildTimeTreatedLightlyAcknowledgement(lastUserText)}\n\n${directQuestion}`;
+    }
     const rewritten = directText.replace(
       /今の話の中で[、,]?いちばん見過ごしたくない本音は何ですか[？?]?/g,
       directQuestion
@@ -2065,6 +2138,20 @@ function rewriteContextualClosingQuestion(text: string, lastUserText: string) {
       return `${buildTimeTreatedLightlyAcknowledgement(lastUserText)}\n\n${directQuestion}`;
     }
     return rewritten;
+  }
+
+  if (/責め/.test(lastUserText) && /喧嘩|落ち着いて伝/.test(lastUserText)) {
+    const suggestedWording = directText.match(/「[^」]{8,}」/)?.[0];
+    if (suggestedWording) {
+      if (/家事|時間|後回し/.test(suggestedWording)) {
+        return '「私の時間も大切にしたいので、家事を頼んだ時に、いつ対応するかを一緒に決めたいです。」';
+      }
+      return suggestedWording;
+    }
+    return `責める言い方を避けて、落ち着いて伝えたいんですね。\n\n${buildClosingCoachingQuestion(
+      lastUserText,
+      historyMessages
+    )}`;
   }
 
   if (/次の一言が怖/.test(lastUserText)) {
@@ -2089,7 +2176,10 @@ function rewriteContextualClosingQuestion(text: string, lastUserText: string) {
   return directText;
 }
 
-function buildDirectContextQuestion(lastUserText: string) {
+function buildDirectContextQuestion(
+  lastUserText: string,
+  historyMessages: CoachingChatMessage[] = []
+) {
   if (
     /家事|負担|後回し/.test(lastUserText) &&
     /夫|妻|家族|相手/.test(lastUserText)
@@ -2098,7 +2188,7 @@ function buildDirectContextQuestion(lastUserText: string) {
     return `家事の負担を減らすために、${otherPerson}にまず何を変えてほしいですか？`;
   }
 
-  return buildClosingCoachingQuestion(lastUserText);
+  return buildClosingCoachingQuestion(lastUserText, historyMessages);
 }
 
 function rewriteUngroundedWordingReference(
@@ -2128,10 +2218,14 @@ function rewriteUngroundedWordingReference(
     ) && !hasAvailableWording;
 
   if (!unsupportedQuotedReference && !referencesMissingWording) return text;
-  return buildClosingCoachingQuestion(lastUserText);
+  return buildClosingCoachingQuestion(lastUserText, historyMessages);
 }
 
-function rewriteGenericSuggestionFollowUp(text: string, lastUserText: string) {
+function rewriteGenericSuggestionFollowUp(
+  text: string,
+  lastUserText: string,
+  historyMessages: CoachingChatMessage[] = []
+) {
   const paragraphs = text
     .split(/\n{2,}/)
     .map((paragraph) => paragraph.trim())
@@ -2156,12 +2250,12 @@ function rewriteGenericSuggestionFollowUp(text: string, lastUserText: string) {
       if (!isGenericFollowUp(paragraph)) return paragraph;
       if (hasConcreteSuggestion || insertedDirectQuestion) return '';
       insertedDirectQuestion = true;
-      return buildDirectContextQuestion(lastUserText);
+      return buildDirectContextQuestion(lastUserText, historyMessages);
     })
     .filter(Boolean)
     .join('\n\n');
 
-  return rewritten || buildDirectContextQuestion(lastUserText);
+  return rewritten || buildDirectContextQuestion(lastUserText, historyMessages);
 }
 
 function softenRepeatedAcknowledgement(text: string) {
@@ -2482,7 +2576,10 @@ function removeUnsupportedPsychologicalInference(
     /「[^」]{4,}」/.test(candidateText) &&
     !isGroundedDirectWording(candidateText, historyMessages, lastUserText)
   ) {
-    const groundedFallback = buildGroundedDirectWording(historyMessages);
+    const groundedFallback = buildGroundedDirectWording(
+      historyMessages,
+      lastUserText
+    );
     if (groundedFallback) candidateText = groundedFallback;
   }
   const loadedInferences = [

@@ -1083,10 +1083,10 @@ describe('normalizeCoachingOutput', () => {
       history
     );
 
-    expect(result).toMatch(/時間|軽く扱/);
-    expect(result).toContain('責めたいのではなく');
-    expect(result).toContain('ように感じるのが嫌です');
-    expect(result).not.toContain('感じることが嫌だと感じています');
+    expect(result).toBe(
+      '「私の時間も大切にしたいので、家事を頼んだ時に、いつ対応するかを一緒に決めたいです。」'
+    );
+    expect(result).not.toMatch(/嫌|腹が立|責めたい/);
     expect(result).not.toBe('「家事のことで、私の気持ちを聞いてほしいな」');
   });
 
@@ -1113,9 +1113,10 @@ describe('normalizeCoachingOutput', () => {
       history
     );
 
-    expect(result).not.toContain('悲しい');
-    expect(result).toMatch(/時間|軽く扱/);
-    expect(result).toContain('一緒に話したい');
+    expect(result).toBe(
+      '「私の時間も大切にしたいので、家事を頼んだ時に、いつ対応するかを一緒に決めたいです。」'
+    );
+    expect(result).not.toMatch(/悲しい|嫌|腹が立/);
   });
 
   it('本人が感情を明言済みなら「どんな気持ちですか」を聞き直さない', () => {
@@ -1231,9 +1232,7 @@ describe('normalizeCoachingOutput', () => {
       '責める言い方をすると喧嘩になるので、落ち着いて伝えたいです。'
     );
 
-    expect(result).toContain(
-      '落ち着いて伝えたいという気持ちが伝わります。'
-    );
+    expect(result).toContain('責める言い方を避けて、落ち着いて伝えたいんですね。');
     expect(result).not.toContain('という喧嘩');
     expect(result).not.toMatch(/お気持ち.*よく分かります/);
   });
@@ -1460,7 +1459,9 @@ describe('normalizeCoachingOutput', () => {
       '責める言い方をすると喧嘩になるので、落ち着いて伝えたいです。'
     );
 
-    expect(result).toBe('相手にまず何をわかってほしいですか？');
+    expect(result).toBe(
+      '責める言い方を避けて、落ち着いて伝えたいんですね。\n\n相手にまず何をわかってほしいですか？'
+    );
     expect(result).not.toContain('この言い方');
   });
 
@@ -1638,7 +1639,9 @@ describe('normalizeCoachingOutput', () => {
       '責める言い方をすると喧嘩になるので、落ち着いて伝えたいです。'
     );
 
-    expect(result).toContain('これからどうするか一緒に話したいです');
+    expect(result).toBe(
+      '「私の時間も大切にしたいので、家事を頼んだ時に、いつ対応するかを一緒に決めたいです。」'
+    );
     expect(result).not.toMatch(/[？?]/);
     expect(result).not.toContain('見過ごしたくない本音');
   });
@@ -1945,5 +1948,98 @@ describe('normalizeCoachingOutput', () => {
 
     expect(result).not.toMatch(/強みやこだわり/);
     expect(result).toContain('本当は相手に何をわかってほしいですか？');
+  });
+
+  it('提案を示していないのに「提案があります」と予告しない', () => {
+    const result = normalizeCoachingOutput(
+      '夫に家事を頼んでも後回しにされて、自分ばかりが負担しているように感じて腹が立つのですね。その状況でイライラしてしまうのはとても自然なことです。\n\nまずは、その「腹が立つ」という気持ちを少しでも減らすために、今日一つだけ試せる提案があります。\n\nその気持ちを通して、本当は相手に何をわかってほしいですか？',
+      '夫に家事を頼んでも後回しにされます。私ばかり負担している気がして腹が立ちます。'
+    );
+
+    expect(result).not.toMatch(/提案があります|方法があります|行動があります/);
+    expect(result).toContain('本当は相手に何をわかってほしいですか？');
+  });
+
+  it('時間を軽く扱われた訂正を一度だけ受け止めて次へ進む', () => {
+    const result = normalizeCoachingOutput(
+      '家事そのものよりも、自分の時間を軽く扱われているように感じることが嫌なのだと気づかれたのですね。それはとても大切な本音です。\n\n自分の時間を軽く扱われているように感じることが嫌なんですね。\n\nその「私の時間を大切にしてほしい」という気持ちを、今夜そのまま夫に伝えてみるとしたら、どんな言葉が一番しっくりきそうですか？',
+      '家事そのものより、私の時間を軽く扱われているように感じることが嫌なんです。'
+    );
+
+    expect(result).toBe(
+      '自分の時間を軽く扱われているように感じることが嫌なんですね。\n\n自分の時間を軽く扱われないために、相手にまず何を変えてほしいですか？'
+    );
+    expect(result).not.toMatch(/気づかれた|大切な本音/);
+  });
+
+  it('既に希望を尋ねた後は同じ質問を繰り返さず言葉へ進む', () => {
+    const result = normalizeCoachingOutput(
+      '責める言い方をせず、落ち着いて伝えたいのですね。喧嘩を避けたいという思いはとても大切です。\n\n相手にまず何をわかってほしいですか？',
+      '責める言い方をすると喧嘩になるので、落ち着いて伝えたいです。',
+      [
+        {
+          role: 'assistant',
+          content:
+            '自分の時間を軽く扱われないために、相手にまず何を変えてほしいですか？',
+        },
+      ]
+    );
+
+    expect(result).toBe(
+      '責める言い方を避けて、落ち着いて伝えたいんですね。\n\n今夜の最初の一言で、相手にどんなお願いを伝えたいですか？'
+    );
+  });
+
+  it('責めない会議の一言では怒りをぶつけず具体的な依頼にする', () => {
+    const result = normalizeCoachingOutput(
+      '「私の準備時間を軽く扱われたことが嫌だと感じています。このことを責めたいのではなく、これからどうするか一緒に話したいです。」',
+      '次の会議の冒頭で、そのことを責めずに伝える最初の一言を一つだけ、質問なしで提案してください。',
+      [
+        {
+          role: 'user',
+          content:
+            '会議で提案を最後まで聞かず却下されて、悲しいというより腹が立ちました。私の準備時間を軽く扱われたことが嫌です。',
+        },
+      ]
+    );
+
+    expect(result).toBe(
+      '「前回は提案を最後までお伝えできなかったので、今回は結論まで聞いてからご意見をいただけると助かります。」'
+    );
+    expect(result).not.toMatch(/嫌|腹が立/);
+  });
+
+  it('責めずに伝える家事の一言を具体的なお願いにする', () => {
+    const result = normalizeCoachingOutput(
+      '「家事そのものより、私の時間を軽く扱われているように感じるのが嫌です。このことを責めたいのではなく、これからどうするか一緒に話したいです。」',
+      '今夜話すなら、最初の一言はどうすればいいですか？',
+      [
+        {
+          role: 'user',
+          content:
+            '家事そのものより、私の時間を軽く扱われているように感じることが嫌なんです。',
+        },
+        {
+          role: 'user',
+          content:
+            '責める言い方をすると喧嘩になるので、落ち着いて伝えたいです。',
+        },
+      ]
+    );
+
+    expect(result).toBe(
+      '「私の時間も大切にしたいので、家事を頼んだ時に、いつ対応するかを一緒に決めたいです。」'
+    );
+    expect(result).not.toMatch(/嫌|腹が立/);
+  });
+
+  it('感情的になりそうな不安から重要度を勝手に推測しない', () => {
+    const result = normalizeCoachingOutput(
+      '途中で感情的になりそうで不安になるのは、それだけこの件があなたにとって大切だからですね。\n\n話す前に「私の時間を大切にしてほしい」と書いた小さなメモを手元に用意しておいてください。',
+      'その言い方ならできそうですが、途中で感情的になりそうで不安です。'
+    );
+
+    expect(result).not.toMatch(/それだけ|大切だから/);
+    expect(result).toContain('メモ');
   });
 });
