@@ -64,6 +64,22 @@ describe('normalizeCoachingOutput', () => {
     expect(result).not.toMatch(/3つ|三つ/);
   });
 
+  it('複数提案を一つへ戻す時も、直前の会話相手を失わない', () => {
+    const result = normalizeCoachingOutput(
+      '明日は、深呼吸とメモの2つの行動をしてください。',
+      'では、明日まず何をすればいいか一つだけ教えてください。',
+      [
+        {
+          role: 'user',
+          content: '上司に否定されたように感じて、次の一言が怖いです。',
+        },
+      ]
+    );
+
+    expect(result).toContain('相手に伝えたいことを一文だけメモ');
+    expect(result).not.toContain('今できる最小の行動');
+  });
+
   it('一つだけ指定された時は二つ目の提案段落を除く', () => {
     const result = normalizeCoachingOutput(
       [

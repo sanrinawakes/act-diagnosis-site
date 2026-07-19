@@ -31,10 +31,9 @@ const shouldRunNormal = mode === 'all' || mode === 'normal';
 const shouldRunLongHistory = mode === 'all' || mode === 'long';
 const shouldRunConcurrency = mode === 'all' || mode === 'concurrent';
 const createdEmails = [];
+const results = [];
 
 try {
-  const results = [];
-
   if (shouldRunNormal) {
     results.push(...(await runNormalConversation()));
   }
@@ -50,6 +49,7 @@ try {
   assertResults(results);
   console.log(JSON.stringify({ ok: true, baseUrl, results }, null, 2));
 } catch (error) {
+  console.error(JSON.stringify({ ok: false, baseUrl, results }, null, 2));
   console.error(error);
   process.exitCode = 1;
 } finally {
@@ -290,10 +290,10 @@ function assertResults(results) {
     if (
       (/期待に応え/.test(result.message) &&
         !result.userGrounding.expectation) ||
-      (/萎縮/.test(result.message) && !result.userGrounding.intimidation)
-      || (/気持ちの切り替え/.test(result.message) &&
-        !result.userGrounding.emotionSwitching)
-      || (/(?:だからこそ|からこそ)/.test(result.message) &&
+      (/萎縮/.test(result.message) && !result.userGrounding.intimidation) ||
+      (/気持ちの切り替え/.test(result.message) &&
+        !result.userGrounding.emotionSwitching) ||
+      (/(?:だからこそ|からこそ)/.test(result.message) &&
         !result.userGrounding.emphaticCause)
     ) {
       throw new Error(

@@ -997,10 +997,10 @@ function evaluateConversations(conversations) {
       !(
         (/期待に応え/.test(turn.message) &&
           !turn.userGrounding.expectation) ||
-        (/萎縮/.test(turn.message) && !turn.userGrounding.intimidation)
-        || (/気持ちの切り替え/.test(turn.message) &&
-          !turn.userGrounding.emotionSwitching)
-        || (/(?:だからこそ|からこそ)/.test(turn.message) &&
+        (/萎縮/.test(turn.message) && !turn.userGrounding.intimidation) ||
+        (/気持ちの切り替え/.test(turn.message) &&
+          !turn.userGrounding.emotionSwitching) ||
+        (/(?:だからこそ|からこそ)/.test(turn.message) &&
           !turn.userGrounding.emphaticCause)
       ),
       turn.message

@@ -903,7 +903,11 @@ export function normalizeCoachingOutput(
   const requiresClosingQuestion = requestsExplicitClosingQuestion(lastUserText);
   const questionLimit =
     requiresClosingQuestion || requestsNoFollowUpQuestion(lastUserText) ? 0 : 1;
-  const safeText = rewriteInvalidatingAdvice(text, lastUserText);
+  const safeText = rewriteInvalidatingAdvice(
+    text,
+    lastUserText,
+    historyMessages
+  );
   const naturalText = safeText
     .replace(/タタスク/g, 'タスク')
     .replace(/タースク/g, 'タスク')
@@ -1041,7 +1045,7 @@ export function normalizeCoachingOutput(
 
   const fallbackText =
     questionLimit === 0
-      ? buildNoQuestionFallback(lastUserText)
+      ? buildNoQuestionFallback(lastUserText, historyMessages)
       : diagnosisSafeText.trim();
   const balanced = balanceJapaneseDelimiters(
     softenRepeatedAcknowledgement(normalized || fallbackText)
@@ -1049,7 +1053,7 @@ export function normalizeCoachingOutput(
   const singleAnswerSafe =
     requestsSingleAnswerFormat(lastUserText) &&
     containsMultipleRequestedItems(balanced)
-      ? buildNoQuestionFallback(lastUserText)
+      ? buildNoQuestionFallback(lastUserText, historyMessages)
       : balanced;
 
   if (requestsOnePhraseAnswer(lastUserText)) {
@@ -1067,7 +1071,11 @@ export function normalizeCoachingOutput(
     );
   }
 
-  return ensureCoachingClose(singleAnswerSafe, lastUserText);
+  return ensureCoachingClose(
+    singleAnswerSafe,
+    lastUserText,
+    historyMessages
+  );
 }
 
 function containsMultipleRequestedItems(text: string) {
@@ -1126,7 +1134,7 @@ function selectSingleAnswerBlock(
       (hasConcreteAction(selected, lastUserText) ||
         isSubstantiveSingleAnswer(selected)))
     ? selected
-    : buildNoQuestionFallback(lastUserText);
+    : buildNoQuestionFallback(lastUserText, historyMessages);
 }
 
 const DIRECT_WORDING_GROUNDING_TERMS = [
@@ -1244,12 +1252,16 @@ function isSubstantiveSingleAnswer(text: string) {
   );
 }
 
-function ensureCoachingClose(text: string, lastUserText: string) {
+function ensureCoachingClose(
+  text: string,
+  lastUserText: string,
+  historyMessages: CoachingChatMessage[]
+) {
   if (requestsExplicitClosingQuestion(lastUserText)) {
     const body =
       requestsConcreteSuggestion(lastUserText) &&
       !hasConcreteAction(text, lastUserText)
-        ? `${text}\n\n${buildNoQuestionFallback(lastUserText)}`
+        ? `${text}\n\n${buildNoQuestionFallback(lastUserText, historyMessages)}`
         : text;
     return `${body}\n\n${buildClosingCoachingQuestion(lastUserText)}`;
   }
@@ -1257,7 +1269,7 @@ function ensureCoachingClose(text: string, lastUserText: string) {
   if (requestsSingleAnswerFormat(lastUserText)) {
     return requestsConcreteSuggestion(lastUserText) &&
       !hasConcreteAction(text, lastUserText)
-      ? `${text}\n\n${buildNoQuestionFallback(lastUserText)}`
+      ? `${text}\n\n${buildNoQuestionFallback(lastUserText, historyMessages)}`
       : text;
   }
 
@@ -1339,7 +1351,17 @@ function buildClosingCoachingQuestion(lastUserText: string) {
   return '今の話の中で、いちばん見過ごしたくない本音は何ですか？';
 }
 
-function buildNoQuestionFallback(lastUserText: string) {
+function buildNoQuestionFallback(
+  lastUserText: string,
+  historyMessages: CoachingChatMessage[] = []
+) {
+  const userContext = [
+    ...historyMessages
+      .filter((message) => message.role === 'user')
+      .map((message) => stripAttachmentMarkdown(message.content)),
+    lastUserText,
+  ].join('\n');
+
   if (/企画|資料|文章|書|作成/.test(lastUserText)) {
     return '完成を目指さず、まず最初の15分で見出しを一つだけ書いてみてください。';
   }
@@ -1348,6 +1370,15 @@ function buildNoQuestionFallback(lastUserText: string) {
   }
   if (/疲|休|しんど|限界/.test(lastUserText)) {
     return '今日はここまでにして、ゆっくり休んでください。';
+  }
+  if (/話|伝|相手|夫|妻|家族|同僚|上司/.test(userContext)) {
+    return '明日は、相手に伝えたいことを一文だけメモに書いてから、話し始めてください。';
+  }
+  if (/SNS|投稿|発信/.test(userContext)) {
+    return '明日の朝、SNSで最初に伝えたい内容を一文だけメモに書いてください。';
+  }
+  if (/仕事|職場|業務|会社|タスク/.test(userContext)) {
+    return '明日の朝、今いちばん気になる仕事を一つ選び、最初の5分だけ取り組んでください。';
   }
   return '今できる最小の行動を一つだけ決めて、そこから始めてみてください。';
 }
@@ -1458,7 +1489,11 @@ function removeUnrequestedDiagnosisExplanation(text: string) {
   return filtered || '今の状況でできることを、一つずつ一緒に考えていきましょう。';
 }
 
-function rewriteInvalidatingAdvice(text: string, lastUserText: string) {
+function rewriteInvalidatingAdvice(
+  text: string,
+  lastUserText: string,
+  historyMessages: CoachingChatMessage[] = []
+) {
   const rewritten = text
     .replace(
       /((?:その|今の|この)?「[^」\n]{0,80}(?:感情|気持ち|怖さ|不安|怒り|悲しさ|悩み|問題|課題)[^」\n]{0,40}」)(?:を|は)(?:(?:少し|少しだけ|一旦|いったん|一度|まず|しばらく)\s*)?(?:(?:横|脇)[にへ]置(?:き|いて)(?:から)?|切り離し(?:て)?)[、,]?/g,
@@ -1472,7 +1507,7 @@ function rewriteInvalidatingAdvice(text: string, lastUserText: string) {
     .trim();
 
   return invalidatesUserFeeling(rewritten)
-    ? buildNoQuestionFallback(lastUserText)
+    ? buildNoQuestionFallback(lastUserText, historyMessages)
     : rewritten;
 }
 
@@ -1545,7 +1580,7 @@ function removeUnsupportedPsychologicalInference(
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 
-  return grounded || buildNoQuestionFallback(lastUserText);
+  return grounded || buildNoQuestionFallback(lastUserText, historyMessages);
 }
 
 function requestsRestWithoutQuestions(text: string) {
