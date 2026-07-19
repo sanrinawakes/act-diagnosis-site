@@ -702,9 +702,7 @@ describe('normalizeCoachingOutput', () => {
     );
 
     expect(result).not.toContain('この提案');
-    expect(result).toContain(
-      '家事の負担を減らすために、夫にまず何を変えてほしいですか？'
-    );
+    expect(result).toContain('夫にまずどの行動を変えてほしいですか？');
   });
 
   it('具体策がないのに「この方法」を試せるか聞かない', () => {
@@ -714,9 +712,7 @@ describe('normalizeCoachingOutput', () => {
     );
 
     expect(result).not.toMatch(/この方法|試せそう/);
-    expect(result).toContain(
-      '家事の負担を減らすために、夫にまず何を変えてほしいですか？'
-    );
+    expect(result).toContain('夫にまずどの行動を変えてほしいですか？');
   });
 
   it('具体策がない時は汎用的な感想質問を複数残さない', () => {
@@ -727,9 +723,7 @@ describe('normalizeCoachingOutput', () => {
 
     expect(result).not.toMatch(/この方法|この提案|試せそう|どう思いますか/);
     expect(result.match(/[？?]/g) || []).toHaveLength(1);
-    expect(result).toContain(
-      '家事の負担を減らすために、夫にまず何を変えてほしいですか？'
-    );
+    expect(result).toContain('夫にまずどの行動を変えてほしいですか？');
   });
 
   it('本人が明言した怒りをもう一度確認せず、次の論点へ進む', () => {
@@ -927,7 +921,7 @@ describe('normalizeCoachingOutput', () => {
     );
 
     expect(result).not.toMatch(/気づけたこと|大切な一歩/);
-    expect(result).toContain('本当は相手に何をわかってほしいですか？');
+    expect(result).toContain('同僚に本当は何をわかってほしいですか？');
   });
 
   it('訂正後の悔しさへ本音が隠れていると決めつけない', () => {
@@ -937,7 +931,7 @@ describe('normalizeCoachingOutput', () => {
     );
 
     expect(result).not.toMatch(/本音が隠れ|大切な本音/);
-    expect(result).toContain('最初に示したいことは何ですか？');
+    expect(result).toContain('同僚に本当は何をわかってほしいですか？');
   });
 
   it('一つだけ指定された時は二つ目の提案段落を除く', () => {
@@ -1011,7 +1005,9 @@ describe('normalizeCoachingOutput', () => {
       '明日また急な依頼をされた時に、角を立てずに断る一言を一つだけ提案してください。'
     );
 
-    expect(result).toContain('今回はお引き受けが難しいです');
+    expect(result).toBe(
+      '「ありがとうございます。ただ、今は手一杯のため、今回はお引き受けできません。」'
+    );
     expect(result).not.toContain('このように伝えて');
     expect(result.split(/\n{2,}/)).toHaveLength(1);
   });
@@ -1130,7 +1126,7 @@ describe('normalizeCoachingOutput', () => {
     );
 
     expect(result).not.toContain('どんな気持ちになりますか');
-    expect(result).toContain('相手に何をわかってほしいですか');
+    expect(result).toContain('夫にまずどの行動を変えてほしいですか？');
   });
 
   it('文面要求では履歴の核心を引用文へ入れる内部形式を追加する', () => {
@@ -1332,7 +1328,7 @@ describe('normalizeCoachingOutput', () => {
     );
 
     expect(result).not.toMatch(/プライド|意欲|完璧|大きな塊|ギャップ|周囲に示したい/);
-    expect(result).toContain('自分が納得できる最低限の状態');
+    expect(result).toContain('同僚に本当は何をわかってほしいですか？');
   });
 
   it('本人が言っていない完璧主義の言い換えも補わない', () => {
@@ -1406,7 +1402,7 @@ describe('normalizeCoachingOutput', () => {
     );
 
     expect(result).not.toMatch(/素晴らしい一歩|我慢されている証拠/);
-    expect(result).toContain('伝えたいことを一文だけ書いて');
+    expect(result).toContain('5分だけ休憩してから続きを話したい');
   });
 
   it('感情が高まった時の提案に深呼吸と発言の二動作を重ねない', () => {
@@ -1416,9 +1412,7 @@ describe('normalizeCoachingOutput', () => {
     );
 
     expect(result).not.toContain('深呼吸');
-    expect(result).toContain(
-      '「少し落ち着いて話したいから、1分だけ待ってね」と相手に伝えてみてください。'
-    );
+    expect(result).toContain('5分だけ休憩してから続きを話したい');
   });
 
   it('履歴にない引用を以前の言葉として参照しない', () => {
@@ -1434,9 +1428,7 @@ describe('normalizeCoachingOutput', () => {
       ]
     );
 
-    expect(result).toBe(
-      '途中で感情が強くなった時、相手に何と伝えたいですか？'
-    );
+    expect(result).toContain('5分だけ休憩してから続きを話したい');
     expect(result).not.toContain('少し待ってね');
   });
 
@@ -1606,7 +1598,7 @@ describe('normalizeCoachingOutput', () => {
     );
 
     expect(result).not.toMatch(/一生懸命|重く|それとも/);
-    expect(result).toContain('本当は相手に何をわかってほしいですか？');
+    expect(result).toContain('夫にまずどの行動を変えてほしいですか？');
   });
 
   it('時間の軽視を「存在の否定」や「何よりの痛み」へ強めない', () => {
@@ -1680,8 +1672,8 @@ describe('normalizeCoachingOutput', () => {
     );
 
     expect(result).not.toContain(repeated);
-    expect(result).toContain('途中で感情が強くなった時、相手に何と伝えたいですか？');
-    expect(result.match(/[？?]/g) || []).toHaveLength(1);
+    expect(result).toContain('5分だけ休憩してから続きを話したい');
+    expect(result.match(/[？?]/g) || []).toHaveLength(0);
   });
 
   it('一つだけ指定で飲み物・スマホ・意識の三動作を残さない', () => {
@@ -1750,7 +1742,7 @@ describe('normalizeCoachingOutput', () => {
       '夫に家事を頼んでも後回しにされます。私ばかり負担している気がして腹が立ちます。'
     );
 
-    expect(result).toContain('お願いできる？」');
+    expect(result).toContain('夫にまずどの行動を変えてほしいですか？');
     expect(result).not.toContain('今日、夫に');
     expect((result.match(/「/g) || []).length).toBe(
       (result.match(/」/g) || []).length
@@ -1764,7 +1756,7 @@ describe('normalizeCoachingOutput', () => {
     );
 
     expect(result).not.toMatch(/責任感|自負|裏返し|孤独感|一人で抱え/);
-    expect(result).toContain('最初の作業を一つ書いてください');
+    expect(result).toContain('最初に手をつける必要がある作業は何ですか？');
   });
 
   it('時間の軽視を尊重不足・敬意欠如・深い傷へ強めない', () => {
@@ -1939,7 +1931,7 @@ describe('normalizeCoachingOutput', () => {
     );
 
     expect(result).not.toMatch(/気持ちが伝わります|悪気|削られ/);
-    expect(result).toContain('期限を一つだけ決めて伝えてください');
+    expect(result).toContain('夫にまずどの行動を変えてほしいですか？');
   });
 
   it('強みとこだわりの二項目を同時に答えさせない', () => {
@@ -1949,7 +1941,7 @@ describe('normalizeCoachingOutput', () => {
     );
 
     expect(result).not.toMatch(/強みやこだわり/);
-    expect(result).toContain('本当は相手に何をわかってほしいですか？');
+    expect(result).toContain('同僚に本当は何をわかってほしいですか？');
   });
 
   it('提案を示していないのに「提案があります」と予告しない', () => {
@@ -1959,7 +1951,7 @@ describe('normalizeCoachingOutput', () => {
     );
 
     expect(result).not.toMatch(/提案があります|方法があります|行動があります/);
-    expect(result).toContain('本当は相手に何をわかってほしいですか？');
+    expect(result).toContain('夫にまずどの行動を変えてほしいですか？');
   });
 
   it('時間を軽く扱われた訂正を一度だけ受け止めて次へ進む', () => {
@@ -2042,7 +2034,7 @@ describe('normalizeCoachingOutput', () => {
     );
 
     expect(result).not.toMatch(/それだけ|大切だから/);
-    expect(result).toContain('メモ');
+    expect(result).toContain('5分だけ休憩してから続きを話したい');
   });
 
   it('明日の朝の行動で「明日伝えたいこと」と翌日へずらさない', () => {
@@ -2061,5 +2053,77 @@ describe('normalizeCoachingOutput', () => {
       '明日の朝、SNSを開く前に「最初に伝えたいこと」をメモ帳に一言だけ書き出してみてください。'
     );
     expect(result).not.toContain('「明日伝えたいこと」');
+  });
+
+  it('新しい仕事で一つと言いながら二つの候補を出さない', () => {
+    const result = normalizeCoachingOutput(
+      '新しい仕事を任されたものの、失敗して期待を裏切るのが怖くて手をつけられないのですね。\n\nその仕事の「最初の5分だけ」で終わる、本当に簡単な作業を一つだけやってみませんか。例えば、関連するファイルを開くだけ、あるいは必要な手順の最初の1行をメモに書き出すだけでも十分です。',
+      '新しい仕事を任されたのですが、失敗して期待を裏切るのが怖くて、手をつけられません。'
+    );
+
+    expect(result).toBe(
+      '失敗して期待を裏切るのが怖くて、新しい仕事に手をつけられないんですね。\n\nその仕事で、最初に手をつける必要がある作業は何ですか？'
+    );
+    expect(result).not.toMatch(/例えば|あるいは/);
+  });
+
+  it('悔しさを成果のための力へ勝手に変換しない', () => {
+    const result = normalizeCoachingOutput(
+      '怖さというより、同僚に能力がないと思われるのが悔しいのですね。\n\nその悔しさを力に変えるために、まずは「今日、誰にも見せずに自分だけで進められる、一番小さな作業」を一つだけ決めて、手をつけてみませんか。',
+      '怖いというより、同僚に能力がないと思われるのが悔しいんです。'
+    );
+
+    expect(result).toBe(
+      '怖さより、同僚に能力がないと思われる悔しさの方が近いんですね。\n\n同僚に本当は何をわかってほしいですか？'
+    );
+    expect(result).not.toMatch(/力に変え|原動力|バネ/);
+  });
+
+  it('家事への怒りを無視と休息の複数行動へ逸らさない', () => {
+    const result = normalizeCoachingOutput(
+      '家事を後回しにされて、自分ばかりが負担していると感じると、本当に腹が立ちますよね。そのイライラはとても自然なものです。\n\nまずは、あなた自身の負担を少しでも減らすことが大切です。\n\n今日できる具体的な提案として、家事の中で「これだけは今すぐやってほしい」という最優先のものを一つだけ決めて、それ以外は一旦目をつぶってあなたの休む時間を確保してみてください。',
+      '夫に家事を頼んでも後回しにされます。私ばかり負担している気がして腹が立ちます。'
+    );
+
+    expect(result).toBe(
+      '家事を頼んでも後回しにされ、自分ばかり負担しているように感じて腹が立つんですね。\n\n夫にまずどの行動を変えてほしいですか？'
+    );
+    expect(result).not.toMatch(/目をつぶ|休む時間|最優先/);
+  });
+
+  it('企画書の着手を不自然な「下書きの下書き」にしない', () => {
+    const result = normalizeCoachingOutput(
+      '明日の朝、最初の15分間は下書きの下書きとして、箇条書きで思いつくことを書き出すことだけに集中し、綺麗に整える作業は一切しないと決めて着手してみてください。\n\n15分後に何が書けていれば、明日の着手は成功だと判断しますか？',
+      '企画書を完璧にしようとして手が止まります。明日着手する方法を短く提案し、最後に自分で判断を深める質問を一つだけしてください。'
+    );
+
+    expect(result).toBe(
+      '明日、最初の15分で企画書の見出しを一つだけ書いてください。\n\n15分後に何が書けていれば、着手は成功だと判断しますか？'
+    );
+    expect(result).not.toContain('下書きの下書き');
+  });
+
+  it('提案書と今日の指定を企画書・明日へ置き換えない', () => {
+    const result = normalizeCoachingOutput(
+      '完璧に書こうとして手が止まっています。',
+      '提案書に今日着手する方法を短く提案し、最後に質問を一つだけしてください。'
+    );
+
+    expect(result).toBe(
+      '今日、最初の15分で提案書の見出しを一つだけ書いてください。\n\n15分後に何が書けていれば、着手は成功だと判断しますか？'
+    );
+    expect(result).not.toMatch(/企画書|明日/);
+  });
+
+  it('感情的になりそうな不安へ二つ以上の行動を詰め込まない', () => {
+    const result = normalizeCoachingOutput(
+      'その不安を感じるのもとても自然なことです。\n\nもし途中で感情的になりそうになったら、「少し気持ちを整理したいから、5分だけ時間を置いてまた話してもいい？」と伝えて、その場を一度離れるルールを自分の中に持っておくのはいかがでしょうか。',
+      'その言い方ならできそうですが、途中で感情的になりそうで不安です。'
+    );
+
+    expect(result).toBe(
+      '途中で感情が強くなりそうなのが不安なんですね。\n\n話を続けるのが難しいと感じたら、「5分だけ休憩してから続きを話したい」と伝えてください。'
+    );
+    expect(result).not.toMatch(/その場を.*離れ|ルールを自分/);
   });
 });

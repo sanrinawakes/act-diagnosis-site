@@ -1096,6 +1096,22 @@ function evaluateConversations(conversations) {
     );
     addCheck(
       checks,
+      `${turn.label}: 一つと言いながら複数候補を出さない`,
+      !/(?:一つ|ひとつ|1つ)[\s\S]{0,180}(?:例えば[\s\S]{0,100})?(?:または|あるいは|もしくは)/.test(
+        turn.message
+      ),
+      turn.message
+    );
+    addCheck(
+      checks,
+      `${turn.label}: 感情の利用・不自然な反復・回避提案なし`,
+      !/悔しさを力に変|怒りを原動力|下書きの下書き|それ以外は一旦目をつぶ|ルールを自分の中/.test(
+        turn.message
+      ),
+      turn.message
+    );
+    addCheck(
+      checks,
       `${turn.label}: 定型的な受け止めを反復しない`,
       (turn.message.match(/(?:いらっしゃる)?のですね/g) || []).length <= 1,
       turn.message
@@ -1381,7 +1397,9 @@ function evaluateConversations(conversations) {
   addCheck(
     checks,
     '訂正後: 悔しさから根拠のない心理ブレーキを作らない',
-    !/ブレーキ|悔しさを感じたくない/.test(continuity.turns[1].message),
+    !/ブレーキ|悔しさを感じたくない|悔しさを力に変|怒りを原動力/.test(
+      continuity.turns[1].message
+    ),
     continuity.turns[1].message
   );
   addCheck(
@@ -1472,7 +1490,7 @@ function evaluateConversations(conversations) {
     checks,
     '長文: 末尾の本題「断る一言」を保持',
     quotedRefusal.length >= 18 &&
-      /(?:(?:今回は|今は|本日は|今回の依頼は)[^。！？?\n]{0,50}(?:引き受けられ|引き受けでき|お受けでき|対応でき|難しい|見送)|(?:お断り|辞退)します)/.test(
+      /(?:(?:今回は|今は|本日は|今回の依頼は)[^。！？?\n]{0,50}(?:引き受けられ|引き受けでき|お受けでき|対応でき|見送)|(?:お断り|辞退)します)/.test(
         quotedRefusal
       ) &&
       !/明日以降[^。！？?\n]{0,30}(?:よろしい|可能|お願い)/.test(
@@ -1542,6 +1560,14 @@ function evaluateConversations(conversations) {
     ) && !/見過ごしたくない本音/.test(explicitClosingFinalSentence),
     explicitClosingFinalSentence
   );
+  addCheck(
+    checks,
+    '質問指定: 不自然な反復や複数の準備行動を使わない',
+    !/下書きの下書き|一切しないと決め|集中し.{0,30}着手/.test(
+      explicitClosingMessage
+    ),
+    explicitClosingMessage
+  );
 
   const memory = findConversation(conversations, 'paid-session-memory');
   addCheck(
@@ -1606,6 +1632,14 @@ function evaluateConversations(conversations) {
   );
   addCheck(
     checks,
+    '6往復会話: 家事への怒りを無視と休息へ逸らさない',
+    !/一旦目をつぶ|休む時間を確保|最優先のものを一つだけ決め/.test(
+      sixTurn.turns[0].message
+    ),
+    sixTurn.turns[0].message
+  );
+  addCheck(
+    checks,
     '6往復会話: 相手の悪気や利用者の消耗を勝手に決めない',
     !/悪気|(?:時間|労力)[^。！？?\n]{0,40}削られ|気持ちが伝わります/.test(
       sixTurn.turns[0].message
@@ -1666,6 +1700,14 @@ function evaluateConversations(conversations) {
     /感情|不安|途中|何と伝え|一度止|休憩|区切/.test(
       sixTurn.turns[4].message
     ) && !/家事そのものより/.test(sixTurn.turns[4].message),
+    sixTurn.turns[4].message
+  );
+  addCheck(
+    checks,
+    '6往復会話: 感情が強くなる時の対応を一つに絞る',
+    !/その場を一度離れ|ルールを自分の中|伝えて[^。！？?\n]{0,50}(?:離れ|持っておく)/.test(
+      sixTurn.turns[4].message
+    ),
     sixTurn.turns[4].message
   );
   const contextBeforeFifthTurn = sixTurn.turns

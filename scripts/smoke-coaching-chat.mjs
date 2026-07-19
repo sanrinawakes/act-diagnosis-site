@@ -460,6 +460,24 @@ function assertResults(results) {
       );
     }
     if (
+      /(?:一つ|ひとつ|1つ)[\s\S]{0,180}(?:例えば[\s\S]{0,100})?(?:または|あるいは|もしくは)/.test(
+        result.message
+      )
+    ) {
+      throw new Error(
+        `${result.label} promised one option but offered alternatives: ${result.message}`
+      );
+    }
+    if (
+      /悔しさを力に変|怒りを原動力|下書きの下書き|それ以外は一旦目をつぶ|ルールを自分の中/.test(
+        result.message
+      )
+    ) {
+      throw new Error(
+        `${result.label} used a manually rejected coaching pattern: ${result.message}`
+      );
+    }
+    if (
       /否定[」』]?[^。\n]{0,16}(?:ではなく|でなく)[「『]?(?:意見|別の視点|アドバイス)|(?:感情|気持ち|怖さ|不安|怒り|悲しさ|悩み|問題|課題).{0,16}(?:横|脇)[にへ]置|(?:感情|気持ち|怖さ|不安|怒り|悲しさ|悩み|問題|課題).{0,12}切り離|客観的に(?:見|捉え|考え|整理|評価)|客観的な(?:評価|視点)/.test(
         result.message
       )

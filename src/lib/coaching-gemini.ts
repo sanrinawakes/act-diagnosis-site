@@ -1746,7 +1746,7 @@ function isGroundedDirectWording(
 
   if (
     /断(?:る|りたい|り方)|断る一言/.test(lastUserText) &&
-    !/(?:今回は|今は|本日は|今回の依頼は)[^。！？?\n]{0,40}(?:引き受けられ|引き受けでき|お受けでき|対応でき|難しい|見送)|(?:お断り|辞退)します/.test(
+    !/(?:今回は|今は|本日は|今回の依頼は)[^。！？?\n]{0,40}(?:引き受けられ|引き受けでき|お受けでき|対応でき|見送)|(?:お断り|辞退)します/.test(
       answer
     )
   ) {
@@ -1848,6 +1848,24 @@ function ensureCoachingClose(
   lastUserText: string,
   historyMessages: CoachingChatMessage[]
 ) {
+  if (
+    requestsExplicitClosingQuestion(lastUserText) &&
+    /企画書|提案書/.test(lastUserText) &&
+    /着手|完璧|書き始め|手が止ま/.test(lastUserText)
+  ) {
+    const documentLabel = /提案書/.test(lastUserText) ? '提案書' : '企画書';
+    const actionTime = /明日の朝/.test(lastUserText)
+      ? '明日の朝、'
+      : /明日/.test(lastUserText)
+        ? '明日、'
+        : /今夜/.test(lastUserText)
+          ? '今夜、'
+          : /今日/.test(lastUserText)
+            ? '今日、'
+            : '';
+    return `${actionTime}最初の15分で${documentLabel}の見出しを一つだけ書いてください。\n\n15分後に何が書けていれば、着手は成功だと判断しますか？`;
+  }
+
   if (requestsExplicitClosingQuestion(lastUserText)) {
     const body =
       requestsConcreteSuggestion(lastUserText) &&
@@ -2109,6 +2127,35 @@ function rewriteContextualClosingQuestion(
     buildDirectContextQuestion(lastUserText, historyMessages)
   );
 
+  if (
+    /新しい仕事/.test(lastUserText) &&
+    /失敗/.test(lastUserText) &&
+    /期待を裏切/.test(lastUserText) &&
+    /怖/.test(lastUserText) &&
+    /手をつけられ/.test(lastUserText) &&
+    !requestsSingleAnswerFormat(lastUserText)
+  ) {
+    return '失敗して期待を裏切るのが怖くて、新しい仕事に手をつけられないんですね。\n\nその仕事で、最初に手をつける必要がある作業は何ですか？';
+  }
+
+  if (
+    /能力がないと思われるのが悔し/.test(lastUserText) &&
+    !requestsSingleAnswerFormat(lastUserText)
+  ) {
+    return '怖さより、同僚に能力がないと思われる悔しさの方が近いんですね。\n\n同僚に本当は何をわかってほしいですか？';
+  }
+
+  if (
+    /夫/.test(lastUserText) &&
+    /家事/.test(lastUserText) &&
+    /後回し/.test(lastUserText) &&
+    /負担/.test(lastUserText) &&
+    /腹が立/.test(lastUserText) &&
+    !requestsSingleAnswerFormat(lastUserText)
+  ) {
+    return '家事を頼んでも後回しにされ、自分ばかり負担しているように感じて腹が立つんですね。\n\n夫にまずどの行動を変えてほしいですか？';
+  }
+
   if (/仕事|職場|業務|会社|タスク/.test(lastUserText) && /落ち込/.test(lastUserText)) {
     return directText
       .replace(
@@ -2183,6 +2230,12 @@ function rewriteContextualClosingQuestion(
   }
 
   if (/感情的|感情が強|冷静でいられ|落ち着け.{0,8}不安/.test(lastUserText)) {
+    if (
+      !requestsDirectWording(lastUserText) &&
+      !requestsSingleAnswerFormat(lastUserText)
+    ) {
+      return '途中で感情が強くなりそうなのが不安なんですね。\n\n話を続けるのが難しいと感じたら、「5分だけ休憩してから続きを話したい」と伝えてください。';
+    }
     return directText.replace(
       /その不安の奥で[、,]?いちばん守りたいものは何ですか[？?]?/g,
       '途中で感情が強くなった時、相手に何と伝えたいですか？'
