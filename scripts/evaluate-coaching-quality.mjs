@@ -62,6 +62,17 @@ try {
     passed: checks.length - failed.length,
     failed: failed.length,
   };
+  const usage = conversations.reduce(
+    (total, conversation) => {
+      for (const turn of conversation.turns) {
+        total.prompt_tokens += Number(turn.usage?.prompt_tokens || 0);
+        total.completion_tokens += Number(turn.usage?.completion_tokens || 0);
+        total.total_tokens += Number(turn.usage?.total_tokens || 0);
+      }
+      return total;
+    },
+    { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 }
+  );
   const compactOutput = args.get('compact') === 'true';
   console.log(
     JSON.stringify(
@@ -71,13 +82,16 @@ try {
             baseUrl,
             runId,
             summary,
+            usage,
             failed,
             timings: conversations.flatMap((conversation) =>
               conversation.turns.map((turn) => ({
                 label: turn.label,
+                modelName: turn.modelName,
                 firstChunkMs: turn.firstChunkMs,
                 totalMs: turn.totalMs,
                 outputChars: turn.outputChars,
+                usage: turn.usage,
               }))
             ),
             responses: conversations.flatMap((conversation) =>
@@ -889,6 +903,8 @@ async function sendStreamRequest({
     hasDone: Boolean(donePayload),
     completionStatus: donePayload?.completionStatus || null,
     finalizationStatus: donePayload?.finalizationStatus || null,
+    modelName: donePayload?.modelName || null,
+    usage: donePayload?.usage || {},
     outputChars: message.length,
     questionMarks: countQuestionMarks(message),
     semanticQuestions: countSemanticQuestions(message),

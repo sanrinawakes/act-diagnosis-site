@@ -9,13 +9,15 @@ import {
 } from '../src/lib/coaching-gemini';
 
 describe('getCoachingGeminiModelName', () => {
-  it('通常会話は低遅延の3.1 Flash-Liteを使う', () => {
+  it('通常会話は会話品質を優先した3.5 Flashを使う', () => {
+    expect(COACHING_TEXT_MODEL).toBe('gemini-3.5-flash');
     expect(getCoachingGeminiModelName(buildGeminiParts('相談です。', []))).toBe(
       COACHING_TEXT_MODEL
     );
   });
 
   it('画像添付時は低遅延の3.1 Flash-Liteを使う', () => {
+    expect(COACHING_IMAGE_MODEL).toBe('gemini-3.1-flash-lite');
     expect(
       getCoachingGeminiModelName(
         buildGeminiParts('この画像を見てください。', [

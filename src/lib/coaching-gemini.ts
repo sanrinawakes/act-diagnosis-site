@@ -51,7 +51,7 @@ const GEMINI_FINALIZE_TIMEOUT_MS = 4000;
 const GEMINI_RETRY_DELAYS_MS = [800, 1600];
 const ALERT_SLOW_RESPONSE_MS = 10000;
 const ALERT_THROTTLE_MS = 5 * 60 * 1000;
-export const COACHING_TEXT_MODEL = 'gemini-3.1-flash-lite';
+export const COACHING_TEXT_MODEL = 'gemini-3.5-flash';
 export const COACHING_IMAGE_MODEL = 'gemini-3.1-flash-lite';
 const MAX_TOKENS_CONTINUATION_NOTICE =
   '\n\n（ここで自然に区切ります。続きが必要な場合は「続き」と送ってください。）';
@@ -118,14 +118,14 @@ export function getCoachingGeminiModel(
   systemPrompt: string,
   modelName = COACHING_TEXT_MODEL
 ) {
+  const isImageModel = modelName === COACHING_IMAGE_MODEL;
   const generationConfig = {
-    temperature: 0.55,
-    topP: 0.85,
+    temperature: isImageModel ? 0.2 : 0.35,
+    topP: 0.8,
     maxOutputTokens: 960,
-    thinkingConfig:
-      modelName === COACHING_IMAGE_MODEL
-        ? { thinkingLevel: 'minimal' }
-        : { thinkingBudget: 0 },
+    thinkingConfig: isImageModel
+      ? { thinkingLevel: 'minimal' }
+      : { thinkingLevel: 'low' },
   };
 
   return getGenAI().getGenerativeModel({
@@ -390,6 +390,7 @@ export function createJsonLineStream(params: {
 
         write({
           type: 'done',
+          modelName,
           completionStatus: 'complete',
           finalizationStatus: finalization.status,
           message: fullText,
@@ -427,6 +428,7 @@ export function createJsonLineStream(params: {
           });
           write({
             type: 'done',
+            modelName,
             completionStatus: 'partial',
             finalizationStatus: finalization.status,
             message: fullText,
@@ -460,6 +462,7 @@ export function createJsonLineStream(params: {
           });
           write({
             type: 'done',
+            modelName,
             completionStatus: 'fallback',
             finalizationStatus: finalization.status,
             message: fallbackText,
