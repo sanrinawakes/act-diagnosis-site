@@ -384,6 +384,22 @@ describe('normalizeCoachingOutput', () => {
     expect(result).toContain('どのような出来事');
   });
 
+  it('履歴があっても、本人が言っていない「真剣だからこそ」を除く', () => {
+    const result = normalizeCoachingOutput(
+      '上司に否定されたと感じ、次の一言が怖くなってしまうのは、それだけ仕事に対して真剣に向き合っているからこそですよね。\n\nその「怖さ」は、具体的にどんな場面で一番強く感じますか？',
+      '上司に否定されたように感じて、次の一言が怖いです。',
+      [
+        {
+          role: 'user',
+          content: '仕事のことで少し落ち込んでいます。短く整理を手伝ってください。',
+        },
+      ]
+    );
+
+    expect(result).not.toMatch(/真剣|からこそ/);
+    expect(result).toContain('具体的にどんな場面');
+  });
+
   it('本人が「からこそ」と話した原因は削除しない', () => {
     const result = normalizeCoachingOutput(
       '仕事を大切にしているからこそ、怖くなるのですね。まず事実を一行だけ書いてみてください。',

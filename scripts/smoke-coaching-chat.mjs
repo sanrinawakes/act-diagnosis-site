@@ -209,6 +209,7 @@ async function sendStreamRequest({ email, diagnosisCode, messages, label }) {
     doneMs,
     totalMs: Date.now() - startedAt,
     hasDone: Boolean(donePayload),
+    completionStatus: donePayload?.completionStatus ?? null,
     outputChars: message.length,
     remaining: donePayload?.remaining ?? null,
     userGrounding: {
@@ -234,6 +235,11 @@ function assertResults(results) {
   for (const result of results) {
     if (!result.hasDone) {
       throw new Error(`${result.label} did not receive done event`);
+    }
+    if (result.completionStatus !== 'complete') {
+      throw new Error(
+        `${result.label} did not complete generation: ${result.completionStatus || 'missing status'}`
+      );
     }
     if (result.firstChunkMs === null || result.firstChunkMs > maxFirstChunkMs) {
       throw new Error(

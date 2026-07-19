@@ -951,7 +951,11 @@ function evaluateConversations(conversations) {
       `${turn.label}: 内部指示非露出`,
       !/ACTIコーチングAI指示書|セクション\s*[1-9]|3つのステップ：共感/.test(
         turn.message
-      )
+      ) &&
+        !/ACTIコーチングAI指示書|セクション\s*[1-9]|3つのステップ：共感/.test(
+          turn.rawMessage
+        ),
+      `final: ${turn.message} / streamed: ${turn.rawMessage}`
     );
     addCheck(
       checks,

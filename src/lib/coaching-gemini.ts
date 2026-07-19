@@ -299,6 +299,7 @@ export function createJsonLineStream(params: {
       let fullText = '';
       const startedAt = Date.now();
       let firstChunkMs: number | null = null;
+      let generationFirstChunkMs: number | null = null;
 
       const write = (payload: Record<string, unknown>) => {
         controller.enqueue(encoder.encode(`${JSON.stringify(payload)}\n`));
@@ -330,8 +331,7 @@ export function createJsonLineStream(params: {
             await withTimeout(
               consumeGeminiStream(result.stream, (text) => {
                 fullText += text;
-                firstChunkMs ??= Date.now() - startedAt;
-                write({ type: 'chunk', text });
+                generationFirstChunkMs ??= Date.now() - startedAt;
               }),
               GEMINI_TIMEOUT_MS
             );
@@ -368,14 +368,16 @@ export function createJsonLineStream(params: {
         if (isMaxTokensFinish(response)) {
           fullText = trimToNaturalContinuationBoundary(fullText);
           fullText += MAX_TOKENS_CONTINUATION_NOTICE;
-          write({ type: 'chunk', text: MAX_TOKENS_CONTINUATION_NOTICE });
         }
+        firstChunkMs = Date.now() - startedAt;
+        write({ type: 'chunk', text: fullText });
         const donePayload = await resolveDonePayload(params.onDone, usage);
 
         logChatTelemetry('done', params.telemetry, {
           modelName,
           elapsedMs: Date.now() - startedAt,
           firstChunkMs,
+          generationFirstChunkMs,
           outputChars: fullText.length,
           usage,
         });
@@ -394,15 +396,22 @@ export function createJsonLineStream(params: {
 
         if (fullText.trim()) {
           fullText = trimToNaturalContinuationBoundary(fullText);
+          fullText = normalizeCoachingOutput(
+            fullText,
+            extractTextFromParts(params.lastUserParts),
+            params.historyMessages
+          );
           if (isTimeout) {
             fullText += PARTIAL_STREAM_TIMEOUT_NOTICE;
-            write({ type: 'chunk', text: PARTIAL_STREAM_TIMEOUT_NOTICE });
           }
+          firstChunkMs = Date.now() - startedAt;
+          write({ type: 'chunk', text: fullText });
           const donePayload = await resolveDonePayload(params.onDone, {});
           logChatTelemetry('partial_done', params.telemetry, {
             modelName,
             elapsedMs: Date.now() - startedAt,
             firstChunkMs,
+            generationFirstChunkMs,
             outputChars: fullText.length,
             error: getErrorMessage(error),
           });
@@ -425,11 +434,13 @@ export function createJsonLineStream(params: {
             params.lastUserParts
           );
           const donePayload = await resolveDonePayload(params.onDone, {});
+          firstChunkMs = Date.now() - startedAt;
           write({ type: 'chunk', text: fallbackText });
           logChatTelemetry('fallback_done', params.telemetry, {
             modelName,
             elapsedMs: Date.now() - startedAt,
             firstChunkMs,
+            generationFirstChunkMs,
             outputChars: fallbackText.length,
             error: getErrorMessage(error),
           });
@@ -451,6 +462,7 @@ export function createJsonLineStream(params: {
           modelName,
           elapsedMs: Date.now() - startedAt,
           firstChunkMs,
+          generationFirstChunkMs,
           outputChars: fullText.length,
           error: getErrorMessage(error),
         });
@@ -1513,9 +1525,13 @@ function removeUnsupportedPsychologicalInference(
     ({ output, supportedBy }) =>
       text.includes(output) && !supportedBy.test(userContext)
   );
-  if (unsupportedTerms.length === 0) return text;
-
   const userUsedEmphaticCause = /(?:だからこそ|からこそ)/.test(userContext);
+  const hasUnsupportedEmphaticCause =
+    /(?:だからこそ|からこそ)/.test(text) && !userUsedEmphaticCause;
+  if (unsupportedTerms.length === 0 && !hasUnsupportedEmphaticCause) {
+    return text;
+  }
+
   const grounded = (text.match(/[^。！？?\n]+[。！？?]?|\n+/g) || [])
     .filter(
       (segment) =>
