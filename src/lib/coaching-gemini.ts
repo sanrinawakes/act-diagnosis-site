@@ -2155,6 +2155,12 @@ function rewriteContextualClosingQuestion(
   }
 
   if (/次の一言が怖/.test(lastUserText)) {
+    if (
+      !requestsDirectWording(lastUserText) &&
+      !requestsSingleAnswerFormat(lastUserText)
+    ) {
+      return '上司に否定されたように感じて、次の一言が怖いんですね。\n\n次にその上司へ話す時、いちばん避けたいことは何ですか？';
+    }
     return directText
       .replace(
         /その[「『]?次の一言[」』]?[^。！？?\n]{0,100}(?:ことでしょうか|ことですか)[。！？?]?/g,

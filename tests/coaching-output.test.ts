@@ -344,7 +344,7 @@ describe('normalizeCoachingOutput', () => {
 
     expect(result).not.toContain('緊張');
     expect(result).not.toContain('自分らしい');
-    expect(result).toContain('自分で納得できそう');
+    expect(result).toContain('次にその上司へ話す時');
   });
 
   it('本人が言っていない仕事のミスと姿勢宣言を補わない', () => {
@@ -387,7 +387,7 @@ describe('normalizeCoachingOutput', () => {
     );
 
     expect(result).not.toMatch(/反応が返ってくることへの恐れ/);
-    expect(result).toContain('次にその相手へ話す時');
+    expect(result).toContain('次にその上司へ話す時');
   });
 
   it('本人が話していない「安心できる反応」を質問側で持ち込まない', () => {
@@ -397,7 +397,7 @@ describe('normalizeCoachingOutput', () => {
     );
 
     expect(result).not.toMatch(/反応|安心できる/);
-    expect(result).toContain('次にその相手へ話す時');
+    expect(result).toContain('次にその上司へ話す時');
   });
 
   it('「落ち込んでいる」を質問で「一番しんどい」へ強めない', () => {
@@ -449,7 +449,7 @@ describe('normalizeCoachingOutput', () => {
     );
 
     expect(result).not.toContain('予測から来ている');
-    expect(result).toContain('次にその相手へ話す時');
+    expect(result).toContain('次にその上司へ話す時');
   });
 
   it('通常返答でも次の行動を二つ重ねない', () => {
@@ -462,9 +462,10 @@ describe('normalizeCoachingOutput', () => {
       '上司に否定されたように感じて、次の一言が怖いです。'
     );
 
-    expect(result).toContain('次の一言が怖くなっている');
+    expect(result).toContain('次の一言が怖いんですね');
     expect(result).not.toContain('認めてあげてください');
-    expect(result).toContain('メモに書き出してみてください');
+    expect(result).not.toMatch(/確認したい|メモ/);
+    expect(result).toContain('いちばん避けたいことは何ですか？');
   });
 
   it('一つだけ指定で読み上げてから移動する二動作を残さない', () => {
@@ -562,7 +563,7 @@ describe('normalizeCoachingOutput', () => {
       '上司に否定されたように感じて、次の一言が怖いです。'
     );
 
-    expect(result).toContain('次の一言を出すのが怖くなっている');
+    expect(result).toContain('次の一言が怖いんですね');
     expect(result).not.toMatch(/否定.*ではなく.*別の視点/);
     expect(result).toMatch(/[？?]$/);
   });
@@ -1291,15 +1292,16 @@ describe('normalizeCoachingOutput', () => {
     expect(result).toContain('今日起きた事実を一行だけ');
   });
 
-  it('怖いという発言から「身構えている」と補わない', () => {
+  it('怖いという発言から身構えや曖昧な確認課題を補わない', () => {
     const result = normalizeCoachingOutput(
-      '次の一言が怖くなっているのですね。自分の言葉がどう受け取られるか、身構えてしまうのは無理もありません。\n\n上司に確認したいことを一つだけメモに書いてください。',
+      '上司に否定されたように感じて、次の一言が怖くなっているのですね。そのように感じているときは、次に話すのが怖くなるのも無理はありません。\n\n少しでもその怖さを和らげるために、次に上司と話す前に、まずは「これだけは確認したいこと」を1つだけ、手元のメモに書き出してみてください。あらかじめ聞くことを1つに決めておくだけでも、少し心の準備がしやすくなります。',
       '上司に否定されたように感じて、次の一言が怖いです。'
     );
 
-    expect(result).not.toContain('身構えて');
-    expect(result).toContain('次の一言が怖くなっている');
-    expect(result).toContain('メモに書いてください');
+    expect(result).toBe(
+      '上司に否定されたように感じて、次の一言が怖いんですね。\n\n次にその上司へ話す時、いちばん避けたいことは何ですか？'
+    );
+    expect(result).not.toMatch(/身構え|確認したい|メモ|心の準備/);
   });
 
   it('利用者が言っていない気持ちの難しさや好意的な原因も補わない', () => {
@@ -1356,7 +1358,7 @@ describe('normalizeCoachingOutput', () => {
     );
 
     expect(result).not.toMatch(/真剣|からこそ/);
-    expect(result).toContain('具体的にどんな場面');
+    expect(result).toContain('いちばん避けたいことは何ですか？');
   });
 
   it('本人が「からこそ」と話した原因は削除しない', () => {
