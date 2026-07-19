@@ -1952,8 +1952,13 @@ function canonicalizeAssistantParagraph(text: string) {
 }
 
 function rewriteContextualClosingQuestion(text: string, lastUserText: string) {
+  const directText = text.replace(
+    /この(?:提案|方法|考え)(?:について)?[、,]?(?:どのように|どう)(?:感じ|思い)ますか[？?]?/g,
+    buildDirectContextQuestion(lastUserText)
+  );
+
   if (/仕事|職場|業務|会社|タスク/.test(lastUserText) && /落ち込/.test(lastUserText)) {
-    return text
+    return directText
       .replace(
         /今[^。！？?\n]{0,40}落ち込[^。！？?\n]{0,30}(?:状態|気持ち)[^。！？?\n]{0,40}いちばん気になっている出来事[^。！？?\n]{0,40}(?:聞かせてもらえますか|何ですか)[。！？?]?/g,
         '仕事のことで、今いちばん気になっている出来事は何ですか？'
@@ -1965,7 +1970,7 @@ function rewriteContextualClosingQuestion(text: string, lastUserText: string) {
   }
 
   if (/次の一言が怖/.test(lastUserText)) {
-    return text
+    return directText
       .replace(
         /その[「『]?次の一言[」』]?[^。！？?\n]{0,100}(?:ことでしょうか|ことですか)[。！？?]?/g,
         '次にその上司へ話す時、いちばん避けたいことは何ですか？'
@@ -1977,13 +1982,25 @@ function rewriteContextualClosingQuestion(text: string, lastUserText: string) {
   }
 
   if (/感情的|感情が強|冷静でいられ|落ち着け.{0,8}不安/.test(lastUserText)) {
-    return text.replace(
+    return directText.replace(
       /その不安の奥で[、,]?いちばん守りたいものは何ですか[？?]?/g,
       '途中で感情が強くなった時、相手に何と伝えたいですか？'
     );
   }
 
-  return text;
+  return directText;
+}
+
+function buildDirectContextQuestion(lastUserText: string) {
+  if (
+    /家事|負担|後回し/.test(lastUserText) &&
+    /夫|妻|家族|相手/.test(lastUserText)
+  ) {
+    const otherPerson = lastUserText.match(/夫|妻|家族|相手/)?.[0] || '相手';
+    return `家事の負担を減らすために、${otherPerson}にまず何を変えてほしいですか？`;
+  }
+
+  return buildClosingCoachingQuestion(lastUserText);
 }
 
 function softenRepeatedAcknowledgement(text: string) {
