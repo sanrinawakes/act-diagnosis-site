@@ -408,7 +408,8 @@ function assertResults(results) {
       !requestsExplicitClosingQuestionInSmoke(result.lastUserText) &&
       (result.message.split(/\n{2,}/).filter(Boolean).length !== 1 ||
         countCoachingActionClauses(result.message) >= 2 ||
-        containsAlternativeRequestedActions(result.message))
+        containsAlternativeRequestedActions(result.message) ||
+        containsMultipleRequestedTargets(result.message))
     ) {
       throw new Error(
         `${result.label} returned multiple requested actions: ${result.message}`
@@ -431,7 +432,7 @@ function assertResults(results) {
       );
     }
     if (
-      /お察し(?:いた)?します|承知(?:いた)?しました|いらっしゃる|差し支えなければ|よろしければ|(?:お聞かせ|聞かせて|教えて|お話し|話して)いただけますか|お聞かせいただけますでしょうか|させていただけますでしょうか|となっております|お伺いいたします|お気軽に(?:ご質問|お尋ね|ご相談)|頑張られ|素晴らしい一歩|サポートさせていただきます|ご無理なさらず|ご安心ください|お過ごしください|(?:教えて|伝えて|書いて|お話しして|話して)くださ(?:り|って)ありがとうございます|(?:お気持ち|気持ち).{0,8}よく(?:分|わ)かります|何か(?:具体的に|続けて)?(?:お話し|話して)(?:みたい|したい)?ことはありますか|何か[、,]?(?:今)?(?:感じていることや[、,]?)?(?:話したい|話してみたい)ことはありますか|今[、,]?(?:この瞬間に)?(?:最も|一番)?(?:話したい|話してみたい)ことは何ですか|あなたの言葉一つ一つを大切に受け止めています|受け止めさせてください|受け止めたいと思います|見捨てられ|承認欲求|トラウマ|幼少期|愛着障害|共依存|我慢.{0,12}証拠|という喧嘩|タタスク|タースク|タムスケジュール/.test(
+      /お察し(?:いた)?します|承知(?:いた)?しました|いらっしゃる|差し支えなければ|よろしければ|(?:お聞かせ|聞かせて|教えて|お話し|話して)いただけますか|お聞かせいただけますでしょうか|させていただけますでしょうか|となっております|お伺いいたします|お気軽に(?:ご質問|お尋ね|ご相談)|頑張られ|素晴らしい一歩|サポートさせていただきます|ご無理なさらず|ご安心ください|お過ごしください|(?:教えて|伝えて|書いて|お話しして|話して)くださ(?:り|って)ありがとうございます|(?:気持ち|状況|悩み)を言葉にしていただけて(?:よかった|うれしい)です|(?:お気持ち|気持ち).{0,8}よく(?:分|わ)かります|何か(?:具体的に|続けて)?(?:お話し|話して)(?:みたい|したい)?ことはありますか|何か[、,]?(?:今)?(?:感じていることや[、,]?)?(?:話したい|話してみたい)ことはありますか|今[、,]?(?:この瞬間に)?(?:最も|一番)?(?:話したい|話してみたい)ことは何ですか|あなたの言葉一つ一つを大切に受け止めています|受け止めさせてください|受け止めたいと思います|見捨てられ|承認欲求|トラウマ|幼少期|愛着障害|共依存|我慢.{0,12}証拠|という喧嘩|タタスク|タースク|タムスケジュール/.test(
         result.message
       )
     ) {
@@ -545,6 +546,16 @@ function assertResults(results) {
         `${result.label} asked for multiple answer fields: ${result.message}`
       );
     }
+    if (
+      /業務の確認だけ|話すのは[^。！？\n]{0,30}だけにする|(?:話題|会話)[^。！？\n]{0,16}(?:避け|限定)/.test(
+        result.message
+      ) &&
+      !/業務の確認だけ|だけにする|避け|限定/.test(result.lastUserText)
+    ) {
+      throw new Error(
+        `${result.label} added an unsupported conversation restriction: ${result.message}`
+      );
+    }
     if (/\*\*|^#{1,6}\s/m.test(result.message)) {
       throw new Error(
         `${result.label} returned Markdown decoration: ${result.message}`
@@ -611,7 +622,7 @@ function assertResults(results) {
       );
     }
     if (
-      /率直な状況|今の自分の(?:率直な)?状況|事実として一言|自分の本音を一言|心が引っかかって/.test(
+      /率直な状況|今の自分の(?:率直な)?状況|事実として一言|自分の本音を一言|心が引っかかって|引っかかっている(?:出来事|状況)/.test(
         result.message
       )
     ) {
@@ -670,7 +681,7 @@ function asksForMultipleAnswerDimensions(text) {
         /(?:です|ます)か[、,]?(?:それとも|または|あるいは)[^。！？?\n]{1,100}(?:です|ます)か/.test(
           trimmed
         ) ||
-        /(?:出来事|事実|理由|原因|気持ち|感情|希望|望み|行動|タイミング|言い方|方法|内容)[」』]?(?:と|や|および|ならびに|、)[^。！？?\n]{0,28}[「『]?(?:出来事|事実|理由|原因|気持ち|感情|希望|望み|行動|タイミング|言い方|方法|内容)/.test(
+        /(?:出来事|事実|状況|理由|原因|気持ち|感情|希望|望み|行動|タイミング|言い方|方法|内容)[」』]?(?:と|や|および|ならびに|、)[^。！？?\n]{0,28}[「『]?(?:出来事|事実|状況|理由|原因|気持ち|感情|希望|望み|行動|タイミング|言い方|方法|内容)/.test(
           trimmed
         ))
     );
@@ -732,6 +743,12 @@ function countCoachingMoves(text) {
 function containsAlternativeRequestedActions(text) {
   return /(?:する|して|書く|書いて|伝える|話す|休む|閉じる|移動させる|オフにする|設定する|行う)か[、,]|(?:または|もしくは|あるいは)/.test(
     stripJapaneseQuotedContent(text)
+  );
+}
+
+function containsMultipleRequestedTargets(text) {
+  return /(?:気持ち|感じたこと|出来事|状況|内容|言葉|一言|行動|作業|仕事)[^。！？\n]{0,12}(?:や|または|もしくは)[^。！？\n]{0,24}(?:気持ち|感じたこと|出来事|状況|内容|言葉|一言|行動|作業|仕事)/.test(
+    text
   );
 }
 

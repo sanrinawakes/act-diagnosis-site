@@ -995,6 +995,10 @@ export function normalizeCoachingOutput(
       /[^。\n]{0,100}(?:教えて|伝えて|話して|書いて)(?:くださり|くれて)ありがとうございます[。]?/g,
       ''
     )
+    .replace(
+      /[^。\n]{0,100}(?:気持ち|状況|悩み)を言葉にしていただけて(?:よかった|うれしい)です[。]?/g,
+      ''
+    )
     .replace(/(?:そう)?お話ししてくださってありがとうございます[。]?/g, '')
     .replace(/お話ししてくださりありがとうございます[。]?/g, '')
     .replace(
@@ -1083,6 +1087,10 @@ export function normalizeCoachingOutput(
     .replace(
       /(?:いま|今)[、,]?(?:一番|いちばん)[、,]?心が引っかかっている出来事/g,
       '今いちばん気になっている出来事'
+    )
+    .replace(
+      /(?:一番|いちばん)[^。！？?\n]{0,24}引っかかっている(?:出来事|状況)(?:や(?:出来事|状況))?/g,
+      'いちばん気になっている出来事'
     )
     .replace(/何が一番心に引っかかっているか/g, '何が一番気になっているか')
     .replace(/何が一番しんどいか/g, '何が一番気になっているか')
@@ -1251,6 +1259,14 @@ function containsMultipleRequestedItems(text: string) {
 
   if (
     /例[:：][^。！？\n]{1,100}(?:、|または|もしくは|など)|例えば[、,]?[^。！？\n]{1,100}(?:または|もしくは|(?:、[^。！？\n]{1,80})+など)/.test(
+      text
+    )
+  ) {
+    return true;
+  }
+
+  if (
+    /(?:気持ち|感じたこと|出来事|状況|内容|言葉|一言|行動|作業|仕事)[^。！？\n]{0,12}(?:や|または|もしくは)[^。！？\n]{0,24}(?:気持ち|感じたこと|出来事|状況|内容|言葉|一言|行動|作業|仕事)/.test(
       text
     )
   ) {
@@ -1513,6 +1529,14 @@ function isSingleActionRelevantToContext(
     /率直な状況|今の自分の(?:率直な)?状況|事実として一言|自分の本音を一言/.test(
       answer
     )
+  ) {
+    return false;
+  }
+  if (
+    /業務の確認だけ|話すのは[^。！？\n]{0,30}だけにする|(?:話題|会話)[^。！？\n]{0,16}(?:避け|限定)/.test(
+      answer
+    ) &&
+    !/業務の確認だけ|だけにする|避け|限定/.test(userContext)
   ) {
     return false;
   }
@@ -1873,6 +1897,20 @@ function canonicalizeAssistantParagraph(text: string) {
 }
 
 function rewriteContextualClosingQuestion(text: string, lastUserText: string) {
+  if (/仕事|職場|業務|会社|タスク/.test(lastUserText) && /落ち込/.test(lastUserText)) {
+    return text.replace(
+      /今[^。！？?\n]{0,40}落ち込[^。！？?\n]{0,30}状態[^。！？?\n]{0,40}いちばん気になっている出来事[^。！？?\n]{0,40}(?:聞かせてもらえますか|何ですか)[。！？?]?/g,
+      '仕事のことで、今いちばん気になっている出来事は何ですか？'
+    );
+  }
+
+  if (/次の一言が怖/.test(lastUserText)) {
+    return text.replace(
+      /その[「『]?次の一言[」』]?[^。！？?\n]{0,100}(?:ことでしょうか|ことですか)[。！？?]?/g,
+      '次にその上司へ話す時、いちばん避けたいことは何ですか？'
+    );
+  }
+
   if (/感情的|感情が強|冷静でいられ|落ち着け.{0,8}不安/.test(lastUserText)) {
     return text.replace(
       /その不安の奥で[、,]?いちばん守りたいものは何ですか[？?]?/g,
@@ -2044,7 +2082,7 @@ function rewriteCompoundAnswerQuestions(text: string, lastUserText: string) {
   const rewritten = parts
     .map((part) => {
       const asksForPairedDimensions =
-        /(?:出来事|事実|理由|原因|気持ち|感情|希望|望み|行動|タイミング|言い方|方法|内容)[」』]?(?:と|や|および|ならびに|、)[^。！？?\n]{0,28}[「『]?(?:出来事|事実|理由|原因|気持ち|感情|希望|望み|行動|タイミング|言い方|方法|内容)/.test(
+        /(?:出来事|事実|状況|理由|原因|気持ち|感情|希望|望み|行動|タイミング|言い方|方法|内容)[」』]?(?:と|や|および|ならびに|、)[^。！？?\n]{0,28}[「『]?(?:出来事|事実|状況|理由|原因|気持ち|感情|希望|望み|行動|タイミング|言い方|方法|内容)/.test(
           part
         );
       const asksForcedAlternative =
