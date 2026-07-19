@@ -882,7 +882,7 @@ export function normalizeCoachingOutput(text: string, lastUserText: string) {
   const questionLimit =
     requiresClosingQuestion || requestsNoFollowUpQuestion(lastUserText) ? 0 : 1;
   const safeText = invalidatesUserFeeling(text)
-    ? '相手に伝えたいことを、まず短いメモに書き出してみてください。'
+    ? buildNoQuestionFallback(lastUserText)
     : text;
   const naturalText = safeText
     .replace(/タタスク/g, 'タスク')
@@ -897,7 +897,13 @@ export function normalizeCoachingOutput(text: string, lastUserText: string) {
     .replace(/お気持ち(?:を)?お察しいたします[。]?/g, 'その気持ちは自然だと思います。')
     .replace(/お察しいたします[。]?/g, 'その気持ちは自然だと思います。')
     .replace(/お察しします/g, '思います')
+    .replace(
+      /(?:その)?(?:お気持ち|気持ち)[、,]?(?:とても)?よく(?:分|わ)かります[。]?/g,
+      ''
+    )
     .replace(/承知いたしました[。]?/g, 'わかりました。')
+    .replace(/[、,]?と承知しました[。]?/g, '、確認しました。')
+    .replace(/承知しました[。]?/g, 'わかりました。')
     .replace(/いらっしゃるのですね/g, 'いるんですね')
     .replace(/いらっしゃる/g, 'いる')
     .replace(/ご自身/g, '自分')
@@ -914,6 +920,7 @@ export function normalizeCoachingOutput(text: string, lastUserText: string) {
     .replace(/今日は(?:もう、?)?たくさん頑張られましたね[。]?/g, '今日は本当にお疲れ様でした。')
     .replace(/全力でサポートさせていただきます[。]?/g, '一緒に整理します。')
     .replace(/ご無理なさらず/g, '無理せず')
+    .replace(/(?:ので[、,]?)?ご安心ください[。]?/g, '。')
     .replace(/ゆっくりお過ごしください/g, 'ゆっくり休んでください')
     .replace(/お辛い/g, 'つらい')
     .replace(
@@ -928,7 +935,12 @@ export function normalizeCoachingOutput(text: string, lastUserText: string) {
     .replace(/と伝えてみてはいかがでしょうか[。]?/g, 'と伝えてみてください。')
     .replace(/みるのはいかがでしょうか[。]?/g, 'みてください。')
     .replace(/してみてはいかがでしょうか[。]?/g, 'してみてください。')
-    .replace(/してみませんか[。？?]?/g, 'してみてください。');
+    .replace(/してみませんか[。？?]?/g, 'してみてください。')
+    .replace(
+      /何か(?:具体的に|続けて)?(?:お話し|話して)(?:みたい|したい)?ことはありますか[？?]?/g,
+      ''
+    )
+    .replace(/。{2,}/g, '。');
   const diagnosisSafeText = requestsDiagnosisExplanation(lastUserText)
     ? naturalText
     : removeUnrequestedDiagnosisExplanation(naturalText);
@@ -1222,7 +1234,7 @@ function removeUnrequestedDiagnosisExplanation(text: string) {
 }
 
 function invalidatesUserFeeling(text: string) {
-  return /否定.{0,6}(?:ではなく|でなく).{0,8}意見|感情.{0,12}(?:横|脇)に置|感情.{0,8}切り離|客観的に見つめ直/.test(
+  return /否定.{0,6}(?:ではなく|でなく).{0,8}意見|(?:感情|気持ち|怖さ|不安|怒り|悲しさ).{0,16}(?:横|脇)に置|(?:感情|気持ち|怖さ|不安|怒り|悲しさ).{0,12}切り離|客観的に見つめ直/.test(
     text
   );
 }

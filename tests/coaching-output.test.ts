@@ -64,6 +64,37 @@ describe('normalizeCoachingOutput', () => {
     expect(result).not.toMatch(/3つ|三つ/);
   });
 
+  it('怖さを脇へ置かせず、感情を抱えたままできる一歩へ戻す', () => {
+    const result = normalizeCoachingOutput(
+      'その「能力がないと思われる怖さ」を少しだけ横に置いて、小さな一歩を踏み出してみませんか？',
+      '失敗より、能力がないと思われるのが怖いです。'
+    );
+
+    expect(result).not.toMatch(/横に置|脇に置|切り離/);
+    expect(result).toContain('最小の行動を一つだけ');
+  });
+
+  it('定型的な理解表現・接客語・安心保証を残さない', () => {
+    const result = normalizeCoachingOutput(
+      'そのお気持ち、とてもよく分かります。前の話はしっかり踏まえていますので、ご安心ください。二行目、と承知しました。',
+      '今も前の話を踏まえられていますか？'
+    );
+
+    expect(result).not.toMatch(/お気持ち.*よく分かります|ご安心ください|承知しました/);
+    expect(result).toContain('前の話はしっかり踏まえています。');
+    expect(result).toContain('二行目、確認しました。');
+  });
+
+  it('広すぎる会話継続質問を具体的な問いへ置き換える', () => {
+    const result = normalizeCoachingOutput(
+      '前の話は踏まえています。何か具体的に話してみたいことはありますか？',
+      '今も前の話を踏まえられていますか？'
+    );
+
+    expect(result).not.toContain('何か具体的に話してみたいこと');
+    expect(result).toContain('いちばん見過ごしたくない本音');
+  });
+
   it('内部の回答形式指定を利用者本文から分離する', () => {
     const result = stripInternalResponseStyleHint(
       'この画像の色を一言で答えてください。\n\n【内部応答形式】答えまたは提案を一つだけ簡潔に返してください。'
