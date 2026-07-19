@@ -1155,6 +1155,14 @@ function evaluateConversations(conversations) {
     );
     addCheck(
       checks,
+      `${turn.label}: 内容を丸投げする曖昧な行動を返さない`,
+      !/率直な状況|今の自分の(?:率直な)?状況|事実として一言|自分の本音を一言/.test(
+        turn.message
+      ),
+      turn.message
+    );
+    addCheck(
+      checks,
       `${turn.label}: 引用符・括弧が閉じている`,
       hasBalancedDelimiters(turn.message)
     );

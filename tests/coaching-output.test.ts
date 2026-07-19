@@ -283,7 +283,8 @@ describe('normalizeCoachingOutput', () => {
     );
 
     expect(result).toContain('明日');
-    expect(result).toContain('SNSのアプリ');
+    expect(result).toContain('SNSで最初に伝えたい内容');
+    expect(result).not.toMatch(/見えない場所|移動/);
   });
 
   it('本人が使っていない「重たい」という比喩を補わない', () => {
@@ -1173,6 +1174,42 @@ describe('normalizeCoachingOutput', () => {
     expect(result).not.toMatch(/思い浮かべ|深呼吸|淹れ/);
     expect(result).toBe(
       '明日、今いちばん気になっていることを一文だけメモに書いてください。'
+    );
+  });
+
+  it('SNSへの抵抗を相談中にアプリを隠す回避行動を提案しない', () => {
+    const result = normalizeCoachingOutput(
+      '明日の朝、まずは「SNSのアプリをスマホのホーム画面から見えない場所へ移動させる」ことだけを行ってみてください。',
+      '明日まず何をすればいいか、一つだけ短く教えてください。',
+      [
+        {
+          role: 'user',
+          content: '仕事の悩みとSNSへの抵抗感について相談しています。',
+        },
+      ]
+    );
+
+    expect(result).not.toMatch(/アプリ|見えない場所|移動/);
+    expect(result).toBe(
+      '明日の朝、SNSで最初に伝えたい内容を一文だけメモに書いてください。'
+    );
+  });
+
+  it('内容が曖昧な「率直な状況を一言」を具体策として通さない', () => {
+    const result = normalizeCoachingOutput(
+      '明日の朝、上司と話す前に「今の自分の率直な状況を、事実として一言だけ伝える」ことから始めてみてください。',
+      'では、明日まず何をすればいいか一つだけ教えてください。',
+      [
+        {
+          role: 'user',
+          content: '上司に否定されたように感じて、次の一言が怖いです。',
+        },
+      ]
+    );
+
+    expect(result).not.toMatch(/率直な状況|事実として一言/);
+    expect(result).toBe(
+      '明日の朝、相手に最初に伝える一文だけをメモに書いてください。'
     );
   });
 });

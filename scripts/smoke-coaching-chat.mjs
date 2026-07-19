@@ -516,13 +516,32 @@ function assertResults(results) {
       result.label === 'long-history-437' &&
       !(
         /SNS|投稿|発信|仕事|職場|タスク/.test(result.message) &&
-        /書|投稿|発信|アプリ|通知|メモ|資料|タスク|予定|開|着手|連絡|相談|伝|確認|整理/.test(
+        /書|投稿|発信|メモ|資料|タスク|予定|着手|連絡|相談|伝|確認|整理/.test(
           result.message
         )
       )
     ) {
       throw new Error(
         `${result.label} returned an action unrelated to its history: ${result.message}`
+      );
+    }
+    if (
+      result.label === 'long-history-437' &&
+      /(?:SNSの)?アプリ.{0,32}(?:見えない|隠|移動|削除|閉じ)|通知.{0,16}(?:切|オフ)/.test(
+        result.message
+      )
+    ) {
+      throw new Error(
+        `${result.label} reinforced SNS avoidance: ${result.message}`
+      );
+    }
+    if (
+      /率直な状況|今の自分の(?:率直な)?状況|事実として一言|自分の本音を一言/.test(
+        result.message
+      )
+    ) {
+      throw new Error(
+        `${result.label} returned a vague action: ${result.message}`
       );
     }
   }

@@ -1423,10 +1423,27 @@ function isSingleActionRelevantToContext(
       .map((message) => stripAttachmentMarkdown(message.content)),
     lastUserText,
   ].join('\n');
+  if (
+    /SNS.{0,28}(?:抵抗|怖|発信でき|投稿でき|苦手|避け)|(?:抵抗|怖|発信でき|投稿でき|苦手|避け).{0,28}SNS/.test(
+      userContext
+    ) &&
+    /(?:SNSの)?アプリ.{0,32}(?:見えない|隠|移動|削除|閉じ)|通知.{0,16}(?:切|オフ)/.test(
+      answer
+    )
+  ) {
+    return false;
+  }
+  if (
+    /率直な状況|今の自分の(?:率直な)?状況|事実として一言|自分の本音を一言/.test(
+      answer
+    )
+  ) {
+    return false;
+  }
   const contextChecks = [
     {
       present: /SNS|投稿|発信/.test(userContext),
-      relevant: /書|投稿|発信|アプリ|通知|メモ|伝/.test(answer),
+      relevant: /書|投稿|発信|メモ|伝/.test(answer),
     },
     {
       present: /仕事|職場|業務|会社|タスク/.test(userContext),
