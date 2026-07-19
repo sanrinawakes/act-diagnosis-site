@@ -223,6 +223,14 @@ async function sendStreamRequest({ email, diagnosisCode, messages, label }) {
       bracing: messages.some(
         (message) => message.role === 'user' && /身構え/.test(message.content)
       ),
+      prediction: messages.some(
+        (message) =>
+          message.role === 'user' && /予測|また.{0,12}否定/.test(message.content)
+      ),
+      suffering: messages.some(
+        (message) =>
+          message.role === 'user' && /苦し|つら|辛|しんど/.test(message.content)
+      ),
       emotionSwitching: messages.some(
         (message) => message.role === 'user' && /切り替え/.test(message.content)
       ),
@@ -317,6 +325,17 @@ function assertResults(results) {
       );
     }
     if (
+      !requestsExplicitClosingQuestionInSmoke(result.lastUserText) &&
+      !/手順|ステップ|順番|段階|複数|いくつか|詳しく/.test(
+        result.lastUserText
+      ) &&
+      countCoachingMoves(result.message) > 1
+    ) {
+      throw new Error(
+        `${result.label} returned more than one coaching move: ${result.message}`
+      );
+    }
+    if (
       /お察し(?:いた)?します|承知(?:いた)?しました|いらっしゃる|差し支えなければ|よろしければ|(?:お聞かせ|聞かせて|教えて|お話し|話して)いただけますか|お聞かせいただけますでしょうか|させていただけますでしょうか|となっております|お伺いいたします|お気軽に(?:ご質問|お尋ね|ご相談)|頑張られ|素晴らしい一歩|サポートさせていただきます|ご無理なさらず|ご安心ください|お過ごしください|(?:教えて|お話しして|話して)くださ(?:り|って)ありがとうございます|(?:お気持ち|気持ち).{0,8}よく(?:分|わ)かります|何か(?:具体的に|続けて)?(?:お話し|話して)(?:みたい|したい)?ことはありますか|何か[、,]?(?:今)?(?:感じていることや[、,]?)?(?:話したい|話してみたい)ことはありますか|今[、,]?(?:この瞬間に)?(?:最も|一番)?(?:話したい|話してみたい)ことは何ですか|あなたの言葉一つ一つを大切に受け止めています|受け止めさせてください|受け止めたいと思います|見捨てられ|承認欲求|トラウマ|幼少期|愛着障害|共依存|我慢.{0,12}証拠|という喧嘩|タタスク|タースク|タムスケジュール/.test(
         result.message
       )
@@ -339,6 +358,10 @@ function assertResults(results) {
         !result.userGrounding.expectation) ||
       (/萎縮/.test(result.message) && !result.userGrounding.intimidation) ||
       (/身構え/.test(result.message) && !result.userGrounding.bracing) ||
+      (/予測.{0,12}(?:から来|が原因)|(?:から来|原因).{0,12}予測/.test(
+        result.message
+      ) && !result.userGrounding.prediction) ||
+      (/苦しめ/.test(result.message) && !result.userGrounding.suffering) ||
       (/気持ちの切り替え/.test(result.message) &&
         !result.userGrounding.emotionSwitching) ||
       (/精一杯/.test(result.message) &&
@@ -427,6 +450,23 @@ function countSemanticQuestions(text) {
         trimmed
       );
     return total + (isQuestion ? 1 : 0);
+  }, 0);
+}
+
+function countCoachingMoves(text) {
+  const unquoted = stripJapaneseQuotedContent(text);
+  const segments = unquoted.match(/[^。！？?\n]+[。！？?]?|\n+/g) || [];
+  return segments.reduce((total, segment) => {
+    const trimmed = segment.trim();
+    if (!trimmed) return total;
+    const isQuestion =
+      /[？?]/.test(trimmed) ||
+      /(?:です|ます|でしょう|ません)か[。]?$/.test(trimmed) ||
+      /(?:教えて|聞かせて|答えて|話して)(?:ください|もらえますか)[。]?$/.test(
+        trimmed
+      );
+    const isDirective = /(?:ください|ましょう)[。！]?$/.test(trimmed);
+    return total + (isQuestion || isDirective ? 1 : 0);
   }, 0);
 }
 

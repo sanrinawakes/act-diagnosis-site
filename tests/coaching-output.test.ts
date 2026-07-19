@@ -218,6 +218,31 @@ describe('normalizeCoachingOutput', () => {
     expect(result).not.toContain('エネルギーを使っている');
   });
 
+  it('質問の後に「一緒に見ていきましょう」を重ねない', () => {
+    const result = normalizeCoachingOutput(
+      [
+        '仕事で落ち込むことがあり、整理が必要な状態なんですね。',
+        'まずは、今一番「重たい」と感じている出来事を一つだけ聞かせてもらえますか？',
+        'その出来事の何が、今のあなたを一番苦しめているのかを一緒に見ていきましょう。',
+      ].join('\n\n'),
+      '仕事のことで少し落ち込んでいます。短く整理を手伝ってください。'
+    );
+
+    expect(result).toContain('聞かせてもらえますか？');
+    expect(result).not.toContain('一緒に見ていきましょう');
+    expect(result).not.toContain('苦しめている');
+  });
+
+  it('怖さの原因として本人が言っていない予測を補わない', () => {
+    const result = normalizeCoachingOutput(
+      '上司に否定されたと感じ、次に言葉を発することが怖いのですね。\n\nその怖さは、また同じように否定されるという予測から来ているのでしょうか。',
+      '上司に否定されたように感じて、次の一言が怖いです。'
+    );
+
+    expect(result).not.toContain('予測から来ている');
+    expect(result).toContain('次にその相手へ話す時');
+  });
+
   it('通常返答でも次の行動を二つ重ねない', () => {
     const result = normalizeCoachingOutput(
       [

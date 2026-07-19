@@ -903,6 +903,8 @@ function evaluateConversations(conversations) {
           expectation: /期待|応え/.test(userContext),
           intimidation: /萎縮/.test(userContext),
           bracing: /身構え/.test(userContext),
+          prediction: /予測|また.{0,12}否定/.test(userContext),
+          suffering: /苦し|つら|辛|しんど/.test(userContext),
           emotionSwitching: /切り替え/.test(userContext),
           emphaticCause: /(?:だからこそ|からこそ)/.test(userContext),
           overwhelmed: /精一杯|余裕がない|限界/.test(userContext),
@@ -980,6 +982,17 @@ function evaluateConversations(conversations) {
       turn.semanticQuestions <= 1,
       `${turn.semanticQuestions}: ${turn.message} / raw: ${turn.rawMessage}`
     );
+    if (
+      !requestsExplicitClosingQuestionInTest(turn.user) &&
+      !/手順|ステップ|順番|段階|複数|いくつか|詳しく/.test(turn.user)
+    ) {
+      addCheck(
+        checks,
+        `${turn.label}: 質問・提案の次の一手は合計1つまで`,
+        countCoachingMoves(turn.message) <= 1,
+        turn.message
+      );
+    }
     addCheck(
       checks,
       `${turn.label}: 通常返答は長すぎない`,
@@ -1016,6 +1029,10 @@ function evaluateConversations(conversations) {
           !turn.userGrounding.expectation) ||
         (/萎縮/.test(turn.message) && !turn.userGrounding.intimidation) ||
         (/身構え/.test(turn.message) && !turn.userGrounding.bracing) ||
+        (/予測.{0,12}(?:から来|が原因)|(?:から来|原因).{0,12}予測/.test(
+          turn.message
+        ) && !turn.userGrounding.prediction) ||
+        (/苦しめ/.test(turn.message) && !turn.userGrounding.suffering) ||
         (/気持ちの切り替え/.test(turn.message) &&
           !turn.userGrounding.emotionSwitching) ||
         (/精一杯/.test(turn.message) &&
@@ -1377,6 +1394,23 @@ function countSemanticQuestions(text) {
   });
 
   return questions;
+}
+
+function countCoachingMoves(text) {
+  const unquoted = stripJapaneseQuotedContent(text);
+  const segments = unquoted.match(/[^。！？?\n]+[。！？?]?|\n+/g) || [];
+  return segments.reduce((total, segment) => {
+    const trimmed = segment.trim();
+    if (!trimmed) return total;
+    const isQuestion =
+      /[？?]/.test(trimmed) ||
+      /(?:です|ます|でしょう|ません)か[。]?$/.test(trimmed) ||
+      /(?:教えて|聞かせて|答えて|話して)(?:ください|もらえますか)[。]?$/.test(
+        trimmed
+      );
+    const isDirective = /(?:ください|ましょう)[。！]?$/.test(trimmed);
+    return total + (isQuestion || isDirective ? 1 : 0);
+  }, 0);
 }
 
 function hasClosingCoachingMove(message) {

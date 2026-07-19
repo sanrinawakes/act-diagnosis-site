@@ -1186,9 +1186,7 @@ function limitUnrequestedCoachingMoves(text: string, lastUserText: string) {
     const isQuestion = !questionIsQuoted && isQuestionSegment(segment);
     const isDirective =
       unquoted.length > 0 &&
-      /(?:て|で)(?:ください|みてください|みましょう)|してください|しましょう|休みましょう|考えてください[。！]?$/.test(
-        unquoted
-      );
+      /(?:ください|ましょう)[。！]?$/.test(unquoted);
 
     if (isQuestion || isDirective) {
       let score = index / Math.max(segments.length, 1);
@@ -1825,6 +1823,14 @@ function removeUnsupportedPsychologicalInference(
     { output: /期待に応え/, supportedBy: /期待|応え/ },
     { output: /萎縮/, supportedBy: /萎縮/ },
     { output: /身構え/, supportedBy: /身構え/ },
+    {
+      output: /予測.{0,12}(?:から来|が原因)|(?:から来|原因).{0,12}予測/,
+      supportedBy: /予測|また.{0,12}否定/,
+    },
+    {
+      output: /苦しめ/,
+      supportedBy: /苦し|つら|辛|しんど/,
+    },
     { output: /気持ちの切り替え/, supportedBy: /切り替え/ },
     { output: /精一杯/, supportedBy: /精一杯|余裕がない|限界/ },
     {
