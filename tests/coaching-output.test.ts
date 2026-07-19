@@ -1214,4 +1214,127 @@ describe('normalizeCoachingOutput', () => {
       '明日の朝、相手に最初に伝える一文だけをメモに書いてください。'
     );
   });
+
+  it('途中で切れた引用を段落内で閉じ、外側の追加質問を残さない', () => {
+    const result = normalizeCoachingOutput(
+      '家事を頼んでも後回しにされると腹が立ちますよね。\n\n例えば、「このゴミ出しを、明日の朝8時までにお願いできる？\n\n今日、夫に何か一つだけ、期限付きで頼めそうな家事はありますか？',
+      '夫に家事を頼んでも後回しにされます。私ばかり負担している気がして腹が立ちます。'
+    );
+
+    expect(result).toContain('お願いできる？」');
+    expect(result).not.toContain('今日、夫に');
+    expect((result.match(/「/g) || []).length).toBe(
+      (result.match(/」/g) || []).length
+    );
+  });
+
+  it('本人未使用の責任感・自負・孤独感を心理説明として補わない', () => {
+    const result = normalizeCoachingOutput(
+      '責任感が強いから怖いのですね。準備を尽くした価値ある提案への自負の裏返しです。一人で抱え込む孤独感もありますよね。\n\n最初の作業を一つ書いてください。',
+      '新しい仕事を任され、失敗して期待を裏切るのが怖くて手をつけられません。'
+    );
+
+    expect(result).not.toMatch(/責任感|自負|裏返し|孤独感|一人で抱え/);
+    expect(result).toContain('最初の作業を一つ書いてください');
+  });
+
+  it('時間の軽視を尊重不足・敬意欠如・深い傷へ強めない', () => {
+    const result = normalizeCoachingOutput(
+      '家事の分担そのもの以上に、自分の時間を尊重されていないという感覚が、何よりも深くあなたを傷つけているのですね。相手からの敬意が欠けているようで苦しいですよね。\n\n夫にどんな言葉で伝えたいですか？',
+      '家事そのものより、私の時間を軽く扱われているように感じることが嫌なんです。'
+    );
+
+    expect(result).toContain('自分の時間を軽く扱われているように感じることが嫌なんですね。');
+    expect(result).not.toMatch(/尊重されていない|敬意が欠け|深く.*傷|苦しい/);
+  });
+
+  it('直前文面への感想を新しい文面依頼として扱わない', () => {
+    const [part] = buildGeminiParts(
+      'その言い方ならできそうですが、途中で感情的になりそうで不安です。',
+      []
+    );
+
+    expect('text' in part ? part.text : '').not.toContain('「」で一つだけ');
+  });
+
+  it('今夜の最初の一言を明日の準備行動へ置き換えない', () => {
+    const result = normalizeCoachingOutput(
+      '明日の朝、相手に最初に伝える一文だけをメモに書いてください。',
+      '今夜話すなら、最初の一言はどうすればいいですか？',
+      [
+        {
+          role: 'user',
+          content:
+            '家事そのものより、私の時間を軽く扱われているように感じることが嫌なんです。',
+        },
+      ]
+    );
+
+    expect(result).toMatch(/^「/);
+    expect(result).toMatch(/家事|時間/);
+    expect(result).not.toMatch(/明日の朝|メモ/);
+  });
+
+  it('企画書の判断質問を汎用的な本音質問へ戻さない', () => {
+    const result = normalizeCoachingOutput(
+      '明日の朝、企画書の見出しを一つ書いてください。\n\n今の話の中で、いちばん見過ごしたくない本音は何ですか？',
+      '企画書を完璧にしようとして手が止まります。明日着手する方法を短く提案し、最後に自分で判断を深める質問を一つだけしてください。'
+    );
+
+    expect(result).toContain('15分後');
+    expect(result).toContain('成功だと判断しますか？');
+    expect(result).not.toContain('見過ごしたくない本音');
+  });
+
+  it('事実を一言で答える時は不要なかぎ括弧を外す', () => {
+    expect(
+      normalizeCoachingOutput('「赤色です。」', 'この画像の色を一言で答えてください。')
+    ).toBe('赤色です。');
+    expect(
+      normalizeCoachingOutput(
+        '「添付された画像は3枚です。」',
+        '添付した画像の枚数を一言で答えてください。'
+      )
+    ).toBe('添付された画像は3枚です。');
+  });
+
+  it('明日の断り文は読み上げる文だけを返し、外側に明日を付けない', () => {
+    const result = normalizeCoachingOutput(
+      '「ありがとうございます。ただ、今は手一杯のため、今回はお引き受けできません。」',
+      '明日また急な依頼をされた時に、角を立てずに断る一言を一つだけ提案してください。'
+    );
+
+    expect(result).toMatch(/^「/);
+    expect(result).not.toMatch(/^明日、/);
+  });
+
+  it('一つだけ指定に複数の例を括弧で混ぜない', () => {
+    const result = normalizeCoachingOutput(
+      '明日の朝、「小さな作業（例：メールを1通送る、資料を1ページ読むなど）を一つだけ紙に書く」ことをお勧めします。',
+      '明日の朝にできることを一つだけ、質問なしで教えてください。',
+      [{ role: 'user', content: '新しい仕事に手をつけたいです。' }]
+    );
+
+    expect(result).not.toMatch(/例：|メールを1通|資料を1ページ/);
+    expect(result).toContain('仕事');
+  });
+
+  it('本文へMarkdownの太字記号を残さない', () => {
+    const result = normalizeCoachingOutput(
+      '**明日の朝、企画書の見出しを一つだけ書いてください。**',
+      '明日できることを一つだけ教えてください。'
+    );
+
+    expect(result).not.toContain('**');
+  });
+
+  it('タイミングと言い方を一度に尋ねない', () => {
+    const result = normalizeCoachingOutput(
+      'どのようなタイミングや言い方であれば、夫に話しやすそうでしょうか？',
+      '家事そのものより、私の時間を軽く扱われているように感じることが嫌なんです。'
+    );
+
+    expect(result).not.toMatch(/タイミングや言い方/);
+    expect(result.match(/[？?]/g) || []).toHaveLength(1);
+  });
 });

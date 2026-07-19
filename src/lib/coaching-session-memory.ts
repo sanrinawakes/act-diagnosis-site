@@ -131,8 +131,9 @@ export async function buildCoachingSessionContext(params: {
       }
     }
 
-    const compactRecentMessages = compactCoachingMessages(
-      recentMessages.length > 0 ? recentMessages : params.requestMessages
+    const compactRecentMessages = mergeRecentCoachingMessages(
+      recentMessages,
+      params.requestMessages
     );
 
     if (!activeMemory?.summary) {
@@ -177,6 +178,63 @@ export async function buildCoachingSessionContext(params: {
       memoryCoveredMessages: null,
     };
   }
+}
+
+export function mergeRecentCoachingMessages(
+  storedMessages: CoachingChatMessage[],
+  requestMessages: CoachingChatMessage[]
+) {
+  const stored = compactCoachingMessages(storedMessages);
+  const request = compactCoachingMessages(requestMessages);
+  if (stored.length === 0) return request;
+  if (request.length === 0) return stored;
+
+  const key = (message: CoachingChatMessage) =>
+    `${message.role}\u0000${message.content.trim()}`;
+  const storedKeys = stored.map(key);
+  const requestKeys = request.map(key);
+  const sameSequence = (left: string[], right: string[]) =>
+    left.length === right.length &&
+    left.every((value, index) => value === right[index]);
+
+  if (
+    requestKeys.length <= storedKeys.length &&
+    sameSequence(storedKeys.slice(-requestKeys.length), requestKeys)
+  ) {
+    return stored;
+  }
+  if (
+    storedKeys.length <= requestKeys.length &&
+    sameSequence(requestKeys.slice(-storedKeys.length), storedKeys)
+  ) {
+    return request;
+  }
+
+  for (
+    let overlap = Math.min(stored.length, request.length);
+    overlap > 0;
+    overlap -= 1
+  ) {
+    if (
+      sameSequence(
+        storedKeys.slice(-overlap),
+        requestKeys.slice(0, overlap)
+      )
+    ) {
+      return compactCoachingMessages([
+        ...stored,
+        ...request.slice(overlap),
+      ]);
+    }
+  }
+
+  const sameLatestMessage =
+    storedKeys.at(-1) === requestKeys.at(-1);
+  if (sameLatestMessage && request.length > 1) {
+    return request;
+  }
+
+  return compactCoachingMessages([...stored, ...request]);
 }
 
 async function createAndStoreMemory(params: {
