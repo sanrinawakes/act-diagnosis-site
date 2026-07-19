@@ -104,6 +104,38 @@ describe('normalizeCoachingOutput', () => {
     expect(result.split(/\n{2,}/)).toHaveLength(1);
   });
 
+  it('「最初の一言」は説明や追加質問を除いて引用文一つだけにする', () => {
+    const result = normalizeCoachingOutput(
+      [
+        '今夜、落ち着いて話すための最初の一言ですね。',
+        '例えば、「私の時間を軽く扱われているように感じるので、家事の分担を一緒に話したいです。」と切り出してみてください。',
+        'その後に、どんなことを伝えたいですか？',
+      ].join('\n\n'),
+      '今夜話すなら、最初の一言はどうすればいいですか？'
+    );
+
+    expect(result).toBe(
+      '例えば、「私の時間を軽く扱われているように感じるので、家事の分担を一緒に話したいです。」と切り出してみてください。'
+    );
+    expect(result).not.toMatch(/その後|[？?]/);
+    expect(result.split(/\n{2,}/)).toHaveLength(1);
+  });
+
+  it('文面要求では履歴の核心を引用文へ入れる内部形式を追加する', () => {
+    const [part] = buildGeminiParts(
+      '今夜話すなら、最初の一言はどうすればいいですか？',
+      []
+    );
+
+    expect('text' in part ? part.text : '').toContain(
+      '直近の会話を読み直し'
+    );
+    expect('text' in part ? part.text : '').toContain(
+      '具体的な事実・感情・希望'
+    );
+    expect('text' in part ? part.text : '').toContain('「」で一つだけ');
+  });
+
   it('断り文の回りくどい許可表現を直接的で丁寧な文へ直す', () => {
     const result = normalizeCoachingOutput(
       '「ありがとうございます。ただ、今抱えている業務に集中したいので、今回は見送らせていただけますでしょうか。」',

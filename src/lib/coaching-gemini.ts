@@ -210,6 +210,10 @@ export function buildGeminiParts(
 }
 
 function buildResponseStyleHint(text: string) {
+  if (requestsDirectWording(text)) {
+    return '【内部応答形式】直近の会話を読み直し、ユーザーが明言した具体的な事実・感情・希望を少なくとも一つ含めて、そのまま読める一文を「」で一つだけ返してください。「少し話したいことがある」「今いいですか」のような許可取りだけの一般的な文、補足説明、追加質問は付けないでください。';
+  }
+
   if (requestsSingleAnswerFormat(text)) {
     return '【内部応答形式】ユーザーの指定を優先し、答えまたは提案を一つだけ簡潔に返してください。補足の提案や確認質問は付けず、答えた時点で終了してください。';
   }
@@ -1239,7 +1243,13 @@ function isQuestionInsideJapaneseQuote(segment: string, depthBefore: number) {
 }
 
 function requestsSingleAnswerFormat(text: string) {
-  return /(?:(?:一つ|ひとつ|1つ)(?:だけ)?.{0,24}(?:教|提案|答|挙|示|伝|お願)|(?:教|提案|答|挙|示|伝|お願).{0,24}(?:一つ|ひとつ|1つ)(?:だけ)?|一言(?:だけ|で)|質問(?:は|を)?(?:なし|不要|しない)|短く(?:答|教|返))/.test(text);
+  return /(?:(?:一つ|ひとつ|1つ)(?:だけ)?.{0,24}(?:教|提案|答|挙|示|伝|お願)|(?:教|提案|答|挙|示|伝|お願).{0,24}(?:一つ|ひとつ|1つ)(?:だけ)?|一言(?:だけ|で)|最初の一言|質問(?:は|を)?(?:なし|不要|しない)|短く(?:答|教|返))/.test(text);
+}
+
+function requestsDirectWording(text: string) {
+  return /最初の一言|一言(?:は|を|で|だけ)|言い方|文面|返事|(?:どう|何と|なんて)(?:言|伝え)/.test(
+    text
+  );
 }
 
 function requestsInternalPromptDisclosure(text: string) {
