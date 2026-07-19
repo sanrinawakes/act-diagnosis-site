@@ -1018,7 +1018,9 @@ function evaluateConversations(conversations) {
         checks,
         `${turn.label}: 一つだけ指定は一段落で返す`,
         turn.message.split(/\n{2,}/).filter(Boolean).length === 1 &&
-          turn.semanticQuestions === 0,
+          turn.semanticQuestions === 0 &&
+          (turn.message.match(/(?:て|で)から|その後|次に|続いて/g) || [])
+            .length < 2,
         turn.message
       );
     }

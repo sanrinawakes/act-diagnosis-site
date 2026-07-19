@@ -263,10 +263,12 @@ function assertResults(results) {
     if (
       requestsSingleAnswerInSmoke(result.lastUserText) &&
       !requestsExplicitClosingQuestionInSmoke(result.lastUserText) &&
-      result.message.split(/\n{2,}/).filter(Boolean).length !== 1
+      (result.message.split(/\n{2,}/).filter(Boolean).length !== 1 ||
+        (result.message.match(/(?:て|で)から|その後|次に|続いて/g) || [])
+          .length >= 2)
     ) {
       throw new Error(
-        `${result.label} returned multiple answer blocks: ${result.message}`
+        `${result.label} returned multiple requested actions: ${result.message}`
       );
     }
     if (

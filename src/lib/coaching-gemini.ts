@@ -1079,9 +1079,15 @@ export function normalizeCoachingOutput(
 }
 
 function containsMultipleRequestedItems(text: string) {
-  return /(?:[2-9]|二|三|四|五|六|七|八|九|十)(?:つ|個|項目|案|方法|行動|言葉|語)(?:だけ)?/.test(
-    text
-  );
+  if (
+    /(?:[2-9]|二|三|四|五|六|七|八|九|十)(?:つ|個|項目|案|方法|行動|言葉|語)(?:だけ)?/.test(
+      text
+    )
+  ) {
+    return true;
+  }
+
+  return (text.match(/(?:て|で)から|その後|次に|続いて/g) || []).length >= 2;
 }
 
 function requestsOnePhraseAnswer(text: string) {
@@ -1366,19 +1372,19 @@ function buildNoQuestionFallback(
     return '完成を目指さず、まず最初の15分で見出しを一つだけ書いてみてください。';
   }
   if (/話|伝|相手|夫|妻|家族|同僚|上司/.test(lastUserText)) {
-    return '伝えたいことを一文だけメモに書いてから、話し始めてください。';
+    return '明日の朝、相手に最初に伝える一文だけをメモに書いてください。';
   }
   if (/疲|休|しんど|限界/.test(lastUserText)) {
     return '今日はここまでにして、ゆっくり休んでください。';
   }
   if (/話|伝|相手|夫|妻|家族|同僚|上司/.test(userContext)) {
-    return '明日は、相手に伝えたいことを一文だけメモに書いてから、話し始めてください。';
+    return '明日の朝、相手に最初に伝える一文だけをメモに書いてください。';
   }
   if (/SNS|投稿|発信/.test(userContext)) {
     return '明日の朝、SNSで最初に伝えたい内容を一文だけメモに書いてください。';
   }
   if (/仕事|職場|業務|会社|タスク/.test(userContext)) {
-    return '明日の朝、今いちばん気になる仕事を一つ選び、最初の5分だけ取り組んでください。';
+    return '明日の朝、今いちばん気になる仕事に5分だけ取り組んでください。';
   }
   return '今できる最小の行動を一つだけ決めて、そこから始めてみてください。';
 }

@@ -59,7 +59,7 @@ describe('normalizeCoachingOutput', () => {
     );
 
     expect(result).toBe(
-      '伝えたいことを一文だけメモに書いてから、話し始めてください。'
+      '明日の朝、相手に最初に伝える一文だけをメモに書いてください。'
     );
     expect(result).not.toMatch(/3つ|三つ/);
   });
@@ -76,8 +76,26 @@ describe('normalizeCoachingOutput', () => {
       ]
     );
 
-    expect(result).toContain('相手に伝えたいことを一文だけメモ');
+    expect(result).toContain('相手に最初に伝える一文だけをメモ');
     expect(result).not.toContain('今できる最小の行動');
+  });
+
+  it('「一つだけ」に連続する三動作を詰め込まない', () => {
+    const result = normalizeCoachingOutput(
+      '明日の朝、上司に会う直前に「今日は自分の意見を一つだけ伝えきる」と心の中で決めてから、深呼吸を一つだけしてから席についてください。',
+      'では、明日まず何をすればいいか一つだけ教えてください。',
+      [
+        {
+          role: 'user',
+          content: '上司に否定されたように感じて、次の一言が怖いです。',
+        },
+      ]
+    );
+
+    expect(result).toBe(
+      '明日の朝、相手に最初に伝える一文だけをメモに書いてください。'
+    );
+    expect(result).not.toMatch(/決めてから|深呼吸|席について/);
   });
 
   it('一つだけ指定された時は二つ目の提案段落を除く', () => {
