@@ -30,7 +30,7 @@ type GeminiRole = 'user' | 'model';
 
 type GeminiTextPart = { text: string };
 type GeminiImagePart = { inlineData: { mimeType: string; data: string } };
-type GeminiPart = GeminiTextPart | GeminiImagePart;
+export type GeminiPart = GeminiTextPart | GeminiImagePart;
 
 type GeminiHistoryItem = {
   role: GeminiRole;
@@ -48,6 +48,8 @@ const GEMINI_FINALIZE_TIMEOUT_MS = 4000;
 const GEMINI_RETRY_DELAYS_MS = [800, 1600];
 const ALERT_SLOW_RESPONSE_MS = 10000;
 const ALERT_THROTTLE_MS = 5 * 60 * 1000;
+export const COACHING_TEXT_MODEL = 'gemini-2.5-flash';
+export const COACHING_IMAGE_MODEL = 'gemini-3.1-flash-lite';
 const MAX_TOKENS_CONTINUATION_NOTICE =
   '\n\n（ここで自然に区切ります。続きが必要な場合は「続き」と送ってください。）';
 const PARTIAL_STREAM_TIMEOUT_NOTICE =
@@ -103,18 +105,28 @@ const LEVEL_SUMMARIES: Record<string, string> = {
   '6': '広い視点で物事を捉えやすい段階です。大きな視野と日常の実践をつなげることが鍵になります。',
 };
 
-export function getCoachingGeminiModel(systemPrompt: string) {
+export function getCoachingGeminiModelName(parts: GeminiPart[]) {
+  return parts.some((part) => 'inlineData' in part)
+    ? COACHING_IMAGE_MODEL
+    : COACHING_TEXT_MODEL;
+}
+
+export function getCoachingGeminiModel(
+  systemPrompt: string,
+  modelName = COACHING_TEXT_MODEL
+) {
   const generationConfig = {
     temperature: 0.55,
     topP: 0.85,
     maxOutputTokens: 960,
-    // Gemini 2.5 Flash has thinking enabled by default. Coaching chat needs
-    // low first-token latency more than deep reasoning, so disable it here.
-    thinkingConfig: { thinkingBudget: 0 },
+    thinkingConfig:
+      modelName === COACHING_IMAGE_MODEL
+        ? { thinkingLevel: 'minimal' }
+        : { thinkingBudget: 0 },
   };
 
   return getGenAI().getGenerativeModel({
-    model: 'gemini-2.5-flash',
+    model: modelName,
     systemInstruction: `${systemPrompt}${RESPONSE_SPEED_INSTRUCTION}`,
     generationConfig,
   });
@@ -238,8 +250,9 @@ export async function generateCoachingText(params: {
   historyMessages: CoachingChatMessage[];
   lastUserParts: GeminiPart[];
 }) {
+  const modelName = getCoachingGeminiModelName(params.lastUserParts);
   const result = await runWithGeminiRetry(async () => {
-    const model = getCoachingGeminiModel(params.systemPrompt);
+    const model = getCoachingGeminiModel(params.systemPrompt, modelName);
     const chat = model.startChat({
       history: prepareGeminiHistory(params.historyMessages),
     });
@@ -262,6 +275,7 @@ export async function generateCoachingText(params: {
   return {
     text: appendContinuationNoticeIfNeeded(text, response),
     usage: getUsage(response),
+    modelName,
   };
 }
 
@@ -273,6 +287,7 @@ export function createJsonLineStream(params: {
   telemetry?: CoachingTelemetry;
 }) {
   const encoder = new TextEncoder();
+  const modelName = getCoachingGeminiModelName(params.lastUserParts);
 
   return new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -297,7 +312,7 @@ export function createJsonLineStream(params: {
           | undefined;
 
         await runWithGeminiRetry(async () => {
-          const model = getCoachingGeminiModel(params.systemPrompt);
+          const model = getCoachingGeminiModel(params.systemPrompt, modelName);
           const chat = model.startChat({
             history: prepareGeminiHistory(params.historyMessages),
           });
@@ -352,6 +367,7 @@ export function createJsonLineStream(params: {
         const donePayload = await resolveDonePayload(params.onDone, usage);
 
         logChatTelemetry('done', params.telemetry, {
+          modelName,
           elapsedMs: Date.now() - startedAt,
           firstChunkMs,
           outputChars: fullText.length,
@@ -378,6 +394,7 @@ export function createJsonLineStream(params: {
           }
           const donePayload = await resolveDonePayload(params.onDone, {});
           logChatTelemetry('partial_done', params.telemetry, {
+            modelName,
             elapsedMs: Date.now() - startedAt,
             firstChunkMs,
             outputChars: fullText.length,
@@ -404,6 +421,7 @@ export function createJsonLineStream(params: {
           const donePayload = await resolveDonePayload(params.onDone, {});
           write({ type: 'chunk', text: fallbackText });
           logChatTelemetry('fallback_done', params.telemetry, {
+            modelName,
             elapsedMs: Date.now() - startedAt,
             firstChunkMs,
             outputChars: fallbackText.length,
@@ -424,6 +442,7 @@ export function createJsonLineStream(params: {
           error: 'AIの応答生成に失敗しました。もう一度お試しください。',
         });
         logChatTelemetry('error', params.telemetry, {
+          modelName,
           elapsedMs: Date.now() - startedAt,
           firstChunkMs,
           outputChars: fullText.length,

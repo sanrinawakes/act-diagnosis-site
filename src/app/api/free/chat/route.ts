@@ -312,6 +312,7 @@ export async function POST(request: NextRequest) {
         JSON.stringify({
           event: 'chat_nonstream_done',
           ...telemetry,
+          modelName: result.modelName,
           outputChars: assistantMessage.length,
           usage,
         })

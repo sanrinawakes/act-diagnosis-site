@@ -1,8 +1,34 @@
 import { describe, expect, it } from 'vitest';
 import {
+  COACHING_IMAGE_MODEL,
+  COACHING_TEXT_MODEL,
+  buildGeminiParts,
+  getCoachingGeminiModelName,
   normalizeCoachingOutput,
   stripInternalResponseStyleHint,
 } from '../src/lib/coaching-gemini';
+
+describe('getCoachingGeminiModelName', () => {
+  it('通常会話は自然さを維持する2.5 Flashを使う', () => {
+    expect(getCoachingGeminiModelName(buildGeminiParts('相談です。', []))).toBe(
+      COACHING_TEXT_MODEL
+    );
+  });
+
+  it('画像添付時は低遅延の3.1 Flash-Liteを使う', () => {
+    expect(
+      getCoachingGeminiModelName(
+        buildGeminiParts('この画像を見てください。', [
+          {
+            name: 'test.png',
+            mimeType: 'image/png',
+            data: 'aGVsbG8=',
+          },
+        ])
+      )
+    ).toBe(COACHING_IMAGE_MODEL);
+  });
+});
 
 describe('normalizeCoachingOutput', () => {
   it('内部の回答形式指定を利用者本文から分離する', () => {
