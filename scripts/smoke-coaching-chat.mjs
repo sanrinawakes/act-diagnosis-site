@@ -407,6 +407,11 @@ function assertResults(results) {
         `${result.label} did not complete generation: ${result.completionStatus || 'missing status'}`
       );
     }
+    if (result.finishReason !== 'STOP') {
+      throw new Error(
+        `${result.label} ended with ${result.finishReason || 'missing finish reason'}`
+      );
+    }
     if (result.finalizationStatus !== 'complete') {
       throw new Error(
         `${result.label} did not finalize chat metadata: ${result.finalizationStatus || 'missing status'}`
@@ -478,7 +483,7 @@ function assertResults(results) {
       );
     }
     if (
-      /悔しさを力に変|怒りを原動力|下書きの下書き|それ以外は一旦目をつぶ|ルールを自分の中|気持ちの真ん中|心の中心|頭の中だけで整理[^。！？?\n]{0,60}余計に疲|落ち込(?:んでいる|む)(?:時|とき)は[^。！？?\n]{0,140}ことも(?:あります|あると思います)|最初の(?:1|一)?ステップだけ[^。！？?\n]{0,50}(?:\d+|一|二|三|四|五|六|七|八|九|十)分間?だけ/.test(
+      /悔しさを力に変|怒りを原動力|下書きの下書き|それ以外は一旦目をつぶ|ルールを自分の中|気持ちの真ん中|心の中心|(?:^|\n)(?:一つ|ひとつ|1つ)だけ(?:聞かせて|教えて)(?:ください|もらえますか)|頭の中だけで整理[^。！？?\n]{0,60}余計に疲|落ち込(?:んでいる|む)(?:時|とき)は[^。！？?\n]{0,140}ことも(?:あります|あると思います)|最初の(?:1|一)?ステップだけ[^。！？?\n]{0,50}(?:\d+|一|二|三|四|五|六|七|八|九|十)分間?だけ/.test(
         result.message
       )
     ) {

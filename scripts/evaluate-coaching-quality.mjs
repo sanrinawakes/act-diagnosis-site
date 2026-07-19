@@ -1028,6 +1028,12 @@ function evaluateConversations(conversations) {
     );
     addCheck(
       checks,
+      `${turn.label}: Geminiが正常終了`,
+      turn.finishReason === 'STOP',
+      String(turn.finishReason)
+    );
+    addCheck(
+      checks,
       `${turn.label}: 会話後処理が完全完了`,
       turn.finalizationStatus === 'complete',
       String(turn.finalizationStatus)
@@ -1113,7 +1119,7 @@ function evaluateConversations(conversations) {
     addCheck(
       checks,
       `${turn.label}: 感情の利用・不自然な反復・回避提案なし`,
-      !/悔しさを力に変|怒りを原動力|下書きの下書き|それ以外は一旦目をつぶ|ルールを自分の中|気持ちの真ん中|心の中心|頭の中だけで整理[^。！？?\n]{0,60}余計に疲|落ち込(?:んでいる|む)(?:時|とき)は[^。！？?\n]{0,140}ことも(?:あります|あると思います)|最初の(?:1|一)?ステップだけ[^。！？?\n]{0,50}(?:\d+|一|二|三|四|五|六|七|八|九|十)分間?だけ/.test(
+      !/悔しさを力に変|怒りを原動力|下書きの下書き|それ以外は一旦目をつぶ|ルールを自分の中|気持ちの真ん中|心の中心|(?:^|\n)(?:一つ|ひとつ|1つ)だけ(?:聞かせて|教えて)(?:ください|もらえますか)|頭の中だけで整理[^。！？?\n]{0,60}余計に疲|落ち込(?:んでいる|む)(?:時|とき)は[^。！？?\n]{0,140}ことも(?:あります|あると思います)|最初の(?:1|一)?ステップだけ[^。！？?\n]{0,50}(?:\d+|一|二|三|四|五|六|七|八|九|十)分間?だけ/.test(
         turn.message
       ),
       turn.message

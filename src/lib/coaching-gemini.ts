@@ -275,9 +275,13 @@ export async function generateCoachingText(params: {
   });
   const response = result.response;
   const lastUserText = extractTextFromParts(params.lastUserParts);
-  const hitOutputLimit = isMaxTokensFinish(response);
-  const text = hitOutputLimit
-    ? buildMaxTokensRecoveryResponse(lastUserText, params.historyMessages)
+  const finishReason = getFinishReason(response);
+  const completionStatus = classifyGeminiCompletion(finishReason);
+  const text = completionStatus === 'partial'
+    ? buildIncompleteGenerationRecoveryResponse(
+        lastUserText,
+        params.historyMessages
+      )
     : normalizeCoachingOutput(
         response.text(),
         lastUserText,
@@ -292,8 +296,8 @@ export async function generateCoachingText(params: {
     text,
     usage: getUsage(response),
     modelName,
-    completionStatus: hitOutputLimit ? ('partial' as const) : ('complete' as const),
-    finishReason: getFinishReason(response),
+    completionStatus,
+    finishReason,
   };
 }
 
@@ -375,9 +379,10 @@ export function createJsonLineStream(params: {
         }
 
         const lastUserText = extractTextFromParts(params.lastUserParts);
-        const hitOutputLimit = isMaxTokensFinish(response);
-        fullText = hitOutputLimit
-          ? buildMaxTokensRecoveryResponse(
+        const finishReason = getFinishReason(response);
+        const completionStatus = classifyGeminiCompletion(finishReason);
+        fullText = completionStatus === 'partial'
+          ? buildIncompleteGenerationRecoveryResponse(
               lastUserText,
               params.historyMessages
             )
@@ -387,13 +392,11 @@ export function createJsonLineStream(params: {
               params.historyMessages
             );
         const usage = getUsage(response);
-        const finishReason = getFinishReason(response);
-        const completionStatus = hitOutputLimit ? 'partial' : 'complete';
         firstChunkMs = Date.now() - startedAt;
         write({ type: 'chunk', text: fullText });
         const finalization = await resolveDonePayload(params.onDone, usage);
 
-        logChatTelemetry(hitOutputLimit ? 'partial_done' : 'done', params.telemetry, {
+        logChatTelemetry(completionStatus === 'partial' ? 'partial_done' : 'done', params.telemetry, {
           modelName,
           elapsedMs: Date.now() - startedAt,
           firstChunkMs,
@@ -891,14 +894,6 @@ function cleanupTrailingMarkdown(text: string) {
     .trim();
 }
 
-function isMaxTokensFinish(response: {
-  candidates?: Array<{ finishReason?: string }>;
-}) {
-  return response.candidates?.some(
-    (candidate) => candidate.finishReason === 'MAX_TOKENS'
-  );
-}
-
 function getFinishReason(response: {
   candidates?: Array<{ finishReason?: string }>;
 }) {
@@ -906,7 +901,13 @@ function getFinishReason(response: {
     ?.finishReason;
 }
 
-export function buildMaxTokensRecoveryResponse(
+export function classifyGeminiCompletion(finishReason?: string) {
+  return finishReason === 'STOP'
+    ? ('complete' as const)
+    : ('partial' as const);
+}
+
+export function buildIncompleteGenerationRecoveryResponse(
   lastUserText: string,
   historyMessages: CoachingChatMessage[] = []
 ) {
@@ -2193,10 +2194,19 @@ function rewriteContextualClosingQuestion(
   lastUserText: string,
   historyMessages: CoachingChatMessage[] = []
 ) {
-  const directText = text.replace(
-    /この(?:提案|方法|考え)(?:について)?[、,]?(?:どのように|どう)(?:感じ|思い)ますか[？?]?/g,
-    buildDirectContextQuestion(lastUserText, historyMessages)
+  const directQuestion = buildDirectContextQuestion(
+    lastUserText,
+    historyMessages
   );
+  const directText = text
+    .replace(
+      /この(?:提案|方法|考え)(?:について)?[、,]?(?:どのように|どう)(?:感じ|思い)ますか[？?]?/g,
+      directQuestion
+    )
+    .replace(
+      /^(?:まずは[、,]?)?(?:一つ|ひとつ|1つ)だけ(?:聞かせて|教えて)(?:ください|もらえますか)[。！？?]?$/gm,
+      directQuestion
+    );
 
   if (
     /新しい仕事/.test(lastUserText) &&
@@ -2324,6 +2334,13 @@ function buildDirectContextQuestion(
   lastUserText: string,
   historyMessages: CoachingChatMessage[] = []
 ) {
+  if (
+    /仕事|職場|業務|会社|タスク/.test(lastUserText) &&
+    /落ち込/.test(lastUserText)
+  ) {
+    return '今いちばん気になっている出来事は何ですか？';
+  }
+
   if (
     /家事|負担|後回し/.test(lastUserText) &&
     /夫|妻|家族|相手/.test(lastUserText)

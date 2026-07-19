@@ -5,7 +5,8 @@ import {
   COACHING_TEXT_MODEL,
   COACHING_TEXT_THINKING_LEVEL,
   buildGeminiParts,
-  buildMaxTokensRecoveryResponse,
+  buildIncompleteGenerationRecoveryResponse,
+  classifyGeminiCompletion,
   getCoachingGeminiModelName,
   normalizeCoachingOutput,
   stripInternalResponseStyleHint,
@@ -40,9 +41,9 @@ describe('getCoachingGeminiModelName', () => {
   });
 });
 
-describe('buildMaxTokensRecoveryResponse', () => {
+describe('buildIncompleteGenerationRecoveryResponse', () => {
   it('出力上限到達時に途中文や続き案内ではなく完結した返答へ戻す', () => {
-    const result = buildMaxTokensRecoveryResponse(
+    const result = buildIncompleteGenerationRecoveryResponse(
       '仕事のことで少し落ち込んでいます。短く整理を手伝ってください。'
     );
 
@@ -50,6 +51,15 @@ describe('buildMaxTokensRecoveryResponse', () => {
       '仕事のことで少し落ち込んでいるんですね。\n\n今いちばん気になっている出来事は何ですか？'
     );
     expect(result).not.toMatch(/続き|途中|ここで自然に区切/);
+  });
+});
+
+describe('classifyGeminiCompletion', () => {
+  it('STOPだけを正常完了として扱う', () => {
+    expect(classifyGeminiCompletion('STOP')).toBe('complete');
+    expect(classifyGeminiCompletion('MAX_TOKENS')).toBe('partial');
+    expect(classifyGeminiCompletion('SAFETY')).toBe('partial');
+    expect(classifyGeminiCompletion(undefined)).toBe('partial');
   });
 });
 
@@ -2133,6 +2143,18 @@ describe('normalizeCoachingOutput', () => {
       '仕事のことで少し落ち込んでいるのですね。\n\n今回のことで今一番気になっている出来事を一つだけ聞かせてもらえますか。'
     );
     expect(result).not.toMatch(/頭の中が複雑|こともあると思います|シンプルにするため/);
+  });
+
+  it('短い整理依頼へ対象不明の「一つだけ教えてください」を返さない', () => {
+    const result = normalizeCoachingOutput(
+      '仕事のことで落ち込んでいるのですね。\n\n一つだけ教えてください。',
+      '仕事のことで少し落ち込んでいます。短く整理を手伝ってください。'
+    );
+
+    expect(result).toBe(
+      '仕事のことで落ち込んでいるのですね。\n\n今いちばん気になっている出来事は何ですか？'
+    );
+    expect(result).not.toMatch(/(?:^|\n)一つだけ教えてください/);
   });
 
   it('新しい仕事の明日の一動作を抽象的なステップで済ませない', () => {
