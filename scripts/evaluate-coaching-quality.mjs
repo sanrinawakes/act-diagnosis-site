@@ -80,6 +80,13 @@ try {
                 outputChars: turn.outputChars,
               }))
             ),
+            responses: conversations.flatMap((conversation) =>
+              conversation.turns.map((turn) => ({
+                label: turn.label,
+                user: turn.user,
+                message: turn.message,
+              }))
+            ),
           }
         : {
             ok: failed.length === 0,
@@ -894,11 +901,21 @@ function evaluateConversations(conversations) {
   const checks = [];
   const allTurns = conversations.flatMap((conversation) => {
     const userMessages = [];
+    const previousAssistantParagraphs = new Set();
     return conversation.turns.map((turn) => {
       userMessages.push(turn.user);
       const userContext = userMessages.join('\n');
-      return {
+      const repeatsPreviousAssistant = turn.message
+        .split(/\n{2,}/)
+        .map((paragraph) => paragraph.trim())
+        .some(
+          (paragraph) =>
+            paragraph.length >= 20 &&
+            previousAssistantParagraphs.has(paragraph)
+        );
+      const evaluatedTurn = {
         ...turn,
+        repeatsPreviousAssistant,
         userGrounding: {
           expectation: /期待|応え/.test(userContext),
           intimidation: /萎縮/.test(userContext),
@@ -906,6 +923,9 @@ function evaluateConversations(conversations) {
           mistake: /ミス|失敗/.test(userContext),
           anticipatedReaction:
             /反応|返事|返って|返され|返る/.test(userContext),
+          hardWork: /一生懸命/.test(userContext),
+          existenceRespect: /存在/.test(userContext),
+          emotionalPain: /痛/.test(userContext),
           hardship: /しんどい/.test(userContext),
           pain: /つらい|辛い/.test(userContext),
           sadness: /悲し/.test(userContext),
@@ -917,7 +937,7 @@ function evaluateConversations(conversations) {
           prediction: /予測|また.{0,12}否定/.test(userContext),
           suffering: /苦し|つら|辛|しんど/.test(userContext),
           heartFatigue: /疲れ|消耗/.test(userContext),
-          weightMetaphor: /重(?:い|たい)/.test(userContext),
+          weightMetaphor: /重(?:い|たい|く)/.test(userContext),
           moodSinking: /沈ん/.test(userContext),
           emotionSwitching: /切り替え/.test(userContext),
           emphaticCause: /(?:だからこそ|からこそ)/.test(userContext),
@@ -932,6 +952,12 @@ function evaluateConversations(conversations) {
           proving: /示したい|見せたい|証明したい/.test(userContext),
         },
       };
+      turn.message
+        .split(/\n{2,}/)
+        .map((paragraph) => paragraph.trim())
+        .filter((paragraph) => paragraph.length >= 20)
+        .forEach((paragraph) => previousAssistantParagraphs.add(paragraph));
+      return evaluatedTurn;
     });
   });
 
@@ -1054,6 +1080,10 @@ function evaluateConversations(conversations) {
         (/ミス|失敗/.test(turn.message) && !turn.userGrounding.mistake) ||
         (/反応が返|返事が返/.test(turn.message) &&
           !turn.userGrounding.anticipatedReaction) ||
+        (/一生懸命/.test(turn.message) && !turn.userGrounding.hardWork) ||
+        (/(?:存在.{0,20}尊重|尊重.{0,20}存在)/.test(turn.message) &&
+          !turn.userGrounding.existenceRespect) ||
+        (/痛み/.test(turn.message) && !turn.userGrounding.emotionalPain) ||
         (/しんどい/.test(turn.message) && !turn.userGrounding.hardship) ||
         (/つらい|辛い/.test(turn.message) && !turn.userGrounding.pain) ||
         (/悲し/.test(turn.message) && !turn.userGrounding.sadness) ||
@@ -1068,7 +1098,7 @@ function evaluateConversations(conversations) {
           !turn.userGrounding.heartFatigue) ||
         (/(?:お気持ち|気持ち|心)が沈/.test(turn.message) &&
           !turn.userGrounding.moodSinking) ||
-        (/重(?:い|たい)/.test(turn.message) &&
+        (/重(?:い|たい|く)/.test(turn.message) &&
           !turn.userGrounding.weightMetaphor) ||
         (/気持ちの切り替え/.test(turn.message) &&
           !turn.userGrounding.emotionSwitching) ||
@@ -1108,6 +1138,19 @@ function evaluateConversations(conversations) {
       checks,
       `${turn.label}: 一つの質問で複数回答を要求しない`,
       !asksForMultipleAnswerDimensions(turn.message),
+      turn.message
+    );
+    addCheck(
+      checks,
+      `${turn.label}: 直前までの長文回答をそのまま再掲しない`,
+      !turn.repeatsPreviousAssistant,
+      turn.message
+    );
+    addCheck(
+      checks,
+      `${turn.label}: 実用文と不要な追加質問を重ねない`,
+      requestsExplicitClosingQuestionInTest(turn.user) ||
+        !hasStandaloneSuggestedWordingAndQuestion(turn.message),
       turn.message
     );
     addCheck(
@@ -1368,7 +1411,7 @@ function evaluateConversations(conversations) {
 
 function countCoachingActionClauses(text) {
   const actionPattern =
-    /書き出|書い|書く|抜き出|箇条書|決め|選ん|伝えて|話し始め|話して|話しかけ|(?:口|声)に出|読み上げ|読み返|見直|繰り返|深呼吸|呼吸を|飲ん|休ん|休息|横にな|閉じ|眺め|確認|開い|移動|入れ|向か|座っ|席につ|立ち上が|歩い|片付|準備|通知.{0,6}オフ|送っ|連絡|相談|断っ|置い|取り組|始め/g;
+    /書き出|書い|書く|抜き出|箇条書|決め|選ん|伝えて|話し始め|話して|話しかけ|(?:口|声)に出|読み上げ|読み返|見直|繰り返|深呼吸|呼吸を|飲ん|飲む|淹れ|意識を向け|感じる|思い浮かべ|休ん|休息|横にな|閉じ|眺め|確認|開い|移動|入れ|向か|座っ|席につ|立ち上が|歩い|片付|準備|通知.{0,6}オフ|送っ|連絡|相談|断っ|置い|取り組|始め/g;
   const unquoted = stripJapaneseQuotedContent(text);
   const lexicalCount = unquoted
     .split(/(?:て|で)から|その後|次に|続いて|[、,]/)
@@ -1414,11 +1457,25 @@ function asksForMultipleAnswerDimensions(text) {
       (/(?:一つずつ|それぞれ)[^。！？?\n]{0,40}(?:聞かせ|教えて|答えて)/.test(
         trimmed
       ) ||
+        /(?:です|ます)か[、,]?(?:それとも|または|あるいは)[^。！？?\n]{1,100}(?:です|ます)か/.test(
+          trimmed
+        ) ||
         /(?:出来事|事実|理由|原因|気持ち|感情|希望|望み|行動)[」』]?(?:と|や|および|ならびに|、)[^。！？?\n]{0,28}[「『]?(?:出来事|事実|理由|原因|気持ち|感情|希望|望み|行動)/.test(
           trimmed
         ))
     );
   });
+}
+
+function hasStandaloneSuggestedWordingAndQuestion(text) {
+  const paragraphs = text
+    .split(/\n{2,}/)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean);
+  return (
+    paragraphs.some((paragraph) => /^「[^」]{8,}」[。！]?$/.test(paragraph)) &&
+    countSemanticQuestions(text) > 0
+  );
 }
 
 function stripJapaneseQuotedContent(text) {

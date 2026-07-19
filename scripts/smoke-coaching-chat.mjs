@@ -213,6 +213,18 @@ async function sendStreamRequest({ email, diagnosisCode, messages, label }) {
     finalizationStatus: donePayload?.finalizationStatus ?? null,
     outputChars: message.length,
     remaining: donePayload?.remaining ?? null,
+    repeatsPreviousAssistant: message
+      .split(/\n{2,}/)
+      .map((paragraph) => paragraph.trim())
+      .some(
+        (paragraph) =>
+          paragraph.length >= 20 &&
+          messages
+            .filter((item) => item.role === 'assistant')
+            .flatMap((item) => item.content.split(/\n{2,}/))
+            .map((item) => item.trim())
+            .includes(paragraph)
+      ),
     userGrounding: {
       expectation: messages.some(
         (message) => message.role === 'user' && /期待|応え/.test(message.content)
@@ -230,6 +242,15 @@ async function sendStreamRequest({ email, diagnosisCode, messages, label }) {
         (message) =>
           message.role === 'user' &&
           /反応|返事|返って|返され|返る/.test(message.content)
+      ),
+      hardWork: messages.some(
+        (message) => message.role === 'user' && /一生懸命/.test(message.content)
+      ),
+      existenceRespect: messages.some(
+        (message) => message.role === 'user' && /存在/.test(message.content)
+      ),
+      emotionalPain: messages.some(
+        (message) => message.role === 'user' && /痛/.test(message.content)
       ),
       hardship: messages.some(
         (message) => message.role === 'user' && /しんどい/.test(message.content)
@@ -269,7 +290,7 @@ async function sendStreamRequest({ email, diagnosisCode, messages, label }) {
       ),
       weightMetaphor: messages.some(
         (message) =>
-          message.role === 'user' && /重(?:い|たい)/.test(message.content)
+          message.role === 'user' && /重(?:い|たい|く)/.test(message.content)
       ),
       moodSinking: messages.some(
         (message) => message.role === 'user' && /沈ん/.test(message.content)
@@ -413,6 +434,10 @@ function assertResults(results) {
       (/ミス|失敗/.test(result.message) && !result.userGrounding.mistake) ||
       (/反応が返|返事が返/.test(result.message) &&
         !result.userGrounding.anticipatedReaction) ||
+      (/一生懸命/.test(result.message) && !result.userGrounding.hardWork) ||
+      (/(?:存在.{0,20}尊重|尊重.{0,20}存在)/.test(result.message) &&
+        !result.userGrounding.existenceRespect) ||
+      (/痛み/.test(result.message) && !result.userGrounding.emotionalPain) ||
       (/しんどい/.test(result.message) && !result.userGrounding.hardship) ||
       (/つらい|辛い/.test(result.message) && !result.userGrounding.pain) ||
       (/悲し/.test(result.message) && !result.userGrounding.sadness) ||
@@ -427,7 +452,7 @@ function assertResults(results) {
         !result.userGrounding.heartFatigue) ||
       (/(?:お気持ち|気持ち|心)が沈/.test(result.message) &&
         !result.userGrounding.moodSinking) ||
-      (/重(?:い|たい)/.test(result.message) &&
+      (/重(?:い|たい|く)/.test(result.message) &&
         !result.userGrounding.weightMetaphor) ||
       (/気持ちの切り替え/.test(result.message) &&
         !result.userGrounding.emotionSwitching) ||
@@ -474,6 +499,19 @@ function assertResults(results) {
         `${result.label} asked for multiple answer fields: ${result.message}`
       );
     }
+    if (result.repeatsPreviousAssistant) {
+      throw new Error(
+        `${result.label} repeated a previous assistant paragraph: ${result.message}`
+      );
+    }
+    if (
+      !requestsExplicitClosingQuestionInSmoke(result.lastUserText) &&
+      hasStandaloneSuggestedWordingAndQuestion(result.message)
+    ) {
+      throw new Error(
+        `${result.label} combined suggested wording with an extra question: ${result.message}`
+      );
+    }
     if (
       result.label === 'long-history-437' &&
       !(
@@ -492,7 +530,7 @@ function assertResults(results) {
 
 function countCoachingActionClauses(text) {
   const actionPattern =
-    /書き出|書い|書く|抜き出|箇条書|決め|選ん|伝えて|話し始め|話して|話しかけ|(?:口|声)に出|読み上げ|読み返|見直|繰り返|深呼吸|呼吸を|飲ん|休ん|休息|横にな|閉じ|眺め|確認|開い|移動|入れ|向か|座っ|席につ|立ち上が|歩い|片付|準備|通知.{0,6}オフ|送っ|連絡|相談|断っ|置い|取り組|始め/g;
+    /書き出|書い|書く|抜き出|箇条書|決め|選ん|伝えて|話し始め|話して|話しかけ|(?:口|声)に出|読み上げ|読み返|見直|繰り返|深呼吸|呼吸を|飲ん|飲む|淹れ|意識を向け|感じる|思い浮かべ|休ん|休息|横にな|閉じ|眺め|確認|開い|移動|入れ|向か|座っ|席につ|立ち上が|歩い|片付|準備|通知.{0,6}オフ|送っ|連絡|相談|断っ|置い|取り組|始め/g;
   const unquoted = stripJapaneseQuotedContent(text);
   const lexicalCount = unquoted
     .split(/(?:て|で)から|その後|次に|続いて|[、,]/)
@@ -532,11 +570,25 @@ function asksForMultipleAnswerDimensions(text) {
       (/(?:一つずつ|それぞれ)[^。！？?\n]{0,40}(?:聞かせ|教えて|答えて)/.test(
         trimmed
       ) ||
+        /(?:です|ます)か[、,]?(?:それとも|または|あるいは)[^。！？?\n]{1,100}(?:です|ます)か/.test(
+          trimmed
+        ) ||
         /(?:出来事|事実|理由|原因|気持ち|感情|希望|望み|行動)[」』]?(?:と|や|および|ならびに|、)[^。！？?\n]{0,28}[「『]?(?:出来事|事実|理由|原因|気持ち|感情|希望|望み|行動)/.test(
           trimmed
         ))
     );
   });
+}
+
+function hasStandaloneSuggestedWordingAndQuestion(text) {
+  const paragraphs = text
+    .split(/\n{2,}/)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean);
+  return (
+    paragraphs.some((paragraph) => /^「[^」]{8,}」[。！]?$/.test(paragraph)) &&
+    countSemanticQuestions(text) > 0
+  );
 }
 
 function countSemanticQuestions(text) {

@@ -1106,4 +1106,73 @@ describe('normalizeCoachingOutput', () => {
     expect(result.match(/ませんか/g) || []).toHaveLength(1);
     expect(result).not.toContain('明日ひとつだけ状況を動かすなら');
   });
+
+  it('本人未使用の努力・重さと二択質問を残さない', () => {
+    const result = normalizeCoachingOutput(
+      '家事を頼んでも後回しにされてしまうのは、自分が一生懸命動いている分、余計にその状況が重く感じられて腹が立つのも無理はありません。負担が偏っているという事実は、決して無視していいことではないですよね。\n\n今、一番優先して解決したいのは、旦那さんの「後回しにする態度」そのものですか、それとも「今の家事の分担のあり方」そのものですか。',
+      '夫に家事を頼んでも後回しにされます。私ばかり負担している気がして腹が立ちます。'
+    );
+
+    expect(result).not.toMatch(/一生懸命|重く|それとも/);
+    expect(result).toContain('本当は相手に何をわかってほしいですか？');
+  });
+
+  it('時間の軽視を「存在の否定」や「何よりの痛み」へ強めない', () => {
+    const result = normalizeCoachingOutput(
+      '家事の分担以上に、あなた自身の時間や存在が尊重されていないという感覚が、何よりの痛みになっているのですね。\n\nもし、旦那さんにその気持ちを伝えるとしたら、どんな言葉なら一番「今の自分の感覚」が伝わりそうだと感じますか？',
+      '家事そのものより、私の時間を軽く扱われているように感じることが嫌なんです。'
+    );
+
+    expect(result).toContain('自分の時間を軽く扱われているように感じることが嫌なんですね。');
+    expect(result).not.toMatch(/存在|尊重されていない|何よりの痛み/);
+  });
+
+  it('使える伝達文を示した後に汎用質問を重ねない', () => {
+    const result = normalizeCoachingOutput(
+      '「家事そのものより、私の時間を軽く扱われているように感じるのが嫌です。このことを責めたいのではなく、これからどうするか一緒に話したいです。」\n\n今の話の中で、いちばん見過ごしたくない本音は何ですか？',
+      '責める言い方をすると喧嘩になるので、落ち着いて伝えたいです。'
+    );
+
+    expect(result).toContain('これからどうするか一緒に話したいです');
+    expect(result).not.toMatch(/[？?]/);
+    expect(result).not.toContain('見過ごしたくない本音');
+  });
+
+  it('直前の長い伝達文を再掲せず最新の不安へ答える', () => {
+    const repeated =
+      '「家事そのものより、私の時間を軽く扱われているように感じるのが嫌です。このことを責めたいのではなく、これからどうするか一緒に話したいです。」';
+    const result = normalizeCoachingOutput(
+      `${repeated}\n\nその不安の奥で、いちばん守りたいものは何ですか？`,
+      'その言い方ならできそうですが、途中で感情的になりそうで不安です。',
+      [{ role: 'assistant', content: repeated }]
+    );
+
+    expect(result).not.toContain(repeated);
+    expect(result).toContain('途中で感情が強くなった時、相手に何と伝えたいですか？');
+    expect(result.match(/[？?]/g) || []).toHaveLength(1);
+  });
+
+  it('一つだけ指定で飲み物・スマホ・意識の三動作を残さない', () => {
+    const result = normalizeCoachingOutput(
+      '明日の朝、最初の一杯の飲み物を淹れるときに、スマホを置いたままその温度や香りに意識を向けてみてください。',
+      '明日の朝に始める行動を一つだけ、質問なしで答えてください。'
+    );
+
+    expect(result).not.toMatch(/淹れ|スマホ|香り/);
+    expect(result).toBe(
+      '明日、今いちばん気になっていることを一文だけメモに書いてください。'
+    );
+  });
+
+  it('一つだけ指定で思い浮かべて深呼吸する二動作を残さない', () => {
+    const result = normalizeCoachingOutput(
+      '明日の朝、最初の一杯の飲み物を淹れる間だけ、今日あった出来事を一つだけ思い浮かべて深呼吸してください。',
+      '明日の朝に始める行動を一つだけ、質問なしで答えてください。'
+    );
+
+    expect(result).not.toMatch(/思い浮かべ|深呼吸|淹れ/);
+    expect(result).toBe(
+      '明日、今いちばん気になっていることを一文だけメモに書いてください。'
+    );
+  });
 });

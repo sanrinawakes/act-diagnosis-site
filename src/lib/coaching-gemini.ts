@@ -952,7 +952,12 @@ export function normalizeCoachingOutput(
     lastUserText,
     historyMessages
   );
-  const naturalText = safeText
+  const deduplicatedText = removeRepeatedAssistantParagraphs(
+    safeText,
+    lastUserText,
+    historyMessages
+  );
+  const naturalText = deduplicatedText
     .replace(/タタスク/g, 'タスク')
     .replace(/タースク/g, 'タスク')
     .replace(/タムスケジュール/g, 'タイムスケジュール')
@@ -1074,9 +1079,13 @@ export function normalizeCoachingOutput(
     )
     .replace(/あなたの言葉一つ一つを大切に受け止めています[。]?/g, '')
     .replace(/。{2,}/g, '。');
+  const contextualText = rewriteContextualClosingQuestion(
+    naturalText,
+    lastUserText
+  );
   const temporallyAlignedText = /明日/.test(lastUserText)
-    ? naturalText.replace(/先ほど/g, '前回')
-    : naturalText;
+    ? contextualText.replace(/先ほど/g, '前回')
+    : contextualText;
   const responsiveText = removeAnsweredEmotionQuestion(
     temporallyAlignedText,
     lastUserText
@@ -1208,7 +1217,7 @@ function containsMultipleRequestedItems(text: string) {
 
 function countCoachingActionClauses(text: string) {
   const actionPattern =
-    /書き出|書い|書く|抜き出|箇条書|決め|選ん|伝えて|話し始め|話して|話しかけ|(?:口|声)に出|読み上げ|読み返|見直|繰り返|深呼吸|呼吸を|飲ん|休ん|休息|横にな|閉じ|眺め|確認|開い|移動|入れ|向か|座っ|席につ|立ち上が|歩い|片付|準備|通知.{0,6}オフ|送っ|連絡|相談|断っ|置い|取り組|始め/g;
+    /書き出|書い|書く|抜き出|箇条書|決め|選ん|伝えて|話し始め|話して|話しかけ|(?:口|声)に出|読み上げ|読み返|見直|繰り返|深呼吸|呼吸を|飲ん|飲む|淹れ|意識を向け|感じる|思い浮かべ|休ん|休息|横にな|閉じ|眺め|確認|開い|移動|入れ|向か|座っ|席につ|立ち上が|歩い|片付|準備|通知.{0,6}オフ|送っ|連絡|相談|断っ|置い|取り組|始め/g;
   const unquoted = stripJapaneseQuotedContent(text);
   const lexicalCount = unquoted
     .split(/(?:て|で)から|その後|次に|続いて|[、,]/)
@@ -1238,6 +1247,18 @@ function limitUnrequestedCoachingMoves(text: string, lastUserText: string) {
     return text;
   }
 
+  if (!requestsExplicitClosingQuestion(lastUserText)) {
+    const standaloneSuggestedWording = text
+      .split(/\n{2,}/)
+      .map((paragraph) => paragraph.trim())
+      .find(
+        (paragraph) =>
+          /^「[^」]{8,}」[。！]?$/.test(paragraph) &&
+          /伝え|言い方|話|言葉|一言/.test(lastUserText)
+      );
+    if (standaloneSuggestedWording) return standaloneSuggestedWording;
+  }
+
   const segments = text.match(/[^。！？?\n]+[。！？?]?|\n+/g) || [];
   const moveIndices: number[] = [];
   const moveScores = new Map<number, number>();
@@ -1252,10 +1273,15 @@ function limitUnrequestedCoachingMoves(text: string, lastUserText: string) {
     const isDirective =
       unquoted.length > 0 &&
       /(?:ください|ましょう)[。！]?$/.test(unquoted);
+    const isSuggestedWording =
+      /「[^」]{8,}」/.test(segment.trim()) &&
+      /伝え|言い方|話|言葉|一言/.test(lastUserText);
 
-    if (isQuestion || isDirective) {
+    if (isQuestion || isDirective || isSuggestedWording) {
       let score = index / Math.max(segments.length, 1);
       if (isQuestion) score += 4;
+      if (isDirective) score += 4;
+      if (isSuggestedWording) score += 6;
       if (/(?:\d+|一|ひと)(?:秒|分|回|行|文|つ)/.test(unquoted)) {
         score += 3;
       }
@@ -1606,6 +1632,7 @@ function hasClosingCoachingMove(text: string) {
 
   return (
     isQuestionSegment(finalSentence) ||
+    /^「[^」]{8,}」[。！]?$/.test(finalSentence) ||
     /(?:してみてください|してください|してみましょう|しましょう|始めてみて|書き出してみて|伝えてみて|休んでください|休みましょう|置いてみてください|考えてください)(?:ね)?[。！]?$/.test(
       finalSentence
     )
@@ -1682,6 +1709,45 @@ function buildNoQuestionFallback(
     return '明日の朝、今いちばん気になる仕事に5分だけ取り組んでください。';
   }
   return '今いちばん気になっていることを一文だけメモに書いてください。';
+}
+
+function removeRepeatedAssistantParagraphs(
+  text: string,
+  lastUserText: string,
+  historyMessages: CoachingChatMessage[]
+) {
+  if (/もう一度|再掲|繰り返|同じ(?:文|内容)/.test(lastUserText)) {
+    return text;
+  }
+
+  const previousParagraphs = new Set(
+    historyMessages
+      .filter((message) => message.role === 'assistant')
+      .flatMap((message) => message.content.split(/\n{2,}/))
+      .map((paragraph) => paragraph.trim())
+      .filter((paragraph) => paragraph.length >= 20)
+  );
+
+  return text
+    .split(/(\n{2,})/)
+    .filter(
+      (part) => /^\n+$/.test(part) || !previousParagraphs.has(part.trim())
+    )
+    .join('')
+    .replace(/^\n+|\n+$/g, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function rewriteContextualClosingQuestion(text: string, lastUserText: string) {
+  if (/感情的|感情が強|冷静でいられ|落ち着け.{0,8}不安/.test(lastUserText)) {
+    return text.replace(
+      /その不安の奥で[、,]?いちばん守りたいものは何ですか[？?]?/g,
+      '途中で感情が強くなった時、相手に何と伝えたいですか？'
+    );
+  }
+
+  return text;
 }
 
 function softenRepeatedAcknowledgement(text: string) {
@@ -1839,9 +1905,14 @@ function rewriteCompoundAnswerQuestions(text: string, lastUserText: string) {
         /(?:出来事|事実|理由|原因|気持ち|感情|希望|望み|行動)[」』]?(?:と|や|および|ならびに|、)[^。！？?\n]{0,28}[「『]?(?:出来事|事実|理由|原因|気持ち|感情|希望|望み|行動)/.test(
           part
         );
+      const asksForcedAlternative =
+        /(?:です|ます)か[、,]?(?:それとも|または|あるいは)[^。！？?\n]{1,100}(?:です|ます)か/.test(
+          part
+        );
       if (
         !replaced &&
         (asksForPairedDimensions ||
+          asksForcedAlternative ||
           /(?:一つずつ|それぞれ)[^。！？?\n]{0,40}(?:聞かせ|教えて|答えて)/.test(
             part
           )) &&
@@ -1912,6 +1983,12 @@ function removeUnsupportedPsychologicalInference(
       '落ち込んでいる'
     );
   }
+  if (/時間.{0,28}軽く扱[^。\n]{0,28}嫌/.test(userContext)) {
+    candidateText = candidateText.replace(
+      /家事の分担以上に[^。\n]{0,120}(?:存在|尊重)[^。\n]{0,80}(?:痛み|つらさ)[^。\n]*[。]?/g,
+      '自分の時間を軽く扱われているように感じることが嫌なんですね。'
+    );
+  }
   if (
     requestsDirectWording(lastUserText) &&
     /「[^」]{4,}」/.test(candidateText) &&
@@ -1937,6 +2014,12 @@ function removeUnsupportedPsychologicalInference(
       output: /反応が返|返事が返/,
       supportedBy: /反応|返事|返って|返され|返る/,
     },
+    { output: /一生懸命/, supportedBy: /一生懸命/ },
+    {
+      output: /存在.{0,20}尊重|尊重.{0,20}存在/,
+      supportedBy: /存在/,
+    },
+    { output: /痛み/, supportedBy: /痛/ },
     { output: /しんどい/, supportedBy: /しんどい/ },
     { output: /つらい|辛い/, supportedBy: /つらい|辛い/ },
     { output: /悲し/, supportedBy: /悲し/ },
@@ -1965,8 +2048,8 @@ function removeUnsupportedPsychologicalInference(
       supportedBy: /沈ん/,
     },
     {
-      output: /重(?:い|たい)/,
-      supportedBy: /重(?:い|たい)/,
+      output: /重(?:い|たい|く)/,
+      supportedBy: /重(?:い|たい|く)/,
     },
     { output: /気持ちの切り替え/, supportedBy: /切り替え/ },
     { output: /精一杯/, supportedBy: /精一杯|余裕がない|限界/ },
