@@ -1054,12 +1054,11 @@ function selectSingleAnswerBlock(text: string, lastUserText: string) {
   const concreteParagraph = paragraphs.find((paragraph) =>
     hasConcreteAction(paragraph, lastUserText)
   );
-  const selected = concreteParagraph || paragraphs[0] || '';
+  const selected = concreteParagraph || paragraphs.at(-1) || '';
 
-  return requestsConcreteSuggestion(lastUserText) &&
-    !hasConcreteAction(selected, lastUserText)
-    ? buildNoQuestionFallback(lastUserText)
-    : selected;
+  return selected && hasConcreteAction(selected, lastUserText)
+    ? selected
+    : buildNoQuestionFallback(lastUserText);
 }
 
 function ensureCoachingClose(text: string, lastUserText: string) {
@@ -1097,7 +1096,7 @@ function requestsConcreteSuggestion(text: string) {
 }
 
 function hasConcreteAction(text: string, lastUserText: string) {
-  const hasAction = /(?:してください|してみてください|してみましょう|しましょう|始めてみて|書き出して|書いて|伝えて|開いて|決めて|置いて|休んで|確認して|取り組んで|着手して)|(?:\d+|一|ひと)つ(?:だけ)?(?:書|決|選|始|開|伝)|(?:\d+|一|ひと)(?:分|行|文|項目)/.test(
+  const hasAction = /(?:してください|してみてください|してみましょう|しましょう|始めてみて|書き出して|書いて|伝えて|開いて|決めて|置いて|休んで|確認して|取り組んで|着手して|(?:答え|伝え|断り|言い)ます|提案します)|(?:\d+|一|ひと)つ(?:だけ)?(?:書|決|選|始|開|伝)|(?:\d+|一|ひと)(?:分|行|文|項目)/.test(
     text
   );
 

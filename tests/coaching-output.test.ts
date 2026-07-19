@@ -79,6 +79,16 @@ describe('normalizeCoachingOutput', () => {
     expect(result.split(/\n{2,}/)).toHaveLength(1);
   });
 
+  it('一つだけ指定の具体文を一般的な代替文で上書きしない', () => {
+    const result = normalizeCoachingOutput(
+      '急な依頼を受けたら、「今日は予定があるため、明日でもよいですか」と答えます。',
+      '明日また急な依頼をされた時に、角を立てずに断る一言を一つだけ提案してください。'
+    );
+
+    expect(result).toContain('今日は予定があるため、明日でもよいですか');
+    expect(result).not.toContain('今できる最小の行動');
+  });
+
   it('怖さを脇へ置かせず、感情を抱えたままできる一歩へ戻す', () => {
     const result = normalizeCoachingOutput(
       'その「能力がないと思われる怖さ」を少しだけ横に置いて、小さな一歩を踏み出してみませんか？',
