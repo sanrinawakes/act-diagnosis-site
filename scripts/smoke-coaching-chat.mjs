@@ -235,6 +235,10 @@ async function sendStreamRequest({ email, diagnosisCode, messages, label }) {
         (message) =>
           message.role === 'user' && /疲れ|消耗/.test(message.content)
       ),
+      weightMetaphor: messages.some(
+        (message) =>
+          message.role === 'user' && /重(?:い|たい)/.test(message.content)
+      ),
       emotionSwitching: messages.some(
         (message) => message.role === 'user' && /切り替え/.test(message.content)
       ),
@@ -368,6 +372,8 @@ function assertResults(results) {
       (/苦しめ/.test(result.message) && !result.userGrounding.suffering) ||
       (/心が疲れ|心も疲れ/.test(result.message) &&
         !result.userGrounding.heartFatigue) ||
+      (/重(?:い|たい)/.test(result.message) &&
+        !result.userGrounding.weightMetaphor) ||
       (/気持ちの切り替え/.test(result.message) &&
         !result.userGrounding.emotionSwitching) ||
       (/精一杯/.test(result.message) &&
@@ -394,10 +400,18 @@ function assertResults(results) {
     }
     if (
       /明日/.test(result.lastUserText) &&
-      /先ほどのお話/.test(result.message)
+      /先ほど/.test(result.message)
     ) {
       throw new Error(
         `${result.label} used an inconsistent time reference: ${result.message}`
+      );
+    }
+    if (
+      /明日/.test(result.lastUserText) &&
+      !/明日/.test(result.message)
+    ) {
+      throw new Error(
+        `${result.label} dropped the requested time reference: ${result.message}`
       );
     }
     if (

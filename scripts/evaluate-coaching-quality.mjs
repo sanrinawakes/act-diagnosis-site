@@ -906,6 +906,7 @@ function evaluateConversations(conversations) {
           prediction: /予測|また.{0,12}否定/.test(userContext),
           suffering: /苦し|つら|辛|しんど/.test(userContext),
           heartFatigue: /疲れ|消耗/.test(userContext),
+          weightMetaphor: /重(?:い|たい)/.test(userContext),
           emotionSwitching: /切り替え/.test(userContext),
           emphaticCause: /(?:だからこそ|からこそ)/.test(userContext),
           overwhelmed: /精一杯|余裕がない|限界/.test(userContext),
@@ -1036,6 +1037,8 @@ function evaluateConversations(conversations) {
         (/苦しめ/.test(turn.message) && !turn.userGrounding.suffering) ||
         (/心が疲れ|心も疲れ/.test(turn.message) &&
           !turn.userGrounding.heartFatigue) ||
+        (/重(?:い|たい)/.test(turn.message) &&
+          !turn.userGrounding.weightMetaphor) ||
         (/気持ちの切り替え/.test(turn.message) &&
           !turn.userGrounding.emotionSwitching) ||
         (/精一杯/.test(turn.message) &&
@@ -1061,7 +1064,13 @@ function evaluateConversations(conversations) {
     addCheck(
       checks,
       `${turn.label}: 時間指定を矛盾させない`,
-      !(/明日/.test(turn.user) && /先ほどのお話/.test(turn.message)),
+      !(/明日/.test(turn.user) && /先ほど/.test(turn.message)),
+      turn.message
+    );
+    addCheck(
+      checks,
+      `${turn.label}: 明日の時間指定を保持する`,
+      !(/明日/.test(turn.user) && !/明日/.test(turn.message)),
       turn.message
     );
     addCheck(

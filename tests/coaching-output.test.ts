@@ -258,6 +258,42 @@ describe('normalizeCoachingOutput', () => {
     expect(result).not.toContain('先ほどのお話');
   });
 
+  it('明日の会話を「先ほどのご指摘」と表現しない', () => {
+    const result = normalizeCoachingOutput(
+      '明日の会話の冒頭で、「先ほどのご指摘について、私の理解を少し整理したいのですが、お時間よろしいですか？」とだけ切り出してみてください。',
+      'では、明日まず何をすればいいか一つだけ教えてください。'
+    );
+
+    expect(result).toContain('前回のご指摘');
+    expect(result).not.toContain('先ほど');
+  });
+
+  it('明日の一手から時間指定を落とさない', () => {
+    const result = normalizeCoachingOutput(
+      'SNSのアプリを一度スマホのホーム画面から見えない場所へ移動させてみてください。',
+      '明日まず何をすればいいか、一つだけ短く教えてください。',
+      [
+        {
+          role: 'user',
+          content: '仕事の悩みとSNSへの抵抗感について相談しています。',
+        },
+      ]
+    );
+
+    expect(result).toContain('明日');
+    expect(result).toContain('SNSのアプリ');
+  });
+
+  it('本人が使っていない「重たい」という比喩を補わない', () => {
+    const result = normalizeCoachingOutput(
+      '仕事で落ち込むことがあり、整理が必要な状況なんですね。\n\nまずは、今一番「ここが重たい」と感じている出来事を一つだけ聞かせてもらえますか？',
+      '仕事のことで少し落ち込んでいます。短く整理を手伝ってください。'
+    );
+
+    expect(result).not.toContain('重たい');
+    expect(result).toContain('落ち込');
+  });
+
   it('句点で終わる質問と「教えてください」を重ねない', () => {
     const result = normalizeCoachingOutput(
       [
@@ -422,7 +458,7 @@ describe('normalizeCoachingOutput', () => {
     );
 
     expect(result).toBe(
-      '上司に「先日の件で、少し話す時間をいただけますか」と伝えてみてください。'
+      '明日、上司に「先日の件で、少し話す時間をいただけますか」と伝えてみてください。'
     );
     expect(result.split(/\n{2,}/)).toHaveLength(1);
   });
@@ -467,7 +503,7 @@ describe('normalizeCoachingOutput', () => {
     );
 
     expect(result).toBe(
-      '今いちばん気になっていることを一文だけメモに書いてください。'
+      '明日、今いちばん気になっていることを一文だけメモに書いてください。'
     );
   });
 

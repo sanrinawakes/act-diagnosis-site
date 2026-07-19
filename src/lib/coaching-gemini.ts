@@ -1040,12 +1040,19 @@ export function normalizeCoachingOutput(
       /今[、,]?(?:この瞬間に)?(?:最も|一番)?(?:話したい|話してみたい)ことは何ですか[？?]?/g,
       ''
     )
+    .replace(
+      /今(?:一番|いちばん)[「『]?(?:ここが)?重たい[」』]?と感じている出来事/g,
+      '今いちばん気になっている出来事'
+    )
+    .replace(
+      /今(?:一番|いちばん)(?:あなたの)?心を重くしているのは/g,
+      '今いちばん気になっているのは'
+    )
     .replace(/あなたの言葉一つ一つを大切に受け止めています[。]?/g, '')
     .replace(/。{2,}/g, '。');
-  const temporallyAlignedText =
-    /明日/.test(lastUserText) || /明日/.test(naturalText)
-      ? naturalText.replace(/先ほどのお話/g, '前回のお話')
-      : naturalText;
+  const temporallyAlignedText = /明日/.test(lastUserText)
+    ? naturalText.replace(/先ほど/g, '前回')
+    : naturalText;
   const responsiveText = removeAnsweredEmotionQuestion(
     temporallyAlignedText,
     lastUserText
@@ -1113,25 +1120,51 @@ export function normalizeCoachingOutput(
   const singleAnswerSafe = balanced;
 
   if (requestsOnePhraseAnswer(lastUserText)) {
-    return firstNonEmptyParagraph(singleAnswerSafe);
+    return preserveRequestedActionTime(
+      firstNonEmptyParagraph(singleAnswerSafe),
+      lastUserText
+    );
   }
 
   if (
     requestsSingleAnswerFormat(lastUserText) &&
     !requestsExplicitClosingQuestion(lastUserText)
   ) {
-    return selectSingleAnswerBlock(
-      singleAnswerSafe,
-      lastUserText,
-      historyMessages
+    return preserveRequestedActionTime(
+      selectSingleAnswerBlock(
+        singleAnswerSafe,
+        lastUserText,
+        historyMessages
+      ),
+      lastUserText
     );
   }
 
-  return ensureCoachingClose(
-    limitUnrequestedCoachingMoves(singleAnswerSafe, lastUserText),
-    lastUserText,
-    historyMessages
+  return preserveRequestedActionTime(
+    ensureCoachingClose(
+      limitUnrequestedCoachingMoves(singleAnswerSafe, lastUserText),
+      lastUserText,
+      historyMessages
+    ),
+    lastUserText
   );
+}
+
+function preserveRequestedActionTime(text: string, lastUserText: string) {
+  if (!/明日/.test(lastUserText)) return text;
+
+  const aligned = text
+    .replace(/先ほど/g, '前回')
+    .replace(/翌朝/g, '明日の朝')
+    .replace(/翌日/g, '明日');
+  if (
+    requestsConcreteSuggestion(lastUserText) &&
+    !/明日/.test(aligned)
+  ) {
+    return `明日、${aligned}`;
+  }
+
+  return aligned;
 }
 
 function containsMultipleRequestedItems(text: string) {
@@ -1842,6 +1875,10 @@ function removeUnsupportedPsychologicalInference(
     {
       output: /心が疲れ|心も疲れ/,
       supportedBy: /疲れ|消耗/,
+    },
+    {
+      output: /重(?:い|たい)/,
+      supportedBy: /重(?:い|たい)/,
     },
     { output: /気持ちの切り替え/, supportedBy: /切り替え/ },
     { output: /精一杯/, supportedBy: /精一杯|余裕がない|限界/ },
