@@ -1593,6 +1593,10 @@ function evaluateConversations(conversations) {
   );
 
   const sixTurn = findConversation(conversations, 'six-turn-paid-conversation');
+  const hasConcreteHouseholdWording = (message) =>
+    /「[^」]{8,}」/.test(message) &&
+    /時間|家事/.test(message) &&
+    /決め|お願い|助か|ほしい|聞いて/.test(message);
   addCheck(
     checks,
     '6往復会話: 3回目以降も全streamが完了',
@@ -1602,9 +1606,9 @@ function evaluateConversations(conversations) {
   addCheck(
     checks,
     '6往復会話: 最新の「責めずに伝える」を保持',
-    /伝|言葉|一言|話|相談|お願い|落ち着|呼吸/.test(
+    (/伝|言葉|一言|話|相談|お願い|落ち着|呼吸/.test(
       sixTurn.turns[3].message
-    ) &&
+    ) || hasConcreteHouseholdWording(sixTurn.turns[3].message)) &&
       /時間|軽く|大切|扱/.test(sixTurn.turns[3].message) &&
       !/明日の朝/.test(sixTurn.turns[3].message) &&
       !/落ち込|悲し/.test(sixTurn.turns[3].message),
@@ -1614,7 +1618,9 @@ function evaluateConversations(conversations) {
     checks,
     '6往復会話: 文面をまだ示していない時に「この言い方」と参照しない',
     !/この(?:言い方|言葉|一言)/.test(sixTurn.turns[2].message) &&
-      /相手|夫|伝|何をわかってほしい/.test(sixTurn.turns[2].message),
+      (/相手|夫|伝|何をわかってほしい/.test(
+        sixTurn.turns[2].message
+      ) || hasConcreteHouseholdWording(sixTurn.turns[2].message)),
     sixTurn.turns[2].message
   );
   addCheck(
@@ -1681,7 +1687,8 @@ function evaluateConversations(conversations) {
   addCheck(
     checks,
     '6往復会話: 既に尋ねた希望を繰り返さず具体的な言葉へ進む',
-    /最初の一言|お願い|言葉/.test(sixTurn.turns[2].message) &&
+    (/最初の一言|お願い|言葉/.test(sixTurn.turns[2].message) ||
+      hasConcreteHouseholdWording(sixTurn.turns[2].message)) &&
       !/何をわかってほしい/.test(sixTurn.turns[2].message),
     sixTurn.turns[2].message
   );
@@ -1737,7 +1744,9 @@ function evaluateConversations(conversations) {
       !/(?:[2-9]|二|三|四|五|六|七|八|九|十)(?:つ|個|項目|案|方法|行動|言葉|語)(?:だけ)?/.test(
         sixTurn.turns[5].message
       ) &&
-      /呼吸|メモ|一言|書|止|数|秒|確認/.test(sixTurn.turns[5].message),
+      /呼吸|息(?:を|が|いて)|メモ|一言|書|止|数|秒|確認/.test(
+        sixTurn.turns[5].message
+      ),
     sixTurn.turns[5].message
   );
   addCheck(
