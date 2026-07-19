@@ -368,6 +368,31 @@ describe('normalizeCoachingOutput', () => {
     expect(result).toContain('今日起きた事実を一行だけ');
   });
 
+  it('利用者が言っていない気持ちの難しさや好意的な原因も補わない', () => {
+    const result = normalizeCoachingOutput(
+      [
+        '仕事で落ち込むことがあると、気持ちの切り替えが難しいですよね。',
+        'まずは今の状況を少し整理してみましょう。',
+        'その「怖さ」は、あなたが仕事を大切に思っているからこそ生まれる感覚かもしれません。',
+        '具体的に、どのような出来事が一番心に引っかかっていますか？',
+      ].join(''),
+      '仕事のことで少し落ち込んでいます。短く整理を手伝ってください。'
+    );
+
+    expect(result).not.toMatch(/気持ちの切り替え|仕事を大切|からこそ/);
+    expect(result).toContain('今の状況を少し整理');
+    expect(result).toContain('どのような出来事');
+  });
+
+  it('本人が「からこそ」と話した原因は削除しない', () => {
+    const result = normalizeCoachingOutput(
+      '仕事を大切にしているからこそ、怖くなるのですね。まず事実を一行だけ書いてみてください。',
+      '仕事を大切にしているからこそ、失敗が怖いんです。'
+    );
+
+    expect(result).toContain('大切にしているからこそ');
+  });
+
   it('過去の本人発言に根拠がある心理表現は削除しない', () => {
     const result = normalizeCoachingOutput(
       '期待に応えたいという思いが、行動を急がせているのですね。まず優先する仕事を一つ決めてください。',

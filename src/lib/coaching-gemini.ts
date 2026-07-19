@@ -1507,6 +1507,7 @@ function removeUnsupportedPsychologicalInference(
     { output: '証拠', supportedBy: /証拠/ },
     { output: '期待に応え', supportedBy: /期待|応え/ },
     { output: '萎縮', supportedBy: /萎縮/ },
+    { output: '気持ちの切り替え', supportedBy: /切り替え/ },
   ];
   const unsupportedTerms = loadedInferences.filter(
     ({ output, supportedBy }) =>
@@ -1514,10 +1515,15 @@ function removeUnsupportedPsychologicalInference(
   );
   if (unsupportedTerms.length === 0) return text;
 
+  const userUsedEmphaticCause = /(?:だからこそ|からこそ)/.test(userContext);
   const grounded = (text.match(/[^。！？?\n]+[。！？?]?|\n+/g) || [])
     .filter(
       (segment) =>
-        !unsupportedTerms.some(({ output }) => segment.includes(output))
+        !unsupportedTerms.some(({ output }) => segment.includes(output)) &&
+        !(
+          /(?:だからこそ|からこそ)/.test(segment) &&
+          !userUsedEmphaticCause
+        )
     )
     .join('')
     .replace(/\n{3,}/g, '\n\n')

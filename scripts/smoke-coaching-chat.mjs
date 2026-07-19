@@ -218,6 +218,13 @@ async function sendStreamRequest({ email, diagnosisCode, messages, label }) {
       intimidation: messages.some(
         (message) => message.role === 'user' && /萎縮/.test(message.content)
       ),
+      emotionSwitching: messages.some(
+        (message) => message.role === 'user' && /切り替え/.test(message.content)
+      ),
+      emphaticCause: messages.some(
+        (message) =>
+          message.role === 'user' && /(?:だからこそ|からこそ)/.test(message.content)
+      ),
     },
     message,
   };
@@ -278,6 +285,10 @@ function assertResults(results) {
       (/期待に応え/.test(result.message) &&
         !result.userGrounding.expectation) ||
       (/萎縮/.test(result.message) && !result.userGrounding.intimidation)
+      || (/気持ちの切り替え/.test(result.message) &&
+        !result.userGrounding.emotionSwitching)
+      || (/(?:だからこそ|からこそ)/.test(result.message) &&
+        !result.userGrounding.emphaticCause)
     ) {
       throw new Error(
         `${result.label} invented an unsupported psychological inference: ${result.message}`
