@@ -173,6 +173,56 @@ describe('normalizeCoachingOutput', () => {
     expect(result).not.toMatch(/受け止めさせてください|受け止めたいと思います/);
   });
 
+  it('一つの質問で出来事と感情の二つを要求しない', () => {
+    const result = normalizeCoachingOutput(
+      '仕事で落ち込むような出来事があったのですね。\n\n一番ひっかかっている「出来事」と、その時に感じた「感情」を一つずつ聞かせてもらえますか？',
+      '仕事のことで少し落ち込んでいます。短く整理を手伝ってください。'
+    );
+
+    expect(result).toContain('仕事で落ち込むような出来事があったのですね。');
+    expect(result).not.toMatch(/出来事.*感情.*一つずつ/);
+    expect(result).toContain('明日ひとつだけ状況を動かすなら');
+  });
+
+  it('本人の否定された感覚を別の視点だったと打ち消さない', () => {
+    const result = normalizeCoachingOutput(
+      '上司に否定されたと感じ、次の一言を出すのが怖くなっているのですね。\n\nもし「否定」ではなく「別の視点」からのアドバイスだったとしたら、どの部分が一番気になりますか？',
+      '上司に否定されたように感じて、次の一言が怖いです。'
+    );
+
+    expect(result).toContain('次の一言を出すのが怖くなっている');
+    expect(result).not.toMatch(/否定.*ではなく.*別の視点/);
+    expect(result).toMatch(/[？?]$/);
+  });
+
+  it('仕事とSNSの履歴に無関係な休息提案を具体策として採用しない', () => {
+    const result = normalizeCoachingOutput(
+      '明日の朝、今の自分が一番「ほっとする」飲み物を一杯だけゆっくり味わう時間を作ってください。',
+      '明日まず何をすればいいか、一つだけ短く教えてください。',
+      [
+        {
+          role: 'user',
+          content: '仕事の悩みとSNSへの抵抗感について相談しています。',
+        },
+      ]
+    );
+
+    expect(result).toBe(
+      '明日の朝、SNSで最初に伝えたい内容を一文だけメモに書いてください。'
+    );
+    expect(result).not.toMatch(/飲み物|ほっとする/);
+  });
+
+  it('本人が言っていない「精一杯」を心理状態として補わない', () => {
+    const result = normalizeCoachingOutput(
+      '今はその気持ちを抱えるだけで精一杯かもしれません。\n\n今、一番ひっかかっていることは何ですか？',
+      '仕事のことで少し落ち込んでいます。'
+    );
+
+    expect(result).not.toContain('精一杯');
+    expect(result).toContain('一番ひっかかっていることは何ですか？');
+  });
+
   it('一つだけ指定された時は二つ目の提案段落を除く', () => {
     const result = normalizeCoachingOutput(
       [

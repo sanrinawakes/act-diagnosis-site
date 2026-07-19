@@ -227,6 +227,10 @@ async function sendStreamRequest({ email, diagnosisCode, messages, label }) {
         (message) =>
           message.role === 'user' && /(?:だからこそ|からこそ)/.test(message.content)
       ),
+      overwhelmed: messages.some(
+        (message) =>
+          message.role === 'user' && /精一杯|余裕がない|限界/.test(message.content)
+      ),
     },
     message,
   };
@@ -287,7 +291,7 @@ function assertResults(results) {
       );
     }
     if (
-      /否定.{0,6}(?:ではなく|でなく).{0,8}意見|(?:感情|気持ち|怖さ|不安|怒り|悲しさ|悩み|問題|課題).{0,16}(?:横|脇)[にへ]置|(?:感情|気持ち|怖さ|不安|怒り|悲しさ|悩み|問題|課題).{0,12}切り離|客観的に見つめ直/.test(
+      /否定[」』]?[^。\n]{0,16}(?:ではなく|でなく)[「『]?(?:意見|別の視点|アドバイス)|(?:感情|気持ち|怖さ|不安|怒り|悲しさ|悩み|問題|課題).{0,16}(?:横|脇)[にへ]置|(?:感情|気持ち|怖さ|不安|怒り|悲しさ|悩み|問題|課題).{0,12}切り離|客観的に見つめ直/.test(
         result.message
       )
     ) {
@@ -301,11 +305,35 @@ function assertResults(results) {
       (/萎縮/.test(result.message) && !result.userGrounding.intimidation) ||
       (/気持ちの切り替え/.test(result.message) &&
         !result.userGrounding.emotionSwitching) ||
+      (/精一杯/.test(result.message) &&
+        !result.userGrounding.overwhelmed) ||
       (/(?:だからこそ|からこそ)/.test(result.message) &&
         !result.userGrounding.emphaticCause)
     ) {
       throw new Error(
         `${result.label} invented an unsupported psychological inference: ${result.message}`
+      );
+    }
+    if (
+      /(?:一つずつ|それぞれ)[^。！？?\n]{0,40}(?:聞かせ|教えて|答えて)/.test(
+        result.message
+      )
+    ) {
+      throw new Error(
+        `${result.label} asked for multiple answer fields: ${result.message}`
+      );
+    }
+    if (
+      result.label === 'long-history-437' &&
+      !(
+        /SNS|投稿|発信|仕事|職場|タスク/.test(result.message) &&
+        /書|投稿|発信|アプリ|通知|メモ|資料|タスク|予定|開|着手|連絡|相談|伝|確認|整理/.test(
+          result.message
+        )
+      )
+    ) {
+      throw new Error(
+        `${result.label} returned an action unrelated to its history: ${result.message}`
       );
     }
   }

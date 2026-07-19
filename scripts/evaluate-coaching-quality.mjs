@@ -904,6 +904,7 @@ function evaluateConversations(conversations) {
           intimidation: /萎縮/.test(userContext),
           emotionSwitching: /切り替え/.test(userContext),
           emphaticCause: /(?:だからこそ|からこそ)/.test(userContext),
+          overwhelmed: /精一杯|余裕がない|限界/.test(userContext),
         },
       };
     });
@@ -993,7 +994,7 @@ function evaluateConversations(conversations) {
     addCheck(
       checks,
       `${turn.label}: ユーザーの感情を打ち消さない`,
-      !/否定.{0,6}(?:ではなく|でなく).{0,8}意見|(?:感情|気持ち|怖さ|不安|怒り|悲しさ|悩み|問題|課題).{0,16}(?:横|脇)[にへ]置|(?:感情|気持ち|怖さ|不安|怒り|悲しさ|悩み|問題|課題).{0,12}切り離|客観的に見つめ直/.test(
+      !/否定[」』]?[^。\n]{0,16}(?:ではなく|でなく)[「『]?(?:意見|別の視点|アドバイス)|(?:感情|気持ち|怖さ|不安|怒り|悲しさ|悩み|問題|課題).{0,16}(?:横|脇)[にへ]置|(?:感情|気持ち|怖さ|不安|怒り|悲しさ|悩み|問題|課題).{0,12}切り離|客観的に見つめ直/.test(
         turn.message
       ),
       turn.message
@@ -1007,8 +1008,18 @@ function evaluateConversations(conversations) {
         (/萎縮/.test(turn.message) && !turn.userGrounding.intimidation) ||
         (/気持ちの切り替え/.test(turn.message) &&
           !turn.userGrounding.emotionSwitching) ||
+        (/精一杯/.test(turn.message) &&
+          !turn.userGrounding.overwhelmed) ||
         (/(?:だからこそ|からこそ)/.test(turn.message) &&
           !turn.userGrounding.emphaticCause)
+      ),
+      turn.message
+    );
+    addCheck(
+      checks,
+      `${turn.label}: 一つの質問で複数回答を要求しない`,
+      !/(?:一つずつ|それぞれ)[^。！？?\n]{0,40}(?:聞かせ|教えて|答えて)/.test(
+        turn.message
       ),
       turn.message
     );

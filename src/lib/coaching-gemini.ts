@@ -1050,7 +1050,11 @@ export function normalizeCoachingOutput(
   const diagnosisSafeText = requestsDiagnosisExplanation(lastUserText)
     ? groundedText
     : removeUnrequestedDiagnosisExplanation(groundedText);
-  const paragraphs = diagnosisSafeText
+  const focusedText = rewriteCompoundAnswerQuestions(
+    diagnosisSafeText,
+    lastUserText
+  );
+  const paragraphs = focusedText
     .trim()
     .split(/\n{2,}/)
     .filter((paragraph) => {
@@ -1191,9 +1195,22 @@ function selectSingleAnswerBlock(
     if (groundedFallback) return groundedFallback;
   }
   const concreteParagraph = eligibleParagraphs.find((paragraph) =>
-    hasConcreteAction(paragraph, lastUserText)
+    hasConcreteAction(paragraph, lastUserText) &&
+    isSingleActionRelevantToContext(
+      paragraph,
+      lastUserText,
+      historyMessages
+    )
   );
-  const substantiveParagraph = eligibleParagraphs.find(isSubstantiveSingleAnswer);
+  const substantiveParagraph = eligibleParagraphs.find(
+    (paragraph) =>
+      isSubstantiveSingleAnswer(paragraph) &&
+      isSingleActionRelevantToContext(
+        paragraph,
+        lastUserText,
+        historyMessages
+      )
+  );
   const selected =
     quotedAnswer ||
     concreteParagraph ||
@@ -1204,9 +1221,55 @@ function selectSingleAnswerBlock(
   return quotedAnswer ||
     (selected &&
       (hasConcreteAction(selected, lastUserText) ||
-        isSubstantiveSingleAnswer(selected)))
+        isSubstantiveSingleAnswer(selected)) &&
+      isSingleActionRelevantToContext(
+        selected,
+        lastUserText,
+        historyMessages
+      ))
     ? selected
     : buildNoQuestionFallback(lastUserText, historyMessages);
+}
+
+function isSingleActionRelevantToContext(
+  answer: string,
+  lastUserText: string,
+  historyMessages: CoachingChatMessage[]
+) {
+  if (!requestsConcreteSuggestion(lastUserText)) return true;
+  if (/疲|休|しんど|限界/.test(lastUserText)) {
+    return /休|横にな|目を閉じ|睡眠|寝/.test(answer);
+  }
+
+  const userContext = [
+    ...historyMessages
+      .filter((message) => message.role === 'user')
+      .map((message) => stripAttachmentMarkdown(message.content)),
+    lastUserText,
+  ].join('\n');
+  const contextChecks = [
+    {
+      present: /SNS|投稿|発信/.test(userContext),
+      relevant: /書|投稿|発信|アプリ|通知|メモ|伝/.test(answer),
+    },
+    {
+      present: /仕事|職場|業務|会社|タスク/.test(userContext),
+      relevant: /資料|タスク|予定|メモ|書|開|着手|連絡|相談|伝|確認|整理/.test(
+        answer
+      ),
+    },
+    {
+      present: /上司|同僚|夫|妻|家族|親|子ども|友人|相手/.test(
+        userContext
+      ),
+      relevant: /伝|話|聞|連絡|メモ|一文|質問|相談/.test(answer),
+    },
+  ].filter((check) => check.present);
+
+  return (
+    contextChecks.length === 0 ||
+    contextChecks.some((check) => check.relevant)
+  );
 }
 
 const DIRECT_WORDING_GROUNDING_TERMS = [
@@ -1407,6 +1470,12 @@ function buildClosingCoachingQuestion(lastUserText: string) {
   if (/怒|腹が立|悔|許せな|むかつ/.test(lastUserText)) {
     return 'その気持ちを通して、本当は相手に何をわかってほしいですか？';
   }
+  if (
+    /怖|不安|心配|緊張/.test(lastUserText) &&
+    /夫|妻|家族|親|子ども|友人|同僚|上司|相手/.test(lastUserText)
+  ) {
+    return '次にその相手へ話す時、いちばん避けたいことは何ですか？';
+  }
   if (/怖|不安|心配|緊張/.test(lastUserText)) {
     return 'その不安の奥で、いちばん守りたいものは何ですか？';
   }
@@ -1578,15 +1647,44 @@ function rewriteInvalidatingAdvice(
     .replace(/、{2,}/g, '、')
     .trim();
 
-  return invalidatesUserFeeling(rewritten)
-    ? buildNoQuestionFallback(lastUserText, historyMessages)
-    : rewritten;
+  const grounded = rewritten
+    .split(/(\n{2,})/)
+    .filter((part) => !invalidatesUserFeeling(part))
+    .join('')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+
+  return grounded || buildNoQuestionFallback(lastUserText, historyMessages);
 }
 
 function invalidatesUserFeeling(text: string) {
-  return /否定.{0,6}(?:ではなく|でなく).{0,8}意見|(?:感情|気持ち|怖さ|不安|怒り|悲しさ|悩み|問題|課題).{0,16}(?:横|脇)[にへ]置|(?:感情|気持ち|怖さ|不安|怒り|悲しさ|悩み|問題|課題).{0,12}切り離|客観的に見つめ直/.test(
+  return /否定[」』]?[^。\n]{0,16}(?:ではなく|でなく)[「『]?(?:意見|別の視点|アドバイス)|(?:感情|気持ち|怖さ|不安|怒り|悲しさ|悩み|問題|課題).{0,16}(?:横|脇)[にへ]置|(?:感情|気持ち|怖さ|不安|怒り|悲しさ|悩み|問題|課題).{0,12}切り離|客観的に見つめ直/.test(
     text
   );
+}
+
+function rewriteCompoundAnswerQuestions(text: string, lastUserText: string) {
+  const parts = text.split(/(\n{2,})/);
+  let replaced = false;
+  const rewritten = parts
+    .map((part) => {
+      if (
+        !replaced &&
+        /(?:一つずつ|それぞれ)[^。！？?\n]{0,40}(?:聞かせ|教えて|答えて)/.test(
+          part
+        ) &&
+        /[？?]|(?:です|ます|でしょう|ません)か[。]?$/.test(part.trim())
+      ) {
+        replaced = true;
+        return buildClosingCoachingQuestion(lastUserText);
+      }
+      return part;
+    })
+    .join('')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+
+  return rewritten || text;
 }
 
 function removeAnsweredEmotionQuestion(text: string, lastUserText: string) {
@@ -1627,6 +1725,7 @@ function removeUnsupportedPsychologicalInference(
     { output: '期待に応え', supportedBy: /期待|応え/ },
     { output: '萎縮', supportedBy: /萎縮/ },
     { output: '気持ちの切り替え', supportedBy: /切り替え/ },
+    { output: '精一杯', supportedBy: /精一杯|余裕がない|限界/ },
   ];
   const unsupportedTerms = loadedInferences.filter(
     ({ output, supportedBy }) =>
