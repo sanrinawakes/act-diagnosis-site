@@ -1504,7 +1504,7 @@ function ensureCoachingClose(
   }
 
   if (requestsRestWithoutQuestions(lastUserText)) {
-    return `${text}\n\n今日はここまでにして、ゆっくり休んでください。`;
+    return `${text}\n\n今日はゆっくり休んでください。`;
   }
 
   return `${text}\n\n${buildClosingCoachingQuestion(lastUserText)}`;
@@ -1607,7 +1607,7 @@ function buildNoQuestionFallback(
     return '明日の朝、相手に最初に伝える一文だけをメモに書いてください。';
   }
   if (/疲|休|しんど|限界/.test(lastUserText)) {
-    return '今日はここまでにして、ゆっくり休んでください。';
+    return '今日はゆっくり休んでください。';
   }
   if (/話|伝|相手|夫|妻|家族|同僚|上司/.test(userContext)) {
     return '明日の朝、相手に最初に伝える一文だけをメモに書いてください。';

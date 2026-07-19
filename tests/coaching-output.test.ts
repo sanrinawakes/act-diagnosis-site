@@ -176,7 +176,7 @@ describe('normalizeCoachingOutput', () => {
       '今日は少し疲れました。短く返してください。'
     );
 
-    expect(result).toBe('今日はここまでにして、ゆっくり休んでください。');
+    expect(result).toBe('今日はゆっくり休んでください。');
     expect(result).not.toMatch(/飲み物|休息/);
   });
 
@@ -186,7 +186,7 @@ describe('normalizeCoachingOutput', () => {
       '今日は少し疲れました。短く返してください。'
     );
 
-    expect(result).toBe('今日はここまでにして、ゆっくり休んでください。');
+    expect(result).toBe('今日はゆっくり休んでください。');
     expect(result).not.toMatch(/スマホを置|目を閉じ/);
   });
 
