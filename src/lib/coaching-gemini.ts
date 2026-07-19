@@ -827,7 +827,9 @@ function extractTextFromParts(parts: GeminiPart[]) {
 }
 
 export function normalizeCoachingOutput(text: string, lastUserText: string) {
-  const questionLimit = requestsNoFollowUpQuestion(lastUserText) ? 0 : 1;
+  const requiresClosingQuestion = requestsExplicitClosingQuestion(lastUserText);
+  const questionLimit =
+    requiresClosingQuestion || requestsNoFollowUpQuestion(lastUserText) ? 0 : 1;
   const safeText = invalidatesUserFeeling(text)
     ? '相手に伝えたいことを、まず短いメモに書き出してみてください。'
     : text;
@@ -916,6 +918,10 @@ export function normalizeCoachingOutput(text: string, lastUserText: string) {
 }
 
 function ensureCoachingClose(text: string, lastUserText: string) {
+  if (requestsExplicitClosingQuestion(lastUserText)) {
+    return `${text}\n\n${buildClosingCoachingQuestion(lastUserText)}`;
+  }
+
   if (requestsSingleAnswerFormat(lastUserText) || hasClosingCoachingMove(text)) {
     return text;
   }
@@ -1024,6 +1030,12 @@ function isQuestionInsideJapaneseQuote(segment: string, depthBefore: number) {
 
 function requestsSingleAnswerFormat(text: string) {
   return /(?:(?:一つ|ひとつ|1つ)だけ.{0,24}(?:教|提案|答|挙|示|伝|お願)|(?:教|提案|答|挙|示|伝|お願).{0,24}(?:一つ|ひとつ|1つ)だけ|一言(?:だけ|で)|質問(?:は|を)?(?:なし|不要|しない)|短く(?:答|教|返))/.test(text);
+}
+
+function requestsExplicitClosingQuestion(text: string) {
+  return /(?:最後|末尾|終わり|締め).{0,40}質問|質問(?:を|は)?[^。！？?\n]{0,20}(?:一つ|ひとつ|1つ)(?:だけ)?[^。！？?\n]{0,12}(?:して|付け|添え|ください|お願い)/.test(
+    text
+  );
 }
 
 function invalidatesUserFeeling(text: string) {

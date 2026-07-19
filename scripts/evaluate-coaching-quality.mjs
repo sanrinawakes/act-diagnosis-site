@@ -35,6 +35,7 @@ try {
   conversations.push(await runShortEmotionScenario());
   conversations.push(await runPromptProtectionScenario());
   conversations.push(await runLongInputScenario());
+  conversations.push(await runExplicitClosingQuestionScenario());
   conversations.push(await runImageScenario());
   conversations.push(await runSessionMemoryScenario());
 
@@ -162,6 +163,19 @@ async function runLongInputScenario() {
     inputs: [
       {
         content: `長くなりますが聞いてください。${middle}本当に相談したいのは、明日また急な依頼をされた時に、角を立てずに断る一言です。一つだけ提案してください。`,
+      },
+    ],
+  });
+}
+
+async function runExplicitClosingQuestionScenario() {
+  return runConversation({
+    name: 'explicit-closing-question',
+    diagnosisCode: 'PMA-2',
+    inputs: [
+      {
+        content:
+          '企画書を完璧にしようとして手が止まります。明日着手する方法を短く提案し、最後に自分で判断を深める質問を一つだけしてください。',
       },
     ],
   });
@@ -604,6 +618,26 @@ function evaluateConversations(conversations) {
       image.turns[0].outputChars <= 60 &&
       image.turns[0].semanticQuestions === 0,
     `${image.turns[0].outputChars} chars / ${image.turns[0].semanticQuestions} questions`
+  );
+
+  const explicitClosing = findConversation(
+    conversations,
+    'explicit-closing-question'
+  );
+  const explicitClosingMessage = explicitClosing.turns[0].message;
+  const explicitClosingFinalSentence =
+    explicitClosingMessage
+      .trim()
+      .split(/\n+/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .at(-1) || '';
+  addCheck(
+    checks,
+    '質問指定: 最後に質問を一つだけ置く',
+    explicitClosing.turns[0].semanticQuestions === 1 &&
+      countSemanticQuestions(explicitClosingFinalSentence) === 1,
+    explicitClosingMessage
   );
 
   const memory = findConversation(conversations, 'paid-session-memory');
