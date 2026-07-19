@@ -902,9 +902,11 @@ function evaluateConversations(conversations) {
         userGrounding: {
           expectation: /期待|応え/.test(userContext),
           intimidation: /萎縮/.test(userContext),
+          bracing: /身構え/.test(userContext),
           emotionSwitching: /切り替え/.test(userContext),
           emphaticCause: /(?:だからこそ|からこそ)/.test(userContext),
           overwhelmed: /精一杯|余裕がない|限界/.test(userContext),
+          energy: /エネルギー|消耗/.test(userContext),
           pride: /プライド/.test(userContext),
           motivation: /意欲|やる気/.test(userContext),
           seriousness: /真剣/.test(userContext),
@@ -1013,10 +1015,13 @@ function evaluateConversations(conversations) {
         (/期待に応え/.test(turn.message) &&
           !turn.userGrounding.expectation) ||
         (/萎縮/.test(turn.message) && !turn.userGrounding.intimidation) ||
+        (/身構え/.test(turn.message) && !turn.userGrounding.bracing) ||
         (/気持ちの切り替え/.test(turn.message) &&
           !turn.userGrounding.emotionSwitching) ||
         (/精一杯/.test(turn.message) &&
           !turn.userGrounding.overwhelmed) ||
+        (/エネルギーを(?:使|消耗)/.test(turn.message) &&
+          !turn.userGrounding.energy) ||
         (/プライド/.test(turn.message) && !turn.userGrounding.pride) ||
         (/意欲|やる気/.test(turn.message) && !turn.userGrounding.motivation) ||
         (/真剣/.test(turn.message) && !turn.userGrounding.seriousness) ||
@@ -1299,7 +1304,7 @@ function evaluateConversations(conversations) {
 
 function countCoachingActionClauses(text) {
   const actionPattern =
-    /書き出|書い|書く|抜き出|箇条書|決め|選ん|伝えて|話し始め|話して|深呼吸|呼吸を|飲ん|休ん|休息|横にな|閉じ|眺め|確認|開い|移動|通知.{0,6}オフ|送っ|連絡|相談|断っ|置い|取り組|始め/g;
+    /書き出|書い|書く|抜き出|箇条書|決め|選ん|伝えて|話し始め|話して|読み上げ|読み返|見直|繰り返|深呼吸|呼吸を|飲ん|休ん|休息|横にな|閉じ|眺め|確認|開い|移動|向か|座っ|席につ|立ち上が|歩い|片付|準備|通知.{0,6}オフ|送っ|連絡|相談|断っ|置い|取り組|始め/g;
 
   return stripJapaneseQuotedContent(text)
     .split(/(?:て|で)から|その後|次に|続いて|[、,]/)
@@ -1346,7 +1351,11 @@ function countSemanticQuestions(text) {
     const trimmed = segment.trim();
     if (
       !questionIsQuoted &&
-      (/[？?]/.test(trimmed) || /(?:です|ます|でしょう|ません)か[。]?$/.test(trimmed))
+      (/[？?]/.test(trimmed) ||
+        /(?:です|ます|でしょう|ません)か[。]?$/.test(trimmed) ||
+        /(?:教えて|聞かせて|答えて|話して)(?:ください|もらえますか)[。]?$/.test(
+          trimmed
+        ))
     ) {
       questions += Math.max(1, countQuestionMarks(segment));
     }

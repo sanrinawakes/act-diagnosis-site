@@ -220,6 +220,9 @@ async function sendStreamRequest({ email, diagnosisCode, messages, label }) {
       intimidation: messages.some(
         (message) => message.role === 'user' && /萎縮/.test(message.content)
       ),
+      bracing: messages.some(
+        (message) => message.role === 'user' && /身構え/.test(message.content)
+      ),
       emotionSwitching: messages.some(
         (message) => message.role === 'user' && /切り替え/.test(message.content)
       ),
@@ -230,6 +233,33 @@ async function sendStreamRequest({ email, diagnosisCode, messages, label }) {
       overwhelmed: messages.some(
         (message) =>
           message.role === 'user' && /精一杯|余裕がない|限界/.test(message.content)
+      ),
+      energy: messages.some(
+        (message) =>
+          message.role === 'user' && /エネルギー|消耗/.test(message.content)
+      ),
+      pride: messages.some(
+        (message) => message.role === 'user' && /プライド/.test(message.content)
+      ),
+      motivation: messages.some(
+        (message) => message.role === 'user' && /意欲|やる気/.test(message.content)
+      ),
+      seriousness: messages.some(
+        (message) => message.role === 'user' && /真剣/.test(message.content)
+      ),
+      perfection: messages.some(
+        (message) => message.role === 'user' && /完璧/.test(message.content)
+      ),
+      largeBlock: messages.some(
+        (message) => message.role === 'user' && /塊|壁|大きすぎ/.test(message.content)
+      ),
+      gap: messages.some(
+        (message) =>
+          message.role === 'user' && /ギャップ|実際の能力/.test(message.content)
+      ),
+      proving: messages.some(
+        (message) =>
+          message.role === 'user' && /示したい|見せたい|証明したい/.test(message.content)
       ),
     },
     message,
@@ -281,6 +311,11 @@ function assertResults(results) {
         `${result.label} returned multiple requested actions: ${result.message}`
       );
     }
+    if (countSemanticQuestions(result.message) > 1) {
+      throw new Error(
+        `${result.label} returned multiple questions: ${result.message}`
+      );
+    }
     if (
       /お察し(?:いた)?します|承知(?:いた)?しました|いらっしゃる|差し支えなければ|よろしければ|(?:お聞かせ|聞かせて|教えて|お話し|話して)いただけますか|お聞かせいただけますでしょうか|させていただけますでしょうか|となっております|お伺いいたします|お気軽に(?:ご質問|お尋ね|ご相談)|頑張られ|素晴らしい一歩|サポートさせていただきます|ご無理なさらず|ご安心ください|お過ごしください|(?:教えて|お話しして|話して)くださ(?:り|って)ありがとうございます|(?:お気持ち|気持ち).{0,8}よく(?:分|わ)かります|何か(?:具体的に|続けて)?(?:お話し|話して)(?:みたい|したい)?ことはありますか|何か[、,]?(?:今)?(?:感じていることや[、,]?)?(?:話したい|話してみたい)ことはありますか|今[、,]?(?:この瞬間に)?(?:最も|一番)?(?:話したい|話してみたい)ことは何ですか|あなたの言葉一つ一つを大切に受け止めています|受け止めさせてください|受け止めたいと思います|見捨てられ|承認欲求|トラウマ|幼少期|愛着障害|共依存|我慢.{0,12}証拠|という喧嘩|タタスク|タースク|タムスケジュール/.test(
         result.message
@@ -303,10 +338,24 @@ function assertResults(results) {
       (/期待に応え/.test(result.message) &&
         !result.userGrounding.expectation) ||
       (/萎縮/.test(result.message) && !result.userGrounding.intimidation) ||
+      (/身構え/.test(result.message) && !result.userGrounding.bracing) ||
       (/気持ちの切り替え/.test(result.message) &&
         !result.userGrounding.emotionSwitching) ||
       (/精一杯/.test(result.message) &&
         !result.userGrounding.overwhelmed) ||
+      (/エネルギーを(?:使|消耗)/.test(result.message) &&
+        !result.userGrounding.energy) ||
+      (/プライド/.test(result.message) && !result.userGrounding.pride) ||
+      (/意欲|やる気/.test(result.message) && !result.userGrounding.motivation) ||
+      (/真剣/.test(result.message) && !result.userGrounding.seriousness) ||
+      (/(?:完璧(?:主義|に|で|を)|完璧さ)/.test(result.message) &&
+        !result.userGrounding.perfection) ||
+      (/大きな(?:塊|壁)/.test(result.message) &&
+        !result.userGrounding.largeBlock) ||
+      (/ギャップ/.test(result.message) && !result.userGrounding.gap) ||
+      (/(?:周囲.{0,12}(?:示したい|見せたい)|証明したい)/.test(
+        result.message
+      ) && !result.userGrounding.proving) ||
       (/(?:だからこそ|からこそ)/.test(result.message) &&
         !result.userGrounding.emphaticCause)
     ) {
@@ -341,7 +390,7 @@ function assertResults(results) {
 
 function countCoachingActionClauses(text) {
   const actionPattern =
-    /書き出|書い|書く|抜き出|箇条書|決め|選ん|伝えて|話し始め|話して|深呼吸|呼吸を|飲ん|休ん|休息|横にな|閉じ|眺め|確認|開い|移動|通知.{0,6}オフ|送っ|連絡|相談|断っ|置い|取り組|始め/g;
+    /書き出|書い|書く|抜き出|箇条書|決め|選ん|伝えて|話し始め|話して|読み上げ|読み返|見直|繰り返|深呼吸|呼吸を|飲ん|休ん|休息|横にな|閉じ|眺め|確認|開い|移動|向か|座っ|席につ|立ち上が|歩い|片付|準備|通知.{0,6}オフ|送っ|連絡|相談|断っ|置い|取り組|始め/g;
 
   return stripJapaneseQuotedContent(text)
     .split(/(?:て|で)から|その後|次に|続いて|[、,]/)
@@ -350,6 +399,21 @@ function countCoachingActionClauses(text) {
       (total, clause) => total + (clause.match(actionPattern) || []).length,
       0
     );
+}
+
+function countSemanticQuestions(text) {
+  const unquoted = stripJapaneseQuotedContent(text);
+  const segments = unquoted.match(/[^。！？?\n]+[。！？?]?|\n+/g) || [];
+  return segments.reduce((total, segment) => {
+    const trimmed = segment.trim();
+    const isQuestion =
+      /[？?]/.test(trimmed) ||
+      /(?:です|ます|でしょう|ません)か[。]?$/.test(trimmed) ||
+      /(?:教えて|聞かせて|答えて|話して)(?:ください|もらえますか)[。]?$/.test(
+        trimmed
+      );
+    return total + (isQuestion ? 1 : 0);
+  }, 0);
 }
 
 function containsAlternativeRequestedActions(text) {

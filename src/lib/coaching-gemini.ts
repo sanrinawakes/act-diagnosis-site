@@ -1120,7 +1120,7 @@ export function normalizeCoachingOutput(
   }
 
   return ensureCoachingClose(
-    singleAnswerSafe,
+    limitUnrequestedCoachingMoves(singleAnswerSafe, lastUserText),
     lastUserText,
     historyMessages
   );
@@ -1143,7 +1143,7 @@ function containsMultipleRequestedItems(text: string) {
 
 function countCoachingActionClauses(text: string) {
   const actionPattern =
-    /書き出|書い|書く|抜き出|箇条書|決め|選ん|伝えて|話し始め|話して|深呼吸|呼吸を|飲ん|休ん|休息|横にな|閉じ|眺め|確認|開い|移動|通知.{0,6}オフ|送っ|連絡|相談|断っ|置い|取り組|始め/g;
+    /書き出|書い|書く|抜き出|箇条書|決め|選ん|伝えて|話し始め|話して|読み上げ|読み返|見直|繰り返|深呼吸|呼吸を|飲ん|休ん|休息|横にな|閉じ|眺め|確認|開い|移動|向か|座っ|席につ|立ち上が|歩い|片付|準備|通知.{0,6}オフ|送っ|連絡|相談|断っ|置い|取り組|始め/g;
 
   return stripJapaneseQuotedContent(text)
     .split(/(?:て|で)から|その後|次に|続いて|[、,]/)
@@ -1152,6 +1152,62 @@ function countCoachingActionClauses(text: string) {
       (total, clause) => total + (clause.match(actionPattern) || []).length,
       0
     );
+}
+
+function limitUnrequestedCoachingMoves(text: string, lastUserText: string) {
+  if (/手順|ステップ|順番|段階|複数|いくつか|詳しく/.test(lastUserText)) {
+    return text;
+  }
+
+  const segments = text.match(/[^。！？?\n]+[。！？?]?|\n+/g) || [];
+  const moveIndices: number[] = [];
+  const moveScores = new Map<number, number>();
+  let quoteDepth = 0;
+
+  segments.forEach((segment, index) => {
+    const opens = countMatches(segment, /[「『]/g);
+    const closes = countMatches(segment, /[」』]/g);
+    const questionIsQuoted = isQuestionInsideJapaneseQuote(segment, quoteDepth);
+    const unquoted = stripJapaneseQuotedContent(segment).trim();
+    const isQuestion = !questionIsQuoted && isQuestionSegment(segment);
+    const isDirective =
+      unquoted.length > 0 &&
+      /(?:て|で)(?:ください|みてください|みましょう)|してください|しましょう|休みましょう|考えてください[。！]?$/.test(
+        unquoted
+      );
+
+    if (isQuestion || isDirective) {
+      let score = index / Math.max(segments.length, 1);
+      if (isQuestion) score += 4;
+      if (/(?:\d+|一|ひと)(?:秒|分|回|行|文|つ)/.test(unquoted)) {
+        score += 3;
+      }
+      if (/メモ|紙|ノート|付箋|見出し|目次|ファイル|資料/.test(unquoted)) {
+        score += 2;
+      }
+      if (/焦点を当て|意識して|認めてあげ|整理してみましょう/.test(unquoted)) {
+        score -= 2;
+      }
+      moveIndices.push(index);
+      moveScores.set(index, score);
+    }
+    quoteDepth = Math.max(0, quoteDepth + opens - closes);
+  });
+
+  if (moveIndices.length <= 1) return text;
+  const selectedMoveIndex = moveIndices.reduce((bestIndex, index) =>
+    (moveScores.get(index) || 0) >= (moveScores.get(bestIndex) || 0)
+      ? index
+      : bestIndex
+  );
+
+  return segments
+    .filter(
+      (_, index) => !moveIndices.includes(index) || index === selectedMoveIndex
+    )
+    .join('')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 function containsAlternativeRequestedActions(text: string) {
@@ -1585,7 +1641,10 @@ function isQuestionSegment(segment: string) {
   const trimmed = segment.trim();
   return (
     /[？?]/.test(trimmed) ||
-    /(?:です|ます|でしょう|ません)か[。]?$/.test(trimmed)
+    /(?:です|ます|でしょう|ません)か[。]?$/.test(trimmed) ||
+    /(?:教えて|聞かせて|答えて|話して)(?:ください|もらえますか)[。]?$/.test(
+      trimmed
+    )
   );
 }
 
@@ -1751,8 +1810,13 @@ function removeUnsupportedPsychologicalInference(
     { output: /証拠/, supportedBy: /証拠/ },
     { output: /期待に応え/, supportedBy: /期待|応え/ },
     { output: /萎縮/, supportedBy: /萎縮/ },
+    { output: /身構え/, supportedBy: /身構え/ },
     { output: /気持ちの切り替え/, supportedBy: /切り替え/ },
     { output: /精一杯/, supportedBy: /精一杯|余裕がない|限界/ },
+    {
+      output: /エネルギーを(?:使|消耗)/,
+      supportedBy: /エネルギー|消耗/,
+    },
     { output: /プライド/, supportedBy: /プライド/ },
     { output: /意欲|やる気/, supportedBy: /意欲|やる気/ },
     { output: /真剣/, supportedBy: /真剣/ },

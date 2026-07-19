@@ -201,6 +201,56 @@ describe('normalizeCoachingOutput', () => {
     expect(result).not.toMatch(/[？?]/);
   });
 
+  it('句点で終わる質問と「教えてください」を重ねない', () => {
+    const result = normalizeCoachingOutput(
+      [
+        '仕事で落ち込むような出来事があったのですね。',
+        '今はその気持ちを抱えるだけでもエネルギーを使っている状態だと思います。',
+        '整理のために、今一番あなたの心を重くしているのは、具体的にどのような状況でしょうか。まずはその一つを教えてください。',
+        '明日ひとつだけ状況を動かすなら、何から始めますか？',
+      ].join('\n\n'),
+      '仕事のことで少し落ち込んでいます。短く整理を手伝ってください。'
+    );
+
+    expect(result).toContain('どのような状況でしょうか。');
+    expect(result).not.toContain('教えてください');
+    expect(result).not.toContain('明日ひとつだけ状況を動かすなら');
+    expect(result).not.toContain('エネルギーを使っている');
+  });
+
+  it('通常返答でも次の行動を二つ重ねない', () => {
+    const result = normalizeCoachingOutput(
+      [
+        '次の一言が怖くなっているのですね。',
+        'まずは今の怖さをそのまま認めてあげてください。',
+        '上司に確認したいことを一つだけメモに書き出してみてください。',
+      ].join('\n\n'),
+      '上司に否定されたように感じて、次の一言が怖いです。'
+    );
+
+    expect(result).toContain('次の一言が怖くなっている');
+    expect(result).not.toContain('認めてあげてください');
+    expect(result).toContain('メモに書き出してみてください');
+  });
+
+  it('一つだけ指定で読み上げてから移動する二動作を残さない', () => {
+    const result = normalizeCoachingOutput(
+      '明日の朝、上司と話す直前に、確認したいことを一度だけ声に出して読み上げてから、席に向かってください。',
+      'では、明日まず何をすればいいか一つだけ教えてください。',
+      [
+        {
+          role: 'user',
+          content: '上司に否定されたように感じて、次の一言が怖いです。',
+        },
+      ]
+    );
+
+    expect(result).toBe(
+      '明日の朝、相手に最初に伝える一文だけをメモに書いてください。'
+    );
+    expect(result).not.toMatch(/読み上げ|席に向か/);
+  });
+
   it('AI自身の受け止め姿勢を宣言する文を残さない', () => {
     const result = normalizeCoachingOutput(
       '仕事のことで落ち込んでいるのですね。まずはその重たい気持ちを、そのまま受け止めさせてください。\n\n今、一番しんどいことは何ですか？',
@@ -566,6 +616,17 @@ describe('normalizeCoachingOutput', () => {
     expect(result).toContain('今日起きた事実を一行だけ');
   });
 
+  it('怖いという発言から「身構えている」と補わない', () => {
+    const result = normalizeCoachingOutput(
+      '次の一言が怖くなっているのですね。自分の言葉がどう受け取られるか、身構えてしまうのは無理もありません。\n\n上司に確認したいことを一つだけメモに書いてください。',
+      '上司に否定されたように感じて、次の一言が怖いです。'
+    );
+
+    expect(result).not.toContain('身構えて');
+    expect(result).toContain('次の一言が怖くなっている');
+    expect(result).toContain('メモに書いてください');
+  });
+
   it('利用者が言っていない気持ちの難しさや好意的な原因も補わない', () => {
     const result = normalizeCoachingOutput(
       [
@@ -578,7 +639,7 @@ describe('normalizeCoachingOutput', () => {
     );
 
     expect(result).not.toMatch(/気持ちの切り替え|仕事を大切|からこそ/);
-    expect(result).toContain('今の状況を少し整理');
+    expect(result).not.toContain('今の状況を少し整理');
     expect(result).toContain('どのような出来事');
   });
 
