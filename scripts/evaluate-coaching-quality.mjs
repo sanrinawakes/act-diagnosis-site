@@ -10,12 +10,19 @@ const args = new Map(
 );
 
 const baseUrl = args.get('base') || 'https://act-diagnosis-site.vercel.app';
-const vercelProtectionHeaders = process.env.VERCEL_AUTOMATION_BYPASS_SECRET
-  ? {
-      'x-vercel-protection-bypass':
-        process.env.VERCEL_AUTOMATION_BYPASS_SECRET,
-    }
-  : {};
+const vercelProtectionHeaders = {
+  ...(process.env.VERCEL_AUTOMATION_BYPASS_SECRET
+    ? {
+        'x-vercel-protection-bypass':
+          process.env.VERCEL_AUTOMATION_BYPASS_SECRET,
+      }
+    : {}),
+  ...(process.env.VERCEL_OIDC_TOKEN
+    ? {
+        'x-vercel-trusted-oidc-idp-token': process.env.VERCEL_OIDC_TOKEN,
+      }
+    : {}),
+};
 const maxTotalMs = Number(args.get('max-ms') || 15000);
 const maxFirstChunkMs = Number(args.get('max-first-chunk-ms') || 10000);
 const expectedTextModel = args.get('expected-text-model') || '';
