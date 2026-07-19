@@ -1069,11 +1069,37 @@ function selectSingleAnswerBlock(text: string, lastUserText: string) {
   const concreteParagraph = paragraphs.find((paragraph) =>
     hasConcreteAction(paragraph, lastUserText)
   );
-  const selected = quotedAnswer || concreteParagraph || paragraphs.at(-1) || '';
+  const substantiveParagraph = paragraphs.find(isSubstantiveSingleAnswer);
+  const selected =
+    quotedAnswer ||
+    concreteParagraph ||
+    substantiveParagraph ||
+    paragraphs.at(-1) ||
+    '';
 
-  return quotedAnswer || (selected && hasConcreteAction(selected, lastUserText))
+  return quotedAnswer ||
+    (selected &&
+      (hasConcreteAction(selected, lastUserText) ||
+        isSubstantiveSingleAnswer(selected)))
     ? selected
     : buildNoQuestionFallback(lastUserText);
+}
+
+function isSubstantiveSingleAnswer(text: string) {
+  const compact = text.replace(/\s+/g, '').trim();
+  if (compact.length < 12) return false;
+  if (
+    /^(?:わかりました|そうですね|なるほど|明日の一歩ですね|.+(?:のですね|んですね|ということですね))[。！]?$/.test(
+      compact
+    )
+  ) {
+    return false;
+  }
+
+  return (
+    /明日|今日|今夜|朝|まず|最初|次に|直前|これから/.test(compact) &&
+    /書|伝|話|整理|まとめ|確認|準備|選|決|始|開|休|飲|呼吸|連絡|相談|断|頼|聞|見|読|作|送|置|取|動|考/.test(compact)
+  );
 }
 
 function ensureCoachingClose(text: string, lastUserText: string) {

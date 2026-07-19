@@ -232,6 +232,14 @@ function assertResults(results) {
       throw new Error(`${result.label} returned fallback text`);
     }
     if (
+      ['normal-3', 'long-history-437'].includes(result.label) &&
+      /今できる最小の行動を一つだけ決めて/.test(result.message)
+    ) {
+      throw new Error(
+        `${result.label} lost the conversation context: ${result.message}`
+      );
+    }
+    if (
       requestsSingleAnswerInSmoke(result.lastUserText) &&
       !requestsExplicitClosingQuestionInSmoke(result.lastUserText) &&
       result.message.split(/\n{2,}/).filter(Boolean).length !== 1

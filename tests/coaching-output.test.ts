@@ -89,6 +89,29 @@ describe('normalizeCoachingOutput', () => {
     expect(result).not.toContain('今できる最小の行動');
   });
 
+  it('既知の動詞一覧にない具体的な単回答も一般論へ置き換えない', () => {
+    const result = normalizeCoachingOutput(
+      '明日の朝、上司に伝えたい要点を付箋にまとめるところからです。',
+      'では、明日まず何をすればいいか一つだけ教えてください。'
+    );
+
+    expect(result).toBe(
+      '明日の朝、上司に伝えたい要点を付箋にまとめるところからです。'
+    );
+    expect(result).not.toContain('今できる最小の行動');
+  });
+
+  it('短い相づちしか生成されなかった時は実行できる代替文へ戻す', () => {
+    const result = normalizeCoachingOutput(
+      '明日の一歩ですね。',
+      'では、明日まず何をすればいいか一つだけ教えてください。'
+    );
+
+    expect(result).toBe(
+      '今できる最小の行動を一つだけ決めて、そこから始めてみてください。'
+    );
+  });
+
   it('断る一言を求められた時は後続の説明より引用文を優先する', () => {
     const result = normalizeCoachingOutput(
       [
