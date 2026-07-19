@@ -1105,6 +1105,9 @@ function evaluateConversations(conversations) {
     checks,
     '6往復会話: 最終回答は質問なしの一行動',
     sixTurn.turns[5].semanticQuestions === 0 &&
+      !/(?:[2-9]|二|三|四|五|六|七|八|九|十)(?:つ|個|項目|案|方法|行動|言葉|語)(?:だけ)?/.test(
+        sixTurn.turns[5].message
+      ) &&
       /呼吸|メモ|一言|書|止|数|秒|確認/.test(sixTurn.turns[5].message),
     sixTurn.turns[5].message
   );

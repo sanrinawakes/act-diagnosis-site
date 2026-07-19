@@ -980,12 +980,23 @@ export function normalizeCoachingOutput(text: string, lastUserText: string) {
   const balanced = balanceJapaneseDelimiters(
     softenRepeatedAcknowledgement(normalized || fallbackText)
   );
+  const singleAnswerSafe =
+    requestsSingleAnswerFormat(lastUserText) &&
+    containsMultipleRequestedItems(balanced)
+      ? buildNoQuestionFallback(lastUserText)
+      : balanced;
 
   if (requestsOnePhraseAnswer(lastUserText)) {
-    return firstNonEmptyParagraph(balanced);
+    return firstNonEmptyParagraph(singleAnswerSafe);
   }
 
-  return ensureCoachingClose(balanced, lastUserText);
+  return ensureCoachingClose(singleAnswerSafe, lastUserText);
+}
+
+function containsMultipleRequestedItems(text: string) {
+  return /(?:[2-9]|二|三|四|五|六|七|八|九|十)(?:つ|個|項目|案|方法|行動|言葉|語)(?:だけ)?/.test(
+    text
+  );
 }
 
 function requestsOnePhraseAnswer(text: string) {

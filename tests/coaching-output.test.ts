@@ -52,6 +52,18 @@ describe('normalizeCoachingOutput', () => {
     expect(result).toContain('内容を分けて送る');
   });
 
+  it('一つだけ指定された時は複数項目の提案を一つへ戻す', () => {
+    const result = normalizeCoachingOutput(
+      '話す直前に、伝えたいことを短い言葉で3つだけ心の中で繰り返してみてください。',
+      '話す直前にできることを、質問なしで一つだけ教えてください。'
+    );
+
+    expect(result).toBe(
+      '伝えたいことを一文だけメモに書いてから、話し始めてください。'
+    );
+    expect(result).not.toMatch(/3つ|三つ/);
+  });
+
   it('内部の回答形式指定を利用者本文から分離する', () => {
     const result = stripInternalResponseStyleHint(
       'この画像の色を一言で答えてください。\n\n【内部応答形式】答えまたは提案を一つだけ簡潔に返してください。'
