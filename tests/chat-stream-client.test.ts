@@ -23,7 +23,7 @@ describe('readChatStream', () => {
     const onChunk = vi.fn();
     const response = streamResponse([
       '{"type":"chunk","text":"こん',
-      'にちは"}\n{"type":"done","completionStatus":"complete","message":"こんにちは","remaining":49}\n',
+      'にちは"}\n{"type":"done","completionStatus":"complete","finalizationStatus":"complete","message":"こんにちは","remaining":49}\n',
     ]);
 
     const result = await readChatStream(response, onChunk);
@@ -32,6 +32,7 @@ describe('readChatStream', () => {
     expect(onChunk).toHaveBeenCalledWith('こんにちは');
     expect(result.message).toBe('こんにちは');
     expect(result.completionStatus).toBe('complete');
+    expect(result.finalizationStatus).toBe('complete');
     expect(result.remaining).toBe(49);
   });
 

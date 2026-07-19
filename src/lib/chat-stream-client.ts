@@ -1,6 +1,7 @@
 export interface ChatStreamDone {
   message?: string;
   completionStatus?: 'complete' | 'partial' | 'fallback';
+  finalizationStatus?: 'complete' | 'failed';
   remaining?: number;
   limit?: number;
   usage?: {

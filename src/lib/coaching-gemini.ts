@@ -24,6 +24,9 @@ export interface CoachingTelemetry {
   historyMessages: number;
   attachments: number;
   lastUserChars: number;
+  preStreamMs?: number;
+  attachmentMs?: number;
+  accountLookupMs?: number;
 }
 
 type GeminiRole = 'user' | 'model';
@@ -371,13 +374,16 @@ export function createJsonLineStream(params: {
         }
         firstChunkMs = Date.now() - startedAt;
         write({ type: 'chunk', text: fullText });
-        const donePayload = await resolveDonePayload(params.onDone, usage);
+        const finalization = await resolveDonePayload(params.onDone, usage);
 
         logChatTelemetry('done', params.telemetry, {
           modelName,
           elapsedMs: Date.now() - startedAt,
           firstChunkMs,
           generationFirstChunkMs,
+          finalizationStatus: finalization.status,
+          finalizationMs: finalization.elapsedMs,
+          finalizationError: finalization.error,
           outputChars: fullText.length,
           usage,
         });
@@ -385,9 +391,10 @@ export function createJsonLineStream(params: {
         write({
           type: 'done',
           completionStatus: 'complete',
+          finalizationStatus: finalization.status,
           message: fullText,
           usage,
-          ...donePayload,
+          ...finalization.payload,
         });
       } catch (error) {
         const isTimeout =
@@ -406,21 +413,25 @@ export function createJsonLineStream(params: {
           }
           firstChunkMs = Date.now() - startedAt;
           write({ type: 'chunk', text: fullText });
-          const donePayload = await resolveDonePayload(params.onDone, {});
+          const finalization = await resolveDonePayload(params.onDone, {});
           logChatTelemetry('partial_done', params.telemetry, {
             modelName,
             elapsedMs: Date.now() - startedAt,
             firstChunkMs,
             generationFirstChunkMs,
+            finalizationStatus: finalization.status,
+            finalizationMs: finalization.elapsedMs,
+            finalizationError: finalization.error,
             outputChars: fullText.length,
             error: getErrorMessage(error),
           });
           write({
             type: 'done',
             completionStatus: 'partial',
+            finalizationStatus: finalization.status,
             message: fullText,
             usage: {},
-            ...donePayload,
+            ...finalization.payload,
           });
           return;
         }
@@ -433,7 +444,7 @@ export function createJsonLineStream(params: {
             params.systemPrompt,
             params.lastUserParts
           );
-          const donePayload = await resolveDonePayload(params.onDone, {});
+          const finalization = await resolveDonePayload(params.onDone, {});
           firstChunkMs = Date.now() - startedAt;
           write({ type: 'chunk', text: fallbackText });
           logChatTelemetry('fallback_done', params.telemetry, {
@@ -441,15 +452,19 @@ export function createJsonLineStream(params: {
             elapsedMs: Date.now() - startedAt,
             firstChunkMs,
             generationFirstChunkMs,
+            finalizationStatus: finalization.status,
+            finalizationMs: finalization.elapsedMs,
+            finalizationError: finalization.error,
             outputChars: fallbackText.length,
             error: getErrorMessage(error),
           });
           write({
             type: 'done',
             completionStatus: 'fallback',
+            finalizationStatus: finalization.status,
             message: fallbackText,
             usage: {},
-            ...donePayload,
+            ...finalization.payload,
           });
           return;
         }
@@ -488,7 +503,11 @@ function logChatTelemetry(
 
   const elapsedMs =
     typeof details.elapsedMs === 'number' ? details.elapsedMs : 0;
-  const shouldWarn = status !== 'done' || elapsedMs >= ALERT_SLOW_RESPONSE_MS;
+  const finalizationFailed = details.finalizationStatus === 'failed';
+  const shouldWarn =
+    status !== 'done' ||
+    finalizationFailed ||
+    elapsedMs >= ALERT_SLOW_RESPONSE_MS;
   const message = JSON.stringify(payload);
 
   if (shouldWarn) {
@@ -505,7 +524,9 @@ function queueCoachingAlert(
   payload: Record<string, unknown>
 ) {
   const route = typeof payload.route === 'string' ? payload.route : 'unknown';
-  const throttleKey = `${route}:${status}`;
+  const finalizationFailed = payload.finalizationStatus === 'failed';
+  const alertKind = finalizationFailed ? 'finalization_failed' : status;
+  const throttleKey = `${route}:${alertKind}`;
   const now = Date.now();
   const lastSentAt = alertLastSentAt.get(throttleKey) || 0;
 
@@ -517,11 +538,15 @@ function queueCoachingAlert(
 
   void sendCoachingAlert({
     subject:
-      status === 'done'
+      finalizationFailed
+        ? '[ACTI Bot] 会話後処理の失敗を検知しました'
+        : status === 'done'
         ? '[ACTI Bot] 応答遅延を検知しました'
         : '[ACTI Bot] 応答失敗/中断を検知しました',
     summary:
-      status === 'done'
+      finalizationFailed
+        ? 'AIの回答生成後に、利用回数などの会話後処理を完了できませんでした。VercelログのrequestIdで詳細を確認してください。'
+        : status === 'done'
         ? 'AIコーチングbotで応答遅延を検知しました。VercelログのrequestIdで詳細を確認してください。'
         : 'AIコーチングbotで応答失敗または中断を検知しました。VercelログのrequestIdで詳細を確認してください。',
     details: payload,
@@ -546,11 +571,26 @@ async function resolveDonePayload(
   onDone: (usage: CoachingUsage) => Promise<Record<string, unknown>>,
   usage: CoachingUsage
 ) {
+  const startedAt = Date.now();
   try {
-    return await withTimeout(onDone(usage), GEMINI_FINALIZE_TIMEOUT_MS);
+    return {
+      payload: await withTimeout(
+        onDone(usage),
+        GEMINI_FINALIZE_TIMEOUT_MS,
+        'CHAT_FINALIZE_TIMEOUT'
+      ),
+      status: 'complete' as const,
+      elapsedMs: Date.now() - startedAt,
+      error: null,
+    };
   } catch (error) {
     console.error('Failed to finalize chat stream metadata:', error);
-    return {};
+    return {
+      payload: {},
+      status: 'failed' as const,
+      elapsedMs: Date.now() - startedAt,
+      error: getErrorMessage(error),
+    };
   }
 }
 
@@ -945,8 +985,8 @@ export function normalizeCoachingOutput(
     .replace(/(?:どうぞ)?お気軽に(?:ご質問|お尋ね|ご相談)ください[。]?/g, '気になることがあれば聞いてください。')
     .replace(/どうぞ(?=気になることがあれば)/g, '')
     .replace(
-      /今日は(?:もう、?)?たくさん頑張られ(?:ましたね|たのですね)[。]?/g,
-      '今日は本当にお疲れ様でした。'
+      /今日(?:は|一日)?[、,]?(?:もう[、,]?)?(?:本当に|よく|たくさん)?頑張られ(?:ましたね|たのですね)[。]?/g,
+      'かなり疲れているんですね。'
     )
     .replace(/(?:それは)?素晴らしい一歩です[。！]?/g, '')
     .replace(/全力でサポートさせていただきます[。]?/g, '一緒に整理します。')
@@ -1612,11 +1652,15 @@ function countMatches(text: string, pattern: RegExp) {
   return (text.match(pattern) || []).length;
 }
 
-function withTimeout<T>(promise: Promise<T>, timeoutMs: number) {
+function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  errorCode = 'GEMINI_TIMEOUT'
+) {
   let timeoutId: ReturnType<typeof setTimeout>;
   const timeout = new Promise<never>((_, reject) => {
     timeoutId = setTimeout(
-      () => reject(new Error('GEMINI_TIMEOUT')),
+      () => reject(new Error(errorCode)),
       timeoutMs
     );
   });

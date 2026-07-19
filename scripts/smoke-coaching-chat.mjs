@@ -210,6 +210,7 @@ async function sendStreamRequest({ email, diagnosisCode, messages, label }) {
     totalMs: Date.now() - startedAt,
     hasDone: Boolean(donePayload),
     completionStatus: donePayload?.completionStatus ?? null,
+    finalizationStatus: donePayload?.finalizationStatus ?? null,
     outputChars: message.length,
     remaining: donePayload?.remaining ?? null,
     userGrounding: {
@@ -239,6 +240,11 @@ function assertResults(results) {
     if (result.completionStatus !== 'complete') {
       throw new Error(
         `${result.label} did not complete generation: ${result.completionStatus || 'missing status'}`
+      );
+    }
+    if (result.finalizationStatus !== 'complete') {
+      throw new Error(
+        `${result.label} did not finalize chat metadata: ${result.finalizationStatus || 'missing status'}`
       );
     }
     if (result.firstChunkMs === null || result.firstChunkMs > maxFirstChunkMs) {

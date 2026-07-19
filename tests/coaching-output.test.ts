@@ -502,12 +502,12 @@ describe('normalizeCoachingOutput', () => {
 
   it('短い疲労表現を硬い敬語のまま残さない', () => {
     const result = normalizeCoachingOutput(
-      '今日はたくさん頑張られたのですね。今はゆっくり休んでください。',
+      '何も考えたくないほど、今日一日よく頑張られたのですね。今はゆっくり休んでください。',
       'もう今日は何も考えたくない。疲れた。'
     );
 
-    expect(result).toContain('今日は本当にお疲れ様でした。');
-    expect(result).not.toContain('頑張られたのですね');
+    expect(result).toContain('かなり疲れているんですね。');
+    expect(result).not.toMatch(/頑張られ|よく頑張/);
   });
 
   it('内部の回答形式指定を利用者本文から分離する', () => {

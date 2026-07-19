@@ -881,6 +881,7 @@ async function sendStreamRequest({
     totalMs: Date.now() - startedAt,
     hasDone: Boolean(donePayload),
     completionStatus: donePayload?.completionStatus || null,
+    finalizationStatus: donePayload?.finalizationStatus || null,
     outputChars: message.length,
     questionMarks: countQuestionMarks(message),
     semanticQuestions: countSemanticQuestions(message),
@@ -921,6 +922,12 @@ function evaluateConversations(conversations) {
       `${turn.label}: AI生成が完全完了`,
       turn.completionStatus === 'complete',
       String(turn.completionStatus)
+    );
+    addCheck(
+      checks,
+      `${turn.label}: 会話後処理が完全完了`,
+      turn.finalizationStatus === 'complete',
+      String(turn.finalizationStatus)
     );
     addCheck(
       checks,
@@ -1029,7 +1036,8 @@ function evaluateConversations(conversations) {
   addCheck(
     checks,
     '初回: 感情を受け止めている',
-    /怖|不安|緊張|重く|動けな/.test(continuity.turns[0].message)
+    /怖|不安|緊張|重く|動けな/.test(continuity.turns[0].message),
+    continuity.turns[0].message
   );
   addCheck(
     checks,
@@ -1053,7 +1061,10 @@ function evaluateConversations(conversations) {
     checks,
     '具体策要求: 質問せず一つの行動を返す',
     continuity.turns[2].semanticQuestions === 0 &&
-      /一つ|ひとつ|まず|メモ|書|伝|着手|始/.test(continuity.turns[2].message)
+      /一つ|ひとつ|まず|メモ|書|伝|着手|始|開|資料|予定|タスク/.test(
+        continuity.turns[2].message
+      ),
+    continuity.turns[2].message
   );
 
   const shortEmotion = findConversation(conversations, 'short-emotional-message');

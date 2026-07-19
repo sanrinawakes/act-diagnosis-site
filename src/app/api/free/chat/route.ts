@@ -97,9 +97,13 @@ ${coachingConversationPriorityPrompt}`;
 }
 
 export async function POST(request: NextRequest) {
+  const requestStartedAt = Date.now();
+
   try {
     const body: RequestBody = await request.json();
     const { messages, diagnosisCode, email, attachments = [], stream = false } = body;
+    const normalizedEmail =
+      typeof email === 'string' ? email.trim().toLowerCase() : '';
 
     if (!messages || messages.length === 0) {
       return NextResponse.json(
@@ -140,7 +144,7 @@ export async function POST(request: NextRequest) {
       }
       if (
         !user.email ||
-        user.email.toLowerCase() !== String(email || '').trim().toLowerCase()
+        user.email.toLowerCase() !== normalizedEmail
       ) {
         return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
       }
@@ -155,7 +159,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: attachmentError }, { status: 400 });
     }
 
-    if (!email) {
+    if (!normalizedEmail) {
       return NextResponse.json(
         { error: 'Email is required' },
         { status: 400 }
@@ -163,6 +167,7 @@ export async function POST(request: NextRequest) {
     }
 
     const supabase = createAdminClient();
+    const attachmentStartedAt = Date.now();
     let inlineAttachments;
     try {
       inlineAttachments = await withAttachmentTimeout(
@@ -181,12 +186,14 @@ export async function POST(request: NextRequest) {
         { status: timedOut ? 504 : 502 }
       );
     }
+    const attachmentMs = Date.now() - attachmentStartedAt;
 
     // Get or create free user and check rate limit
+    const accountLookupStartedAt = Date.now();
     const { data: existingUser, error: selectError } = await supabase
       .from('free_users')
       .select('id, chat_count_today, last_chat_date')
-      .eq('email', email)
+      .eq('email', normalizedEmail)
       .single();
 
     const today = new Date().toISOString().split('T')[0];
@@ -205,7 +212,7 @@ export async function POST(request: NextRequest) {
       const { error: insertError } = await supabase
         .from('free_users')
         .insert({
-          email,
+          email: normalizedEmail,
           chat_count_today: 0,
           last_chat_date: today,
           diagnosis_completed: false,
@@ -238,6 +245,7 @@ export async function POST(request: NextRequest) {
         chatCountToday = existingUser.chat_count_today;
       }
     }
+    const accountLookupMs = Date.now() - accountLookupStartedAt;
 
     // Check rate limit (3 chats per day for free users)
     if (chatCountToday >= 3) {
@@ -267,21 +275,33 @@ export async function POST(request: NextRequest) {
       historyMessages: historyMessages.length,
       attachments: inlineAttachments.length,
       lastUserChars: lastUserText.length,
+      preStreamMs: Date.now() - requestStartedAt,
+      attachmentMs,
+      accountLookupMs,
     };
 
     const completeSuccessfulResponse = async () => {
-      const newChatCount = chatCountToday + 1;
-      await supabase
+      const { data: updatedUser, error: updateError } = await supabase
         .from('free_users')
         .update({
-          chat_count_today: newChatCount,
+          chat_count_today: chatCountToday + 1,
           last_chat_date: today,
           updated_at: new Date().toISOString(),
         })
-        .eq('email', email);
+        .eq('email', normalizedEmail)
+        .select('chat_count_today')
+        .single();
+
+      if (updateError || !updatedUser) {
+        throw new Error(
+          `FREE_CHAT_COUNT_UPDATE_FAILED: ${
+            updateError?.message || 'updated row not found'
+          }`
+        );
+      }
 
       return {
-        remaining: Math.max(0, 3 - newChatCount),
+        remaining: Math.max(0, 3 - updatedUser.chat_count_today),
       };
     };
 
