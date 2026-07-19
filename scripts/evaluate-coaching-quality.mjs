@@ -1157,7 +1157,7 @@ function evaluateConversations(conversations) {
     '6往復会話: 最新の「責めずに伝える」を保持',
     /伝|言葉|一言|話|落ち着|呼吸/.test(sixTurn.turns[3].message) &&
       /時間|軽く|大切|扱/.test(sixTurn.turns[3].message) &&
-      !/落ち込/.test(sixTurn.turns[3].message),
+      !/落ち込|悲し/.test(sixTurn.turns[3].message),
     sixTurn.turns[3].message
   );
   addCheck(

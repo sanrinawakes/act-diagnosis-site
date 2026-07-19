@@ -48,7 +48,7 @@ const GEMINI_FINALIZE_TIMEOUT_MS = 4000;
 const GEMINI_RETRY_DELAYS_MS = [800, 1600];
 const ALERT_SLOW_RESPONSE_MS = 10000;
 const ALERT_THROTTLE_MS = 5 * 60 * 1000;
-export const COACHING_TEXT_MODEL = 'gemini-2.5-flash';
+export const COACHING_TEXT_MODEL = 'gemini-3.1-flash-lite';
 export const COACHING_IMAGE_MODEL = 'gemini-3.1-flash-lite';
 const MAX_TOKENS_CONTINUATION_NOTICE =
   '\n\n（ここで自然に区切ります。続きが必要な場合は「続き」と送ってください。）';
@@ -1170,6 +1170,22 @@ function isGroundedDirectWording(
 ) {
   const statement = selectGroundingStatement(historyMessages);
   if (!statement) return true;
+
+  const userContext = historyMessages
+    .filter((message) => message.role === 'user')
+    .map((message) => stripAttachmentMarkdown(message.content))
+    .join('\n');
+  const replacesAngerWithSadness =
+    /腹が立|怒|悔|嫌/.test(userContext) &&
+    !/悲し|落ち込/.test(userContext) &&
+    /悲し|落ち込/.test(answer);
+  if (replacesAngerWithSadness) return false;
+
+  const hasForwardIntent =
+    /話|伝|聞いてほしい|一緒に|これから|今後|分担|相談|お願い|してほしい|変えたい|改善/.test(
+      answer
+    );
+  if (!hasForwardIntent) return false;
 
   const salientTerms = DIRECT_WORDING_GROUNDING_TERMS.filter(
     ([term, weight]) => weight >= 3 && statement.includes(term)

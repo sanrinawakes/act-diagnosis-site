@@ -9,7 +9,7 @@ import {
 } from '../src/lib/coaching-gemini';
 
 describe('getCoachingGeminiModelName', () => {
-  it('通常会話は自然さを維持する2.5 Flashを使う', () => {
+  it('通常会話は低遅延の3.1 Flash-Liteを使う', () => {
     expect(getCoachingGeminiModelName(buildGeminiParts('相談です。', []))).toBe(
       COACHING_TEXT_MODEL
     );
@@ -187,6 +187,34 @@ describe('normalizeCoachingOutput', () => {
     expect(result).toContain('ように感じるのが嫌です');
     expect(result).not.toContain('感じることが嫌だと感じています');
     expect(result).not.toBe('「家事のことで、私の気持ちを聞いてほしいな」');
+  });
+
+  it('本人の怒りを悲しみに変えた文面を履歴に基づいて修復する', () => {
+    const history = [
+      {
+        role: 'user' as const,
+        content:
+          '夫に家事を頼んでも後回しにされます。私ばかり負担している気がして腹が立ちます。',
+      },
+      {
+        role: 'user' as const,
+        content:
+          '家事そのものより、私の時間を軽く扱われているように感じることが嫌なんです。',
+      },
+      {
+        role: 'user' as const,
+        content: '責める言い方をすると喧嘩になるので、落ち着いて伝えたいです。',
+      },
+    ];
+    const result = normalizeCoachingOutput(
+      '「家事のことで、私の時間が大切にされていないように感じていて、少し悲しい気持ちになっているの」',
+      '今夜話すなら、最初の一言はどうすればいいですか？',
+      history
+    );
+
+    expect(result).not.toContain('悲しい');
+    expect(result).toMatch(/時間|軽く扱/);
+    expect(result).toContain('一緒に話したい');
   });
 
   it('本人が感情を明言済みなら「どんな気持ちですか」を聞き直さない', () => {
