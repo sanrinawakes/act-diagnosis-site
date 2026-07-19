@@ -122,7 +122,7 @@ export function getCoachingGeminiModel(
 ) {
   const isImageModel = modelName === COACHING_IMAGE_MODEL;
   const generationConfig = {
-    temperature: isImageModel ? 0.2 : 0.35,
+    temperature: 0.2,
     topP: 0.8,
     maxOutputTokens: 960,
     thinkingConfig: isImageModel
@@ -992,7 +992,7 @@ export function normalizeCoachingOutput(
     .replace(/承知しました[。]?/g, 'わかりました。')
     .replace(/[、,]?と教えてくださりありがとうございます[。]?/g, '、確認しました。')
     .replace(
-      /[^。\n]{0,100}(?:教えて|伝えて|話して|書いて)(?:くださり|くれて)ありがとうございます[。]?/g,
+      /[^。\n]{0,100}(?:教えて|伝えて|話して|書いて|声をかけて|相談して)(?:くださり|くれて)ありがとうございます[。]?/g,
       ''
     )
     .replace(
@@ -1015,6 +1015,7 @@ export function normalizeCoachingOutput(
     )
     .replace(/いらっしゃるのですね/g, 'いるんですね')
     .replace(/いらっしゃる/g, 'いる')
+    .replace(/上司の方/g, '上司')
     .replace(/ご自身/g, '自分')
     .replace(/よろしければ/g, 'よかったら')
     .replace(/差し支えなければ/g, 'よかったら')
@@ -1064,6 +1065,10 @@ export function normalizeCoachingOutput(
     .replace(/みるのはいかがでしょうか[。]?/g, 'みてください。')
     .replace(/してみてはいかがでしょうか[。]?/g, 'してみてください。')
     .replace(/してみませんか[。？?]?/g, 'してみてください。')
+    .replace(
+      /(?:まずは[、,]?)?何があったのかを細かく分析する前に[、,]?/g,
+      ''
+    )
     .replace(
       /何か(?:具体的に|続けて)?(?:お話し|話して)(?:みたい|したい)?ことはありますか[？?]?/g,
       ''
@@ -1534,10 +1539,10 @@ function isSingleActionRelevantToContext(
     return false;
   }
   if (
-    /業務の確認だけ|話すのは[^。！？\n]{0,30}だけにする|(?:話題|会話)[^。！？\n]{0,16}(?:避け|限定)/.test(
+    /業務の確認だけ|[「『]?事実[」』]?だけ|話すのは[^。！？\n]{0,30}だけにする|(?:話題|会話)[^。！？\n]{0,16}(?:避け|限定)/.test(
       answer
     ) &&
-    !/業務の確認だけ|だけにする|避け|限定/.test(userContext)
+    !/業務の確認だけ|事実[^。！？\n]{0,8}だけ|だけにする|避け|限定/.test(userContext)
   ) {
     return false;
   }
@@ -1902,10 +1907,15 @@ function canonicalizeAssistantParagraph(text: string) {
 
 function rewriteContextualClosingQuestion(text: string, lastUserText: string) {
   if (/仕事|職場|業務|会社|タスク/.test(lastUserText) && /落ち込/.test(lastUserText)) {
-    return text.replace(
-      /今[^。！？?\n]{0,40}落ち込[^。！？?\n]{0,30}状態[^。！？?\n]{0,40}いちばん気になっている出来事[^。！？?\n]{0,40}(?:聞かせてもらえますか|何ですか)[。！？?]?/g,
-      '仕事のことで、今いちばん気になっている出来事は何ですか？'
-    );
+    return text
+      .replace(
+        /今[^。！？?\n]{0,40}落ち込[^。！？?\n]{0,30}状態[^。！？?\n]{0,40}いちばん気になっている出来事[^。！？?\n]{0,40}(?:聞かせてもらえますか|何ですか)[。！？?]?/g,
+        '仕事のことで、今いちばん気になっている出来事は何ですか？'
+      )
+      .replace(
+        /今[^。！？?\n]{0,30}頭に浮かんでくる[^。！？?\n]{0,40}気になっていること[^。！？?\n]{0,40}(?:聞かせてもらえますか|何ですか)[。！？?]?/g,
+        '仕事のことで、今いちばん気になっている出来事は何ですか？'
+      );
   }
 
   if (/次の一言が怖/.test(lastUserText)) {
