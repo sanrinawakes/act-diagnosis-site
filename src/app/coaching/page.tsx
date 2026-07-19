@@ -50,8 +50,6 @@ interface PaginatedResponse {
 }
 
 const CHAT_RESPONSE_TIMEOUT_MS = 60000;
-const CHAT_AUTH_TIMEOUT_MS = 45000;
-const CHAT_AUTH_RETRY_DELAY_MS = 800;
 const CHAT_PERSIST_TIMEOUT_MS = 10000;
 const ATTACHMENT_PRIVACY_NOTICE =
   'クリップボタンを押して写真選択画面を開いただけでは、画像は送信されません。選んだ画像も、送信ボタンを押す前なら削除できます。';
@@ -85,9 +83,6 @@ const withTimeout = async <T,>(
     if (timeoutId) clearTimeout(timeoutId);
   }
 };
-
-const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
-
 
 function CoachingContent() {
   const { loading: subscriptionLoading, allowed } = useSubscriptionGuard();
@@ -692,37 +687,10 @@ function CoachingContent() {
         await persistUserMessage();
       }
 
-      const getCurrentAuthSession = async () => {
-        const {
-          data: { session },
-        } = await withTimeout(
-          supabase.auth.getSession(),
-          CHAT_AUTH_TIMEOUT_MS,
-          'ログイン状態の確認に時間がかかりすぎました。通信状態を確認して、もう一度送信してください。'
-        );
-        return session;
-      };
-
-      let authSession: { access_token: string } | null;
-      try {
-        authSession = await getCurrentAuthSession();
-      } catch (sessionError) {
-        if (sessionError instanceof DOMException && sessionError.name === 'AbortError') {
-          await delay(CHAT_AUTH_RETRY_DELAY_MS);
-          authSession = await getCurrentAuthSession();
-        } else {
-          throw sessionError;
-        }
-      }
-
-      if (!authSession?.access_token) {
-        throw new Error('ログイン状態を確認できませんでした。再ログインしてからお試しください。');
-      }
-
       if (files.length > 0) {
         const [uploadedAttachments, preparedInlineAttachments] = await withTimeout(
           Promise.all([
-            uploadChatImageAttachments(files, authSession.access_token),
+            uploadChatImageAttachments(files),
             Promise.all(files.map((file) => fileToInlineImageAttachment(file))),
           ]),
           20000,
@@ -761,7 +729,6 @@ function CoachingContent() {
           headers: {
             'Content-Type': 'application/json',
             Accept: 'application/x-ndjson',
-            ...(authSession?.access_token ? { 'Authorization': `Bearer ${authSession.access_token}` } : {}),
           },
           body: JSON.stringify({
             sessionId: activeSessionId,
@@ -856,12 +823,11 @@ function CoachingContent() {
       }
       controller?.abort();
       const isAbort = err instanceof DOMException && err.name === 'AbortError';
+      const errorMessage = getUserFacingChatError(err);
       const failContent =
         isAbort && assistantContent.trim()
           ? `${assistantContent}\n\n（途中で接続が不安定になったため、ここで一度区切りました。続きが必要な場合は「続き」と送ってください。）`
-          : isAbort
-            ? '応答に時間がかかりすぎたため中断しました。お手数ですが、もう一度お試しください。'
-            : 'すみません、応答に失敗しました。もう一度お試しください。';
+          : errorMessage;
       if (assistantMessageId) {
         setMessages((prev) =>
           prev.map((message) =>
@@ -1419,6 +1385,22 @@ function CoachingContent() {
       </div>
     </AuthGuard>
   );
+}
+
+function getUserFacingChatError(error: unknown) {
+  if (!(error instanceof Error) || !error.message) {
+    return '送信に失敗しました。入力内容は保存されています。少し待ってから、もう一度送信してください。';
+  }
+
+  if (/Unauthorized|ログインが必要/.test(error.message)) {
+    return 'ログイン状態を確認できませんでした。入力内容は保存されています。画面を再読み込みして、もう一度送信してください。';
+  }
+
+  if (/Failed to get response|Internal server error/.test(error.message)) {
+    return 'サーバーから回答を受け取れませんでした。入力内容は保存されています。少し待ってから、もう一度送信してください。';
+  }
+
+  return error.message;
 }
 
 export default function CoachingPage() {

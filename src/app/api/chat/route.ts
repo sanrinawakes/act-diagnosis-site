@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { randomUUID } from 'crypto';
+import { createServerClient } from '@/lib/supabase-server';
 import {
   getCoachingSystemPrompt,
   getContextualizedPrompt,
@@ -30,6 +31,10 @@ const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
 const DAILY_CHAT_LIMIT = 50; // 1日50往復まで
+const AUTH_TIMEOUT_MS = 8000;
+const PROFILE_TIMEOUT_MS = 8000;
+const SETTINGS_TIMEOUT_MS = 5000;
+const SESSION_CONTEXT_TIMEOUT_MS = 8000;
 
 interface ChatMessage {
   role: 'user' | 'assistant';
@@ -46,25 +51,50 @@ interface RequestBody {
 }
 
 export async function POST(request: NextRequest) {
+  const requestStartedAt = Date.now();
+  const requestId = randomUUID();
+
   try {
-    // Verify user is authenticated via Authorization header
+    console.info(
+      JSON.stringify({
+        event: 'chat_request_received',
+        route: '/api/chat',
+        requestId,
+      })
+    );
+
+    // Browser requests use the login cookie. Bearer auth remains supported for
+    // automated tests and non-browser clients.
     const authHeader = request.headers.get('Authorization');
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    const token = authHeader?.startsWith('Bearer ')
+      ? authHeader.replace('Bearer ', '')
+      : '';
+    const supabase = token
+      ? createClient(supabaseUrl, supabaseAnonKey, {
+          global: { headers: { Authorization: `Bearer ${token}` } },
+        })
+      : await createServerClient();
+
+    let user;
+    let userError;
+    try {
+      const authResult = await withStageTimeout(
+        token ? supabase.auth.getUser(token) : supabase.auth.getUser(),
+        AUTH_TIMEOUT_MS,
+        'AUTH_TIMEOUT'
+      );
+      user = authResult.data.user;
+      userError = authResult.error;
+    } catch (error) {
+      logPreflightError(requestId, 'auth', requestStartedAt, error);
       return NextResponse.json(
-        { error: 'Unauthorized: No token provided' },
-        { status: 401 }
+        {
+          error:
+            'ログイン状態の確認に時間がかかりました。入力内容は保存されています。画面を再読み込みして、もう一度送信してください。',
+        },
+        { status: 504 }
       );
     }
-
-    const token = authHeader.replace('Bearer ', '');
-    const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-      global: { headers: { Authorization: `Bearer ${token}` } },
-    });
-
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser(token);
 
     if (userError || !user) {
       return NextResponse.json(
@@ -78,14 +108,37 @@ export async function POST(request: NextRequest) {
 
     // Check daily chat limit
     const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
-    const { data: profile, error: profileError } = await supabaseAdmin
-      .from('profiles')
-      .select('chat_count_today, last_chat_date, role, subscription_status, is_active, paid_test_credits')
-      .eq('id', user.id)
-      .single();
+    let profile;
+    let profileError;
+    try {
+      const profileResult = await withStageTimeout(
+        supabaseAdmin
+          .from('profiles')
+          .select('chat_count_today, last_chat_date, role, subscription_status, is_active, paid_test_credits')
+          .eq('id', user.id)
+          .single(),
+        PROFILE_TIMEOUT_MS,
+        'PROFILE_TIMEOUT'
+      );
+      profile = profileResult.data;
+      profileError = profileResult.error;
+    } catch (error) {
+      logPreflightError(requestId, 'profile', requestStartedAt, error);
+      return NextResponse.json(
+        {
+          error:
+            '会員情報の確認に時間がかかりました。入力内容は保存されています。少し待ってから、もう一度送信してください。',
+        },
+        { status: 504 }
+      );
+    }
 
-    if (profileError) {
+    if (profileError || !profile) {
       console.error('Profile fetch error:', profileError);
+      return NextResponse.json(
+        { error: '会員情報を確認できませんでした。少し待ってから、もう一度送信してください。' },
+        { status: 503 }
+      );
     }
 
     // 有料機能ガード（middleware.ts / useSubscriptionGuard.ts と同条件）。
@@ -118,10 +171,19 @@ export async function POST(request: NextRequest) {
     }
 
     // Check site settings
-    const { data: settings, error: settingsError } = await supabase
-      .from('site_settings')
-      .select('bot_enabled')
-      .single();
+    let settings;
+    let settingsError;
+    try {
+      const settingsResult = await withStageTimeout(
+        supabase.from('site_settings').select('bot_enabled').single(),
+        SETTINGS_TIMEOUT_MS,
+        'SETTINGS_TIMEOUT'
+      );
+      settings = settingsResult.data;
+      settingsError = settingsResult.error;
+    } catch (error) {
+      logPreflightError(requestId, 'settings', requestStartedAt, error);
+    }
 
     if (settingsError) {
       console.error('Settings fetch error:', settingsError);
@@ -161,12 +223,29 @@ export async function POST(request: NextRequest) {
       ? getContextualizedPrompt(diagnosisCode)
       : getCoachingSystemPrompt();
 
-    const sessionContext = await buildCoachingSessionContext({
-      supabaseAdmin,
-      sessionId: sessionId || session_id || null,
-      userId: user.id,
-      requestMessages: messages,
-    });
+    const contextStartedAt = Date.now();
+    let sessionContext;
+    try {
+      sessionContext = await withStageTimeout(
+        buildCoachingSessionContext({
+          supabaseAdmin,
+          sessionId: sessionId || session_id || null,
+          userId: user.id,
+          requestMessages: messages,
+        }),
+        SESSION_CONTEXT_TIMEOUT_MS,
+        'SESSION_CONTEXT_TIMEOUT'
+      );
+    } catch (error) {
+      logPreflightError(requestId, 'session_context', requestStartedAt, error);
+      sessionContext = {
+        messages: compactCoachingMessages(messages),
+        totalStoredMessages: null,
+        memoryUsed: false,
+        memoryRefreshed: false,
+        memoryCoveredMessages: null,
+      };
+    }
     const compactMessages = sessionContext.messages.length
       ? sessionContext.messages
       : compactCoachingMessages(messages);
@@ -176,7 +255,7 @@ export async function POST(request: NextRequest) {
     const historyMessages = compactMessages.slice(0, -1);
     const telemetry = {
       route: '/api/chat',
-      requestId: randomUUID(),
+      requestId,
       requestMessages: messages.length,
       compactMessages: compactMessages.length,
       historyMessages: historyMessages.length,
@@ -186,6 +265,8 @@ export async function POST(request: NextRequest) {
       memoryUsed: sessionContext.memoryUsed,
       memoryRefreshed: sessionContext.memoryRefreshed,
       memoryCoveredMessages: sessionContext.memoryCoveredMessages,
+      preStreamMs: Date.now() - requestStartedAt,
+      contextMs: Date.now() - contextStartedAt,
     };
 
     const completeSuccessfulResponse = async () => {
@@ -286,6 +367,39 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
+}
+
+function withStageTimeout<T>(
+  promise: PromiseLike<T>,
+  timeoutMs: number,
+  code: string
+): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(code)), timeoutMs);
+  });
+
+  return Promise.race([Promise.resolve(promise), timeout]).finally(() =>
+    clearTimeout(timeoutId)
+  );
+}
+
+function logPreflightError(
+  requestId: string,
+  stage: string,
+  startedAt: number,
+  error: unknown
+) {
+  console.warn(
+    JSON.stringify({
+      event: 'chat_preflight_error',
+      route: '/api/chat',
+      requestId,
+      stage,
+      elapsedMs: Date.now() - startedAt,
+      error: error instanceof Error ? error.message : String(error),
+    })
+  );
 }
 
 function validateInlineAttachments(attachments: InlineImageAttachment[]) {

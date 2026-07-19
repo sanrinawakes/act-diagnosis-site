@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { uploadImageAttachments } from '@/lib/server-attachments';
+import { createServerClient } from '@/lib/supabase-server';
 
 export const runtime = 'nodejs';
 
@@ -18,22 +19,34 @@ export async function POST(request: NextRequest) {
     }
 
     const authHeader = request.headers.get('Authorization');
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    const token = authHeader?.startsWith('Bearer ')
+      ? authHeader.replace('Bearer ', '')
+      : '';
+    const supabase = token
+      ? createClient(supabaseUrl, supabaseAnonKey, {
+          global: { headers: { Authorization: `Bearer ${token}` } },
+        })
+      : await createServerClient();
+
+    let authResult;
+    try {
+      authResult = await withTimeout(
+        token ? supabase.auth.getUser(token) : supabase.auth.getUser(),
+        8000
+      );
+    } catch {
       return NextResponse.json(
-        { error: 'Unauthorized: No token provided' },
-        { status: 401 }
+        {
+          error:
+            'ログイン状態の確認に時間がかかりました。画面を再読み込みして、もう一度お試しください。',
+        },
+        { status: 504 }
       );
     }
-
-    const token = authHeader.replace('Bearer ', '');
-    const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-      global: { headers: { Authorization: `Bearer ${token}` } },
-    });
-
     const {
       data: { user },
       error: userError,
-    } = await supabase.auth.getUser(token);
+    } = authResult;
 
     if (userError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -69,4 +82,15 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
+}
+
+function withTimeout<T>(promise: PromiseLike<T>, timeoutMs: number): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error('AUTH_TIMEOUT')), timeoutMs);
+  });
+
+  return Promise.race([Promise.resolve(promise), timeout]).finally(() =>
+    clearTimeout(timeoutId)
+  );
 }

@@ -49,7 +49,7 @@ export async function fileToInlineImageAttachment(file: File): Promise<InlineIma
 
 export async function uploadChatImageAttachments(
   files: File[],
-  accessToken: string
+  accessToken = ''
 ): Promise<StoredAttachment[]> {
   if (files.length === 0) {
     return [];
@@ -61,9 +61,11 @@ export async function uploadChatImageAttachments(
 
   const response = await fetch('/api/attachments', {
     method: 'POST',
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-    },
+    headers: accessToken
+      ? {
+          Authorization: `Bearer ${accessToken}`,
+        }
+      : undefined,
     body: formData,
   });
   const data = await response.json().catch(() => ({}));

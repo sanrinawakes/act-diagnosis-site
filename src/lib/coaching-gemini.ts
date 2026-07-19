@@ -638,6 +638,10 @@ function isGenericFailureMessage(message: CoachingChatMessage) {
     '応答に時間がかかりすぎたため中断しました',
     'すみません、応答に失敗しました',
     'AIの応答生成に失敗しました',
+    'ログイン状態の確認に時間がかかりました',
+    '会員情報の確認に時間がかかりました',
+    '会員情報を確認できませんでした',
+    'サーバーから回答を受け取れませんでした',
   ].some((text) => message.content.includes(text));
 }
 

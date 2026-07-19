@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { sendCoachingAlert } from '@/lib/coaching-alerts';
 
 export const runtime = 'nodejs';
@@ -26,6 +26,14 @@ type MonitorResult = {
   remaining: number | null;
 };
 
+type PaidDependencyResult = {
+  settingsMs: number;
+  profilesMs: number;
+  sessionsMs: number;
+  messagesMs: number | null;
+  sampledSession: boolean;
+};
+
 export async function GET(request: NextRequest) {
   const startedAt = Date.now();
   const email = uniqueMonitorEmail();
@@ -40,10 +48,13 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: authError }, { status: 401 });
     }
 
-    const result = await runCoachingMonitor({
-      baseUrl,
-      email,
-    });
+    const [result, paidDependencies] = await Promise.all([
+      runCoachingMonitor({
+        baseUrl,
+        email,
+      }),
+      runPaidDependencyMonitor(supabase),
+    ]);
 
     assertHealthyMonitorResult(result);
 
@@ -53,6 +64,7 @@ export async function GET(request: NextRequest) {
         checkedAt: new Date().toISOString(),
         elapsedMs: Date.now() - startedAt,
         result,
+        paidDependencies,
       },
       { headers: { 'Cache-Control': 'no-store' } }
     );
@@ -85,6 +97,91 @@ export async function GET(request: NextRequest) {
   } finally {
     await supabase.from('free_users').delete().eq('email', email);
   }
+}
+
+async function runPaidDependencyMonitor(
+  supabase: SupabaseClient
+): Promise<PaidDependencyResult> {
+  const [settings, profiles, sessions] = await Promise.all([
+    runTimedDependencyQuery(
+      'site_settings',
+      supabase.from('site_settings').select('bot_enabled').limit(1)
+    ),
+    runTimedDependencyQuery(
+      'profiles',
+      supabase.from('profiles').select('id').limit(1)
+    ),
+    runTimedDependencyQuery(
+      'chat_sessions',
+      supabase
+        .from('chat_sessions')
+        .select('id')
+        .order('updated_at', { ascending: false })
+        .limit(1)
+    ),
+  ]);
+
+  if (settings.data?.[0]?.bot_enabled === false) {
+    throw new Error('paid dependency monitor: coaching bot is disabled');
+  }
+
+  const sessionId = sessions.data?.[0]?.id;
+  let messagesMs: number | null = null;
+  if (sessionId) {
+    const messages = await runTimedDependencyQuery(
+      'chat_messages',
+      supabase
+        .from('chat_messages')
+        .select('id')
+        .eq('session_id', sessionId)
+        .limit(1)
+    );
+    messagesMs = messages.elapsedMs;
+  }
+
+  return {
+    settingsMs: settings.elapsedMs,
+    profilesMs: profiles.elapsedMs,
+    sessionsMs: sessions.elapsedMs,
+    messagesMs,
+    sampledSession: Boolean(sessionId),
+  };
+}
+
+async function runTimedDependencyQuery<T>(
+  label: string,
+  query: PromiseLike<{ data: T; error: { message?: string } | null }>
+) {
+  const startedAt = Date.now();
+  const result = await withMonitorTimeout(query, 8000, label);
+  if (result.error) {
+    throw new Error(
+      `paid dependency monitor ${label} failed: ${result.error.message || 'unknown error'}`
+    );
+  }
+
+  return {
+    data: result.data,
+    elapsedMs: Date.now() - startedAt,
+  };
+}
+
+function withMonitorTimeout<T>(
+  promise: PromiseLike<T>,
+  timeoutMs: number,
+  label: string
+): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(
+      () => reject(new Error(`paid dependency monitor ${label} timed out`)),
+      timeoutMs
+    );
+  });
+
+  return Promise.race([Promise.resolve(promise), timeout]).finally(() =>
+    clearTimeout(timeoutId)
+  );
 }
 
 function validateMonitorAuthorization(request: NextRequest) {
