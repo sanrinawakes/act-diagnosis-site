@@ -226,6 +226,13 @@ async function sendStreamRequest({ email, diagnosisCode, messages, label }) {
       mistake: messages.some(
         (message) => message.role === 'user' && /ミス|失敗/.test(message.content)
       ),
+      anticipatedReaction: messages.some(
+        (message) =>
+          message.role === 'user' &&
+          /(?:反応|返事|言葉|結果).{0,28}(?:恐れ|怖)|(?:恐れ|怖).{0,28}(?:反応|返事|言葉|結果)/.test(
+            message.content
+          )
+      ),
       hardship: messages.some(
         (message) => message.role === 'user' && /しんどい/.test(message.content)
       ),
@@ -406,6 +413,9 @@ function assertResults(results) {
       (/萎縮/.test(result.message) && !result.userGrounding.intimidation) ||
       (/緊張/.test(result.message) && !result.userGrounding.tension) ||
       (/ミス|失敗/.test(result.message) && !result.userGrounding.mistake) ||
+      (/(?:反応|返事|言葉|結果).{0,20}(?:返って|返され|来る|起きる|なる).{0,20}(?:恐れ|怖)/.test(
+        result.message
+      ) && !result.userGrounding.anticipatedReaction) ||
       (/しんどい/.test(result.message) && !result.userGrounding.hardship) ||
       (/つらい|辛い/.test(result.message) && !result.userGrounding.pain) ||
       (/悲し/.test(result.message) && !result.userGrounding.sadness) ||
@@ -462,11 +472,7 @@ function assertResults(results) {
         `${result.label} dropped the requested time reference: ${result.message}`
       );
     }
-    if (
-      /(?:一つずつ|それぞれ)[^。！？?\n]{0,40}(?:聞かせ|教えて|答えて)/.test(
-        result.message
-      )
-    ) {
+    if (asksForMultipleAnswerDimensions(result.message)) {
       throw new Error(
         `${result.label} asked for multiple answer fields: ${result.message}`
       );
@@ -512,6 +518,28 @@ function countCoachingActionClauses(text) {
     lexicalCount,
     hasDirective && chainedActions > 0 ? chainedActions + 1 : 0
   );
+}
+
+function asksForMultipleAnswerDimensions(text) {
+  const segments = text.match(/[^。！？?\n]+[。！？?]?|\n+/g) || [];
+  return segments.some((segment) => {
+    const trimmed = segment.trim();
+    const isQuestion =
+      /[？?]/.test(trimmed) ||
+      /(?:です|ます|でしょう|ません)か[。]?$/.test(trimmed) ||
+      /(?:教えて|聞かせて|答えて|話して)(?:ください|もらえますか)[。]?$/.test(
+        trimmed
+      );
+    return (
+      isQuestion &&
+      (/(?:一つずつ|それぞれ)[^。！？?\n]{0,40}(?:聞かせ|教えて|答えて)/.test(
+        trimmed
+      ) ||
+        /(?:出来事|事実|理由|原因|気持ち|感情|希望|望み|行動)[」』]?(?:と|や|および|ならびに|、)[^。！？?\n]{0,28}[「『]?(?:出来事|事実|理由|原因|気持ち|感情|希望|望み|行動)/.test(
+          trimmed
+        ))
+    );
+  });
 }
 
 function countSemanticQuestions(text) {

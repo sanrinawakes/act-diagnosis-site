@@ -1827,15 +1827,20 @@ function rewriteCompoundAnswerQuestions(text: string, lastUserText: string) {
   let replaced = false;
   const rewritten = parts
     .map((part) => {
+      const asksForPairedDimensions =
+        /(?:出来事|事実|理由|原因|気持ち|感情|希望|望み|行動)[」』]?(?:と|や|および|ならびに|、)[^。！？?\n]{0,28}[「『]?(?:出来事|事実|理由|原因|気持ち|感情|希望|望み|行動)/.test(
+          part
+        );
       if (
         !replaced &&
-        /(?:一つずつ|それぞれ)[^。！？?\n]{0,40}(?:聞かせ|教えて|答えて)/.test(
-          part
-        ) &&
+        (asksForPairedDimensions ||
+          /(?:一つずつ|それぞれ)[^。！？?\n]{0,40}(?:聞かせ|教えて|答えて)/.test(
+            part
+          )) &&
         /[？?]|(?:です|ます|でしょう|ません)か[。]?$/.test(part.trim())
       ) {
         replaced = true;
-        return buildClosingCoachingQuestion(lastUserText);
+        return buildSingleFocusQuestion(lastUserText);
       }
       return part;
     })
@@ -1844,6 +1849,14 @@ function rewriteCompoundAnswerQuestions(text: string, lastUserText: string) {
     .trim();
 
   return rewritten || text;
+}
+
+function buildSingleFocusQuestion(lastUserText: string) {
+  if (/仕事|職場|業務|会社|タスク|働/.test(lastUserText)) {
+    return '仕事のことで、今いちばん気になっている出来事は何ですか？';
+  }
+
+  return buildClosingCoachingQuestion(lastUserText);
 }
 
 function removeAnsweredEmotionQuestion(text: string, lastUserText: string) {
@@ -1912,6 +1925,11 @@ function removeUnsupportedPsychologicalInference(
     { output: /身構え/, supportedBy: /身構え/ },
     { output: /緊張/, supportedBy: /緊張/ },
     { output: /ミス|失敗/, supportedBy: /ミス|失敗/ },
+    {
+      output: /(?:反応|返事|言葉|結果).{0,20}(?:返って|返され|来る|起きる|なる).{0,20}(?:恐れ|怖)/,
+      supportedBy:
+        /(?:反応|返事|言葉|結果).{0,28}(?:恐れ|怖)|(?:恐れ|怖).{0,28}(?:反応|返事|言葉|結果)/,
+    },
     { output: /しんどい/, supportedBy: /しんどい/ },
     { output: /つらい|辛い/, supportedBy: /つらい|辛い/ },
     { output: /悲し/, supportedBy: /悲し/ },

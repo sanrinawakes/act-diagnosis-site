@@ -350,6 +350,16 @@ describe('normalizeCoachingOutput', () => {
     expect(result).toContain('いちばん避けたいことは何ですか？');
   });
 
+  it('怖さの対象を「返ってくる反応」だと質問側で決めつけない', () => {
+    const result = normalizeCoachingOutput(
+      '上司に否定されたと感じ、次の一言を出すのが怖くなっているのですね。\n\nその「怖さ」は、具体的にどのような反応が返ってくることへの恐れでしょうか。',
+      '上司に否定されたように感じて、次の一言が怖いです。'
+    );
+
+    expect(result).not.toMatch(/反応が返ってくることへの恐れ/);
+    expect(result).toContain('次にその相手へ話す時');
+  });
+
   it('「落ち込んでいる」を質問で「一番しんどい」へ強めない', () => {
     const result = normalizeCoachingOutput(
       '仕事のことで落ち込んでしまっているのですね。\n\n今の状況で、特に「ここが一番しんどい」と感じるポイントはどこですか？',
@@ -473,7 +483,17 @@ describe('normalizeCoachingOutput', () => {
 
     expect(result).toContain('仕事で落ち込むような出来事があったのですね。');
     expect(result).not.toMatch(/出来事.*感情.*一つずつ/);
-    expect(result).toContain('明日ひとつだけ状況を動かすなら');
+    expect(result).toContain('今いちばん気になっている出来事は何ですか？');
+  });
+
+  it('「出来事や感情」のような一問二答も一つの対象へ絞る', () => {
+    const result = normalizeCoachingOutput(
+      '仕事で落ち込むことがあり、整理したいと感じているのですね。\n\n今の状況で、特に「ここが一番ひっかかっている」と思う出来事や感情は、どのようなことでしょうか。',
+      '仕事のことで少し落ち込んでいます。短く整理を手伝ってください。'
+    );
+
+    expect(result).not.toMatch(/出来事や感情/);
+    expect(result).toContain('仕事のことで、今いちばん気になっている出来事は何ですか？');
   });
 
   it('本人の否定された感覚を別の視点だったと打ち消さない', () => {

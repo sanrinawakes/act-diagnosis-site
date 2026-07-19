@@ -904,6 +904,10 @@ function evaluateConversations(conversations) {
           intimidation: /萎縮/.test(userContext),
           tension: /緊張/.test(userContext),
           mistake: /ミス|失敗/.test(userContext),
+          anticipatedReaction:
+            /(?:反応|返事|言葉|結果).{0,28}(?:恐れ|怖)|(?:恐れ|怖).{0,28}(?:反応|返事|言葉|結果)/.test(
+              userContext
+            ),
           hardship: /しんどい/.test(userContext),
           pain: /つらい|辛い/.test(userContext),
           sadness: /悲し/.test(userContext),
@@ -1050,6 +1054,9 @@ function evaluateConversations(conversations) {
         (/萎縮/.test(turn.message) && !turn.userGrounding.intimidation) ||
         (/緊張/.test(turn.message) && !turn.userGrounding.tension) ||
         (/ミス|失敗/.test(turn.message) && !turn.userGrounding.mistake) ||
+        (/(?:反応|返事|言葉|結果).{0,20}(?:返って|返され|来る|起きる|なる).{0,20}(?:恐れ|怖)/.test(
+          turn.message
+        ) && !turn.userGrounding.anticipatedReaction) ||
         (/しんどい/.test(turn.message) && !turn.userGrounding.hardship) ||
         (/つらい|辛い/.test(turn.message) && !turn.userGrounding.pain) ||
         (/悲し/.test(turn.message) && !turn.userGrounding.sadness) ||
@@ -1103,9 +1110,7 @@ function evaluateConversations(conversations) {
     addCheck(
       checks,
       `${turn.label}: 一つの質問で複数回答を要求しない`,
-      !/(?:一つずつ|それぞれ)[^。！？?\n]{0,40}(?:聞かせ|教えて|答えて)/.test(
-        turn.message
-      ),
+      !asksForMultipleAnswerDimensions(turn.message),
       turn.message
     );
     addCheck(
@@ -1395,6 +1400,28 @@ function containsAlternativeRequestedActions(text) {
   return /(?:する|して|書く|書いて|伝える|話す|休む|閉じる|移動させる|オフにする|設定する|行う)か[、,]|(?:または|もしくは|あるいは)/.test(
     stripJapaneseQuotedContent(text)
   );
+}
+
+function asksForMultipleAnswerDimensions(text) {
+  const segments = text.match(/[^。！？?\n]+[。！？?]?|\n+/g) || [];
+  return segments.some((segment) => {
+    const trimmed = segment.trim();
+    const isQuestion =
+      /[？?]/.test(trimmed) ||
+      /(?:です|ます|でしょう|ません)か[。]?$/.test(trimmed) ||
+      /(?:教えて|聞かせて|答えて|話して)(?:ください|もらえますか)[。]?$/.test(
+        trimmed
+      );
+    return (
+      isQuestion &&
+      (/(?:一つずつ|それぞれ)[^。！？?\n]{0,40}(?:聞かせ|教えて|答えて)/.test(
+        trimmed
+      ) ||
+        /(?:出来事|事実|理由|原因|気持ち|感情|希望|望み|行動)[」』]?(?:と|や|および|ならびに|、)[^。！？?\n]{0,28}[「『]?(?:出来事|事実|理由|原因|気持ち|感情|希望|望み|行動)/.test(
+          trimmed
+        ))
+    );
+  });
 }
 
 function stripJapaneseQuotedContent(text) {
