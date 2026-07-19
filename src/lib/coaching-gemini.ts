@@ -1244,6 +1244,16 @@ function isSingleActionRelevantToContext(
   historyMessages: CoachingChatMessage[]
 ) {
   if (!requestsConcreteSuggestion(lastUserText)) return true;
+  if (/直前/.test(lastUserText)) {
+    if (/(?:明日の朝|翌朝)/.test(answer)) return false;
+    if (!/(?:直前|前[に、])/.test(answer)) return false;
+  }
+  if (
+    /今夜/.test(lastUserText) &&
+    /(?:明日|翌日)/.test(answer)
+  ) {
+    return false;
+  }
   if (/疲|休|しんど|限界/.test(lastUserText)) {
     return /休|横にな|目を閉じ|睡眠|寝/.test(answer);
   }
@@ -1514,6 +1524,12 @@ function buildNoQuestionFallback(
     lastUserText,
   ].join('\n');
 
+  if (/直前/.test(lastUserText)) {
+    if (/話|伝|相手|夫|妻|家族|同僚|上司/.test(userContext)) {
+      return '話し始める直前に、最初に伝えたい一文をメモで一度だけ確認してください。';
+    }
+    return '始める直前に、最初の一歩を一文だけ確認してください。';
+  }
   if (/企画|資料|文章|書|作成/.test(lastUserText)) {
     return '完成を目指さず、まず最初の15分で見出しを一つだけ書いてみてください。';
   }
@@ -1726,21 +1742,34 @@ function removeUnsupportedPsychologicalInference(
     lastUserText,
   ].join('\n');
   const loadedInferences = [
-    { output: '見捨てられ', supportedBy: /見捨てられ/ },
-    { output: '承認欲求', supportedBy: /承認欲求/ },
-    { output: 'トラウマ', supportedBy: /トラウマ/ },
-    { output: '幼少期', supportedBy: /幼少期/ },
-    { output: '愛着障害', supportedBy: /愛着障害/ },
-    { output: '共依存', supportedBy: /共依存/ },
-    { output: '証拠', supportedBy: /証拠/ },
-    { output: '期待に応え', supportedBy: /期待|応え/ },
-    { output: '萎縮', supportedBy: /萎縮/ },
-    { output: '気持ちの切り替え', supportedBy: /切り替え/ },
-    { output: '精一杯', supportedBy: /精一杯|余裕がない|限界/ },
+    { output: /見捨てられ/, supportedBy: /見捨てられ/ },
+    { output: /承認欲求/, supportedBy: /承認欲求/ },
+    { output: /トラウマ/, supportedBy: /トラウマ/ },
+    { output: /幼少期/, supportedBy: /幼少期/ },
+    { output: /愛着障害/, supportedBy: /愛着障害/ },
+    { output: /共依存/, supportedBy: /共依存/ },
+    { output: /証拠/, supportedBy: /証拠/ },
+    { output: /期待に応え/, supportedBy: /期待|応え/ },
+    { output: /萎縮/, supportedBy: /萎縮/ },
+    { output: /気持ちの切り替え/, supportedBy: /切り替え/ },
+    { output: /精一杯/, supportedBy: /精一杯|余裕がない|限界/ },
+    { output: /プライド/, supportedBy: /プライド/ },
+    { output: /意欲|やる気/, supportedBy: /意欲|やる気/ },
+    { output: /真剣/, supportedBy: /真剣/ },
+    {
+      output: /完璧(?:主義|に|で|を)|完璧さ/,
+      supportedBy: /完璧/,
+    },
+    { output: /大きな(?:塊|壁)/, supportedBy: /塊|壁|大きすぎ/ },
+    { output: /ギャップ/, supportedBy: /ギャップ|実際の能力/ },
+    {
+      output: /周囲.{0,12}(?:示したい|見せたい)|証明したい/,
+      supportedBy: /示したい|見せたい|証明したい/,
+    },
   ];
   const unsupportedTerms = loadedInferences.filter(
     ({ output, supportedBy }) =>
-      text.includes(output) && !supportedBy.test(userContext)
+      output.test(text) && !supportedBy.test(userContext)
   );
   const userUsedEmphaticCause = /(?:だからこそ|からこそ)/.test(userContext);
   const hasUnsupportedEmphaticCause =
@@ -1752,7 +1781,7 @@ function removeUnsupportedPsychologicalInference(
   const grounded = (text.match(/[^。！？?\n]+[。！？?]?|\n+/g) || [])
     .filter(
       (segment) =>
-        !unsupportedTerms.some(({ output }) => segment.includes(output)) &&
+        !unsupportedTerms.some(({ output }) => output.test(segment)) &&
         !(
           /(?:だからこそ|からこそ)/.test(segment) &&
           !userUsedEmphaticCause

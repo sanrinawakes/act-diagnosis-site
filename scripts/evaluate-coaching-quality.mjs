@@ -905,6 +905,13 @@ function evaluateConversations(conversations) {
           emotionSwitching: /切り替え/.test(userContext),
           emphaticCause: /(?:だからこそ|からこそ)/.test(userContext),
           overwhelmed: /精一杯|余裕がない|限界/.test(userContext),
+          pride: /プライド/.test(userContext),
+          motivation: /意欲|やる気/.test(userContext),
+          seriousness: /真剣/.test(userContext),
+          perfection: /完璧/.test(userContext),
+          largeBlock: /塊|大きすぎ/.test(userContext),
+          gap: /ギャップ|実際の能力/.test(userContext),
+          proving: /示したい|見せたい|証明したい/.test(userContext),
         },
       };
     });
@@ -1001,7 +1008,7 @@ function evaluateConversations(conversations) {
     );
     addCheck(
       checks,
-      `${turn.label}: 根拠のない期待・萎縮を補わない`,
+      `${turn.label}: 根拠のない心理・動機を補わない`,
       !(
         (/期待に応え/.test(turn.message) &&
           !turn.userGrounding.expectation) ||
@@ -1010,6 +1017,17 @@ function evaluateConversations(conversations) {
           !turn.userGrounding.emotionSwitching) ||
         (/精一杯/.test(turn.message) &&
           !turn.userGrounding.overwhelmed) ||
+        (/プライド/.test(turn.message) && !turn.userGrounding.pride) ||
+        (/意欲|やる気/.test(turn.message) && !turn.userGrounding.motivation) ||
+        (/真剣/.test(turn.message) && !turn.userGrounding.seriousness) ||
+        (/(?:完璧(?:主義|に|で|を)|完璧さ)/.test(turn.message) &&
+          !turn.userGrounding.perfection) ||
+        (/大きな(?:塊|壁)/.test(turn.message) &&
+          !turn.userGrounding.largeBlock) ||
+        (/ギャップ/.test(turn.message) && !turn.userGrounding.gap) ||
+        (/(?:周囲.{0,12}(?:示したい|見せたい)|証明したい)/.test(
+          turn.message
+        ) && !turn.userGrounding.proving) ||
         (/(?:だからこそ|からこそ)/.test(turn.message) &&
           !turn.userGrounding.emphaticCause)
       ),
@@ -1048,7 +1066,9 @@ function evaluateConversations(conversations) {
   addCheck(
     checks,
     '初回: 感情を受け止めている',
-    /怖|不安|緊張|重く|動けな/.test(continuity.turns[0].message),
+    /怖|不安|緊張|重く|動けな|プレッシャー|身動き/.test(
+      continuity.turns[0].message
+    ),
     continuity.turns[0].message
   );
   addCheck(
@@ -1212,7 +1232,9 @@ function evaluateConversations(conversations) {
   addCheck(
     checks,
     '6往復会話: 最新の「責めずに伝える」を保持',
-    /伝|言葉|一言|話|落ち着|呼吸/.test(sixTurn.turns[3].message) &&
+    /伝|言葉|一言|話|相談|お願い|落ち着|呼吸/.test(
+      sixTurn.turns[3].message
+    ) &&
       /時間|軽く|大切|扱/.test(sixTurn.turns[3].message) &&
       !/落ち込|悲し/.test(sixTurn.turns[3].message),
     sixTurn.turns[3].message
@@ -1239,6 +1261,14 @@ function evaluateConversations(conversations) {
         sixTurn.turns[5].message
       ) &&
       /呼吸|メモ|一言|書|止|数|秒|確認/.test(sixTurn.turns[5].message),
+    sixTurn.turns[5].message
+  );
+  addCheck(
+    checks,
+    '6往復会話: 「話す直前」を別の時点へ変えない',
+    /直前|話す前|話し始める前|切り出す前/.test(
+      sixTurn.turns[5].message
+    ) && !/(?:明日の朝|翌朝)/.test(sixTurn.turns[5].message),
     sixTurn.turns[5].message
   );
 

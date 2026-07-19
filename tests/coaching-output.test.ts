@@ -59,9 +59,27 @@ describe('normalizeCoachingOutput', () => {
     );
 
     expect(result).toBe(
-      '明日の朝、相手に最初に伝える一文だけをメモに書いてください。'
+      '話し始める直前に、最初に伝えたい一文をメモで一度だけ確認してください。'
     );
     expect(result).not.toMatch(/3つ|三つ/);
+  });
+
+  it('話す直前の依頼を明日の朝の行動へ置き換えない', () => {
+    const result = normalizeCoachingOutput(
+      '明日の朝、相手に最初に伝える一文だけをメモに書いてください。',
+      '話す直前にできることを、質問なしで一つだけ教えてください。',
+      [
+        {
+          role: 'user',
+          content: '今夜、夫に落ち着いて話したいです。',
+        },
+      ]
+    );
+
+    expect(result).toBe(
+      '話し始める直前に、最初に伝えたい一文をメモで一度だけ確認してください。'
+    );
+    expect(result).not.toMatch(/明日|翌朝/);
   });
 
   it('複数提案を一つへ戻す時も、直前の会話相手を失わない', () => {
@@ -562,6 +580,31 @@ describe('normalizeCoachingOutput', () => {
     expect(result).not.toMatch(/気持ちの切り替え|仕事を大切|からこそ/);
     expect(result).toContain('今の状況を少し整理');
     expect(result).toContain('どのような出来事');
+  });
+
+  it('本人が言っていないプライド・意欲・完璧主義を補わない', () => {
+    const result = normalizeCoachingOutput(
+      [
+        '同僚に能力がないと思われるのが悔しいという言葉から、仕事への強いプライドと、周囲に示したい意欲を感じました。',
+        '完璧にこなさなければという大きな塊として仕事を見ているようです。',
+        '同僚にどう思われるかと実際の能力のギャップが、悔しさを強めているのですね。',
+        '今回の仕事で、自分が納得できる最低限の状態はどこですか？',
+      ].join('\n\n'),
+      '怖いというより、同僚に能力がないと思われるのが悔しいんです。'
+    );
+
+    expect(result).not.toMatch(/プライド|意欲|完璧|大きな塊|ギャップ|周囲に示したい/);
+    expect(result).toContain('自分が納得できる最低限の状態');
+  });
+
+  it('本人が言っていない完璧主義の言い換えも補わない', () => {
+    const result = normalizeCoachingOutput(
+      '完璧主義だから大きな壁に見えているようです。\n\n今日、仕事の名前だけメモに書いてください。',
+      '新しい仕事が怖くて手をつけられません。'
+    );
+
+    expect(result).not.toMatch(/完璧主義|大きな壁/);
+    expect(result).toContain('仕事の名前だけメモに書いてください');
   });
 
   it('履歴があっても、本人が言っていない「真剣だからこそ」を除く', () => {
