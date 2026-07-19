@@ -526,6 +526,16 @@ describe('normalizeCoachingOutput', () => {
     expect(result).toContain('今いちばん気になっている出来事は何ですか？');
   });
 
+  it('人間関係か業務内容かという引用付き二択を一つの質問へ絞る', () => {
+    const result = normalizeCoachingOutput(
+      '仕事のことで落ち込んでいるのですね。\n\n今、一番心が引っかかっているのは、仕事の「人間関係」と「業務の内容や進め方」のどちらに近いと感じますか。',
+      '仕事のことで少し落ち込んでいます。短く整理を手伝ってください。'
+    );
+
+    expect(result).not.toMatch(/人間関係.*業務の内容や進め方.*どちら/);
+    expect(result).toContain('今いちばん気になっている出来事は何ですか？');
+  });
+
   it('「出来事や感情」のような一問二答も一つの対象へ絞る', () => {
     const result = normalizeCoachingOutput(
       '仕事で落ち込むことがあり、整理したいと感じているのですね。\n\n今の状況で、特に「ここが一番ひっかかっている」と思う出来事や感情は、どのようなことでしょうか。',
@@ -721,6 +731,16 @@ describe('normalizeCoachingOutput', () => {
     );
 
     expect(result).not.toMatch(/準備しておきたい.*あるいは.*伝えておきたい/);
+    expect(result).toContain('いちばん避けたいことは何ですか？');
+  });
+
+  it('言いたかった思いと伝えたかった事実を同時に聞かない', () => {
+    const result = normalizeCoachingOutput(
+      '上司に否定されたように感じて、次の一言が怖くなっているのですね。\n\nその怖さがある中で、上司に対して「本当はこう言いたかった」という思いや、伝えたかった事実は何かありますか。',
+      '上司に否定されたように感じて、次の一言が怖いです。'
+    );
+
+    expect(result).not.toMatch(/思いや.*事実/);
     expect(result).toContain('いちばん避けたいことは何ですか？');
   });
 

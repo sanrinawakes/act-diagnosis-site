@@ -2172,7 +2172,7 @@ function rewriteCompoundAnswerQuestions(text: string, lastUserText: string) {
   const rewritten = parts
     .map((part) => {
       const asksForPairedDimensions =
-        /(?:出来事|事実|状況|理由|原因|気持ち|感情|希望|望み|行動|タイミング|言い方|方法|内容|テーマ|気になっていること|頭に浮かんでくること)[」』]?(?:と|や|および|ならびに|、)[^。！？?\n]{0,32}[「『]?(?:出来事|事実|状況|理由|原因|気持ち|感情|希望|望み|行動|タイミング|言い方|方法|内容|テーマ|気になっていること|頭に浮かんでくること)/.test(
+        /(?:出来事|事実|状況|理由|原因|気持ち|感情|思い|希望|望み|行動|タイミング|言い方|方法|内容|テーマ|気になっていること|頭に浮かんでくること)[」』]?(?:と|や|および|ならびに|、)[^。！？?\n]{0,32}[「『]?(?:出来事|事実|状況|理由|原因|気持ち|感情|思い|希望|望み|行動|タイミング|言い方|方法|内容|テーマ|気になっていること|頭に浮かんでくること)/.test(
           part
         );
       const asksForcedAlternative =
@@ -2180,11 +2180,16 @@ function rewriteCompoundAnswerQuestions(text: string, lastUserText: string) {
           part
         );
       const asksAnyAlternative = /(?:それとも|または|あるいは)/.test(part);
+      const asksQuotedEitherOr =
+        /[「『][^」』]{1,50}[」』](?:と|か)[「『][^」』]{1,50}[」』]のどちら/.test(
+          part
+        );
       if (
         !replaced &&
         (asksForPairedDimensions ||
           asksForcedAlternative ||
           asksAnyAlternative ||
+          asksQuotedEitherOr ||
           /(?:一つずつ|それぞれ)[^。！？?\n]{0,40}(?:聞かせ|教えて|答えて)/.test(
             part
           )) &&
