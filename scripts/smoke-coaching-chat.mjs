@@ -220,6 +220,9 @@ async function sendStreamRequest({ email, diagnosisCode, messages, label }) {
       intimidation: messages.some(
         (message) => message.role === 'user' && /萎縮/.test(message.content)
       ),
+      tension: messages.some(
+        (message) => message.role === 'user' && /緊張/.test(message.content)
+      ),
       bracing: messages.some(
         (message) => message.role === 'user' && /身構え/.test(message.content)
       ),
@@ -362,9 +365,17 @@ function assertResults(results) {
       );
     }
     if (
+      /(?:お気持ち|気持ち)を受け止めます|自分らしい/.test(result.message)
+    ) {
+      throw new Error(
+        `${result.label} returned an AI posture declaration or vague standard: ${result.message}`
+      );
+    }
+    if (
       (/期待に応え/.test(result.message) &&
         !result.userGrounding.expectation) ||
       (/萎縮/.test(result.message) && !result.userGrounding.intimidation) ||
+      (/緊張/.test(result.message) && !result.userGrounding.tension) ||
       (/身構え/.test(result.message) && !result.userGrounding.bracing) ||
       (/予測.{0,12}(?:から来|が原因)|(?:から来|原因).{0,12}予測/.test(
         result.message

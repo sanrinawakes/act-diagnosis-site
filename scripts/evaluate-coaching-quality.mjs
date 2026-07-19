@@ -902,6 +902,7 @@ function evaluateConversations(conversations) {
         userGrounding: {
           expectation: /期待|応え/.test(userContext),
           intimidation: /萎縮/.test(userContext),
+          tension: /緊張/.test(userContext),
           bracing: /身構え/.test(userContext),
           prediction: /予測|また.{0,12}否定/.test(userContext),
           suffering: /苦し|つら|辛|しんど/.test(userContext),
@@ -1025,11 +1026,18 @@ function evaluateConversations(conversations) {
     );
     addCheck(
       checks,
+      `${turn.label}: AIの姿勢宣言・曖昧な基準を出さない`,
+      !/(?:お気持ち|気持ち)を受け止めます|自分らしい/.test(turn.message),
+      turn.message
+    );
+    addCheck(
+      checks,
       `${turn.label}: 根拠のない心理・動機を補わない`,
       !(
         (/期待に応え/.test(turn.message) &&
           !turn.userGrounding.expectation) ||
         (/萎縮/.test(turn.message) && !turn.userGrounding.intimidation) ||
+        (/緊張/.test(turn.message) && !turn.userGrounding.tension) ||
         (/身構え/.test(turn.message) && !turn.userGrounding.bracing) ||
         (/予測.{0,12}(?:から来|が原因)|(?:から来|原因).{0,12}予測/.test(
           turn.message

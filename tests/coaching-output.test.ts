@@ -294,6 +294,27 @@ describe('normalizeCoachingOutput', () => {
     expect(result).toContain('落ち込');
   });
 
+  it('AI側の「お気持ちを受け止めます」という姿勢宣言を残さない', () => {
+    const result = normalizeCoachingOutput(
+      '仕事で落ち込むことがあり、整理したいのですね。まずはそのお気持ちを受け止めます。\n\n今、特にどの部分が一番心に引っかかっていますか？',
+      '仕事のことで少し落ち込んでいます。短く整理を手伝ってください。'
+    );
+
+    expect(result).not.toContain('お気持ちを受け止めます');
+    expect(result).toContain('どの部分');
+  });
+
+  it('「怖い」を本人が使っていない「緊張」へ変えない', () => {
+    const result = normalizeCoachingOutput(
+      '上司の言葉が否定に聞こえて、次の一言を出すのが怖くなっているのですね。それは緊張してしまいますね。\n\nその上司に対して、本来はどのような反応を返せたら「自分らしい」と感じられそうですか？',
+      '上司に否定されたように感じて、次の一言が怖いです。'
+    );
+
+    expect(result).not.toContain('緊張');
+    expect(result).not.toContain('自分らしい');
+    expect(result).toContain('自分で納得できそう');
+  });
+
   it('句点で終わる質問と「教えてください」を重ねない', () => {
     const result = normalizeCoachingOutput(
       [

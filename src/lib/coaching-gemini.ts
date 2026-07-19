@@ -983,6 +983,10 @@ export function normalizeCoachingOutput(
       /(?:まずは[、,]?)?(?:その|今の)[^。\n]{0,90}受け止めたいと思います[。]?/g,
       ''
     )
+    .replace(
+      /(?:まずは[、,]?)?(?:その|今の)?(?:お気持ち|気持ち)を受け止めます[。]?/g,
+      ''
+    )
     .replace(/いらっしゃるのですね/g, 'いるんですね')
     .replace(/いらっしゃる/g, 'いる')
     .replace(/ご自身/g, '自分')
@@ -996,6 +1000,8 @@ export function normalizeCoachingOutput(
     .replace(/(?:喜んで)?お伺いいたします[。]?/g, '一緒に考えます。')
     .replace(/(?:どうぞ)?お気軽に(?:ご質問|お尋ね|ご相談)ください[。]?/g, '気になることがあれば聞いてください。')
     .replace(/どうぞ(?=気になることがあれば)/g, '')
+    .replace(/本来は/g, '')
+    .replace(/[「『]?自分らしい[」』]?と感じられそう/g, '自分で納得できそう')
     .replace(
       /今日(?:は|一日)?[、,]?(?:もう[、,]?)?(?:本当に|よく|たくさん)?頑張られ(?:ましたね|たのですね)[。]?/g,
       'かなり疲れているんですね。'
@@ -1864,6 +1870,7 @@ function removeUnsupportedPsychologicalInference(
     { output: /期待に応え/, supportedBy: /期待|応え/ },
     { output: /萎縮/, supportedBy: /萎縮/ },
     { output: /身構え/, supportedBy: /身構え/ },
+    { output: /緊張/, supportedBy: /緊張/ },
     {
       output: /予測.{0,12}(?:から来|が原因)|(?:から来|原因).{0,12}予測/,
       supportedBy: /予測|また.{0,12}否定/,
