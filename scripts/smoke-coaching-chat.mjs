@@ -595,6 +595,14 @@ function assertResults(results) {
       );
     }
     if (
+      /明日の朝/.test(result.lastUserText) &&
+      !/明日の朝/.test(result.message)
+    ) {
+      throw new Error(
+        `${result.label} dropped the requested morning reference: ${result.message}`
+      );
+    }
+    if (
       /明日の朝/.test(result.message) &&
       /[「『]明日伝えたい(?:こと|内容)[」』]/.test(result.message)
     ) {

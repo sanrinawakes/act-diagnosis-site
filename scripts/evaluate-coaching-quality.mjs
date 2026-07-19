@@ -1242,6 +1242,16 @@ function evaluateConversations(conversations) {
     );
     addCheck(
       checks,
+      `${turn.label}: 明日の朝の時間指定を保持する`,
+      !(
+        /明日の朝/.test(turn.user) &&
+        !/明日の朝/.test(turn.message) &&
+        !/一言|文面|言い方|返事/.test(turn.user)
+      ),
+      turn.message
+    );
+    addCheck(
+      checks,
       `${turn.label}: 明日の朝の行動を翌日へずらさない`,
       !(
         /明日の朝/.test(turn.message) &&

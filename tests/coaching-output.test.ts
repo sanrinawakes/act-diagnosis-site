@@ -1246,6 +1246,17 @@ describe('normalizeCoachingOutput', () => {
     expect(result).not.toContain('今できる最小の行動');
   });
 
+  it('明日の朝という時間指定を明日だけに弱めない', () => {
+    const result = normalizeCoachingOutput(
+      '明日、今いちばん気になっていることを一文だけメモに書いてください。',
+      '明日の朝に始める行動を一つだけ、質問なしで答えてください。'
+    );
+
+    expect(result).toBe(
+      '明日の朝、今いちばん気になっていることを一文だけメモに書いてください。'
+    );
+  });
+
   it('広すぎる会話継続質問を具体的な問いへ置き換える', () => {
     const result = normalizeCoachingOutput(
       '前の話は踏まえています。何か具体的に話してみたいことはありますか？',
@@ -1684,7 +1695,7 @@ describe('normalizeCoachingOutput', () => {
 
     expect(result).not.toMatch(/淹れ|スマホ|香り/);
     expect(result).toBe(
-      '明日、今いちばん気になっていることを一文だけメモに書いてください。'
+      '明日の朝、今いちばん気になっていることを一文だけメモに書いてください。'
     );
   });
 
@@ -1696,7 +1707,7 @@ describe('normalizeCoachingOutput', () => {
 
     expect(result).not.toMatch(/思い浮かべ|深呼吸|淹れ/);
     expect(result).toBe(
-      '明日、今いちばん気になっていることを一文だけメモに書いてください。'
+      '明日の朝、今いちばん気になっていることを一文だけメモに書いてください。'
     );
   });
 

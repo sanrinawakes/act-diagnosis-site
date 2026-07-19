@@ -1309,6 +1309,18 @@ function preserveRequestedActionTime(text: string, lastUserText: string) {
       '$1最初に伝えたい$2$3'
     );
   }
+  if (
+    /明日の朝/.test(lastUserText) &&
+    requestsConcreteSuggestion(lastUserText) &&
+    !requestsDirectWording(lastUserText) &&
+    !/明日の朝/.test(aligned)
+  ) {
+    const actionWithoutLeadingTomorrow = aligned.replace(
+      /^明日(?:は|に)?[、,]?\s*/,
+      ''
+    );
+    aligned = `明日の朝、${actionWithoutLeadingTomorrow}`;
+  }
   if (requestsDirectWording(lastUserText)) return aligned;
   if (
     requestsConcreteSuggestion(lastUserText) &&
