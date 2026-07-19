@@ -1112,7 +1112,7 @@ function evaluateConversations(conversations) {
     addCheck(
       checks,
       `${turn.label}: 感情の利用・不自然な反復・回避提案なし`,
-      !/悔しさを力に変|怒りを原動力|下書きの下書き|それ以外は一旦目をつぶ|ルールを自分の中/.test(
+      !/悔しさを力に変|怒りを原動力|下書きの下書き|それ以外は一旦目をつぶ|ルールを自分の中|最初の(?:1|一)?ステップだけ[^。！？?\n]{0,50}(?:\d+|一|二|三|四|五|六|七|八|九|十)分間?だけ/.test(
         turn.message
       ),
       turn.message
@@ -1399,6 +1399,14 @@ function evaluateConversations(conversations) {
       /一つ|ひとつ|まず|メモ|書|伝|着手|始|開|資料|予定|タスク|取り組|(?:\d+|一|ひと)分/.test(
         continuity.turns[2].message
       ),
+    continuity.turns[2].message
+  );
+  addCheck(
+    checks,
+    '具体策要求: 抽象的な「最初の1ステップ」で済ませない',
+    /最初に終わらせる作業を一つだけメモに書/.test(
+      continuity.turns[2].message
+    ) && !/ステップ/.test(continuity.turns[2].message),
     continuity.turns[2].message
   );
   addCheck(

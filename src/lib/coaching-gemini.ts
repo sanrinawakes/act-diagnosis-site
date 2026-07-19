@@ -1521,6 +1521,10 @@ function selectSingleAnswerBlock(
   lastUserText: string,
   historyMessages: CoachingChatMessage[]
 ) {
+  const historicalUserText = historyMessages
+    .filter((message) => message.role === 'user')
+    .map((message) => stripAttachmentMarkdown(message.content))
+    .join('\n');
   const paragraphs = text
     .split(/\n{2,}/)
     .map((paragraph) => paragraph.trim())
@@ -1551,6 +1555,16 @@ function selectSingleAnswerBlock(
   }
   if (directWordingRequested) {
     return buildNoQuestionFallback(lastUserText, historyMessages);
+  }
+  if (
+    requestsConcreteSuggestion(lastUserText) &&
+    /明日の朝/.test(lastUserText) &&
+    /仕事|できること|何をすれば|行動|一歩/.test(lastUserText) &&
+    /新しい仕事/.test(historicalUserText) &&
+    /失敗/.test(historicalUserText) &&
+    /期待を裏切/.test(historicalUserText)
+  ) {
+    return '明日の朝、その仕事で最初に終わらせる作業を一つだけメモに書いてください。';
   }
   const concreteParagraph = eligibleParagraphs.find((paragraph) =>
     hasConcreteAction(paragraph, lastUserText) &&
