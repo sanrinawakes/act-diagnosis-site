@@ -209,6 +209,24 @@ describe('normalizeCoachingOutput', () => {
     expect(result).not.toMatch(/スマホを置|目を閉じ/);
   });
 
+  it('深呼吸して意見を口に出す二動作を一つの提案として通さない', () => {
+    const result = normalizeCoachingOutput(
+      '明日の朝、上司と話す直前に深呼吸を3回だけ行い、まずは自分の意見を一つだけ落ち着いて口に出してみてください。',
+      'では、明日まず何をすればいいか一つだけ教えてください。',
+      [
+        {
+          role: 'user',
+          content: '上司に否定されたように感じて、次の一言が怖いです。',
+        },
+      ]
+    );
+
+    expect(result).not.toMatch(/深呼吸.*口に出/);
+    expect(result).toBe(
+      '明日の朝、相手に最初に伝える一文だけをメモに書いてください。'
+    );
+  });
+
   it('具体的な提案がある通常返答へ二つ目の質問を追加しない', () => {
     const result = normalizeCoachingOutput(
       '仕事で落ち込むことがあり、整理が必要な状態なんですね。\n\n今は、頭の中にある「何が一番しんどいか」を一つだけ言葉にしてみてください。まずはそこから一緒に見ていきましょう。',
