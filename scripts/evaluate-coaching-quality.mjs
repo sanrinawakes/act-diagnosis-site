@@ -904,6 +904,13 @@ function evaluateConversations(conversations) {
           intimidation: /萎縮/.test(userContext),
           tension: /緊張/.test(userContext),
           mistake: /ミス|失敗/.test(userContext),
+          hardship: /しんどい/.test(userContext),
+          pain: /つらい|辛い/.test(userContext),
+          sadness: /悲し/.test(userContext),
+          regret: /悔し/.test(userContext),
+          anxiety: /不安/.test(userContext),
+          impatience: /焦り|焦っ/.test(userContext),
+          loneliness: /寂し/.test(userContext),
           bracing: /身構え/.test(userContext),
           prediction: /予測|また.{0,12}否定/.test(userContext),
           suffering: /苦し|つら|辛|しんど/.test(userContext),
@@ -1043,6 +1050,13 @@ function evaluateConversations(conversations) {
         (/萎縮/.test(turn.message) && !turn.userGrounding.intimidation) ||
         (/緊張/.test(turn.message) && !turn.userGrounding.tension) ||
         (/ミス|失敗/.test(turn.message) && !turn.userGrounding.mistake) ||
+        (/しんどい/.test(turn.message) && !turn.userGrounding.hardship) ||
+        (/つらい|辛い/.test(turn.message) && !turn.userGrounding.pain) ||
+        (/悲し/.test(turn.message) && !turn.userGrounding.sadness) ||
+        (/悔し/.test(turn.message) && !turn.userGrounding.regret) ||
+        (/不安/.test(turn.message) && !turn.userGrounding.anxiety) ||
+        (/焦り|焦っ/.test(turn.message) && !turn.userGrounding.impatience) ||
+        (/寂し/.test(turn.message) && !turn.userGrounding.loneliness) ||
         (/身構え/.test(turn.message) && !turn.userGrounding.bracing) ||
         (/予測/.test(turn.message) && !turn.userGrounding.prediction) ||
         (/苦しめ/.test(turn.message) && !turn.userGrounding.suffering) ||

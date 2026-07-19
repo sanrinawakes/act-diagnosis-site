@@ -1055,6 +1055,19 @@ export function normalizeCoachingOutput(
       '今いちばん気になっているのは'
     )
     .replace(/何が一番心に引っかかっているか/g, '何が一番気になっているか')
+    .replace(/何が一番しんどいか/g, '何が一番気になっているか')
+    .replace(
+      /今[、,]?一番しんどいことは何ですか/g,
+      '今いちばん気になっていることは何ですか'
+    )
+    .replace(
+      /一番しんどいことは何ですか/g,
+      'いちばん気になっていることは何ですか'
+    )
+    .replace(
+      /(?:特に)?[「『]?ここが一番しんどい[」』]?と感じる(?:ポイント|部分)はどこですか/g,
+      '特に気になっていることは何ですか'
+    )
     .replace(/あなたの言葉一つ一つを大切に受け止めています[。]?/g, '')
     .replace(/。{2,}/g, '。');
   const temporallyAlignedText = /明日/.test(lastUserText)
@@ -1878,6 +1891,14 @@ function removeUnsupportedPsychologicalInference(
       '落ち込んでいる'
     );
   }
+  if (
+    requestsDirectWording(lastUserText) &&
+    /「[^」]{4,}」/.test(candidateText) &&
+    !isGroundedDirectWording(candidateText, historyMessages)
+  ) {
+    const groundedFallback = buildGroundedDirectWording(historyMessages);
+    if (groundedFallback) candidateText = groundedFallback;
+  }
   const loadedInferences = [
     { output: /見捨てられ/, supportedBy: /見捨てられ/ },
     { output: /承認欲求/, supportedBy: /承認欲求/ },
@@ -1891,6 +1912,13 @@ function removeUnsupportedPsychologicalInference(
     { output: /身構え/, supportedBy: /身構え/ },
     { output: /緊張/, supportedBy: /緊張/ },
     { output: /ミス|失敗/, supportedBy: /ミス|失敗/ },
+    { output: /しんどい/, supportedBy: /しんどい/ },
+    { output: /つらい|辛い/, supportedBy: /つらい|辛い/ },
+    { output: /悲し/, supportedBy: /悲し/ },
+    { output: /悔し/, supportedBy: /悔し/ },
+    { output: /不安/, supportedBy: /不安/ },
+    { output: /焦り|焦っ/, supportedBy: /焦り|焦っ/ },
+    { output: /寂し/, supportedBy: /寂し/ },
     {
       output: /予測.{0,12}(?:から来|が原因)|(?:から来|原因).{0,12}予測/,
       supportedBy: /予測|また.{0,12}否定/,

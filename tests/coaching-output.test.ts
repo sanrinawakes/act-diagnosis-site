@@ -234,6 +234,8 @@ describe('normalizeCoachingOutput', () => {
     );
 
     expect(result).toContain('一つだけ言葉にしてみてください。');
+    expect(result).toContain('何が一番気になっているか');
+    expect(result).not.toContain('しんどい');
     expect(result).not.toContain('明日ひとつだけ状況を動かすなら');
     expect(result).not.toMatch(/[？?]/);
   });
@@ -348,6 +350,16 @@ describe('normalizeCoachingOutput', () => {
     expect(result).toContain('いちばん避けたいことは何ですか？');
   });
 
+  it('「落ち込んでいる」を質問で「一番しんどい」へ強めない', () => {
+    const result = normalizeCoachingOutput(
+      '仕事のことで落ち込んでしまっているのですね。\n\n今の状況で、特に「ここが一番しんどい」と感じるポイントはどこですか？',
+      '仕事のことで少し落ち込んでいます。短く整理を手伝ってください。'
+    );
+
+    expect(result).not.toContain('しんどい');
+    expect(result).toContain('特に気になっていることは何ですか？');
+  });
+
   it('句点で終わる質問と「教えてください」を重ねない', () => {
     const result = normalizeCoachingOutput(
       [
@@ -448,7 +460,8 @@ describe('normalizeCoachingOutput', () => {
     );
 
     expect(result).toContain('仕事のことで落ち込んでいるのですね。');
-    expect(result).toContain('一番しんどいことは何ですか？');
+    expect(result).toContain('今いちばん気になっていることは何ですか？');
+    expect(result).not.toContain('しんどい');
     expect(result).not.toMatch(/受け止めさせてください|受け止めたいと思います/);
   });
 

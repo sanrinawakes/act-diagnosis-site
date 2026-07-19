@@ -226,6 +226,27 @@ async function sendStreamRequest({ email, diagnosisCode, messages, label }) {
       mistake: messages.some(
         (message) => message.role === 'user' && /ミス|失敗/.test(message.content)
       ),
+      hardship: messages.some(
+        (message) => message.role === 'user' && /しんどい/.test(message.content)
+      ),
+      pain: messages.some(
+        (message) => message.role === 'user' && /つらい|辛い/.test(message.content)
+      ),
+      sadness: messages.some(
+        (message) => message.role === 'user' && /悲し/.test(message.content)
+      ),
+      regret: messages.some(
+        (message) => message.role === 'user' && /悔し/.test(message.content)
+      ),
+      anxiety: messages.some(
+        (message) => message.role === 'user' && /不安/.test(message.content)
+      ),
+      impatience: messages.some(
+        (message) => message.role === 'user' && /焦り|焦っ/.test(message.content)
+      ),
+      loneliness: messages.some(
+        (message) => message.role === 'user' && /寂し/.test(message.content)
+      ),
       bracing: messages.some(
         (message) => message.role === 'user' && /身構え/.test(message.content)
       ),
@@ -385,6 +406,13 @@ function assertResults(results) {
       (/萎縮/.test(result.message) && !result.userGrounding.intimidation) ||
       (/緊張/.test(result.message) && !result.userGrounding.tension) ||
       (/ミス|失敗/.test(result.message) && !result.userGrounding.mistake) ||
+      (/しんどい/.test(result.message) && !result.userGrounding.hardship) ||
+      (/つらい|辛い/.test(result.message) && !result.userGrounding.pain) ||
+      (/悲し/.test(result.message) && !result.userGrounding.sadness) ||
+      (/悔し/.test(result.message) && !result.userGrounding.regret) ||
+      (/不安/.test(result.message) && !result.userGrounding.anxiety) ||
+      (/焦り|焦っ/.test(result.message) && !result.userGrounding.impatience) ||
+      (/寂し/.test(result.message) && !result.userGrounding.loneliness) ||
       (/身構え/.test(result.message) && !result.userGrounding.bracing) ||
       (/予測/.test(result.message) && !result.userGrounding.prediction) ||
       (/苦しめ/.test(result.message) && !result.userGrounding.suffering) ||
