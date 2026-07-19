@@ -904,6 +904,7 @@ export function normalizeCoachingOutput(text: string, lastUserText: string) {
     .replace(/承知いたしました[。]?/g, 'わかりました。')
     .replace(/[、,]?と承知しました[。]?/g, '、確認しました。')
     .replace(/承知しました[。]?/g, 'わかりました。')
+    .replace(/[、,]?と教えてくださりありがとうございます[。]?/g, '、確認しました。')
     .replace(/いらっしゃるのですね/g, 'いるんですね')
     .replace(/いらっしゃる/g, 'いる')
     .replace(/ご自身/g, '自分')
@@ -940,10 +941,23 @@ export function normalizeCoachingOutput(text: string, lastUserText: string) {
       /何か(?:具体的に|続けて)?(?:お話し|話して)(?:みたい|したい)?ことはありますか[？?]?/g,
       ''
     )
+    .replace(
+      /何か[、,]?(?:今)?(?:感じていることや[、,]?)?(?:話したい|話してみたい)ことはありますか[？?]?/g,
+      ''
+    )
+    .replace(
+      /今[、,]?(?:この瞬間に)?(?:最も|一番)?(?:話したい|話してみたい)ことは何ですか[？?]?/g,
+      ''
+    )
+    .replace(/あなたの言葉一つ一つを大切に受け止めています[。]?/g, '')
     .replace(/。{2,}/g, '。');
+  const groundedText = removeUnsupportedPsychologicalInference(
+    naturalText,
+    lastUserText
+  );
   const diagnosisSafeText = requestsDiagnosisExplanation(lastUserText)
-    ? naturalText
-    : removeUnrequestedDiagnosisExplanation(naturalText);
+    ? groundedText
+    : removeUnrequestedDiagnosisExplanation(groundedText);
   const paragraphs = diagnosisSafeText
     .trim()
     .split(/\n{2,}/)
@@ -1237,6 +1251,35 @@ function invalidatesUserFeeling(text: string) {
   return /否定.{0,6}(?:ではなく|でなく).{0,8}意見|(?:感情|気持ち|怖さ|不安|怒り|悲しさ).{0,16}(?:横|脇)に置|(?:感情|気持ち|怖さ|不安|怒り|悲しさ).{0,12}切り離|客観的に見つめ直/.test(
     text
   );
+}
+
+function removeUnsupportedPsychologicalInference(
+  text: string,
+  lastUserText: string
+) {
+  const loadedTerms = [
+    '見捨てられ',
+    '承認欲求',
+    'トラウマ',
+    '幼少期',
+    '愛着障害',
+    '共依存',
+  ];
+  const unsupportedTerms = loadedTerms.filter(
+    (term) => text.includes(term) && !lastUserText.includes(term)
+  );
+  if (unsupportedTerms.length === 0) return text;
+
+  const grounded = text
+    .split(/\n{2,}/)
+    .filter(
+      (paragraph) =>
+        !unsupportedTerms.some((term) => paragraph.includes(term))
+    )
+    .join('\n\n')
+    .trim();
+
+  return grounded || buildNoQuestionFallback(lastUserText);
 }
 
 function requestsRestWithoutQuestions(text: string) {

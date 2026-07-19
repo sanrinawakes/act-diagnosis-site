@@ -95,6 +95,32 @@ describe('normalizeCoachingOutput', () => {
     expect(result).toContain('いちばん見過ごしたくない本音');
   });
 
+  it('利用者が言っていない深い心理推測を回答から除く', () => {
+    const result = normalizeCoachingOutput(
+      [
+        '前の話は踏まえています。',
+        'この確認は、見捨てられないかという不安の表れかもしれません。',
+        'あなたの言葉一つ一つを大切に受け止めています。',
+        '今、この瞬間に最も話したいことは何ですか？',
+      ].join('\n\n'),
+      '三回目の送信です。今も前の話を踏まえられていますか？'
+    );
+
+    expect(result).not.toMatch(/見捨てられ|言葉一つ一つ|最も話したいこと/);
+    expect(result).toContain('前の話は踏まえています。');
+    expect(result).toContain('いちばん見過ごしたくない本音');
+  });
+
+  it('短い入力への過剰な謝意と広すぎる質問を残さない', () => {
+    const result = normalizeCoachingOutput(
+      '二行目、と教えてくださりありがとうございます。何か、今感じていることや、話したいことはありますか？',
+      '二行目'
+    );
+
+    expect(result).toContain('二行目、確認しました。');
+    expect(result).not.toMatch(/ありがとうございます|話したいことはありますか/);
+  });
+
   it('内部の回答形式指定を利用者本文から分離する', () => {
     const result = stripInternalResponseStyleHint(
       'この画像の色を一言で答えてください。\n\n【内部応答形式】答えまたは提案を一つだけ簡潔に返してください。'
