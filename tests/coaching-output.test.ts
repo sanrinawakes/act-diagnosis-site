@@ -101,6 +101,17 @@ describe('normalizeCoachingOutput', () => {
     expect(result).not.toContain('今できる最小の行動');
   });
 
+  it('婉曲な具体提案を質問として削除せず自然な提案文へ直す', () => {
+    const result = normalizeCoachingOutput(
+      '明日まずできることとして、上司の方に「先日の件について、少しお話する時間はありますか」と、短く状況確認の機会を求めてみてはいかがでしょうか。',
+      'では、明日まず何をすればいいか一つだけ教えてください。'
+    );
+
+    expect(result).toContain('状況確認の機会を求めてみてください');
+    expect(result).not.toContain('今できる最小の行動');
+    expect(result.split(/\n{2,}/)).toHaveLength(1);
+  });
+
   it('短い相づちしか生成されなかった時は実行できる代替文へ戻す', () => {
     const result = normalizeCoachingOutput(
       '明日の一歩ですね。',
@@ -374,7 +385,7 @@ describe('normalizeCoachingOutput', () => {
     );
 
     expect(result).not.toMatch(/どうでしょうか|[？?]/);
-    expect(result).toMatch(/15分|一つだけ|書いて|決めて|始めて/);
+    expect(result).toMatch(/15分|一つだけ|書いて|書き出して|決めて|始めて/);
   });
 
   it('一言回答には無関係な追加助言を付けない', () => {
