@@ -57,6 +57,15 @@ type ChatClientFailureStage =
   | 'read_stream'
   | 'save_response';
 
+type ClientChatFailurePayload = {
+  stage: ChatClientFailureStage;
+  sessionId: string;
+  elapsedMs: number;
+  hadPartialResponse: boolean;
+  errorName: string;
+  errorMessage: string;
+};
+
 const CHAT_RESPONSE_TIMEOUT_MS = 60000;
 const CHAT_PERSIST_TIMEOUT_MS = 10000;
 const ATTACHMENT_PRIVACY_NOTICE =
@@ -66,6 +75,8 @@ const CHAT_BUSY_MESSAGE =
 const CHAT_NOT_READY_MESSAGE =
   'チャットを準備中です。数秒待ってからもう一度送信してください。';
 const CHAT_API_MESSAGE_LIMIT = 24;
+const CLIENT_CHAT_FAILURE_QUEUE_KEY = 'acti-client-chat-failure-queue';
+const CLIENT_CHAT_FAILURE_QUEUE_LIMIT = 10;
 
 const createTimeoutError = (message: string) =>
   new DOMException(message, 'AbortError');
@@ -92,6 +103,63 @@ const withTimeout = async <T,>(
   }
 };
 
+const postClientChatFailure = async (
+  payload: ClientChatFailurePayload
+): Promise<'sent' | 'retry' | 'drop'> => {
+  try {
+    const response = await fetch('/api/monitor/coaching/client-error', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      keepalive: true,
+      body: JSON.stringify(payload),
+    });
+
+    if (response.ok) return 'sent';
+    return response.status >= 500 || response.status === 429 ? 'retry' : 'drop';
+  } catch {
+    return 'retry';
+  }
+};
+
+const readQueuedClientChatFailures = (): ClientChatFailurePayload[] => {
+  try {
+    const raw = window.localStorage.getItem(CLIENT_CHAT_FAILURE_QUEUE_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed.slice(-CLIENT_CHAT_FAILURE_QUEUE_LIMIT) : [];
+  } catch {
+    return [];
+  }
+};
+
+const queueClientChatFailure = (payload: ClientChatFailurePayload) => {
+  try {
+    const queue = [...readQueuedClientChatFailures(), payload].slice(
+      -CLIENT_CHAT_FAILURE_QUEUE_LIMIT
+    );
+    window.localStorage.setItem(
+      CLIENT_CHAT_FAILURE_QUEUE_KEY,
+      JSON.stringify(queue)
+    );
+  } catch {
+    // The live request already failed; storage may also be unavailable.
+  }
+};
+
+const flushQueuedClientChatFailures = async () => {
+  const queue = readQueuedClientChatFailures();
+  if (queue.length === 0) return;
+
+  window.localStorage.removeItem(CLIENT_CHAT_FAILURE_QUEUE_KEY);
+  for (let index = 0; index < queue.length; index += 1) {
+    const result = await postClientChatFailure(queue[index]);
+    if (result === 'retry') {
+      queue.slice(index).forEach(queueClientChatFailure);
+      return;
+    }
+  }
+};
+
 const reportClientChatFailure = (params: {
   stage: ChatClientFailureStage;
   sessionId: string;
@@ -100,21 +168,17 @@ const reportClientChatFailure = (params: {
   error: unknown;
 }) => {
   const error = params.error;
-  void fetch('/api/monitor/coaching/client-error', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    credentials: 'same-origin',
-    keepalive: true,
-    body: JSON.stringify({
-      stage: params.stage,
-      sessionId: params.sessionId,
-      elapsedMs: params.elapsedMs,
-      hadPartialResponse: params.hadPartialResponse,
-      errorName: error instanceof Error ? error.name : typeof error,
-      errorMessage: error instanceof Error ? error.message : String(error),
-    }),
-  }).catch((reportError) => {
-    console.error('Failed to report client chat error:', reportError);
+  const payload: ClientChatFailurePayload = {
+    stage: params.stage,
+    sessionId: params.sessionId,
+    elapsedMs: params.elapsedMs,
+    hadPartialResponse: params.hadPartialResponse,
+    errorName: error instanceof Error ? error.name : typeof error,
+    errorMessage: error instanceof Error ? error.message : String(error),
+  };
+
+  void postClientChatFailure(payload).then((result) => {
+    if (result === 'retry') queueClientChatFailure(payload);
   });
 };
 
@@ -169,6 +233,16 @@ function CoachingContent() {
   useEffect(() => {
     pendingAttachmentsRef.current = pendingAttachments;
   }, [pendingAttachments]);
+
+  useEffect(() => {
+    const flushFailures = () => {
+      void flushQueuedClientChatFailures();
+    };
+
+    flushFailures();
+    window.addEventListener('online', flushFailures);
+    return () => window.removeEventListener('online', flushFailures);
+  }, []);
 
   useEffect(() => {
     return () => {
