@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
   COACHING_IMAGE_MODEL,
+  COACHING_MAX_OUTPUT_TOKENS,
   COACHING_TEXT_MODEL,
+  COACHING_TEXT_THINKING_LEVEL,
   buildGeminiParts,
+  buildMaxTokensRecoveryResponse,
   getCoachingGeminiModelName,
   normalizeCoachingOutput,
   stripInternalResponseStyleHint,
@@ -14,6 +17,11 @@ describe('getCoachingGeminiModelName', () => {
     expect(getCoachingGeminiModelName(buildGeminiParts('相談です。', []))).toBe(
       COACHING_TEXT_MODEL
     );
+  });
+
+  it('短い会話が内部思考だけで出力上限へ達しない設定にする', () => {
+    expect(COACHING_MAX_OUTPUT_TOKENS).toBeGreaterThanOrEqual(4096);
+    expect(COACHING_TEXT_THINKING_LEVEL).toBe('minimal');
   });
 
   it('画像添付時は低遅延の3.1 Flash-Liteを使う', () => {
@@ -29,6 +37,19 @@ describe('getCoachingGeminiModelName', () => {
         ])
       )
     ).toBe(COACHING_IMAGE_MODEL);
+  });
+});
+
+describe('buildMaxTokensRecoveryResponse', () => {
+  it('出力上限到達時に途中文や続き案内ではなく完結した返答へ戻す', () => {
+    const result = buildMaxTokensRecoveryResponse(
+      '仕事のことで少し落ち込んでいます。短く整理を手伝ってください。'
+    );
+
+    expect(result).toBe(
+      '仕事のことで少し落ち込んでいるんですね。\n\n今いちばん気になっている出来事は何ですか？'
+    );
+    expect(result).not.toMatch(/続き|途中|ここで自然に区切/);
   });
 });
 

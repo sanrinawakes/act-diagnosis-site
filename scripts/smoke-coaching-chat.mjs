@@ -219,7 +219,9 @@ async function sendStreamRequest({ email, diagnosisCode, messages, label }) {
     hasDone: Boolean(donePayload),
     completionStatus: donePayload?.completionStatus ?? null,
     finalizationStatus: donePayload?.finalizationStatus ?? null,
+    finishReason: donePayload?.finishReason ?? null,
     modelName: donePayload?.modelName ?? null,
+    usage: donePayload?.usage ?? {},
     outputChars: message.length,
     remaining: donePayload?.remaining ?? null,
     repeatsPreviousAssistant: message

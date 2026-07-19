@@ -320,6 +320,8 @@ export async function POST(request: NextRequest) {
 
     let assistantMessage: string;
     let usage;
+    let completionStatus;
+    let finishReason;
     try {
       const result = await generateCoachingText({
         systemPrompt,
@@ -328,12 +330,16 @@ export async function POST(request: NextRequest) {
       });
       assistantMessage = result.text;
       usage = result.usage;
+      completionStatus = result.completionStatus;
+      finishReason = result.finishReason;
       console.info(
         JSON.stringify({
           event: 'chat_nonstream_done',
           ...telemetry,
           modelName: result.modelName,
           outputChars: assistantMessage.length,
+          completionStatus,
+          finishReason,
           usage,
         })
       );
@@ -362,6 +368,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       message: assistantMessage,
       remaining,
+      completionStatus,
+      finishReason,
       usage,
     });
   } catch (error) {

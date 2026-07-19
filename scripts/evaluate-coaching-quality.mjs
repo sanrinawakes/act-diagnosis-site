@@ -920,6 +920,7 @@ async function sendStreamRequest({
     hasDone: Boolean(donePayload),
     completionStatus: donePayload?.completionStatus || null,
     finalizationStatus: donePayload?.finalizationStatus || null,
+    finishReason: donePayload?.finishReason || null,
     modelName: donePayload?.modelName || null,
     usage: donePayload?.usage || {},
     outputChars: message.length,

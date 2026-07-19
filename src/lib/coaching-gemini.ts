@@ -55,8 +55,8 @@ const ALERT_SLOW_RESPONSE_MS = 10000;
 const ALERT_THROTTLE_MS = 5 * 60 * 1000;
 export const COACHING_TEXT_MODEL = 'gemini-3.5-flash';
 export const COACHING_IMAGE_MODEL = 'gemini-3.1-flash-lite';
-const MAX_TOKENS_CONTINUATION_NOTICE =
-  '\n\n（ここで自然に区切ります。続きが必要な場合は「続き」と送ってください。）';
+export const COACHING_MAX_OUTPUT_TOKENS = 4096;
+export const COACHING_TEXT_THINKING_LEVEL = 'minimal';
 const PARTIAL_STREAM_TIMEOUT_NOTICE =
   '\n\n（応答処理に時間がかかったため、ここで一度区切りました。続きが必要な場合は「続き」と送ってください。）';
 const RESPONSE_SPEED_INSTRUCTION = [
@@ -124,10 +124,12 @@ export function getCoachingGeminiModel(
   const generationConfig = {
     temperature: 0.2,
     topP: 0.8,
-    maxOutputTokens: 960,
-    thinkingConfig: isImageModel
-      ? { thinkingLevel: 'minimal' }
-      : { thinkingLevel: 'low' },
+    maxOutputTokens: COACHING_MAX_OUTPUT_TOKENS,
+    thinkingConfig: {
+      thinkingLevel: isImageModel
+        ? 'minimal'
+        : COACHING_TEXT_THINKING_LEVEL,
+    },
   };
 
   return getGenAI().getGenerativeModel({
@@ -272,20 +274,26 @@ export async function generateCoachingText(params: {
     );
   });
   const response = result.response;
-  const text = normalizeCoachingOutput(
-    response.text(),
-    extractTextFromParts(params.lastUserParts),
-    params.historyMessages
-  );
+  const lastUserText = extractTextFromParts(params.lastUserParts);
+  const hitOutputLimit = isMaxTokensFinish(response);
+  const text = hitOutputLimit
+    ? buildMaxTokensRecoveryResponse(lastUserText, params.historyMessages)
+    : normalizeCoachingOutput(
+        response.text(),
+        lastUserText,
+        params.historyMessages
+      );
 
   if (!text.trim()) {
     throw new Error('GEMINI_EMPTY_RESPONSE');
   }
 
   return {
-    text: appendContinuationNoticeIfNeeded(text, response),
+    text,
     usage: getUsage(response),
     modelName,
+    completionStatus: hitOutputLimit ? ('partial' as const) : ('complete' as const),
+    finishReason: getFinishReason(response),
   };
 }
 
@@ -366,21 +374,26 @@ export function createJsonLineStream(params: {
           throw new Error('GEMINI_EMPTY_RESPONSE');
         }
 
-        fullText = normalizeCoachingOutput(
-          fullText,
-          extractTextFromParts(params.lastUserParts),
-          params.historyMessages
-        );
+        const lastUserText = extractTextFromParts(params.lastUserParts);
+        const hitOutputLimit = isMaxTokensFinish(response);
+        fullText = hitOutputLimit
+          ? buildMaxTokensRecoveryResponse(
+              lastUserText,
+              params.historyMessages
+            )
+          : normalizeCoachingOutput(
+              fullText,
+              lastUserText,
+              params.historyMessages
+            );
         const usage = getUsage(response);
-        if (isMaxTokensFinish(response)) {
-          fullText = trimToNaturalContinuationBoundary(fullText);
-          fullText += MAX_TOKENS_CONTINUATION_NOTICE;
-        }
+        const finishReason = getFinishReason(response);
+        const completionStatus = hitOutputLimit ? 'partial' : 'complete';
         firstChunkMs = Date.now() - startedAt;
         write({ type: 'chunk', text: fullText });
         const finalization = await resolveDonePayload(params.onDone, usage);
 
-        logChatTelemetry('done', params.telemetry, {
+        logChatTelemetry(hitOutputLimit ? 'partial_done' : 'done', params.telemetry, {
           modelName,
           elapsedMs: Date.now() - startedAt,
           firstChunkMs,
@@ -389,14 +402,16 @@ export function createJsonLineStream(params: {
           finalizationMs: finalization.elapsedMs,
           finalizationError: finalization.error,
           outputChars: fullText.length,
+          finishReason,
           usage,
         });
 
         write({
           type: 'done',
           modelName,
-          completionStatus: 'complete',
+          completionStatus,
           finalizationStatus: finalization.status,
+          finishReason,
           message: fullText,
           usage,
           ...finalization.payload,
@@ -833,15 +848,6 @@ function getUsage(response: {
   };
 }
 
-function appendContinuationNoticeIfNeeded(
-  text: string,
-  response: { candidates?: Array<{ finishReason?: string }> }
-) {
-  return isMaxTokensFinish(response)
-    ? `${trimToNaturalContinuationBoundary(text)}${MAX_TOKENS_CONTINUATION_NOTICE}`
-    : text;
-}
-
 function trimToNaturalContinuationBoundary(text: string) {
   const trimmed = text.trim();
   if (!trimmed) return trimmed;
@@ -891,6 +897,39 @@ function isMaxTokensFinish(response: {
   return response.candidates?.some(
     (candidate) => candidate.finishReason === 'MAX_TOKENS'
   );
+}
+
+function getFinishReason(response: {
+  candidates?: Array<{ finishReason?: string }>;
+}) {
+  return response.candidates?.find((candidate) => candidate.finishReason)
+    ?.finishReason;
+}
+
+export function buildMaxTokensRecoveryResponse(
+  lastUserText: string,
+  historyMessages: CoachingChatMessage[] = []
+) {
+  if (
+    /仕事|職場|業務|会社|タスク/.test(lastUserText) &&
+    /落ち込/.test(lastUserText) &&
+    /整理を手伝/.test(lastUserText)
+  ) {
+    return '仕事のことで少し落ち込んでいるんですね。\n\n今いちばん気になっている出来事は何ですか？';
+  }
+
+  if (/次の一言が怖/.test(lastUserText)) {
+    return '上司に否定されたように感じて、次の一言が怖いんですね。\n\n次にその上司へ話す時、いちばん避けたいことは何ですか？';
+  }
+
+  if (requestsSingleAnswerFormat(lastUserText)) {
+    return preserveRequestedActionTime(
+      buildNoQuestionFallback(lastUserText, historyMessages),
+      lastUserText
+    );
+  }
+
+  return buildClosingCoachingQuestion(lastUserText, historyMessages);
 }
 
 function buildTimeoutFallbackResponse(

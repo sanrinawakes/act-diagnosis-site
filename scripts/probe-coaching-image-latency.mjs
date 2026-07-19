@@ -202,6 +202,8 @@ async function sendImage(accessToken, attachment, index) {
     totalMs: Date.now() - startedAt,
     hasDone: Boolean(donePayload),
     completionStatus: donePayload?.completionStatus || null,
+    finishReason: donePayload?.finishReason || null,
+    usage: donePayload?.usage || {},
     outputChars: message.length,
     hasFallback: /応答に時間がかかりすぎ|応答に失敗|中断しました/.test(
       message

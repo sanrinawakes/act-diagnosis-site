@@ -2,11 +2,14 @@ export interface ChatStreamDone {
   message?: string;
   completionStatus?: 'complete' | 'partial' | 'fallback';
   finalizationStatus?: 'complete' | 'failed';
+  finishReason?: string;
   remaining?: number;
   limit?: number;
   usage?: {
     prompt_tokens?: number;
     completion_tokens?: number;
+    cached_tokens?: number;
+    thoughts_tokens?: number;
     total_tokens?: number;
   };
 }
