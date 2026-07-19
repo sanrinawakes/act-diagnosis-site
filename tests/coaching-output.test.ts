@@ -548,6 +548,44 @@ describe('normalizeCoachingOutput', () => {
     expect(result).not.toMatch(/飲み物|ほっとする/);
   });
 
+  it('仕事とSNSの履歴に対象がない感情メモを具体策として採用しない', () => {
+    const result = normalizeCoachingOutput(
+      '明日の朝、今日感じていることや頭の中にある思いを、ノートや紙に一言だけ書き出してみてください。',
+      '明日まず何をすればいいか、一つだけ短く教えてください。',
+      [
+        {
+          role: 'user',
+          content: '仕事の悩みとSNSへの抵抗感について相談しています。',
+        },
+      ]
+    );
+
+    expect(result).toBe(
+      '明日の朝、SNSで最初に伝えたい内容を一文だけメモに書いてください。'
+    );
+    expect(result).not.toMatch(/今日感じていること|頭の中にある思い/);
+  });
+
+  it('相談内容を伝えたことへの定型的な謝意を重ねない', () => {
+    const result = normalizeCoachingOutput(
+      '上司に否定されたように感じ、次の一言が怖いのですね。その怖さがあるなかで、いまの状況を言葉にして伝えてくださりありがとうございます。\n\n次に上司へ話す時、いちばん避けたいことは何ですか？',
+      '上司に否定されたように感じて、次の一言が怖いです。'
+    );
+
+    expect(result).not.toContain('ありがとうございます');
+    expect(result).toContain('いちばん避けたいことは何ですか？');
+  });
+
+  it('心が引っかかるという曖昧な質問を具体的な出来事へ言い換える', () => {
+    const result = normalizeCoachingOutput(
+      'いま一番、心が引っかかっている出来事はどのようなことですか。',
+      '仕事のことで少し落ち込んでいます。'
+    );
+
+    expect(result).toContain('今いちばん気になっている出来事');
+    expect(result).not.toContain('心が引っかかって');
+  });
+
   it('本人が言っていない「精一杯」を心理状態として補わない', () => {
     const result = normalizeCoachingOutput(
       '今はその気持ちを抱えるだけで精一杯かもしれません。\n\n今、一番ひっかかっていることは何ですか？',

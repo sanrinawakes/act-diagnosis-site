@@ -11,6 +11,7 @@ const baseUrl = args.get('base') || 'https://act-diagnosis-site.vercel.app';
 const mode = args.get('mode') || 'all';
 const maxTotalMs = Number(args.get('max-ms') || 15000);
 const maxFirstChunkMs = Number(args.get('max-first-chunk-ms') || 10000);
+const expectedTextModel = args.get('expected-text-model') || '';
 const vercelProtectionHeaders = process.env.VERCEL_AUTOMATION_BYPASS_SECRET
   ? {
       'x-vercel-protection-bypass':
@@ -211,6 +212,7 @@ async function sendStreamRequest({ email, diagnosisCode, messages, label }) {
     hasDone: Boolean(donePayload),
     completionStatus: donePayload?.completionStatus ?? null,
     finalizationStatus: donePayload?.finalizationStatus ?? null,
+    modelName: donePayload?.modelName ?? null,
     outputChars: message.length,
     remaining: donePayload?.remaining ?? null,
     repeatsPreviousAssistant: message
@@ -271,7 +273,31 @@ async function sendStreamRequest({ email, diagnosisCode, messages, label }) {
         (message) => message.role === 'user' && /焦り|焦っ/.test(message.content)
       ),
       loneliness: messages.some(
-        (message) => message.role === 'user' && /寂し/.test(message.content)
+        (message) => message.role === 'user' && /寂し|孤独/.test(message.content)
+      ),
+      responsibility: messages.some(
+        (message) => message.role === 'user' && /責任/.test(message.content)
+      ),
+      motivationalForce: messages.some(
+        (message) =>
+          message.role === 'user' &&
+          /突き動か|バネ|原動力/.test(message.content)
+      ),
+      selfRegard: messages.some(
+        (message) =>
+          message.role === 'user' &&
+          /自負|裏返し|価値あるもの/.test(message.content)
+      ),
+      unfairness: messages.some(
+        (message) => message.role === 'user' && /不公平/.test(message.content)
+      ),
+      disrespect: messages.some(
+        (message) =>
+          message.role === 'user' &&
+          /尊重されていない|軽んじられ|敬意が欠け/.test(message.content)
+      ),
+      wounded: messages.some(
+        (message) => message.role === 'user' && /傷つ/.test(message.content)
       ),
       bracing: messages.some(
         (message) => message.role === 'user' && /身構え/.test(message.content)
@@ -340,6 +366,11 @@ async function sendStreamRequest({ email, diagnosisCode, messages, label }) {
 
 function assertResults(results) {
   for (const result of results) {
+    if (expectedTextModel && result.modelName !== expectedTextModel) {
+      throw new Error(
+        `${result.label} used ${result.modelName || 'unknown model'} instead of ${expectedTextModel}`
+      );
+    }
     if (!result.hasDone) {
       throw new Error(`${result.label} did not receive done event`);
     }
@@ -400,7 +431,7 @@ function assertResults(results) {
       );
     }
     if (
-      /お察し(?:いた)?します|承知(?:いた)?しました|いらっしゃる|差し支えなければ|よろしければ|(?:お聞かせ|聞かせて|教えて|お話し|話して)いただけますか|お聞かせいただけますでしょうか|させていただけますでしょうか|となっております|お伺いいたします|お気軽に(?:ご質問|お尋ね|ご相談)|頑張られ|素晴らしい一歩|サポートさせていただきます|ご無理なさらず|ご安心ください|お過ごしください|(?:教えて|お話しして|話して)くださ(?:り|って)ありがとうございます|(?:お気持ち|気持ち).{0,8}よく(?:分|わ)かります|何か(?:具体的に|続けて)?(?:お話し|話して)(?:みたい|したい)?ことはありますか|何か[、,]?(?:今)?(?:感じていることや[、,]?)?(?:話したい|話してみたい)ことはありますか|今[、,]?(?:この瞬間に)?(?:最も|一番)?(?:話したい|話してみたい)ことは何ですか|あなたの言葉一つ一つを大切に受け止めています|受け止めさせてください|受け止めたいと思います|見捨てられ|承認欲求|トラウマ|幼少期|愛着障害|共依存|我慢.{0,12}証拠|という喧嘩|タタスク|タースク|タムスケジュール/.test(
+      /お察し(?:いた)?します|承知(?:いた)?しました|いらっしゃる|差し支えなければ|よろしければ|(?:お聞かせ|聞かせて|教えて|お話し|話して)いただけますか|お聞かせいただけますでしょうか|させていただけますでしょうか|となっております|お伺いいたします|お気軽に(?:ご質問|お尋ね|ご相談)|頑張られ|素晴らしい一歩|サポートさせていただきます|ご無理なさらず|ご安心ください|お過ごしください|(?:教えて|伝えて|書いて|お話しして|話して)くださ(?:り|って)ありがとうございます|(?:お気持ち|気持ち).{0,8}よく(?:分|わ)かります|何か(?:具体的に|続けて)?(?:お話し|話して)(?:みたい|したい)?ことはありますか|何か[、,]?(?:今)?(?:感じていることや[、,]?)?(?:話したい|話してみたい)ことはありますか|今[、,]?(?:この瞬間に)?(?:最も|一番)?(?:話したい|話してみたい)ことは何ですか|あなたの言葉一つ一つを大切に受け止めています|受け止めさせてください|受け止めたいと思います|見捨てられ|承認欲求|トラウマ|幼少期|愛着障害|共依存|我慢.{0,12}証拠|という喧嘩|タタスク|タースク|タムスケジュール/.test(
         result.message
       )
     ) {
@@ -409,7 +440,7 @@ function assertResults(results) {
       );
     }
     if (
-      /否定[」』]?[^。\n]{0,16}(?:ではなく|でなく)[「『]?(?:意見|別の視点|アドバイス)|(?:感情|気持ち|怖さ|不安|怒り|悲しさ|悩み|問題|課題).{0,16}(?:横|脇)[にへ]置|(?:感情|気持ち|怖さ|不安|怒り|悲しさ|悩み|問題|課題).{0,12}切り離|客観的に(?:見|捉え|考え|整理)/.test(
+      /否定[」』]?[^。\n]{0,16}(?:ではなく|でなく)[「『]?(?:意見|別の視点|アドバイス)|(?:感情|気持ち|怖さ|不安|怒り|悲しさ|悩み|問題|課題).{0,16}(?:横|脇)[にへ]置|(?:感情|気持ち|怖さ|不安|怒り|悲しさ|悩み|問題|課題).{0,12}切り離|客観的に(?:見|捉え|考え|整理|評価)|客観的な(?:評価|視点)/.test(
         result.message
       )
     ) {
@@ -435,6 +466,21 @@ function assertResults(results) {
       (/反応が返|返事が返/.test(result.message) &&
         !result.userGrounding.anticipatedReaction) ||
       (/一生懸命/.test(result.message) && !result.userGrounding.hardWork) ||
+      (/(?:責任感|責任を感じ)/.test(result.message) &&
+        !result.userGrounding.responsibility) ||
+      (/(?:突き動か|バネ|原動力)/.test(result.message) &&
+        !result.userGrounding.motivationalForce) ||
+      (/(?:自負|裏返し|価値あるもの)/.test(result.message) &&
+        !result.userGrounding.selfRegard) ||
+      (/(?:孤独感|孤独)/.test(result.message) &&
+        !result.userGrounding.loneliness) ||
+      (/(?:不公平感|不公平)/.test(result.message) &&
+        !result.userGrounding.unfairness) ||
+      (/(?:尊重されていない|軽んじられ|敬意が欠け)/.test(
+        result.message
+      ) && !result.userGrounding.disrespect) ||
+      (/(?:深く.{0,16}傷つ|傷つけ)/.test(result.message) &&
+        !result.userGrounding.wounded) ||
       (/(?:存在.{0,20}尊重|尊重.{0,20}存在)/.test(result.message) &&
         !result.userGrounding.existenceRespect) ||
       (/痛み/.test(result.message) && !result.userGrounding.emotionalPain) ||
@@ -499,6 +545,35 @@ function assertResults(results) {
         `${result.label} asked for multiple answer fields: ${result.message}`
       );
     }
+    if (/\*\*|^#{1,6}\s/m.test(result.message)) {
+      throw new Error(
+        `${result.label} returned Markdown decoration: ${result.message}`
+      );
+    }
+    if (
+      requestsSingleAnswerInSmoke(result.lastUserText) &&
+      /例[:：][^。！？\n]{1,100}(?:、|または|もしくは|など)|例えば[、,]?[^。！？\n]{1,100}(?:または|もしくは|(?:、[^。！？\n]{1,80})+など)/.test(
+        result.message
+      )
+    ) {
+      throw new Error(
+        `${result.label} mixed multiple examples into one answer: ${result.message}`
+      );
+    }
+    if (
+      /(?:タイミング|時機)[^。！？?\n]{0,24}(?:や|と)[^。！？?\n]{0,24}(?:言い方|言葉)|(?:言い方|言葉)[^。！？?\n]{0,24}(?:や|と)[^。！？?\n]{0,24}(?:タイミング|時機)/.test(
+        result.message
+      )
+    ) {
+      throw new Error(
+        `${result.label} asked for timing and wording together: ${result.message}`
+      );
+    }
+    if (!hasBalancedJapaneseDelimiters(result.message)) {
+      throw new Error(
+        `${result.label} returned unbalanced Japanese delimiters: ${result.message}`
+      );
+    }
     if (result.repeatsPreviousAssistant) {
       throw new Error(
         `${result.label} repeated a previous assistant paragraph: ${result.message}`
@@ -536,7 +611,7 @@ function assertResults(results) {
       );
     }
     if (
-      /率直な状況|今の自分の(?:率直な)?状況|事実として一言|自分の本音を一言/.test(
+      /率直な状況|今の自分の(?:率直な)?状況|事実として一言|自分の本音を一言|心が引っかかって/.test(
         result.message
       )
     ) {
@@ -550,7 +625,10 @@ function assertResults(results) {
 function countCoachingActionClauses(text) {
   const actionPattern =
     /書き出|書い|書く|抜き出|箇条書|決め|選ん|伝えて|話し始め|話して|話しかけ|(?:口|声)に出|読み上げ|読み返|見直|繰り返|深呼吸|呼吸を|飲ん|飲む|淹れ|意識を向け|感じる|思い浮かべ|休ん|休息|横にな|閉じ|眺め|確認|開い|移動|入れ|向か|座っ|席につ|立ち上が|歩い|片付|準備|通知.{0,6}オフ|送っ|連絡|相談|断っ|置い|取り組|始め/g;
-  const unquoted = stripJapaneseQuotedContent(text);
+  const unquoted = stripJapaneseQuotedContent(text).replace(
+    /(?:話す|話し始める|話しかける)直前に[、,]?/g,
+    ''
+  );
   const lexicalCount = unquoted
     .split(/(?:て|で)から|その後|次に|続いて|[、,]/)
     .map((clause) => clause.trim())
@@ -592,7 +670,7 @@ function asksForMultipleAnswerDimensions(text) {
         /(?:です|ます)か[、,]?(?:それとも|または|あるいは)[^。！？?\n]{1,100}(?:です|ます)か/.test(
           trimmed
         ) ||
-        /(?:出来事|事実|理由|原因|気持ち|感情|希望|望み|行動)[」』]?(?:と|や|および|ならびに|、)[^。！？?\n]{0,28}[「『]?(?:出来事|事実|理由|原因|気持ち|感情|希望|望み|行動)/.test(
+        /(?:出来事|事実|理由|原因|気持ち|感情|希望|望み|行動|タイミング|言い方|方法|内容)[」』]?(?:と|や|および|ならびに|、)[^。！？?\n]{0,28}[「『]?(?:出来事|事実|理由|原因|気持ち|感情|希望|望み|行動|タイミング|言い方|方法|内容)/.test(
           trimmed
         ))
     );
@@ -605,7 +683,11 @@ function hasStandaloneSuggestedWordingAndQuestion(text) {
     .map((paragraph) => paragraph.trim())
     .filter(Boolean);
   return (
-    paragraphs.some((paragraph) => /^「[^」]{8,}」[。！]?$/.test(paragraph)) &&
+    paragraphs.some((paragraph) =>
+      /^(?:例えば[、,]?\s*)?「[^」]{8,}」(?:と[^。！？?\n]{0,30})?[。！]?$/.test(
+        paragraph
+      )
+    ) &&
     countSemanticQuestions(text) > 0
   );
 }
@@ -626,9 +708,14 @@ function countSemanticQuestions(text) {
 }
 
 function countCoachingMoves(text) {
+  const quotedWordingMoves = (
+    text.match(
+      /「[^」]{4,}(?:お願い|してほしい|話したい|伝えたい|聞いてほしい|できる[？?]|ませんか)[^」]*」/g
+    ) || []
+  ).length;
   const unquoted = stripJapaneseQuotedContent(text);
   const segments = unquoted.match(/[^。！？?\n]+[。！？?]?|\n+/g) || [];
-  return segments.reduce((total, segment) => {
+  return quotedWordingMoves + segments.reduce((total, segment) => {
     const trimmed = segment.trim();
     if (!trimmed) return total;
     const isQuestion =
@@ -650,6 +737,17 @@ function containsAlternativeRequestedActions(text) {
 
 function stripJapaneseQuotedContent(text) {
   return text.replace(/「[^」]*」|『[^』]*』/g, '');
+}
+
+function hasBalancedJapaneseDelimiters(text) {
+  return [
+    ['「', '」'],
+    ['『', '』'],
+    ['（', '）'],
+  ].every(
+    ([open, close]) =>
+      text.split(open).length - 1 === text.split(close).length - 1
+  );
 }
 
 function requestsSingleAnswerInSmoke(text) {

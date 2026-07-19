@@ -991,6 +991,10 @@ export function normalizeCoachingOutput(
     .replace(/[、,]?と承知しました[。]?/g, '、確認しました。')
     .replace(/承知しました[。]?/g, 'わかりました。')
     .replace(/[、,]?と教えてくださりありがとうございます[。]?/g, '、確認しました。')
+    .replace(
+      /[^。\n]{0,100}(?:教えて|伝えて|話して|書いて)(?:くださり|くれて)ありがとうございます[。]?/g,
+      ''
+    )
     .replace(/(?:そう)?お話ししてくださってありがとうございます[。]?/g, '')
     .replace(/お話ししてくださりありがとうございます[。]?/g, '')
     .replace(
@@ -1075,6 +1079,10 @@ export function normalizeCoachingOutput(
     .replace(
       /今(?:一番|いちばん)(?:あなたの)?心を重くしているのは/g,
       '今いちばん気になっているのは'
+    )
+    .replace(
+      /(?:いま|今)[、,]?(?:一番|いちばん)[、,]?心が引っかかっている出来事/g,
+      '今いちばん気になっている出来事'
     )
     .replace(/何が一番心に引っかかっているか/g, '何が一番気になっているか')
     .replace(/何が一番しんどいか/g, '何が一番気になっているか')
@@ -1511,11 +1519,11 @@ function isSingleActionRelevantToContext(
   const contextChecks = [
     {
       present: /SNS|投稿|発信/.test(userContext),
-      relevant: /書|投稿|発信|メモ|伝/.test(answer),
+      relevant: /SNS|投稿|発信/.test(answer),
     },
     {
       present: /仕事|職場|業務|会社|タスク/.test(userContext),
-      relevant: /資料|タスク|予定|メモ|書|開|着手|連絡|相談|伝|確認|整理/.test(
+      relevant: /仕事|職場|業務|会社|タスク|資料|企画|予定|メール|会議|上司|同僚|顧客/.test(
         answer
       ),
     },
