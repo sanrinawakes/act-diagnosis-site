@@ -269,7 +269,8 @@ export async function generateCoachingText(params: {
   const response = result.response;
   const text = normalizeCoachingOutput(
     response.text(),
-    extractTextFromParts(params.lastUserParts)
+    extractTextFromParts(params.lastUserParts),
+    params.historyMessages
   );
 
   if (!text.trim()) {
@@ -360,7 +361,8 @@ export function createJsonLineStream(params: {
 
         fullText = normalizeCoachingOutput(
           fullText,
-          extractTextFromParts(params.lastUserParts)
+          extractTextFromParts(params.lastUserParts),
+          params.historyMessages
         );
         const usage = getUsage(response);
         if (isMaxTokensFinish(response)) {
@@ -877,7 +879,11 @@ export function stripInternalResponseStyleHint(text: string) {
   return text.replace(/\n{2,}【内部応答形式】[^\n]*\s*$/u, '').trim();
 }
 
-export function normalizeCoachingOutput(text: string, lastUserText: string) {
+export function normalizeCoachingOutput(
+  text: string,
+  lastUserText: string,
+  historyMessages: CoachingChatMessage[] = []
+) {
   if (requestsInternalPromptDisclosure(lastUserText)) {
     return 'その内容は公開できません。代わりに、今抱えている悩みや目標について一緒に考えます。今いちばん相談したいことは何ですか？';
   }
@@ -967,8 +973,12 @@ export function normalizeCoachingOutput(text: string, lastUserText: string) {
     )
     .replace(/あなたの言葉一つ一つを大切に受け止めています[。]?/g, '')
     .replace(/。{2,}/g, '。');
-  const groundedText = removeUnsupportedPsychologicalInference(
+  const responsiveText = removeAnsweredEmotionQuestion(
     naturalText,
+    lastUserText
+  );
+  const groundedText = removeUnsupportedPsychologicalInference(
+    responsiveText,
     lastUserText
   );
   const diagnosisSafeText = requestsDiagnosisExplanation(lastUserText)
@@ -1036,7 +1046,11 @@ export function normalizeCoachingOutput(text: string, lastUserText: string) {
     requestsSingleAnswerFormat(lastUserText) &&
     !requestsExplicitClosingQuestion(lastUserText)
   ) {
-    return selectSingleAnswerBlock(singleAnswerSafe, lastUserText);
+    return selectSingleAnswerBlock(
+      singleAnswerSafe,
+      lastUserText,
+      historyMessages
+    );
   }
 
   return ensureCoachingClose(singleAnswerSafe, lastUserText);
@@ -1062,7 +1076,11 @@ function firstNonEmptyParagraph(text: string) {
   );
 }
 
-function selectSingleAnswerBlock(text: string, lastUserText: string) {
+function selectSingleAnswerBlock(
+  text: string,
+  lastUserText: string,
+  historyMessages: CoachingChatMessage[]
+) {
   const paragraphs = text
     .split(/\n{2,}/)
     .map((paragraph) => paragraph.trim())
@@ -1070,6 +1088,14 @@ function selectSingleAnswerBlock(text: string, lastUserText: string) {
   const quotedAnswer = /一言|言い方|文面|返事/.test(lastUserText)
     ? paragraphs.find((paragraph) => /「[^」]{4,}」/.test(paragraph))
     : undefined;
+  if (requestsDirectWording(lastUserText) && quotedAnswer) {
+    if (isGroundedDirectWording(quotedAnswer, historyMessages)) {
+      return quotedAnswer;
+    }
+
+    const groundedFallback = buildGroundedDirectWording(historyMessages);
+    if (groundedFallback) return groundedFallback;
+  }
   const concreteParagraph = paragraphs.find((paragraph) =>
     hasConcreteAction(paragraph, lastUserText)
   );
@@ -1087,6 +1113,88 @@ function selectSingleAnswerBlock(text: string, lastUserText: string) {
         isSubstantiveSingleAnswer(selected)))
     ? selected
     : buildNoQuestionFallback(lastUserText);
+}
+
+const DIRECT_WORDING_GROUNDING_TERMS = [
+  ['軽く扱', 6],
+  ['腹が立', 5],
+  ['時間', 4],
+  ['負担', 4],
+  ['後回し', 4],
+  ['悔', 4],
+  ['却下', 4],
+  ['最後まで', 4],
+  ['断れ', 4],
+  ['否定', 4],
+  ['準備', 3],
+  ['嫌', 3],
+  ['怖', 3],
+  ['不安', 3],
+  ['喧嘩', 2],
+  ['家事', 1],
+] as const;
+
+function selectGroundingStatement(historyMessages: CoachingChatMessage[]) {
+  let bestSentence = '';
+  let bestScore = 0;
+  const sentences = historyMessages
+    .filter((message) => message.role === 'user')
+    .flatMap((message) =>
+      stripAttachmentMarkdown(message.content)
+        .split(/[。！？\n]+/)
+        .map((sentence) => sentence.trim())
+        .filter(Boolean)
+    );
+
+  for (const sentence of sentences) {
+    const score = DIRECT_WORDING_GROUNDING_TERMS.reduce(
+      (total, [term, weight]) =>
+        total + (sentence.includes(term) ? weight : 0),
+      0
+    );
+    if (score >= 3 && score >= bestScore) {
+      bestSentence = sentence;
+      bestScore = score;
+    }
+  }
+
+  return bestSentence;
+}
+
+function isGroundedDirectWording(
+  answer: string,
+  historyMessages: CoachingChatMessage[]
+) {
+  const statement = selectGroundingStatement(historyMessages);
+  if (!statement) return true;
+
+  const salientTerms = DIRECT_WORDING_GROUNDING_TERMS.filter(
+    ([term, weight]) => weight >= 3 && statement.includes(term)
+  ).map(([term]) => term);
+
+  return (
+    salientTerms.length === 0 ||
+    salientTerms.some((term) => answer.includes(term))
+  );
+}
+
+function buildGroundedDirectWording(historyMessages: CoachingChatMessage[]) {
+  const statement = selectGroundingStatement(historyMessages);
+  if (!statement) return '';
+
+  const naturalStatement = statement
+    .replace(
+      /ように感じることが嫌(?:なん)?です$/u,
+      'ように感じるのが嫌です。'
+    )
+    .replace(/ことが嫌(?:なん)?です$/u, 'ことが嫌だと感じています')
+    .replace(/が嫌(?:なん)?です$/u, 'が嫌だと感じています')
+    .replace(/腹が立ちます$/u, '腹が立っています')
+    .replace(/悔しいんです$/u, '悔しいです')
+    .replace(/んです$/u, 'です')
+    .replace(/[。！？]+$/u, '');
+
+  return `「${naturalStatement}。このことを責めたいのではなく、これからどうするか一緒に話したいです。」`;
 }
 
 function isSubstantiveSingleAnswer(text: string) {
@@ -1324,6 +1432,22 @@ function invalidatesUserFeeling(text: string) {
   return /否定.{0,6}(?:ではなく|でなく).{0,8}意見|(?:感情|気持ち|怖さ|不安|怒り|悲しさ).{0,16}(?:横|脇)に置|(?:感情|気持ち|怖さ|不安|怒り|悲しさ).{0,12}切り離|客観的に見つめ直/.test(
     text
   );
+}
+
+function removeAnsweredEmotionQuestion(text: string, lastUserText: string) {
+  if (!/腹が立|怒|悔|悲|怖|不安|嫌|つら|辛|寂|疲/.test(lastUserText)) {
+    return text;
+  }
+
+  return text
+    .split(/(\n{2,})/)
+    .filter(
+      (part) =>
+        !/どんな気持ち(?:ですか|になりますか)[？?]?/.test(part)
+    )
+    .join('')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 function removeUnsupportedPsychologicalInference(

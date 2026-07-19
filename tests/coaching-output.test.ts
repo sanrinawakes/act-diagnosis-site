@@ -155,6 +155,53 @@ describe('normalizeCoachingOutput', () => {
     expect(result.split(/\n{2,}/)).toHaveLength(1);
   });
 
+  it('履歴の核心を落とした一般的な一言を、本人の言葉に基づく文へ戻す', () => {
+    const history = [
+      {
+        role: 'user' as const,
+        content:
+          '夫に家事を頼んでも後回しにされます。私ばかり負担している気がして腹が立ちます。',
+      },
+      {
+        role: 'assistant' as const,
+        content: '家事の負担が偏っていると感じているんですね。',
+      },
+      {
+        role: 'user' as const,
+        content:
+          '家事そのものより、私の時間を軽く扱われているように感じることが嫌なんです。',
+      },
+      {
+        role: 'user' as const,
+        content: '責める言い方をすると喧嘩になるので、落ち着いて伝えたいです。',
+      },
+    ];
+    const result = normalizeCoachingOutput(
+      '「家事のことで、私の気持ちを聞いてほしいな」',
+      '今夜話すなら、最初の一言はどうすればいいですか？',
+      history
+    );
+
+    expect(result).toMatch(/時間|軽く扱/);
+    expect(result).toContain('責めたいのではなく');
+    expect(result).toContain('ように感じるのが嫌です');
+    expect(result).not.toContain('感じることが嫌だと感じています');
+    expect(result).not.toBe('「家事のことで、私の気持ちを聞いてほしいな」');
+  });
+
+  it('本人が感情を明言済みなら「どんな気持ちですか」を聞き直さない', () => {
+    const result = normalizeCoachingOutput(
+      [
+        'それはつらいですね。家事の負担が偏っていると感じているんですね。',
+        'ご主人が家事を後回しにされる時、どんな気持ちになりますか？',
+      ].join('\n\n'),
+      '夫に家事を頼んでも後回しにされます。私ばかり負担している気がして腹が立ちます。'
+    );
+
+    expect(result).not.toContain('どんな気持ちになりますか');
+    expect(result).toContain('相手に何をわかってほしいですか');
+  });
+
   it('文面要求では履歴の核心を引用文へ入れる内部形式を追加する', () => {
     const [part] = buildGeminiParts(
       '今夜話すなら、最初の一言はどうすればいいですか？',
