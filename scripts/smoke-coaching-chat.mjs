@@ -341,18 +341,25 @@ function assertResults(results) {
 
 function countCoachingActionClauses(text) {
   const actionPattern =
-    /書き出|書い|書く|抜き出|箇条書|決め|選ん|伝えて|話し始め|話して|深呼吸|呼吸を|飲ん|休ん|休息|横にな|閉じ|眺め|確認|開い|移動|通知.{0,6}オフ|設定|送っ|連絡|相談|断っ|置い|取り組|始め/;
+    /書き出|書い|書く|抜き出|箇条書|決め|選ん|伝えて|話し始め|話して|深呼吸|呼吸を|飲ん|休ん|休息|横にな|閉じ|眺め|確認|開い|移動|通知.{0,6}オフ|送っ|連絡|相談|断っ|置い|取り組|始め/g;
 
-  return text
+  return stripJapaneseQuotedContent(text)
     .split(/(?:て|で)から|その後|次に|続いて|[、,]/)
     .map((clause) => clause.trim())
-    .filter((clause) => actionPattern.test(clause)).length;
+    .reduce(
+      (total, clause) => total + (clause.match(actionPattern) || []).length,
+      0
+    );
 }
 
 function containsAlternativeRequestedActions(text) {
   return /(?:する|して|書く|書いて|伝える|話す|休む|閉じる|移動させる|オフにする|設定する|行う)か[、,]|(?:または|もしくは|あるいは)/.test(
-    text
+    stripJapaneseQuotedContent(text)
   );
+}
+
+function stripJapaneseQuotedContent(text) {
+  return text.replace(/「[^」]*」|『[^』]*』/g, '');
 }
 
 function requestsSingleAnswerInSmoke(text) {

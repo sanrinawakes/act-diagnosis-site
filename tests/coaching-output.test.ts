@@ -162,6 +162,27 @@ describe('normalizeCoachingOutput', () => {
     expect(result).not.toMatch(/飲み物|休息/);
   });
 
+  it('読点なしでつないだ置く・閉じる・休むの三動作も一つへ戻す', () => {
+    const result = normalizeCoachingOutput(
+      '今日はお疲れ様でした。今すぐスマホを置いて5分間だけ目を閉じて休んでください。',
+      '今日は少し疲れました。短く返してください。'
+    );
+
+    expect(result).toBe('今日はここまでにして、ゆっくり休んでください。');
+    expect(result).not.toMatch(/スマホを置|目を閉じ/);
+  });
+
+  it('具体的な提案がある通常返答へ二つ目の質問を追加しない', () => {
+    const result = normalizeCoachingOutput(
+      '仕事で落ち込むことがあり、整理が必要な状態なんですね。\n\n今は、頭の中にある「何が一番しんどいか」を一つだけ言葉にしてみてください。まずはそこから一緒に見ていきましょう。',
+      '仕事のことで少し落ち込んでいます。短く整理を手伝ってください。'
+    );
+
+    expect(result).toContain('一つだけ言葉にしてみてください。');
+    expect(result).not.toContain('明日ひとつだけ状況を動かすなら');
+    expect(result).not.toMatch(/[？?]/);
+  });
+
   it('AI自身の受け止め姿勢を宣言する文を残さない', () => {
     const result = normalizeCoachingOutput(
       '仕事のことで落ち込んでいるのですね。まずはその重たい気持ちを、そのまま受け止めさせてください。\n\n今、一番しんどいことは何ですか？',
