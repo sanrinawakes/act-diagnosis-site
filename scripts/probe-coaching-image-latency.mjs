@@ -15,12 +15,19 @@ const maxTotalMs = Number(args.get('max-ms') || 15000);
 const supabaseUrl = requireEnv('NEXT_PUBLIC_SUPABASE_URL');
 const anonKey = requireEnv('NEXT_PUBLIC_SUPABASE_ANON_KEY');
 const serviceRoleKey = requireEnv('SUPABASE_SERVICE_ROLE_KEY');
-const vercelProtectionHeaders = process.env.VERCEL_AUTOMATION_BYPASS_SECRET
-  ? {
-      'x-vercel-protection-bypass':
-        process.env.VERCEL_AUTOMATION_BYPASS_SECRET,
-    }
-  : {};
+const vercelProtectionHeaders = {
+  ...(process.env.VERCEL_AUTOMATION_BYPASS_SECRET
+    ? {
+        'x-vercel-protection-bypass':
+          process.env.VERCEL_AUTOMATION_BYPASS_SECRET,
+      }
+    : {}),
+  ...(process.env.VERCEL_OIDC_TOKEN
+    ? {
+        'x-vercel-trusted-oidc-idp-token': process.env.VERCEL_OIDC_TOKEN,
+      }
+    : {}),
+};
 const admin = createClient(supabaseUrl, serviceRoleKey, {
   auth: { persistSession: false, autoRefreshToken: false },
 });

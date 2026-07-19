@@ -12,8 +12,19 @@ const args = new Map(
   })
 );
 const baseUrl = args.get('base') || 'https://act-diagnosis-site.vercel.app';
-const vercelProtectionBypass =
-  process.env.VERCEL_AUTOMATION_BYPASS_SECRET || '';
+const vercelProtectionHeaders = {
+  ...(process.env.VERCEL_AUTOMATION_BYPASS_SECRET
+    ? {
+        'x-vercel-protection-bypass':
+          process.env.VERCEL_AUTOMATION_BYPASS_SECRET,
+      }
+    : {}),
+  ...(process.env.VERCEL_OIDC_TOKEN
+    ? {
+        'x-vercel-trusted-oidc-idp-token': process.env.VERCEL_OIDC_TOKEN,
+      }
+    : {}),
+};
 const supabaseUrl = requireEnv('NEXT_PUBLIC_SUPABASE_URL');
 const serviceRoleKey = requireEnv('SUPABASE_SERVICE_ROLE_KEY');
 const admin = createClient(supabaseUrl, serviceRoleKey, {
@@ -157,14 +168,14 @@ async function createTestMember() {
 }
 
 async function configureVercelProtectionBypass(context) {
-  if (!vercelProtectionBypass) return;
+  if (Object.keys(vercelProtectionHeaders).length === 0) return;
 
   const appOrigin = new URL(baseUrl).origin;
   await context.route(`${appOrigin}/**`, async (route) => {
     await route.continue({
       headers: {
         ...route.request().headers(),
-        'x-vercel-protection-bypass': vercelProtectionBypass,
+        ...vercelProtectionHeaders,
       },
     });
   });
