@@ -116,6 +116,63 @@ describe('normalizeCoachingOutput', () => {
     expect(result).not.toContain('眺め');
   });
 
+  it('「一つだけ」に書き出しと抜き出しの二動作を詰め込まない', () => {
+    const result = normalizeCoachingOutput(
+      '明日は、上司に伝えるべき内容を一度紙に書き出し、その中から「事実」だけを抜き出して箇条書きにしてみてください。',
+      'では、明日まず何をすればいいか一つだけ教えてください。',
+      [
+        {
+          role: 'user',
+          content: '上司に否定されたように感じて、次の一言が怖いです。',
+        },
+      ]
+    );
+
+    expect(result).toBe(
+      '明日の朝、相手に最初に伝える一文だけをメモに書いてください。'
+    );
+    expect(result).not.toMatch(/抜き出|箇条書/);
+  });
+
+  it('「一つだけ」に二つの選択肢を返さない', () => {
+    const result = normalizeCoachingOutput(
+      '明日、SNSのアプリをホーム画面から見えない場所へ移動させるか、通知をオフにする設定を一つだけ行ってみてください。',
+      '明日まず何をすればいいか、一つだけ短く教えてください。',
+      [
+        {
+          role: 'user',
+          content: '仕事の悩みとSNSへの抵抗感について相談しています。',
+        },
+      ]
+    );
+
+    expect(result).toBe(
+      '明日の朝、SNSで最初に伝えたい内容を一文だけメモに書いてください。'
+    );
+    expect(result).not.toMatch(/移動させるか|通知をオフ/);
+  });
+
+  it('短い返答指定にも飲む・休むなどの二動作を返さない', () => {
+    const result = normalizeCoachingOutput(
+      '今日は無理をせず、温かい飲み物を一杯飲んで、早めに休息をとってください。',
+      '今日は少し疲れました。短く返してください。'
+    );
+
+    expect(result).toBe('今日はここまでにして、ゆっくり休んでください。');
+    expect(result).not.toMatch(/飲み物|休息/);
+  });
+
+  it('AI自身の受け止め姿勢を宣言する文を残さない', () => {
+    const result = normalizeCoachingOutput(
+      '仕事のことで落ち込んでいるのですね。まずはその重たい気持ちを、そのまま受け止めさせてください。\n\n今、一番しんどいことは何ですか？',
+      '仕事のことで少し落ち込んでいます。短く整理を手伝ってください。'
+    );
+
+    expect(result).toContain('仕事のことで落ち込んでいるのですね。');
+    expect(result).toContain('一番しんどいことは何ですか？');
+    expect(result).not.toMatch(/受け止めさせてください|受け止めたいと思います/);
+  });
+
   it('一つだけ指定された時は二つ目の提案段落を除く', () => {
     const result = normalizeCoachingOutput(
       [

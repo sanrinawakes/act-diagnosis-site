@@ -971,6 +971,14 @@ export function normalizeCoachingOutput(
     .replace(/[、,]?と教えてくださりありがとうございます[。]?/g, '、確認しました。')
     .replace(/(?:そう)?お話ししてくださってありがとうございます[。]?/g, '')
     .replace(/お話ししてくださりありがとうございます[。]?/g, '')
+    .replace(
+      /(?:まずは[、,]?)?(?:その|今の)[^。\n]{0,90}受け止めさせてください[。]?/g,
+      ''
+    )
+    .replace(
+      /(?:まずは[、,]?)?(?:その|今の)[^。\n]{0,90}受け止めたいと思います[。]?/g,
+      ''
+    )
     .replace(/いらっしゃるのですね/g, 'いるんですね')
     .replace(/いらっしゃる/g, 'いる')
     .replace(/ご自身/g, '自分')
@@ -1123,17 +1131,26 @@ function containsMultipleRequestedItems(text: string) {
     return true;
   }
 
-  return countCoachingActionClauses(text) >= 2;
+  return (
+    countCoachingActionClauses(text) >= 2 ||
+    containsAlternativeRequestedActions(text)
+  );
 }
 
 function countCoachingActionClauses(text: string) {
   const actionPattern =
-    /書き出|書い|書く|決め|選ん|伝えて|話し始め|話して|深呼吸|呼吸を|飲ん|休ん|横にな|目を閉じ|眺め|確認|開い|送っ|連絡|相談|断っ|置い|取り組|始め/;
+    /書き出|書い|書く|抜き出|箇条書|決め|選ん|伝えて|話し始め|話して|深呼吸|呼吸を|飲ん|休ん|休息|横にな|閉じ|眺め|確認|開い|移動|通知.{0,6}オフ|設定|送っ|連絡|相談|断っ|置い|取り組|始め/;
 
   return text
     .split(/(?:て|で)から|その後|次に|続いて|[、,]/)
     .map((clause) => clause.trim())
     .filter((clause) => actionPattern.test(clause)).length;
+}
+
+function containsAlternativeRequestedActions(text: string) {
+  return /(?:する|して|書く|書いて|伝える|話す|休む|閉じる|移動させる|オフにする|設定する|行う)か[、,]|(?:または|もしくは|あるいは)/.test(
+    text
+  );
 }
 
 function requestsOnePhraseAnswer(text: string) {
