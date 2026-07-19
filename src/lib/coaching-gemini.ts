@@ -915,6 +915,8 @@ export function normalizeCoachingOutput(
     .replace(/[、,]?と承知しました[。]?/g, '、確認しました。')
     .replace(/承知しました[。]?/g, 'わかりました。')
     .replace(/[、,]?と教えてくださりありがとうございます[。]?/g, '、確認しました。')
+    .replace(/(?:そう)?お話ししてくださってありがとうございます[。]?/g, '')
+    .replace(/お話ししてくださりありがとうございます[。]?/g, '')
     .replace(/いらっしゃるのですね/g, 'いるんですね')
     .replace(/いらっしゃる/g, 'いる')
     .replace(/ご自身/g, '自分')
@@ -943,6 +945,7 @@ export function normalizeCoachingOutput(
       '聞かせてもらえますか'
     )
     .replace(/お聞かせいただけますでしょうか/g, '聞かせてもらえますか')
+    .replace(/ご?相談させていただけますでしょうか/g, '相談してもよいでしょうか')
     .replace(/お聞かせください/g, '聞かせてください')
     .replace(
       /今回は見送らせていただけますでしょうか/g,

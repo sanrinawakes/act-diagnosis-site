@@ -248,6 +248,18 @@ describe('normalizeCoachingOutput', () => {
     expect(result).toContain('二行目、確認しました。');
   });
 
+  it('過剰な謝意と回りくどい相談許可を自然な表現へ直す', () => {
+    const result = normalizeCoachingOutput(
+      'そうお話ししてくださってありがとうございます。上司の方に「〇〇について、改めてご相談させていただけますでしょうか」と伝えてみてください。',
+      '明日まず何をすればいいか一つだけ教えてください。'
+    );
+
+    expect(result).not.toMatch(
+      /お話ししてくださってありがとうございます|相談させていただけますでしょうか/
+    );
+    expect(result).toContain('相談してもよいでしょうか');
+  });
+
   it('定型的な理解表現を除いた後も直前の文を壊さない', () => {
     const result = normalizeCoachingOutput(
       'そうですね、落ち着いて伝えたいというお気持ち、とてもよく分かります。喧嘩にならずに、自分の気持ちを伝えるのは大切なことですね。',
