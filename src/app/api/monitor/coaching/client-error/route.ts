@@ -14,6 +14,7 @@ const MAX_USER_AGENT_LENGTH = 300;
 const alertLastSentAt = new Map<string, number>();
 
 const CLIENT_FAILURE_STAGES = new Set([
+  'initialize_chat',
   'prepare_attachments',
   'save_user_message',
   'load_history',

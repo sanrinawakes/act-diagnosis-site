@@ -2,8 +2,6 @@
 @tailwind components;
 @tailwind utilities;
 
-@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;600;700;900&display=swap');
-
 :root {
   --primary-dark: #1e3a5f;
   --primary-darker: #0f2644;
@@ -28,7 +26,8 @@ html {
 }
 
 body {
-  font-family: var(--font-noto-sans-jp), system-ui, -apple-system, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic",
+    "Meiryo", system-ui, sans-serif;
   background: linear-gradient(135deg, #e0f2fe 0%, #dbeafe 40%, #e8f4fd 70%, #f0f9ff 100%);
   color: var(--text-dark);
   line-height: 1.6;

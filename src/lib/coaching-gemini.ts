@@ -104,17 +104,19 @@ const LEVEL_SUMMARIES: Record<string, string> = {
 };
 
 export function getCoachingGeminiModel(systemPrompt: string) {
+  const generationConfig = {
+    temperature: 0.55,
+    topP: 0.85,
+    maxOutputTokens: 960,
+    // Gemini 2.5 Flash has thinking enabled by default. Coaching chat needs
+    // low first-token latency more than deep reasoning, so disable it here.
+    thinkingConfig: { thinkingBudget: 0 },
+  };
+
   return getGenAI().getGenerativeModel({
     model: 'gemini-2.5-flash',
     systemInstruction: `${systemPrompt}${RESPONSE_SPEED_INSTRUCTION}`,
-    generationConfig: {
-      temperature: 0.55,
-      topP: 0.85,
-      maxOutputTokens: 960,
-      // Gemini 2.5 Flash has thinking enabled by default. Coaching chat needs
-      // low first-token latency more than deep reasoning, so disable it here.
-      thinkingConfig: { thinkingBudget: 0 },
-    } as any,
+    generationConfig,
   });
 }
 
@@ -358,6 +360,7 @@ export function createJsonLineStream(params: {
 
         write({
           type: 'done',
+          completionStatus: 'complete',
           message: fullText,
           usage,
           ...donePayload,
@@ -382,6 +385,7 @@ export function createJsonLineStream(params: {
           });
           write({
             type: 'done',
+            completionStatus: 'partial',
             message: fullText,
             usage: {},
             ...donePayload,
@@ -407,6 +411,7 @@ export function createJsonLineStream(params: {
           });
           write({
             type: 'done',
+            completionStatus: 'fallback',
             message: fallbackText,
             usage: {},
             ...donePayload,
@@ -837,13 +842,23 @@ function extractDiagnosisCode(systemPrompt: string) {
 }
 
 function extractTextFromParts(parts: GeminiPart[]) {
-  return parts
+  const combined = parts
     .map((part) => ('text' in part ? part.text : ''))
     .join('\n')
     .trim();
+
+  return stripInternalResponseStyleHint(combined);
+}
+
+export function stripInternalResponseStyleHint(text: string) {
+  return text.replace(/\n{2,}【内部応答形式】[^\n]*\s*$/u, '').trim();
 }
 
 export function normalizeCoachingOutput(text: string, lastUserText: string) {
+  if (requestsInternalPromptDisclosure(lastUserText)) {
+    return 'その内容は公開できません。代わりに、今抱えている悩みや目標について一緒に考えます。今いちばん相談したいことは何ですか？';
+  }
+
   const requiresClosingQuestion = requestsExplicitClosingQuestion(lastUserText);
   const questionLimit =
     requiresClosingQuestion || requestsNoFollowUpQuestion(lastUserText) ? 0 : 1;
@@ -887,8 +902,12 @@ export function normalizeCoachingOutput(text: string, lastUserText: string) {
     .replace(/と伝えてみるのはいかがでしょうか[。]?/g, 'と伝えてみてください。')
     .replace(/と伝えてみてはいかがでしょうか[。]?/g, 'と伝えてみてください。')
     .replace(/みるのはいかがでしょうか[。]?/g, 'みてください。')
-    .replace(/してみてはいかがでしょうか[。]?/g, 'してみてください。');
-  const paragraphs = naturalText
+    .replace(/してみてはいかがでしょうか[。]?/g, 'してみてください。')
+    .replace(/してみませんか[。？?]?/g, 'してみてください。');
+  const diagnosisSafeText = requestsDiagnosisExplanation(lastUserText)
+    ? naturalText
+    : removeUnrequestedDiagnosisExplanation(naturalText);
+  const paragraphs = diagnosisSafeText
     .trim()
     .split(/\n{2,}/)
     .filter((paragraph) => {
@@ -907,7 +926,9 @@ export function normalizeCoachingOutput(text: string, lastUserText: string) {
   segments.forEach((segment) => {
     const opens = countMatches(segment, /[「『]/g);
     const closes = countMatches(segment, /[」』]/g);
-    const questionIsQuoted = isQuestionInsideJapaneseQuote(segment, quoteDepth);
+    const questionIsQuoted =
+      !requiresClosingQuestion &&
+      isQuestionInsideJapaneseQuote(segment, quoteDepth);
     const questionCount =
       isQuestionSegment(segment) && !questionIsQuoted
         ? Math.max(1, countMatches(segment, /[？?]/g))
@@ -927,19 +948,53 @@ export function normalizeCoachingOutput(text: string, lastUserText: string) {
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 
+  const fallbackText =
+    questionLimit === 0
+      ? buildNoQuestionFallback(lastUserText)
+      : diagnosisSafeText.trim();
   const balanced = balanceJapaneseDelimiters(
-    softenRepeatedAcknowledgement(normalized || naturalText.trim())
+    softenRepeatedAcknowledgement(normalized || fallbackText)
   );
+
+  if (requestsOnePhraseAnswer(lastUserText)) {
+    return firstNonEmptyParagraph(balanced);
+  }
 
   return ensureCoachingClose(balanced, lastUserText);
 }
 
+function requestsOnePhraseAnswer(text: string) {
+  return /一言(?:だけ|で)|一語(?:だけ|で)?|単語(?:だけ|で)?/.test(text) &&
+    !/提案|アドバイス|行動|方法|やり方|一歩/.test(text);
+}
+
+function firstNonEmptyParagraph(text: string) {
+  return (
+    text
+      .split(/\n{2,}/)
+      .map((paragraph) => paragraph.trim())
+      .find(Boolean) || text.trim()
+  );
+}
+
 function ensureCoachingClose(text: string, lastUserText: string) {
   if (requestsExplicitClosingQuestion(lastUserText)) {
-    return `${text}\n\n${buildClosingCoachingQuestion(lastUserText)}`;
+    const body =
+      requestsConcreteSuggestion(lastUserText) &&
+      !hasConcreteAction(text, lastUserText)
+        ? `${text}\n\n${buildNoQuestionFallback(lastUserText)}`
+        : text;
+    return `${body}\n\n${buildClosingCoachingQuestion(lastUserText)}`;
   }
 
-  if (requestsSingleAnswerFormat(lastUserText) || hasClosingCoachingMove(text)) {
+  if (requestsSingleAnswerFormat(lastUserText)) {
+    return requestsConcreteSuggestion(lastUserText) &&
+      !hasConcreteAction(text, lastUserText)
+      ? `${text}\n\n${buildNoQuestionFallback(lastUserText)}`
+      : text;
+  }
+
+  if (hasAnyCoachingQuestion(text) || hasClosingCoachingMove(text)) {
     return text;
   }
 
@@ -948,6 +1003,28 @@ function ensureCoachingClose(text: string, lastUserText: string) {
   }
 
   return `${text}\n\n${buildClosingCoachingQuestion(lastUserText)}`;
+}
+
+function requestsConcreteSuggestion(text: string) {
+  return /提案|方法|やり方|行動|一歩|着手|できること|何をすれば|どうすれば|どうしたら/.test(
+    text
+  );
+}
+
+function hasConcreteAction(text: string, lastUserText: string) {
+  const hasAction = /(?:してください|してみてください|してみましょう|しましょう|始めてみて|書き出して|書いて|伝えて|開いて|決めて|置いて|休んで|確認して|取り組んで|着手して)|(?:\d+|一|ひと)つ(?:だけ)?(?:書|決|選|始|開|伝)|(?:\d+|一|ひと)(?:分|行|文|項目)/.test(
+    text
+  );
+
+  if (!hasAction) return false;
+
+  if (/企画|資料|文章|書|作成/.test(lastUserText)) {
+    return /(?:\d+|一|ひと)(?:分|行|文|項目)|見出し|目次|目的|タイトル|ファイル|(?:企画書|資料|文章).{0,24}(?:開|書|始|着手)/.test(
+      text
+    );
+  }
+
+  return true;
 }
 
 function hasClosingCoachingMove(text: string) {
@@ -965,6 +1042,14 @@ function hasClosingCoachingMove(text: string) {
       finalSentence
     )
   );
+}
+
+function hasAnyCoachingQuestion(text: string) {
+  return text
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .some(isQuestionSegment);
 }
 
 function buildClosingCoachingQuestion(lastUserText: string) {
@@ -985,6 +1070,19 @@ function buildClosingCoachingQuestion(lastUserText: string) {
   }
 
   return '今の話の中で、いちばん見過ごしたくない本音は何ですか？';
+}
+
+function buildNoQuestionFallback(lastUserText: string) {
+  if (/企画|資料|文章|書|作成/.test(lastUserText)) {
+    return '完成を目指さず、まず最初の15分で見出しを一つだけ書いてみてください。';
+  }
+  if (/話|伝|相手|夫|妻|家族|同僚|上司/.test(lastUserText)) {
+    return '伝えたいことを一文だけメモに書いてから、話し始めてください。';
+  }
+  if (/疲|休|しんど|限界/.test(lastUserText)) {
+    return '今日はここまでにして、ゆっくり休んでください。';
+  }
+  return '今できる最小の行動を一つだけ決めて、そこから始めてみてください。';
 }
 
 function softenRepeatedAcknowledgement(text: string) {
@@ -1046,13 +1144,45 @@ function isQuestionInsideJapaneseQuote(segment: string, depthBefore: number) {
 }
 
 function requestsSingleAnswerFormat(text: string) {
-  return /(?:(?:一つ|ひとつ|1つ)だけ.{0,24}(?:教|提案|答|挙|示|伝|お願)|(?:教|提案|答|挙|示|伝|お願).{0,24}(?:一つ|ひとつ|1つ)だけ|一言(?:だけ|で)|質問(?:は|を)?(?:なし|不要|しない)|短く(?:答|教|返))/.test(text);
+  return /(?:(?:一つ|ひとつ|1つ)(?:だけ)?.{0,24}(?:教|提案|答|挙|示|伝|お願)|(?:教|提案|答|挙|示|伝|お願).{0,24}(?:一つ|ひとつ|1つ)(?:だけ)?|一言(?:だけ|で)|質問(?:は|を)?(?:なし|不要|しない)|短く(?:答|教|返))/.test(text);
+}
+
+function requestsInternalPromptDisclosure(text: string) {
+  return /(?:システムプロンプト|内部指示|内部プロンプト|設定されている指示|隠された指示).{0,80}(?:表示|開示|公開|全文|そのまま|教えて|見せて)|(?:表示|開示|公開|全文|そのまま|教えて|見せて).{0,80}(?:システムプロンプト|内部指示|内部プロンプト|設定されている指示|隠された指示)/.test(
+    text
+  );
 }
 
 function requestsExplicitClosingQuestion(text: string) {
+  if (
+    /質問(?:は|を)?(?:なし|不要|しない|せず)|質問を付けない|質問で終わらない/.test(
+      text
+    )
+  ) {
+    return false;
+  }
+
   return /(?:最後|末尾|終わり|締め).{0,40}質問|質問(?:を|は)?[^。！？?\n]{0,20}(?:一つ|ひとつ|1つ)(?:だけ)?[^。！？?\n]{0,12}(?:して|付け|添え|ください|お願い)/.test(
     text
   );
+}
+
+function requestsDiagnosisExplanation(text: string) {
+  return /診断(?:結果|コード)?|タイプ(?:コード)?|意識レベル|\b[SMP][VMG][AME](?:-[1-6])?\b/.test(
+    text
+  );
+}
+
+function removeUnrequestedDiagnosisExplanation(text: string) {
+  const exposurePattern =
+    /\b[SMP][VMG][AME](?:-[1-6])?\b|(?:意識)?レベル\s*[1-6]|(?:タイプ|傾向).{0,24}(?:あなた|方)|(?:あなた|方).{0,24}(?:タイプ|傾向)/;
+  const filtered = text
+    .split(/\n{2,}/)
+    .filter((paragraph) => !exposurePattern.test(paragraph))
+    .join('\n\n')
+    .trim();
+
+  return filtered || '今の状況でできることを、一つずつ一緒に考えていきましょう。';
 }
 
 function invalidatesUserFeeling(text: string) {

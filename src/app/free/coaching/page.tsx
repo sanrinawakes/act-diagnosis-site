@@ -5,9 +5,12 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase';
 import Header from '@/components/Header';
-import { appendAttachmentMarkdown, parseAttachmentMarkdown } from '@/lib/attachments';
 import {
-  fileToInlineImageAttachment,
+  appendAttachmentMarkdown,
+  parseAttachmentMarkdown,
+  type StoredImageAttachmentReference,
+} from '@/lib/attachments';
+import {
   uploadChatImageAttachments,
   validatePendingImageFiles,
   type PendingImageAttachment,
@@ -193,10 +196,21 @@ export default function FreeCoachingPage() {
       }
 
       const files = attachmentsToSend.map((attachment) => attachment.file);
-      const [uploadedAttachments, inlineAttachments] = await Promise.all([
-        uploadChatImageAttachments(files, authSession?.access_token || ''),
-        Promise.all(files.map((file) => fileToInlineImageAttachment(file))),
-      ]);
+      const uploadedAttachments = await uploadChatImageAttachments(
+        files,
+        authSession?.access_token || ''
+      );
+      const chatAttachments: StoredImageAttachmentReference[] =
+        uploadedAttachments.map((attachment) => {
+          if (!attachment.path) {
+            throw new Error('画像の保存先を確認できませんでした。');
+          }
+          return {
+            name: attachment.name,
+            mimeType: attachment.mimeType,
+            path: attachment.path,
+          };
+        });
       const userVisibleContent = appendAttachmentMarkdown(
         messageText || '画像を添付しました。',
         uploadedAttachments
@@ -224,7 +238,7 @@ export default function FreeCoachingPage() {
           email: email,
           diagnosisCode: diagnosisCode,
           messages: messages.concat({ ...userMessage, content: apiContent }),
-          attachments: inlineAttachments,
+          attachments: chatAttachments,
           stream: true,
         }),
       });

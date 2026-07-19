@@ -3,7 +3,6 @@ import {
   isAllowedImageType,
   MAX_IMAGE_ATTACHMENTS,
   MAX_IMAGE_BYTES,
-  type InlineImageAttachment,
   type StoredAttachment,
 } from '@/lib/attachments';
 
@@ -31,22 +30,6 @@ export function validatePendingImageFiles(currentCount: number, files: File[]) {
   return null;
 }
 
-export async function fileToInlineImageAttachment(file: File): Promise<InlineImageAttachment> {
-  const dataUrl = await new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || ''));
-    reader.onerror = () => reject(new Error('画像の読み込みに失敗しました。'));
-    reader.readAsDataURL(file);
-  });
-  const [, base64 = ''] = dataUrl.split(',');
-
-  return {
-    name: file.name,
-    mimeType: file.type,
-    data: base64,
-  };
-}
-
 export async function uploadChatImageAttachments(
   files: File[],
   accessToken = ''
@@ -55,24 +38,32 @@ export async function uploadChatImageAttachments(
     return [];
   }
 
-  const formData = new FormData();
-  formData.append('purpose', 'chat');
-  files.forEach((file) => formData.append('attachments', file));
+  const uploadOne = async (file: File) => {
+    const formData = new FormData();
+    formData.append('purpose', 'chat');
+    formData.append('attachments', file);
 
-  const response = await fetch('/api/attachments', {
-    method: 'POST',
-    headers: accessToken
-      ? {
-          Authorization: `Bearer ${accessToken}`,
-        }
-      : undefined,
-    body: formData,
-  });
-  const data = await response.json().catch(() => ({}));
+    const response = await fetch('/api/attachments', {
+      method: 'POST',
+      headers: accessToken
+        ? {
+            Authorization: `Bearer ${accessToken}`,
+          }
+        : undefined,
+      body: formData,
+    });
+    const data = await response.json().catch(() => ({}));
 
-  if (!response.ok) {
-    throw new Error(data.error || '画像のアップロードに失敗しました。');
-  }
+    if (!response.ok) {
+      throw new Error(data.error || '画像のアップロードに失敗しました。');
+    }
 
-  return data.attachments || [];
+    const attachment = data.attachments?.[0] as StoredAttachment | undefined;
+    if (!attachment?.path) {
+      throw new Error('画像の保存先を確認できませんでした。');
+    }
+    return attachment;
+  };
+
+  return Promise.all(files.map(uploadOne));
 }

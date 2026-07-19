@@ -24,6 +24,16 @@ export type InlineImageAttachment = {
   data: string;
 };
 
+export type StoredImageAttachmentReference = {
+  name: string;
+  mimeType: string;
+  path: string;
+};
+
+export type ChatImageAttachment =
+  | InlineImageAttachment
+  | StoredImageAttachmentReference;
+
 export function isAllowedImageType(mimeType: string) {
   return ALLOWED_IMAGE_TYPES.includes(mimeType);
 }

@@ -37,30 +37,51 @@ try {
   conversations.push(await runLongInputScenario());
   conversations.push(await runExplicitClosingQuestionScenario());
   conversations.push(await runImageScenario());
+  conversations.push(await runThreeLargeImagesScenario());
   conversations.push(await runSessionMemoryScenario());
+  conversations.push(await runSixTurnConversationScenario());
+  conversations.push(...(await runParallelBurstScenario()));
 
   const checks = [...apiContractChecks, ...evaluateConversations(conversations)];
   const failed = checks.filter((check) => !check.passed);
 
+  const summary = {
+    conversations: conversations.length,
+    turns: conversations.reduce(
+      (sum, conversation) => sum + conversation.turns.length,
+      0
+    ),
+    checks: checks.length,
+    passed: checks.length - failed.length,
+    failed: failed.length,
+  };
+  const compactOutput = args.get('compact') === 'true';
   console.log(
     JSON.stringify(
-      {
-        ok: failed.length === 0,
-        baseUrl,
-        runId,
-        summary: {
-          conversations: conversations.length,
-          turns: conversations.reduce(
-            (sum, conversation) => sum + conversation.turns.length,
-            0
-          ),
-          checks: checks.length,
-          passed: checks.length - failed.length,
-          failed: failed.length,
-        },
-        checks,
-        conversations,
-      },
+      compactOutput
+        ? {
+            ok: failed.length === 0,
+            baseUrl,
+            runId,
+            summary,
+            failed,
+            timings: conversations.flatMap((conversation) =>
+              conversation.turns.map((turn) => ({
+                label: turn.label,
+                firstChunkMs: turn.firstChunkMs,
+                totalMs: turn.totalMs,
+                outputChars: turn.outputChars,
+              }))
+            ),
+          }
+        : {
+            ok: failed.length === 0,
+            baseUrl,
+            runId,
+            summary,
+            checks,
+            conversations,
+          },
       null,
       2
     )
@@ -200,6 +221,36 @@ async function runImageScenario() {
   });
 }
 
+async function runThreeLargeImagesScenario() {
+  const targetBytes = 650 * 1024;
+  return runConversation({
+    name: 'three-large-images',
+    diagnosisCode: 'MGA-3',
+    inputs: [
+      {
+        content: '添付した画像の枚数を一言で答えてください。',
+        attachments: [
+          {
+            name: 'large-red.png',
+            mimeType: 'image/png',
+            data: createPaddedSolidPngBase64(255, 0, 0, targetBytes, 11),
+          },
+          {
+            name: 'large-green.png',
+            mimeType: 'image/png',
+            data: createPaddedSolidPngBase64(0, 255, 0, targetBytes, 22),
+          },
+          {
+            name: 'large-blue.png',
+            mimeType: 'image/png',
+            data: createPaddedSolidPngBase64(0, 0, 255, targetBytes, 33),
+          },
+        ],
+      },
+    ],
+  });
+}
+
 async function runSessionMemoryScenario() {
   const name = 'paid-session-memory';
   const sessionId = await createSession(name);
@@ -271,6 +322,55 @@ async function runSessionMemoryScenario() {
   };
 }
 
+async function runSixTurnConversationScenario() {
+  return runConversation({
+    name: 'six-turn-paid-conversation',
+    diagnosisCode: 'MME-3',
+    inputs: [
+      {
+        content:
+          '夫に家事を頼んでも後回しにされます。私ばかり負担している気がして腹が立ちます。',
+      },
+      {
+        content:
+          '家事そのものより、私の時間を軽く扱われているように感じることが嫌なんです。',
+      },
+      {
+        content:
+          '責める言い方をすると喧嘩になるので、落ち着いて伝えたいです。',
+      },
+      {
+        content:
+          '今夜話すなら、最初の一言はどうすればいいですか？',
+      },
+      {
+        content:
+          'その言い方ならできそうですが、途中で感情的になりそうで不安です。',
+      },
+      {
+        content:
+          '話す直前にできることを、質問なしで一つだけ教えてください。',
+      },
+    ],
+  });
+}
+
+async function runParallelBurstScenario() {
+  return Promise.all(
+    Array.from({ length: 5 }, async (_, index) =>
+      runConversation({
+        name: `parallel-burst-${index + 1}`,
+        diagnosisCode: 'MGA-3',
+        inputs: [
+          {
+            content: `同時接続テスト${index + 1}です。明日の朝に始める行動を一つだけ、質問なしで答えてください。`,
+          },
+        ],
+      })
+    )
+  );
+}
+
 async function runApiContractChecks() {
   const checks = [];
   const validBody = JSON.stringify({
@@ -287,6 +387,122 @@ async function runApiContractChecks() {
 
   const emptyMessages = await authenticatedJsonRequest({ messages: [] });
   addCheck(checks, 'API防御: 空メッセージは400', emptyMessages.status === 400, String(emptyMessages.status));
+
+  const invalidMessageObject = await authenticatedJsonRequest({
+    messages: [{ role: 'user' }],
+  });
+  addCheck(
+    checks,
+    'API防御: 本文欠落メッセージは400',
+    invalidMessageObject.status === 400,
+    String(invalidMessageObject.status)
+  );
+
+  const invalidRole = await authenticatedJsonRequest({
+    messages: [{ role: 'system', content: '不正ロール' }],
+  });
+  addCheck(
+    checks,
+    'API防御: systemロールは400',
+    invalidRole.status === 400,
+    String(invalidRole.status)
+  );
+
+  const assistantLast = await authenticatedJsonRequest({
+    messages: [{ role: 'assistant', content: '最後がAI' }],
+  });
+  addCheck(
+    checks,
+    'API防御: 最終メッセージがassistantなら400',
+    assistantLast.status === 400,
+    String(assistantLast.status)
+  );
+
+  const tooManyMessages = await authenticatedJsonRequest({
+    messages: Array.from({ length: 101 }, (_, index) => ({
+      role: index % 2 === 0 ? 'user' : 'assistant',
+      content: `上限テスト${index}`,
+    })),
+  });
+  addCheck(
+    checks,
+    'API防御: メッセージ101件は400',
+    tooManyMessages.status === 400,
+    String(tooManyMessages.status)
+  );
+
+  const tooLongMessage = await authenticatedJsonRequest({
+    messages: [{ role: 'user', content: 'あ'.repeat(50001) }],
+  });
+  addCheck(
+    checks,
+    'API防御: 1メッセージ50001文字は400',
+    tooLongMessage.status === 400,
+    String(tooLongMessage.status)
+  );
+
+  const attachmentsNotArray = await authenticatedJsonRequest({
+    messages: [{ role: 'user', content: '添付形式テスト' }],
+    attachments: 'invalid',
+  });
+  addCheck(
+    checks,
+    'API防御: attachments非配列は400',
+    attachmentsNotArray.status === 400,
+    String(attachmentsNotArray.status)
+  );
+
+  const invalidBase64 = await authenticatedJsonRequest({
+    messages: [{ role: 'user', content: '画像データテスト' }],
+    attachments: [
+      { name: 'broken.png', mimeType: 'image/png', data: 'not-base64***' },
+    ],
+  });
+  addCheck(
+    checks,
+    'API防御: 壊れたbase64画像は400',
+    invalidBase64.status === 400,
+    String(invalidBase64.status)
+  );
+
+  const foreignStoredAttachment = await authenticatedJsonRequest({
+    messages: [{ role: 'user', content: '保存画像の権限テスト' }],
+    attachments: [
+      {
+        name: 'foreign.png',
+        mimeType: 'image/png',
+        path: `chat/${randomUUID()}/2026-07-19/foreign.png`,
+      },
+    ],
+  });
+  addCheck(
+    checks,
+    'API防御: 他会員の保存画像参照は400',
+    foreignStoredAttachment.status === 400,
+    String(foreignStoredAttachment.status)
+  );
+
+  const invalidDiagnosis = await authenticatedJsonRequest({
+    messages: [{ role: 'user', content: '診断コードテスト' }],
+    diagnosisCode: 'INVALID-9',
+  });
+  addCheck(
+    checks,
+    'API防御: 不正診断コードは400',
+    invalidDiagnosis.status === 400,
+    String(invalidDiagnosis.status)
+  );
+
+  const invalidSessionId = await authenticatedJsonRequest({
+    messages: [{ role: 'user', content: 'セッションIDテスト' }],
+    sessionId: 'not-a-uuid',
+  });
+  addCheck(
+    checks,
+    'API防御: 不正session IDは400',
+    invalidSessionId.status === 400,
+    String(invalidSessionId.status)
+  );
 
   const invalidMime = await authenticatedJsonRequest({
     messages: [{ role: 'user', content: '不正画像テスト' }],
@@ -314,7 +530,182 @@ async function runApiContractChecks() {
   });
   addCheck(checks, 'API防御: 壊れたJSONは400', invalidJson.status === 400, String(invalidJson.status));
 
+  await runAccessBoundaryChecks(checks);
+  await runSessionApiChecks(checks);
+  await runNonStreamApiCheck(checks);
+
   return checks;
+}
+
+async function runAccessBoundaryChecks(checks) {
+  const today = new Date().toISOString().split('T')[0];
+  try {
+    const { error: inactiveError } = await admin
+      .from('profiles')
+      .update({ is_active: false, subscription_status: 'none' })
+      .eq('id', userId);
+    if (inactiveError) throw inactiveError;
+
+    const inactiveResponse = await authenticatedJsonRequest({
+      messages: [{ role: 'user', content: '権限境界テスト' }],
+      stream: true,
+    });
+    addCheck(
+      checks,
+      '会員権限: 非アクティブ会員は403',
+      inactiveResponse.status === 403,
+      String(inactiveResponse.status)
+    );
+  } finally {
+    const { error } = await admin
+      .from('profiles')
+      .update({
+        is_active: true,
+        subscription_status: 'active',
+        chat_count_today: 0,
+        last_chat_date: today,
+      })
+      .eq('id', userId);
+    if (error) throw error;
+  }
+
+  try {
+    const { error: limitSetupError } = await admin
+      .from('profiles')
+      .update({ chat_count_today: 50, last_chat_date: today })
+      .eq('id', userId);
+    if (limitSetupError) throw limitSetupError;
+
+    const limitResponse = await authenticatedJsonRequest({
+      messages: [{ role: 'user', content: '利用上限テスト' }],
+      stream: true,
+    });
+    addCheck(
+      checks,
+      '利用上限: 50回到達後は429',
+      limitResponse.status === 429,
+      String(limitResponse.status)
+    );
+  } finally {
+    const { error } = await admin
+      .from('profiles')
+      .update({ chat_count_today: 0, last_chat_date: today })
+      .eq('id', userId);
+    if (error) throw error;
+  }
+}
+
+async function runSessionApiChecks(checks) {
+  const marker = `履歴検索マーカー-${runId}`;
+  const sessionId = await createSession('session-api-contract');
+  await insertMessage(sessionId, 'user', marker);
+  const headers = { Authorization: `Bearer ${accessToken}` };
+
+  const searchResponse = await fetch(
+    `${baseUrl}/api/chat/sessions?search=${encodeURIComponent(marker)}&page=1&limit=20`,
+    { headers }
+  );
+  const searchBody = await searchResponse.json().catch(() => ({}));
+  addCheck(
+    checks,
+    '履歴API: 本文検索で対象セッションを返す',
+    searchResponse.status === 200 &&
+      Array.isArray(searchBody.sessions) &&
+      searchBody.sessions.some((session) => session.id === sessionId),
+    `${searchResponse.status}: ${JSON.stringify(searchBody).slice(0, 300)}`
+  );
+
+  const pinResponse = await fetch(`${baseUrl}/api/chat/sessions`, {
+    method: 'PATCH',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ session_id: sessionId, is_pinned: true }),
+  });
+  const pinBody = await pinResponse.json().catch(() => ({}));
+  addCheck(
+    checks,
+    '履歴API: ピン留めを保存する',
+    pinResponse.status === 200 && pinBody.is_pinned === true,
+    `${pinResponse.status}: ${JSON.stringify(pinBody).slice(0, 300)}`
+  );
+
+  const invalidPatch = await fetch(`${baseUrl}/api/chat/sessions`, {
+    method: 'PATCH',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ session_id: sessionId, is_pinned: 'yes' }),
+  });
+  addCheck(
+    checks,
+    '履歴API: 不正なピン値は400',
+    invalidPatch.status === 400,
+    String(invalidPatch.status)
+  );
+
+  const invalidIdPatch = await fetch(`${baseUrl}/api/chat/sessions`, {
+    method: 'PATCH',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ session_id: 'not-a-uuid', is_pinned: true }),
+  });
+  addCheck(
+    checks,
+    '履歴API: 不正な更新IDは400',
+    invalidIdPatch.status === 400,
+    String(invalidIdPatch.status)
+  );
+
+  const invalidIdDelete = await fetch(`${baseUrl}/api/chat/sessions`, {
+    method: 'DELETE',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ session_id: 'not-a-uuid' }),
+  });
+  addCheck(
+    checks,
+    '履歴API: 不正な削除IDは400',
+    invalidIdDelete.status === 400,
+    String(invalidIdDelete.status)
+  );
+
+  const deleteResponse = await fetch(`${baseUrl}/api/chat/sessions`, {
+    method: 'DELETE',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ session_id: sessionId }),
+  });
+  const { count: remainingSessions, error: verifyError } = await admin
+    .from('chat_sessions')
+    .select('id', { count: 'exact', head: true })
+    .eq('id', sessionId);
+  if (verifyError) throw verifyError;
+  addCheck(
+    checks,
+    '履歴API: 削除後にDBから消える',
+    deleteResponse.status === 200 && remainingSessions === 0,
+    `${deleteResponse.status} / remaining=${remainingSessions}`
+  );
+}
+
+async function runNonStreamApiCheck(checks) {
+  const startedAt = Date.now();
+  const response = await authenticatedJsonRequest({
+    messages: [
+      {
+        role: 'user',
+        content: '非stream契約テストです。明日の一歩を一つだけ答えてください。',
+      },
+    ],
+    diagnosisCode: 'MGA-3',
+    stream: false,
+  });
+  const body = await response.json().catch(() => ({}));
+  addCheck(
+    checks,
+    'API契約: 非stream応答も正常',
+    response.status === 200 &&
+      typeof body.message === 'string' &&
+      body.message.length >= 8 &&
+      Date.now() - startedAt <= maxTotalMs,
+    `${response.status} / ${Date.now() - startedAt}ms / ${String(
+      body.message || ''
+    ).length} chars`
+  );
 }
 
 function authenticatedJsonRequest(body) {
@@ -454,6 +845,7 @@ async function sendStreamRequest({
     doneMs,
     totalMs: Date.now() - startedAt,
     hasDone: Boolean(donePayload),
+    completionStatus: donePayload?.completionStatus || null,
     outputChars: message.length,
     questionMarks: countQuestionMarks(message),
     semanticQuestions: countSemanticQuestions(message),
@@ -468,10 +860,17 @@ function evaluateConversations(conversations) {
   allTurns.forEach((turn) => {
     const minimumOutputChars =
       turn.label.startsWith('inline-image') ||
+      turn.label.startsWith('three-large-images') ||
       turn.label.startsWith('paid-session-memory')
         ? 1
         : 8;
     addCheck(checks, `${turn.label}: stream完了`, turn.hasDone);
+    addCheck(
+      checks,
+      `${turn.label}: AI生成が完全完了`,
+      turn.completionStatus === 'complete',
+      String(turn.completionStatus)
+    );
     addCheck(
       checks,
       `${turn.label}: 初回応答${maxFirstChunkMs}ms以内`,
@@ -615,9 +1014,20 @@ function evaluateConversations(conversations) {
     checks,
     '画像: 添付内容の赤色を認識',
     /赤|レッド/.test(image.turns[0].message) &&
-      image.turns[0].outputChars <= 60 &&
+      image.turns[0].outputChars <= 30 &&
+      !/行動|始め|一緒に考え/.test(image.turns[0].message) &&
       image.turns[0].semanticQuestions === 0,
     `${image.turns[0].outputChars} chars / ${image.turns[0].semanticQuestions} questions`
+  );
+
+  const largeImages = findConversation(conversations, 'three-large-images');
+  addCheck(
+    checks,
+    '画像: 約650KBを3枚同時送信して枚数を認識',
+    /3|三/.test(largeImages.turns[0].message) &&
+      largeImages.turns[0].outputChars <= 30 &&
+      largeImages.turns[0].semanticQuestions === 0,
+    `${largeImages.turns[0].outputChars} chars: ${largeImages.turns[0].message}`
   );
 
   const explicitClosing = findConversation(
@@ -639,6 +1049,14 @@ function evaluateConversations(conversations) {
       countSemanticQuestions(explicitClosingFinalSentence) === 1,
     explicitClosingMessage
   );
+  addCheck(
+    checks,
+    '質問指定: 質問の前に明日着手できる具体策を示す',
+    /(?:15分|5分|一行|一つ|ひとつ|目次|見出し|目的|書|開|始|着手)/.test(
+      explicitClosingMessage
+    ),
+    explicitClosingMessage
+  );
 
   const memory = findConversation(conversations, 'paid-session-memory');
   addCheck(
@@ -650,7 +1068,40 @@ function evaluateConversations(conversations) {
   addCheck(
     checks,
     '有料版長期履歴: 要約から固有情報「ミント」を保持',
-    /ミント/.test(memory.turns[0].message)
+    /ミント/.test(memory.turns[0].message) &&
+      memory.turns[0].outputChars <= 30 &&
+      !/行動|始め|一緒に考え/.test(memory.turns[0].message)
+  );
+
+  const sixTurn = findConversation(conversations, 'six-turn-paid-conversation');
+  addCheck(
+    checks,
+    '6往復会話: 3回目以降も全streamが完了',
+    sixTurn.turns.slice(2).every((turn) => turn.hasDone),
+    sixTurn.turns.map((turn) => `${turn.label}:${turn.totalMs}ms`).join(', ')
+  );
+  addCheck(
+    checks,
+    '6往復会話: 最新の「責めずに伝える」を保持',
+    /伝|言葉|一言|話|落ち着|呼吸/.test(sixTurn.turns[3].message),
+    sixTurn.turns[3].message
+  );
+  addCheck(
+    checks,
+    '6往復会話: 最終回答は質問なしの一行動',
+    sixTurn.turns[5].semanticQuestions === 0 &&
+      /呼吸|メモ|一言|書|止|数|秒|確認/.test(sixTurn.turns[5].message),
+    sixTurn.turns[5].message
+  );
+
+  const parallelTurns = conversations
+    .filter((conversation) => conversation.name.startsWith('parallel-burst-'))
+    .flatMap((conversation) => conversation.turns);
+  addCheck(
+    checks,
+    '同時5接続: 全リクエストが完了',
+    parallelTurns.length === 5 && parallelTurns.every((turn) => turn.hasDone),
+    parallelTurns.map((turn) => `${turn.label}:${turn.totalMs}ms`).join(', ')
   );
 
   return checks;
@@ -763,6 +1214,36 @@ function createSolidPngBase64(width, height, red, green, blue, alpha) {
   ]).toString('base64');
 }
 
+function createPaddedSolidPngBase64(red, green, blue, targetBytes, seed) {
+  const signature = Buffer.from('89504e470d0a1a0a', 'hex');
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(1, 0);
+  ihdr.writeUInt32BE(1, 4);
+  ihdr[8] = 8;
+  ihdr[9] = 6;
+  const fixedChunks = [
+    pngChunk('IHDR', ihdr),
+    pngChunk('IDAT', deflateSync(Buffer.from([0, red, green, blue, 255]))),
+    pngChunk('IEND', Buffer.alloc(0)),
+  ];
+  const fixedSize =
+    signature.length + fixedChunks.reduce((sum, chunk) => sum + chunk.length, 0);
+  const padding = Buffer.alloc(Math.max(1, targetBytes - fixedSize - 12));
+  let state = seed >>> 0;
+  for (let index = 0; index < padding.length; index += 1) {
+    state = (state * 1664525 + 1013904223) >>> 0;
+    padding[index] = state & 0xff;
+  }
+
+  return Buffer.concat([
+    signature,
+    fixedChunks[0],
+    pngChunk('npAD', padding),
+    fixedChunks[1],
+    fixedChunks[2],
+  ]).toString('base64');
+}
+
 function pngChunk(type, data) {
   const typeBuffer = Buffer.from(type, 'ascii');
   const length = Buffer.alloc(4);
@@ -799,11 +1280,33 @@ async function cleanup() {
       .from('chat_sessions')
       .delete()
       .in('id', createdSessionIds);
-    if (error) console.error(`Failed to delete quality test sessions: ${error.message}`);
+    if (error) {
+      console.error(`Failed to delete quality test sessions: ${error.message}`);
+      process.exitCode = 1;
+    }
   }
   if (userId) {
     const { error } = await admin.auth.admin.deleteUser(userId);
-    if (error) console.error(`Failed to delete quality test user: ${error.message}`);
+    if (error) {
+      console.error(`Failed to delete quality test user: ${error.message}`);
+      process.exitCode = 1;
+      return;
+    }
+
+    const { count: profiles, error: profileError } = await admin
+      .from('profiles')
+      .select('id', { count: 'exact', head: true })
+      .eq('id', userId);
+    const { count: sessions, error: sessionError } = await admin
+      .from('chat_sessions')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', userId);
+    if (profileError || sessionError || profiles !== 0 || sessions !== 0) {
+      console.error(
+        `Quality test cleanup verification failed: profiles=${profiles}, sessions=${sessions}`
+      );
+      process.exitCode = 1;
+    }
   }
 }
 

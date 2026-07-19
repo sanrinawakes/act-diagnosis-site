@@ -1,6 +1,7 @@
 const DEFAULT_ALERT_EMAILS = ['awakes2025@gmail.com', 'silversense.fzco@gmail.com'];
 const ALERT_FROM_EMAIL = process.env.FROM_EMAIL || 'noreply@silversense.cc';
 const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
+const ALERT_DELIVERY_TIMEOUT_MS = 8000;
 
 const CODEX_RESPONSE_GUIDE = [
   '【SAORIさん：この監視メールをCodexで対応する方法】',
@@ -55,6 +56,11 @@ export async function sendCoachingAlert(params: {
   }
 
   const text = buildCoachingAlertText(params);
+  const abortController = new AbortController();
+  const timeoutId = setTimeout(
+    () => abortController.abort(),
+    ALERT_DELIVERY_TIMEOUT_MS
+  );
 
   try {
     const response = await fetch('https://api.resend.com/emails', {
@@ -69,6 +75,7 @@ export async function sendCoachingAlert(params: {
         subject: params.subject,
         text,
       }),
+      signal: abortController.signal,
     });
 
     if (!response.ok) {
@@ -98,6 +105,8 @@ export async function sendCoachingAlert(params: {
       accepted: false,
       reason: error instanceof Error ? error.message : String(error),
     };
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 

@@ -1,5 +1,6 @@
 export interface ChatStreamDone {
   message?: string;
+  completionStatus?: 'complete' | 'partial' | 'fallback';
   remaining?: number;
   limit?: number;
   usage?: {
@@ -27,7 +28,12 @@ export async function readChatStream(
 
   if (!response.body || !contentType.includes('application/x-ndjson')) {
     const data = await response.json();
-    if (data.message) onChunk(data.message);
+    if (!data?.message || typeof data.message !== 'string') {
+      throw new Error(
+        'AIの応答データを確認できませんでした。もう一度お試しください。'
+      );
+    }
+    onChunk(data.message);
     return data;
   }
 
@@ -35,6 +41,8 @@ export async function readChatStream(
   const decoder = new TextDecoder();
   let buffer = '';
   let donePayload: ChatStreamDone = {};
+  let receivedDone = false;
+  let receivedText = '';
 
   while (true) {
     const { value, done } = await reader.read();
@@ -45,10 +53,11 @@ export async function readChatStream(
     buffer = lines.pop() || '';
 
     for (const line of lines) {
-      const event = parseStreamLine(line);
+      const event = parseRequiredStreamLine(line);
       if (!event) continue;
 
       if (event.type === 'chunk' && event.text) {
+        receivedText += event.text;
         onChunk(event.text);
       }
 
@@ -57,6 +66,7 @@ export async function readChatStream(
       }
 
       if (event.type === 'done') {
+        receivedDone = true;
         donePayload = event;
       }
     }
@@ -64,12 +74,30 @@ export async function readChatStream(
 
   const remaining = buffer.trim();
   if (remaining) {
-    const event = parseStreamLine(remaining);
-    if (event?.type === 'chunk' && event.text) onChunk(event.text);
+    const event = parseRequiredStreamLine(remaining);
+    if (event?.type === 'chunk' && event.text) {
+      receivedText += event.text;
+      onChunk(event.text);
+    }
     if (event?.type === 'error') {
       throw new Error(event.error || 'AIの応答生成に失敗しました。もう一度お試しください。');
     }
-    if (event?.type === 'done') donePayload = event;
+    if (event?.type === 'done') {
+      receivedDone = true;
+      donePayload = event;
+    }
+  }
+
+  if (!receivedDone) {
+    throw new Error(
+      'AIの応答が途中で切れました。入力内容は保存されています。もう一度お試しください。'
+    );
+  }
+
+  if (!receivedText.trim() && !donePayload.message?.trim()) {
+    throw new Error(
+      'AIから空の応答が返されました。入力内容は保存されています。もう一度お試しください。'
+    );
   }
 
   return donePayload;
@@ -88,8 +116,27 @@ function parseStreamLine(line: string): StreamEvent | null {
   if (!trimmed) return null;
 
   try {
-    return JSON.parse(trimmed) as StreamEvent;
+    const parsed = JSON.parse(trimmed) as Partial<StreamEvent>;
+    if (
+      !parsed ||
+      typeof parsed !== 'object' ||
+      !['chunk', 'done', 'error'].includes(String(parsed.type || ''))
+    ) {
+      return null;
+    }
+    return parsed as StreamEvent;
   } catch {
     return null;
   }
+}
+
+function parseRequiredStreamLine(line: string) {
+  if (!line.trim()) return null;
+  const event = parseStreamLine(line);
+  if (!event) {
+    throw new Error(
+      'AIの応答データが途中で壊れました。入力内容は保存されています。もう一度お試しください。'
+    );
+  }
+  return event;
 }

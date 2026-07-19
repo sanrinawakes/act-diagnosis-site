@@ -7,12 +7,13 @@ import {
   getContextualizedPrompt,
 } from '@/data/coaching-system-prompt';
 import {
-  isAllowedImageType,
-  MAX_IMAGE_ATTACHMENTS,
-  MAX_IMAGE_BYTES,
   stripAttachmentMarkdown,
-  type InlineImageAttachment,
+  type ChatImageAttachment,
 } from '@/lib/attachments';
+import {
+  resolveChatAttachments,
+  validateChatAttachments,
+} from '@/lib/server-chat-attachments';
 import {
   buildGeminiParts,
   compactCoachingMessages,
@@ -35,6 +36,13 @@ const AUTH_TIMEOUT_MS = 8000;
 const PROFILE_TIMEOUT_MS = 8000;
 const SETTINGS_TIMEOUT_MS = 5000;
 const SESSION_CONTEXT_TIMEOUT_MS = 8000;
+const ATTACHMENT_LOAD_TIMEOUT_MS = 20000;
+const MAX_REQUEST_MESSAGES = 100;
+const MAX_MESSAGE_CHARS = 50000;
+const MAX_TOTAL_MESSAGE_CHARS = 200000;
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const DIAGNOSIS_CODE_PATTERN = /^[SMP][VMG][AME]-[1-6]$/;
 
 interface ChatMessage {
   role: 'user' | 'assistant';
@@ -44,7 +52,7 @@ interface ChatMessage {
 interface RequestBody {
   messages: ChatMessage[];
   diagnosisCode?: string;
-  attachments?: InlineImageAttachment[];
+  attachments?: ChatImageAttachment[];
   stream?: boolean;
   sessionId?: string;
   session_id?: string;
@@ -196,7 +204,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const body: RequestBody = await request.json();
+    const rawBody: unknown = await request.json();
+    const bodyValidation = validateRequestBody(rawBody);
+    if (!bodyValidation.body) {
+      return NextResponse.json(
+        { error: bodyValidation.error || 'Invalid request body' },
+        { status: 400 }
+      );
+    }
+    const body = bodyValidation.body;
     const {
       messages,
       diagnosisCode,
@@ -206,16 +222,30 @@ export async function POST(request: NextRequest) {
       session_id,
     } = body;
 
-    if (!messages || messages.length === 0) {
-      return NextResponse.json(
-        { error: 'No messages provided' },
-        { status: 400 }
-      );
-    }
-
-    const attachmentError = validateInlineAttachments(attachments);
+    const attachmentError = validateChatAttachments(attachments, user.id);
     if (attachmentError) {
       return NextResponse.json({ error: attachmentError }, { status: 400 });
+    }
+
+    let inlineAttachments;
+    try {
+      inlineAttachments = await withStageTimeout(
+        resolveChatAttachments(attachments, supabaseAdmin),
+        ATTACHMENT_LOAD_TIMEOUT_MS,
+        'ATTACHMENT_LOAD_TIMEOUT'
+      );
+    } catch (error) {
+      logPreflightError(requestId, 'attachments', requestStartedAt, error);
+      const timedOut =
+        error instanceof Error && error.message === 'ATTACHMENT_LOAD_TIMEOUT';
+      return NextResponse.json(
+        {
+          error: timedOut
+            ? '画像の読み込みに時間がかかりすぎました。入力内容は保存されています。もう一度お試しください。'
+            : '画像を読み込めませんでした。画像を選び直して、もう一度お試しください。',
+        },
+        { status: timedOut ? 504 : 502 }
+      );
     }
 
     // Build system prompt
@@ -251,7 +281,7 @@ export async function POST(request: NextRequest) {
       : compactCoachingMessages(messages);
     const lastUserMessage = compactMessages[compactMessages.length - 1];
     const lastUserText = stripAttachmentMarkdown(lastUserMessage.content);
-    const lastUserParts = buildGeminiParts(lastUserText, attachments);
+    const lastUserParts = buildGeminiParts(lastUserText, inlineAttachments);
     const historyMessages = compactMessages.slice(0, -1);
     const telemetry = {
       route: '/api/chat',
@@ -259,7 +289,7 @@ export async function POST(request: NextRequest) {
       requestMessages: messages.length,
       compactMessages: compactMessages.length,
       historyMessages: historyMessages.length,
-      attachments: attachments.length,
+      attachments: inlineAttachments.length,
       lastUserChars: lastUserText.length,
       totalStoredMessages: sessionContext.totalStoredMessages,
       memoryUsed: sessionContext.memoryUsed,
@@ -273,13 +303,17 @@ export async function POST(request: NextRequest) {
       const currentCount = profile && profile.last_chat_date === today ? (profile.chat_count_today || 0) : 0;
       const newCount = currentCount + 1;
 
-      await supabaseAdmin
+      const { error: countUpdateError } = await supabaseAdmin
         .from('profiles')
         .update({
           chat_count_today: newCount,
           last_chat_date: today,
         })
         .eq('id', user.id);
+
+      if (countUpdateError) {
+        throw new Error(`CHAT_COUNT_UPDATE_FAILED: ${countUpdateError.message}`);
+      }
 
       return {
         remaining: profile?.role === 'admin' ? DAILY_CHAT_LIMIT : Math.max(0, DAILY_CHAT_LIMIT - newCount),
@@ -402,26 +436,118 @@ function logPreflightError(
   );
 }
 
-function validateInlineAttachments(attachments: InlineImageAttachment[]) {
-  if (attachments.length > MAX_IMAGE_ATTACHMENTS) {
-    return `画像は最大${MAX_IMAGE_ATTACHMENTS}枚まで添付できます。`;
+function validateRequestBody(input: unknown): {
+  body?: RequestBody;
+  error?: string;
+} {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    return { error: 'Invalid request body' };
   }
 
-  for (const attachment of attachments) {
-    if (!isAllowedImageType(attachment.mimeType)) {
-      return '添付できる画像は JPG / PNG / WebP / GIF のみです。';
-    }
+  const body = input as Record<string, unknown>;
+  if (!Array.isArray(body.messages) || body.messages.length === 0) {
+    return { error: 'No messages provided' };
+  }
+  if (body.messages.length > MAX_REQUEST_MESSAGES) {
+    return { error: `Messages must be ${MAX_REQUEST_MESSAGES} items or fewer` };
+  }
 
-    if (!attachment.data || base64ByteSize(attachment.data) > MAX_IMAGE_BYTES) {
-      return '画像1枚あたりの上限は4MBです。';
+  let totalMessageChars = 0;
+  const messages: ChatMessage[] = [];
+  for (const item of body.messages) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      return { error: 'Invalid message format' };
+    }
+    const message = item as Record<string, unknown>;
+    if (
+      (message.role !== 'user' && message.role !== 'assistant') ||
+      typeof message.content !== 'string' ||
+      !message.content.trim()
+    ) {
+      return { error: 'Invalid message format' };
+    }
+    if (message.content.length > MAX_MESSAGE_CHARS) {
+      return { error: `Each message must be ${MAX_MESSAGE_CHARS} characters or fewer` };
+    }
+    totalMessageChars += message.content.length;
+    messages.push({ role: message.role, content: message.content });
+  }
+
+  if (totalMessageChars > MAX_TOTAL_MESSAGE_CHARS) {
+    return {
+      error: `Total message content must be ${MAX_TOTAL_MESSAGE_CHARS} characters or fewer`,
+    };
+  }
+  if (messages[messages.length - 1].role !== 'user') {
+    return { error: 'The last message must be from the user' };
+  }
+
+  const rawAttachments = body.attachments ?? [];
+  if (!Array.isArray(rawAttachments)) {
+    return { error: 'Invalid attachments format' };
+  }
+  const attachments: ChatImageAttachment[] = [];
+  for (const item of rawAttachments) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      return { error: 'Invalid attachments format' };
+    }
+    const attachment = item as Record<string, unknown>;
+    const hasInlineData = typeof attachment.data === 'string';
+    const hasStoredPath = typeof attachment.path === 'string';
+    if (
+      typeof attachment.name !== 'string' ||
+      typeof attachment.mimeType !== 'string' ||
+      hasInlineData === hasStoredPath
+    ) {
+      return { error: 'Invalid attachments format' };
+    }
+    if (hasInlineData) {
+      attachments.push({
+        name: attachment.name.slice(0, 255),
+        mimeType: attachment.mimeType,
+        data: attachment.data as string,
+      });
+    } else {
+      if ((attachment.path as string).length > 600) {
+        return { error: 'Invalid attachments format' };
+      }
+      attachments.push({
+        name: attachment.name.slice(0, 255),
+        mimeType: attachment.mimeType,
+        path: attachment.path as string,
+      });
     }
   }
 
-  return '';
-}
+  if (
+    body.diagnosisCode !== undefined &&
+    (typeof body.diagnosisCode !== 'string' ||
+      !DIAGNOSIS_CODE_PATTERN.test(body.diagnosisCode))
+  ) {
+    return { error: 'Invalid diagnosis code' };
+  }
+  if (body.stream !== undefined && typeof body.stream !== 'boolean') {
+    return { error: 'Invalid stream option' };
+  }
 
-function base64ByteSize(base64: string) {
-  const clean = base64.replace(/\s/g, '');
-  const padding = clean.endsWith('==') ? 2 : clean.endsWith('=') ? 1 : 0;
-  return Math.floor((clean.length * 3) / 4) - padding;
+  const sessionId = body.sessionId ?? body.session_id;
+  if (
+    sessionId !== undefined &&
+    (typeof sessionId !== 'string' || !UUID_PATTERN.test(sessionId))
+  ) {
+    return { error: 'Invalid session ID' };
+  }
+
+  return {
+    body: {
+      messages,
+      diagnosisCode: body.diagnosisCode as string | undefined,
+      attachments,
+      stream: body.stream as boolean | undefined,
+      sessionId:
+        typeof body.sessionId === 'string' ? body.sessionId : undefined,
+      session_id:
+        typeof body.session_id === 'string' ? body.session_id : undefined,
+    },
+  };
 }

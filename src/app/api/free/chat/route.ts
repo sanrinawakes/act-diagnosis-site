@@ -7,12 +7,14 @@ import {
   getContextualizedPrompt,
 } from '@/data/coaching-system-prompt';
 import {
-  isAllowedImageType,
-  MAX_IMAGE_ATTACHMENTS,
-  MAX_IMAGE_BYTES,
   stripAttachmentMarkdown,
-  type InlineImageAttachment,
+  type ChatImageAttachment,
 } from '@/lib/attachments';
+import { createServerClient } from '@/lib/supabase-server';
+import {
+  resolveChatAttachments,
+  validateChatAttachments,
+} from '@/lib/server-chat-attachments';
 import {
   buildGeminiParts,
   compactCoachingMessages,
@@ -36,7 +38,7 @@ interface RequestBody {
   messages: ChatMessage[];
   diagnosisCode?: string;
   email: string;
-  attachments?: InlineImageAttachment[];
+  attachments?: ChatImageAttachment[];
   stream?: boolean;
 }
 
@@ -106,7 +108,49 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const attachmentError = validateInlineAttachments(attachments);
+    if (!Array.isArray(attachments)) {
+      return NextResponse.json({ error: 'Invalid attachments format' }, { status: 400 });
+    }
+    const malformedAttachment = attachments.some((attachment) => {
+      if (!attachment || typeof attachment !== 'object') return true;
+      const candidate = attachment as unknown as Record<string, unknown>;
+      const hasData = typeof candidate.data === 'string';
+      const hasPath = typeof candidate.path === 'string';
+      return (
+        typeof candidate.name !== 'string' ||
+        typeof candidate.mimeType !== 'string' ||
+        hasData === hasPath
+      );
+    });
+    if (malformedAttachment) {
+      return NextResponse.json({ error: 'Invalid attachments format' }, { status: 400 });
+    }
+
+    const hasStoredAttachments = attachments.some(
+      (attachment) => attachment && typeof attachment === 'object' && 'path' in attachment
+    );
+    let attachmentUserId: string | null = null;
+    if (hasStoredAttachments) {
+      const authClient = await createServerClient();
+      const {
+        data: { user },
+      } = await authClient.auth.getUser();
+      if (!user) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      }
+      if (
+        !user.email ||
+        user.email.toLowerCase() !== String(email || '').trim().toLowerCase()
+      ) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      }
+      attachmentUserId = user.id;
+    }
+
+    const attachmentError = validateChatAttachments(
+      attachments,
+      attachmentUserId
+    );
     if (attachmentError) {
       return NextResponse.json({ error: attachmentError }, { status: 400 });
     }
@@ -119,6 +163,24 @@ export async function POST(request: NextRequest) {
     }
 
     const supabase = createAdminClient();
+    let inlineAttachments;
+    try {
+      inlineAttachments = await withAttachmentTimeout(
+        resolveChatAttachments(attachments, supabase),
+        20000
+      );
+    } catch (error) {
+      const timedOut =
+        error instanceof Error && error.message === 'ATTACHMENT_LOAD_TIMEOUT';
+      return NextResponse.json(
+        {
+          error: timedOut
+            ? '画像の読み込みに時間がかかりすぎました。もう一度お試しください。'
+            : '画像を読み込めませんでした。画像を選び直してください。',
+        },
+        { status: timedOut ? 504 : 502 }
+      );
+    }
 
     // Get or create free user and check rate limit
     const { data: existingUser, error: selectError } = await supabase
@@ -195,7 +257,7 @@ export async function POST(request: NextRequest) {
     const compactMessages = compactCoachingMessages(messages);
     const lastUserMessage = compactMessages[compactMessages.length - 1];
     const lastUserText = stripAttachmentMarkdown(lastUserMessage.content);
-    const lastUserParts = buildGeminiParts(lastUserText, attachments);
+    const lastUserParts = buildGeminiParts(lastUserText, inlineAttachments);
     const historyMessages = compactMessages.slice(0, -1);
     const telemetry = {
       route: '/api/free/chat',
@@ -203,7 +265,7 @@ export async function POST(request: NextRequest) {
       requestMessages: messages.length,
       compactMessages: compactMessages.length,
       historyMessages: historyMessages.length,
-      attachments: attachments.length,
+      attachments: inlineAttachments.length,
       lastUserChars: lastUserText.length,
     };
 
@@ -300,26 +362,13 @@ export async function POST(request: NextRequest) {
   }
 }
 
-function validateInlineAttachments(attachments: InlineImageAttachment[]) {
-  if (attachments.length > MAX_IMAGE_ATTACHMENTS) {
-    return `画像は最大${MAX_IMAGE_ATTACHMENTS}枚まで添付できます。`;
-  }
-
-  for (const attachment of attachments) {
-    if (!isAllowedImageType(attachment.mimeType)) {
-      return '添付できる画像は JPG / PNG / WebP / GIF のみです。';
-    }
-
-    if (!attachment.data || base64ByteSize(attachment.data) > MAX_IMAGE_BYTES) {
-      return '画像1枚あたりの上限は4MBです。';
-    }
-  }
-
-  return '';
-}
-
-function base64ByteSize(base64: string) {
-  const clean = base64.replace(/\s/g, '');
-  const padding = clean.endsWith('==') ? 2 : clean.endsWith('=') ? 1 : 0;
-  return Math.floor((clean.length * 3) / 4) - padding;
+function withAttachmentTimeout<T>(promise: Promise<T>, timeoutMs: number) {
+  let timeoutId: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(
+      () => reject(new Error('ATTACHMENT_LOAD_TIMEOUT')),
+      timeoutMs
+    );
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timeoutId));
 }

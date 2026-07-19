@@ -8,15 +8,13 @@ import Header from '@/components/Header';
 import { createClient } from '@/lib/supabase';
 import { useI18n } from '@/lib/i18n';
 import { useSubscriptionGuard } from '@/hooks/useSubscriptionGuard';
-import type { DiagnosisResult } from '@/lib/types';
-import { typeNames } from '@/data/type-names';
 import {
   appendAttachmentMarkdown,
   parseAttachmentMarkdown,
   stripAttachmentMarkdown,
+  type StoredImageAttachmentReference,
 } from '@/lib/attachments';
 import {
-  fileToInlineImageAttachment,
   uploadChatImageAttachments,
   validatePendingImageFiles,
   type PendingImageAttachment,
@@ -29,6 +27,29 @@ interface Message {
   content: string;
   createdAt: string;
 }
+
+interface SpeechRecognitionResultLike {
+  isFinal: boolean;
+  [index: number]: { transcript: string };
+}
+
+interface SpeechRecognitionEventLike {
+  resultIndex: number;
+  results: ArrayLike<SpeechRecognitionResultLike>;
+}
+
+interface SpeechRecognitionLike {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  onresult: ((event: SpeechRecognitionEventLike) => void) | null;
+  onend: (() => void) | null;
+  onerror: (() => void) | null;
+  start(): void;
+  stop(): void;
+}
+
+type SpeechRecognitionConstructor = new () => SpeechRecognitionLike;
 
 interface ChatSession {
   id: string;
@@ -50,6 +71,7 @@ interface PaginatedResponse {
 }
 
 type ChatClientFailureStage =
+  | 'initialize_chat'
   | 'prepare_attachments'
   | 'save_user_message'
   | 'load_history'
@@ -68,6 +90,7 @@ type ClientChatFailurePayload = {
 
 const CHAT_RESPONSE_TIMEOUT_MS = 60000;
 const CHAT_PERSIST_TIMEOUT_MS = 10000;
+const CHAT_INITIALIZATION_TIMEOUT_MS = 12000;
 const ATTACHMENT_PRIVACY_NOTICE =
   'クリップボタンを押して写真選択画面を開いただけでは、画像は送信されません。選んだ画像も、送信ボタンを押す前なら削除できます。';
 const CHAT_BUSY_MESSAGE =
@@ -77,6 +100,7 @@ const CHAT_NOT_READY_MESSAGE =
 const CHAT_API_MESSAGE_LIMIT = 24;
 const CLIENT_CHAT_FAILURE_QUEUE_KEY = 'acti-client-chat-failure-queue';
 const CLIENT_CHAT_FAILURE_QUEUE_LIMIT = 10;
+const CHAT_PERSIST_RETRY_DELAYS_MS = [400, 1000];
 
 const createTimeoutError = (message: string) =>
   new DOMException(message, 'AbortError');
@@ -102,6 +126,17 @@ const withTimeout = async <T,>(
     if (timeoutId) clearTimeout(timeoutId);
   }
 };
+
+const delay = (ms: number) =>
+  new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+const createMessageId = () =>
+  globalThis.crypto?.randomUUID?.() ||
+  'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (character) => {
+    const random = Math.floor(Math.random() * 16);
+    const value = character === 'x' ? random : (random & 0x3) | 0x8;
+    return value.toString(16);
+  });
 
 const postClientChatFailure = async (
   payload: ClientChatFailurePayload
@@ -188,13 +223,12 @@ function CoachingContent() {
   const [input, setInput] = useState('');
   const [isListening, setIsListening] = useState(false);
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
-  const recognitionRef = useRef<any>(null);
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const [loading, setLoading] = useState(false);
   const [botDisabled, setBotDisabled] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [diagnosisCode, setDiagnosisCode] = useState<string | null>(null);
   const [initialized, setInitialized] = useState(false);
-  const [latestDiagnosis, setLatestDiagnosis] = useState<DiagnosisResult | null>(null);
   const [remainingChats, setRemainingChats] = useState<number | null>(null);
   const [chatLimit, setChatLimit] = useState<number>(50);
   const [rateLimitReached, setRateLimitReached] = useState(false);
@@ -216,6 +250,7 @@ function CoachingContent() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pendingAttachmentsRef = useRef<PendingImageAttachment[]>([]);
+  const sendInFlightRef = useRef(false);
   const supabase = createClient();
   const { t } = useI18n();
   const sidebarLimit = 20;
@@ -269,9 +304,16 @@ function CoachingContent() {
         params.append('page', (pageNum || 1).toString());
         params.append('limit', sidebarLimit.toString());
 
-        const response = await fetch(`/api/chat/sessions?${params.toString()}`, {
-          headers: { Authorization: `Bearer ${authSession.access_token}` },
-        });
+        const controller = new AbortController();
+        const response = await withTimeout(
+          fetch(`/api/chat/sessions?${params.toString()}`, {
+            headers: { Authorization: `Bearer ${authSession.access_token}` },
+            signal: controller.signal,
+          }),
+          CHAT_INITIALIZATION_TIMEOUT_MS,
+          'チャット履歴の読み込みに時間がかかりすぎました。',
+          () => controller.abort()
+        );
 
         if (!response.ok) return;
 
@@ -302,18 +344,26 @@ function CoachingContent() {
       } = await supabase.auth.getSession();
       if (!authSession?.access_token) return;
 
-      await fetch('/api/chat/sessions', {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${authSession.access_token}`,
-        },
-        body: JSON.stringify({ session_id: sid, is_pinned: !isPinned }),
-      });
+      const response = await withTimeout(
+        fetch('/api/chat/sessions', {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${authSession.access_token}`,
+          },
+          body: JSON.stringify({ session_id: sid, is_pinned: !isPinned }),
+        }),
+        CHAT_INITIALIZATION_TIMEOUT_MS,
+        'ピン留めの更新に時間がかかりすぎました。'
+      );
+      if (!response.ok) throw new Error('ピン留めを更新できませんでした。');
 
       await fetchSidebarSessions(sidebarSearch, sidebarTab, sidebarPage);
     } catch (error) {
       console.error('Error pinning session:', error);
+      setAttachmentError(
+        error instanceof Error ? error.message : 'ピン留めを更新できませんでした。'
+      );
     }
   };
 
@@ -325,14 +375,19 @@ function CoachingContent() {
       } = await supabase.auth.getSession();
       if (!authSession?.access_token) return;
 
-      await fetch('/api/chat/sessions', {
-        method: 'DELETE',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${authSession.access_token}`,
-        },
-        body: JSON.stringify({ session_id: sid }),
-      });
+      const response = await withTimeout(
+        fetch('/api/chat/sessions', {
+          method: 'DELETE',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${authSession.access_token}`,
+          },
+          body: JSON.stringify({ session_id: sid }),
+        }),
+        CHAT_INITIALIZATION_TIMEOUT_MS,
+        'チャット履歴の削除に時間がかかりすぎました。'
+      );
+      if (!response.ok) throw new Error('チャット履歴を削除できませんでした。');
 
       setConfirmDeleteId(null);
 
@@ -344,6 +399,9 @@ function CoachingContent() {
       await fetchSidebarSessions(sidebarSearch, sidebarTab, 1);
     } catch (error) {
       console.error('Error deleting session:', error);
+      setAttachmentError(
+        error instanceof Error ? error.message : 'チャット履歴を削除できませんでした。'
+      );
     }
   };
 
@@ -369,10 +427,15 @@ function CoachingContent() {
     if (!isReady) return;
 
     const initializeChat = async () => {
+      const initializationStartedAt = Date.now();
       try {
         const {
           data: { user },
-        } = await supabase.auth.getUser();
+        } = await withTimeout(
+          supabase.auth.getUser(),
+          CHAT_INITIALIZATION_TIMEOUT_MS,
+          'ログイン状態の確認に時間がかかりすぎました。'
+        );
 
         if (!user) {
           router.push('/login');
@@ -384,10 +447,11 @@ function CoachingContent() {
         const codeParam = searchParams.get('code');
 
         // サイト設定確認
-        const { data: settings } = await supabase
-          .from('site_settings')
-          .select('bot_enabled')
-          .single();
+        const { data: settings } = await withTimeout(
+          supabase.from('site_settings').select('bot_enabled').single(),
+          CHAT_INITIALIZATION_TIMEOUT_MS,
+          'チャット設定の確認に時間がかかりすぎました。'
+        );
 
         if (settings && !settings.bot_enabled) {
           setBotDisabled(true);
@@ -397,12 +461,16 @@ function CoachingContent() {
 
         // 既存セッションを再開する場合
         if (sessionIdParam) {
-          const { data: existingSession, error: sessionError } = await supabase
-            .from('chat_sessions')
-            .select('*')
-            .eq('id', sessionIdParam)
-            .eq('user_id', user.id)
-            .single();
+          const { data: existingSession, error: sessionError } = await withTimeout(
+            supabase
+              .from('chat_sessions')
+              .select('*')
+              .eq('id', sessionIdParam)
+              .eq('user_id', user.id)
+              .single(),
+            CHAT_INITIALIZATION_TIMEOUT_MS,
+            'チャット履歴の確認に時間がかかりすぎました。'
+          );
 
           if (sessionError || !existingSession) {
             console.error('Session not found');
@@ -412,11 +480,15 @@ function CoachingContent() {
 
           setSessionId(existingSession.id);
 
-          const { data: msgs, error: messagesError } = await supabase
-            .from('chat_messages')
-            .select('*')
-            .eq('session_id', existingSession.id)
-            .order('created_at', { ascending: true });
+          const { data: msgs, error: messagesError } = await withTimeout(
+            supabase
+              .from('chat_messages')
+              .select('*')
+              .eq('session_id', existingSession.id)
+              .order('created_at', { ascending: true }),
+            CHAT_INITIALIZATION_TIMEOUT_MS,
+            'メッセージ履歴の読み込みに時間がかかりすぎました。'
+          );
 
           if (messagesError) {
             console.error('Failed to load messages:', messagesError);
@@ -434,16 +506,19 @@ function CoachingContent() {
 
           let code: string | null = null;
           if (existingSession.diagnosis_result_id) {
-            const { data: diagnosis } = await supabase
-              .from('diagnosis_results')
-              .select('type_code, consciousness_level')
-              .eq('id', existingSession.diagnosis_result_id)
-              .single();
+            const { data: diagnosis } = await withTimeout(
+              supabase
+                .from('diagnosis_results')
+                .select('type_code, consciousness_level')
+                .eq('id', existingSession.diagnosis_result_id)
+                .single(),
+              CHAT_INITIALIZATION_TIMEOUT_MS,
+              '診断結果の読み込みに時間がかかりすぎました。'
+            );
 
             if (diagnosis) {
               code = `${diagnosis.type_code}-${diagnosis.consciousness_level}`;
               setDiagnosisCode(code);
-              setLatestDiagnosis(diagnosis as any);
             }
           }
           if (!code && existingSession.title) {
@@ -459,14 +534,18 @@ function CoachingContent() {
         }
 
         if (!forceNewSession && !codeParam) {
-          const { data: latestSession } = await supabase
-            .from('chat_sessions')
-            .select('id')
-            .eq('user_id', user.id)
-            .order('last_message_at', { ascending: false, nullsFirst: false })
-            .order('created_at', { ascending: false })
-            .limit(1)
-            .maybeSingle();
+          const { data: latestSession } = await withTimeout(
+            supabase
+              .from('chat_sessions')
+              .select('id')
+              .eq('user_id', user.id)
+              .order('last_message_at', { ascending: false, nullsFirst: false })
+              .order('created_at', { ascending: false })
+              .limit(1)
+              .maybeSingle(),
+            CHAT_INITIALIZATION_TIMEOUT_MS,
+            '最新チャットの確認に時間がかかりすぎました。'
+          );
 
           if (latestSession?.id) {
             router.replace(`/coaching?session=${latestSession.id}`);
@@ -479,15 +558,18 @@ function CoachingContent() {
         let diagnosisResultId: string | null = null;
 
         if (!code) {
-          const { data: diagnosisData } = await supabase
-            .from('diagnosis_results')
-            .select('*')
-            .eq('user_id', user.id)
-            .order('created_at', { ascending: false })
-            .limit(1);
+          const { data: diagnosisData } = await withTimeout(
+            supabase
+              .from('diagnosis_results')
+              .select('*')
+              .eq('user_id', user.id)
+              .order('created_at', { ascending: false })
+              .limit(1),
+            CHAT_INITIALIZATION_TIMEOUT_MS,
+            '診断結果の確認に時間がかかりすぎました。'
+          );
 
           if (diagnosisData && diagnosisData.length > 0) {
-            setLatestDiagnosis(diagnosisData[0]);
             diagnosisResultId = diagnosisData[0].id;
             code = `${diagnosisData[0].type_code}-${diagnosisData[0].consciousness_level}`;
           }
@@ -495,15 +577,19 @@ function CoachingContent() {
 
         setDiagnosisCode(code);
 
-        const { data: session, error: sessionError } = await supabase
-          .from('chat_sessions')
-          .insert({
-            user_id: user.id,
-            diagnosis_result_id: diagnosisResultId,
-            title: code ? `Coaching: ${code}` : 'Chat Session',
-          })
-          .select()
-          .single();
+        const { data: session, error: sessionError } = await withTimeout(
+          supabase
+            .from('chat_sessions')
+            .insert({
+              user_id: user.id,
+              diagnosis_result_id: diagnosisResultId,
+              title: code ? `Coaching: ${code}` : 'Chat Session',
+            })
+            .select()
+            .single(),
+          CHAT_INITIALIZATION_TIMEOUT_MS,
+          '新しいチャットの作成に時間がかかりすぎました。'
+        );
 
         if (sessionError) throw sessionError;
 
@@ -519,6 +605,16 @@ function CoachingContent() {
         router.replace(`/coaching?session=${session.id}`);
       } catch (err) {
         console.error('Chat initialization error:', err);
+        reportClientChatFailure({
+          stage: 'initialize_chat',
+          sessionId: searchParams.get('session') || '',
+          elapsedMs: Date.now() - initializationStartedAt,
+          hadPartialResponse: false,
+          error: err,
+        });
+        setAttachmentError(
+          'チャットを準備できませんでした。入力はまだ送信されていません。画面を再読み込みしてください。'
+        );
         setInitialized(true);
       }
     };
@@ -528,14 +624,17 @@ function CoachingContent() {
 
   const sendInitialMessage = async (sid: string, code: string) => {
     try {
-      await supabase.from('chat_messages').insert({
-        session_id: sid,
-        role: 'system',
-        content: `ACTIの結果: ${code}\nこのコードに基づいてパーソナライズされたコーチングを提供します。`,
-      });
+      const { error: systemMessageError } = await supabase
+        .from('chat_messages')
+        .insert({
+          session_id: sid,
+          role: 'system',
+          content: `ACTIの結果: ${code}\nこのコードに基づいてパーソナライズされたコーチングを提供します。`,
+        });
+      if (systemMessageError) throw systemMessageError;
 
       const welcomeMsg: Message = {
-        id: Date.now().toString(),
+        id: createMessageId(),
         role: 'assistant',
         content: `こんにちは！ACTIのコーチングへようこそ。\n\nあなたのタイプコード「${code}」に基づいて、パーソナライズされたコーチングを提供します。\n\n次のテーマについてお話しすることができます：\n・自己理解 - あなたのタイプの強みと課題\n・行動パターン - 日常での行動傾向\n・人間関係 - 対人スキルの向上\n・キャリア - 仕事での活躍方法\n・パーソナルグロース - 成長のステップ\n\n何について詳しく知りたいですか？`,
         createdAt: new Date().toISOString(),
@@ -543,29 +642,33 @@ function CoachingContent() {
 
       setMessages([welcomeMsg]);
 
-      await supabase.from('chat_messages').insert({
-        session_id: sid,
+      await persistChatMessage({
+        id: welcomeMsg.id,
+        sessionId: sid,
         role: 'assistant',
         content: welcomeMsg.content,
+        failureMessage: '最初のメッセージを保存できませんでした。',
       });
 
-      await supabase
+      const { error: activityError } = await supabase
         .from('chat_sessions')
         .update({
           last_message_at: new Date().toISOString(),
           message_count: 1,
         })
         .eq('id', sid);
+      if (activityError) throw activityError;
     } catch (err) {
       console.error('Failed to send initial message:', err);
     }
   };
 
   const refreshSessionActivity = async (sid: string) => {
-    const { count } = await supabase
+    const { count, error: countError } = await supabase
       .from('chat_messages')
       .select('id', { count: 'exact', head: true })
       .eq('session_id', sid);
+    if (countError) throw countError;
 
     const updateData: { last_message_at: string; message_count?: number } = {
       last_message_at: new Date().toISOString(),
@@ -575,10 +678,52 @@ function CoachingContent() {
       updateData.message_count = count;
     }
 
-    await supabase
+    const { error: updateError } = await supabase
       .from('chat_sessions')
       .update(updateData)
       .eq('id', sid);
+    if (updateError) throw updateError;
+  };
+
+  const persistChatMessage = async (params: {
+    id: string;
+    sessionId: string;
+    role: 'user' | 'assistant';
+    content: string;
+    failureMessage: string;
+  }) => {
+    let lastError: unknown = null;
+
+    for (
+      let attempt = 0;
+      attempt <= CHAT_PERSIST_RETRY_DELAYS_MS.length;
+      attempt += 1
+    ) {
+      try {
+        const { error } = await withTimeout(
+          supabase.from('chat_messages').insert({
+            id: params.id,
+            session_id: params.sessionId,
+            role: params.role,
+            content: params.content,
+          }),
+          CHAT_PERSIST_TIMEOUT_MS,
+          params.failureMessage
+        );
+
+        if (!error || error.code === '23505') return;
+        lastError = error;
+      } catch (error) {
+        lastError = error;
+      }
+
+      if (attempt < CHAT_PERSIST_RETRY_DELAYS_MS.length) {
+        await delay(CHAT_PERSIST_RETRY_DELAYS_MS[attempt]);
+      }
+    }
+
+    console.error('Chat message persistence failed after retries:', lastError);
+    throw new Error(params.failureMessage);
   };
 
   const loadApiMessages = async (
@@ -630,7 +775,12 @@ function CoachingContent() {
       setIsListening(false);
       return;
     }
-    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    const speechWindow = window as Window & {
+      SpeechRecognition?: SpeechRecognitionConstructor;
+      webkitSpeechRecognition?: SpeechRecognitionConstructor;
+    };
+    const SR =
+      speechWindow.SpeechRecognition || speechWindow.webkitSpeechRecognition;
     if (!SR) {
       alert('お使いのブラウザは音声入力に対応していません。Chromeをお使いください。');
       return;
@@ -640,7 +790,7 @@ function CoachingContent() {
     rec.continuous = false;
     rec.interimResults = true;
     let finalTranscript = '';
-    rec.onresult = (event: any) => {
+    rec.onresult = (event: SpeechRecognitionEventLike) => {
       let interim = '';
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const transcript = event.results[i][0].transcript;
@@ -737,7 +887,7 @@ function CoachingContent() {
     const activeSessionId = sessionId;
 
     if (!messageText && attachmentsToSend.length === 0) return;
-    if (loading) {
+    if (loading || sendInFlightRef.current) {
       setAttachmentError(CHAT_BUSY_MESSAGE);
       return;
     }
@@ -746,6 +896,7 @@ function CoachingContent() {
       return;
     }
 
+    sendInFlightRef.current = true;
     setLoading(true);
     setAttachmentError(null);
 
@@ -762,14 +913,11 @@ function CoachingContent() {
       const apiContent = messageText || '添付画像について見てください。';
       let userVisibleContent = messageText || '画像を添付しました。';
       let userMessage: Message = {
-        id: Date.now().toString(),
+        id: createMessageId(),
         role: 'user',
         content: userVisibleContent,
         createdAt: new Date().toISOString(),
       };
-      let userMessageAccepted = false;
-      let userMessagePersisted = false;
-
       const acceptUserMessage = (content: string) => {
         userVisibleContent = content;
         userMessage = { ...userMessage, content };
@@ -777,58 +925,57 @@ function CoachingContent() {
         setInput('');
         clearPendingAttachments(attachmentsToSend);
         shouldPersistFallback = true;
-        userMessageAccepted = true;
       };
 
       const persistUserMessage = async () => {
-        await withTimeout(
-          supabase.from('chat_messages').insert({
-            session_id: activeSessionId,
-            role: 'user',
-            content: userVisibleContent,
-          }),
-          CHAT_PERSIST_TIMEOUT_MS,
-          'メッセージの保存に時間がかかりすぎました。もう一度お試しください。'
-        );
-        userMessagePersisted = true;
+        await persistChatMessage({
+          id: userMessage.id,
+          sessionId: activeSessionId,
+          role: 'user',
+          content: userVisibleContent,
+          failureMessage:
+            'メッセージを保存できませんでした。入力内容は残っています。少し待ってから、もう一度お試しください。',
+        });
       };
 
-      let inlineAttachments: Awaited<ReturnType<typeof fileToInlineImageAttachment>>[] = [];
+      let chatAttachments: StoredImageAttachmentReference[] = [];
 
       if (files.length === 0) {
-        acceptUserMessage(userVisibleContent);
         failureStage = 'save_user_message';
         await persistUserMessage();
+        acceptUserMessage(userVisibleContent);
       }
 
       if (files.length > 0) {
         failureStage = 'prepare_attachments';
-        const [uploadedAttachments, preparedInlineAttachments] = await withTimeout(
-          Promise.all([
-            uploadChatImageAttachments(files),
-            Promise.all(files.map((file) => fileToInlineImageAttachment(file))),
-          ]),
-          20000,
+        const uploadedAttachments = await withTimeout(
+          uploadChatImageAttachments(files),
+          30000,
           '添付画像の準備に時間がかかりすぎました。もう一度お試しください。'
         );
-        inlineAttachments = preparedInlineAttachments;
-        acceptUserMessage(
-          appendAttachmentMarkdown(
-            messageText || '画像を添付しました。',
-            uploadedAttachments
-          )
+        chatAttachments = uploadedAttachments.map((attachment) => {
+          if (!attachment.path) {
+            throw new Error('画像の保存先を確認できませんでした。');
+          }
+          return {
+            name: attachment.name,
+            mimeType: attachment.mimeType,
+            path: attachment.path,
+          };
+        });
+        userVisibleContent = appendAttachmentMarkdown(
+          messageText || '画像を添付しました。',
+          uploadedAttachments
         );
+        userMessage = {
+          ...userMessage,
+          content: userVisibleContent,
+        };
         failureStage = 'save_user_message';
         await persistUserMessage();
-      }
-
-      if (!userMessageAccepted) {
-        acceptUserMessage(userVisibleContent);
-      }
-
-      if (!userMessagePersisted) {
-        failureStage = 'save_user_message';
-        await persistUserMessage();
+        acceptUserMessage(
+          userVisibleContent
+        );
       }
 
       failureStage = 'load_history';
@@ -848,9 +995,8 @@ function CoachingContent() {
       // クライアント側でも60秒で打ち切る。fetch開始からストリーム読み取り完了までを対象にし、
       // 途中で応答が止まっても「送信中…」が固着しないようにする。
       controller = new AbortController();
-      let response: Response;
       failureStage = 'connect_chat';
-      response = await withTimeout(
+      const response = await withTimeout(
         fetch('/api/chat', {
           method: 'POST',
           headers: {
@@ -861,7 +1007,7 @@ function CoachingContent() {
             sessionId: activeSessionId,
             messages: apiMessages,
             diagnosisCode,
-            attachments: inlineAttachments,
+            attachments: chatAttachments,
             stream: true,
           }),
           signal: controller.signal,
@@ -879,7 +1025,7 @@ function CoachingContent() {
         throw new Error(data.error || '本日の利用上限に達しました。');
       }
 
-      assistantMessageId = (Date.now() + 1).toString();
+      assistantMessageId = createMessageId();
       const assistantMessage: Message = {
         id: assistantMessageId,
         role: 'assistant',
@@ -888,9 +1034,8 @@ function CoachingContent() {
       };
       setMessages((prev) => [...prev, assistantMessage]);
 
-      let data;
       failureStage = 'read_stream';
-      data = await withTimeout(
+      const data = await withTimeout(
         readChatStream(response, (chunk) => {
           assistantContent += chunk;
           setMessages((prev) =>
@@ -917,22 +1062,35 @@ function CoachingContent() {
         );
       }
 
+      if (
+        data.completionStatus &&
+        data.completionStatus !== 'complete'
+      ) {
+        reportClientChatFailure({
+          stage: 'read_stream',
+          sessionId: activeSessionId,
+          elapsedMs: Date.now() - sendStartedAt,
+          hadPartialResponse: Boolean(assistantContent.trim()),
+          error: new Error(
+            `AI_COMPLETION_${String(data.completionStatus).toUpperCase()}`
+          ),
+        });
+      }
+
       if (data.remaining !== undefined) setRemainingChats(data.remaining);
       if (data.limit !== undefined) setChatLimit(data.limit);
 
       try {
         failureStage = 'save_response';
-        await withTimeout(
-          supabase.from('chat_messages').insert({
-            session_id: activeSessionId,
-            role: 'assistant',
-            content:
-              assistantContent ||
-              'すみません、応答に失敗しました。もう一度お試しください。',
-          }),
-          CHAT_PERSIST_TIMEOUT_MS,
-          'AI応答の保存に時間がかかりすぎました。'
-        );
+        await persistChatMessage({
+          id: assistantMessageId,
+          sessionId: activeSessionId,
+          role: 'assistant',
+          content:
+            assistantContent ||
+            'すみません、応答に失敗しました。もう一度お試しください。',
+          failureMessage: 'AI応答を履歴に保存できませんでした。',
+        });
 
         await withTimeout(
           refreshSessionActivity(activeSessionId),
@@ -968,10 +1126,9 @@ function CoachingContent() {
         return;
       }
       controller?.abort();
-      const isAbort = err instanceof DOMException && err.name === 'AbortError';
       const errorMessage = getUserFacingChatError(err);
       const failContent =
-        isAbort && assistantContent.trim()
+        assistantContent.trim()
           ? `${assistantContent}\n\n（途中で接続が不安定になったため、ここで一度区切りました。続きが必要な場合は「続き」と送ってください。）`
           : errorMessage;
       if (assistantMessageId) {
@@ -995,15 +1152,13 @@ function CoachingContent() {
       }
       // 失敗時もassistant行とセッション更新を保存し、再読込で履歴が消えたように見える状態を防ぐ。
       try {
-        await withTimeout(
-          supabase.from('chat_messages').insert({
-            session_id: activeSessionId,
-            role: 'assistant',
-            content: failContent,
-          }),
-          CHAT_PERSIST_TIMEOUT_MS,
-          'エラー応答の保存に時間がかかりすぎました。'
-        );
+        await persistChatMessage({
+          id: assistantMessageId || createMessageId(),
+          sessionId: activeSessionId,
+          role: 'assistant',
+          content: failContent,
+          failureMessage: 'エラー応答を履歴に保存できませんでした。',
+        });
         await withTimeout(
           refreshSessionActivity(activeSessionId),
           CHAT_PERSIST_TIMEOUT_MS,
@@ -1021,6 +1176,7 @@ function CoachingContent() {
         });
       }
     } finally {
+      sendInFlightRef.current = false;
       setLoading(false);
     }
   };
@@ -1128,9 +1284,9 @@ function CoachingContent() {
           </div>
 
           {/* Sessions List */}
-          <div className="flex-1 overflow-y-auto">
+          <div className="flex-1 overflow-y-auto" data-testid="sidebar-sessions">
             {sidebarLoading ? (
-              <div className="flex justify-center py-6">
+              <div className="flex justify-center py-6" data-testid="sidebar-loading">
                 <div className="animate-spin rounded-full h-6 w-6 border-t-2 border-b-2 border-blue-400"></div>
               </div>
             ) : sidebarSessions.length === 0 ? (
@@ -1142,6 +1298,7 @@ function CoachingContent() {
                 {sidebarSessions.map((s) => (
                   <div
                     key={s.id}
+                    data-session-id={s.id}
                     className={`group relative px-3 py-2.5 cursor-pointer border-l-3 transition-colors ${
                       s.id === sessionId
                         ? 'bg-blue-100 border-l-blue-500'
@@ -1464,7 +1621,7 @@ function CoachingContent() {
                       {CHAT_NOT_READY_MESSAGE}
                     </p>
                   )}
-                  <div className="flex gap-3 items-end">
+                  <div className="flex flex-wrap sm:flex-nowrap gap-3 items-end">
                     <input
                       ref={fileInputRef}
                       type="file"
@@ -1477,7 +1634,7 @@ function CoachingContent() {
                       type="button"
                       onClick={() => fileInputRef.current?.click()}
                       disabled={loading || chatInputDisabled}
-                      className="flex-shrink-0 p-3 rounded-lg bg-blue-100 hover:bg-blue-200 text-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="order-2 sm:order-none flex-shrink-0 p-3 rounded-lg bg-blue-100 hover:bg-blue-200 text-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                       title="画像を選ぶ（選んだだけでは送信されません）"
                       aria-label="画像を選ぶ。選んだだけでは送信されません"
                     >
@@ -1489,7 +1646,7 @@ function CoachingContent() {
                     type="button"
                     onClick={handleVoiceInput}
                     disabled={loading || chatInputDisabled}
-                    className={`flex-shrink-0 px-4 py-3 rounded-lg transition-colors ${isListening ? 'bg-red-500 hover:bg-red-600 text-white animate-pulse' : 'bg-blue-100 hover:bg-blue-200 text-blue-600'} disabled:opacity-50 disabled:cursor-not-allowed`}
+                    className={`order-2 sm:order-none flex-shrink-0 px-4 py-3 rounded-lg transition-colors ${isListening ? 'bg-red-500 hover:bg-red-600 text-white animate-pulse' : 'bg-blue-100 hover:bg-blue-200 text-blue-600'} disabled:opacity-50 disabled:cursor-not-allowed`}
                     title={isListening ? '録音停止' : '音声入力'}
                     aria-label={isListening ? '録音停止' : '音声入力'}
                   >
@@ -1518,14 +1675,14 @@ function CoachingContent() {
                       }
                     }}
                     placeholder={t('coaching.placeholder')}
-                    className="flex-1 min-h-24 max-h-48 bg-white border border-blue-200 text-base leading-relaxed text-gray-900 placeholder-gray-500 rounded-lg px-4 py-3 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-400/50 transition-all resize-y"
+                    className="order-1 sm:order-none basis-full sm:basis-0 flex-1 min-w-0 min-h-24 max-h-48 bg-white border border-blue-200 text-base leading-relaxed text-gray-900 placeholder-gray-500 rounded-lg px-4 py-3 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-400/50 transition-all resize-y"
                     disabled={chatInputDisabled}
                   />
                   <button
                     type="button"
                     onClick={sendMessage}
                     disabled={sendButtonDisabled}
-                    className="bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 disabled:from-gray-400 disabled:to-gray-400 text-white font-semibold py-3 px-6 rounded-lg transition-all duration-200 disabled:cursor-not-allowed"
+                    className="order-2 sm:order-none ml-auto sm:ml-0 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 disabled:from-gray-400 disabled:to-gray-400 text-white font-semibold py-3 px-6 rounded-lg transition-all duration-200 disabled:cursor-not-allowed"
                   >
                     {sendButtonLabel}
                   </button>

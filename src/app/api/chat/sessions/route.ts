@@ -5,6 +5,10 @@ export const runtime = 'nodejs';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+const MAX_PAGE_SIZE = 100;
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 interface SessionWithPreview {
   id: string;
@@ -62,9 +66,13 @@ export async function GET(request: NextRequest) {
     // Get query parameters
     const url = new URL(request.url);
     const pinned = url.searchParams.get('pinned') === 'true';
-    const search = url.searchParams.get('search');
-    const page = parseInt(url.searchParams.get('page') || '1', 10);
-    const limit = parseInt(url.searchParams.get('limit') || '20', 10);
+    const search = url.searchParams.get('search')?.trim().slice(0, 200) || '';
+    const requestedPage = parseInt(url.searchParams.get('page') || '1', 10);
+    const requestedLimit = parseInt(url.searchParams.get('limit') || '20', 10);
+    const page = Number.isFinite(requestedPage) ? Math.max(1, requestedPage) : 1;
+    const limit = Number.isFinite(requestedLimit)
+      ? Math.min(MAX_PAGE_SIZE, Math.max(1, requestedLimit))
+      : 20;
 
     let sessionsQuery = supabase
       .from('chat_sessions')
@@ -78,7 +86,8 @@ export async function GET(request: NextRequest) {
         is_pinned,
         last_message_at,
         message_count
-      `
+      `,
+        { count: 'exact' }
       )
       .eq('user_id', user.id);
 
@@ -88,36 +97,31 @@ export async function GET(request: NextRequest) {
     }
 
     // Apply search filter if provided
-    let sessionIds: string[] | null = null;
     if (search) {
       const { data: searchResults, error: searchError } = await supabase
         .from('chat_messages')
         .select('session_id')
-        .eq('user_id', user.id)
         .ilike('content', `%${search}%`);
 
-      if (!searchError && searchResults) {
-        const uniqueIds = Array.from(
-          new Set(searchResults.map((r) => r.session_id))
-        );
-        sessionIds = uniqueIds;
-        if (uniqueIds.length === 0) {
-          return NextResponse.json({
-            sessions: [],
-            total: 0,
-            page,
-            limit,
-          });
-        }
-        sessionsQuery = sessionsQuery.in('id', uniqueIds);
+      if (searchError) throw searchError;
+      const uniqueIds = Array.from(
+        new Set((searchResults || []).map((result) => result.session_id))
+      );
+      if (uniqueIds.length === 0) {
+        return NextResponse.json({ sessions: [], total: 0, page, limit });
       }
+      sessionsQuery = sessionsQuery.in('id', uniqueIds);
     }
 
     // Order: pinned first, then by last_message_at descending
     sessionsQuery = sessionsQuery.order('is_pinned', { ascending: false })
-      .order('last_message_at', { ascending: false, nullsFirst: false });
+      .order('last_message_at', { ascending: false, nullsFirst: false })
+      .order('created_at', { ascending: false });
 
-    const { data: sessions, error: sessionsError } = await sessionsQuery;
+    const offset = (page - 1) * limit;
+    sessionsQuery = sessionsQuery.range(offset, offset + limit - 1);
+
+    const { data: sessions, count, error: sessionsError } = await sessionsQuery;
 
     if (sessionsError) {
       throw sessionsError;
@@ -155,17 +159,9 @@ export async function GET(request: NextRequest) {
       })
     );
 
-    // Apply pagination
-    const total = sessionsWithPreviews.length;
-    const offset = (page - 1) * limit;
-    const paginatedSessions = sessionsWithPreviews.slice(
-      offset,
-      offset + limit
-    );
-
     return NextResponse.json({
-      sessions: paginatedSessions,
-      total,
+      sessions: sessionsWithPreviews,
+      total: count || 0,
       page,
       limit,
     });
@@ -203,45 +199,47 @@ export async function PATCH(request: NextRequest) {
       );
     }
 
-    const body = await request.json();
+    const body = await request.json().catch(() => null);
+    if (!body || typeof body !== 'object') {
+      return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
+    }
     const { session_id, is_pinned, title } = body;
 
-    if (!session_id) {
+    if (typeof session_id !== 'string' || !UUID_PATTERN.test(session_id)) {
       return NextResponse.json(
-        { error: 'session_id is required' },
+        { error: 'Valid session_id is required' },
         { status: 400 }
       );
+    }
+
+    if (is_pinned !== undefined && typeof is_pinned !== 'boolean') {
+      return NextResponse.json({ error: 'is_pinned must be boolean' }, { status: 400 });
+    }
+    if (title !== undefined && (typeof title !== 'string' || title.length > 200)) {
+      return NextResponse.json({ error: 'Invalid title' }, { status: 400 });
+    }
+    if (is_pinned === undefined && title === undefined) {
+      return NextResponse.json({ error: 'No update provided' }, { status: 400 });
     }
 
     const supabase = createClient(supabaseUrl, supabaseAnonKey, {
       global: { headers: { Authorization: `Bearer ${token}` } },
     });
-
-    // Verify session belongs to user
-    const { data: session, error: sessionError } = await supabase
-      .from('chat_sessions')
-      .select('user_id')
-      .eq('id', session_id)
-      .single();
-
-    if (sessionError || !session || session.user_id !== user.id) {
-      return NextResponse.json(
-        { error: 'Session not found or unauthorized' },
-        { status: 404 }
-      );
-    }
+    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey, {
+      auth: { persistSession: false },
+    });
 
     // If pinning, check if user already has 100 pinned sessions
     if (is_pinned === true) {
-      const { data: pinnedSessions, error: pinnedError } = await supabase
+      const { count: pinnedCount, error: pinnedError } = await supabase
         .from('chat_sessions')
-        .select('id', { count: 'exact' })
+        .select('id', { count: 'exact', head: true })
         .eq('user_id', user.id)
         .eq('is_pinned', true);
 
       if (pinnedError) throw pinnedError;
 
-      if (pinnedSessions && pinnedSessions.length >= 100) {
+      if ((pinnedCount || 0) >= 100) {
         return NextResponse.json(
           { error: 'Maximum 100 pinned sessions allowed' },
           { status: 400 }
@@ -249,7 +247,7 @@ export async function PATCH(request: NextRequest) {
       }
     }
 
-    const updateData: Record<string, any> = {};
+    const updateData: { is_pinned?: boolean; title?: string } = {};
     if (is_pinned !== undefined) {
       updateData.is_pinned = is_pinned;
     }
@@ -257,14 +255,21 @@ export async function PATCH(request: NextRequest) {
       updateData.title = title;
     }
 
-    const { data: updatedSession, error: updateError } = await supabase
+    const { data: updatedSession, error: updateError } = await supabaseAdmin
       .from('chat_sessions')
       .update(updateData)
       .eq('id', session_id)
+      .eq('user_id', user.id)
       .select()
-      .single();
+      .maybeSingle();
 
     if (updateError) throw updateError;
+    if (!updatedSession) {
+      return NextResponse.json(
+        { error: 'Session not found or unauthorized' },
+        { status: 404 }
+      );
+    }
 
     return NextResponse.json(updatedSession);
   } catch (error) {
@@ -301,41 +306,39 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    const body = await request.json();
+    const body = await request.json().catch(() => null);
+    if (!body || typeof body !== 'object') {
+      return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
+    }
     const { session_id } = body;
 
-    if (!session_id) {
+    if (typeof session_id !== 'string' || !UUID_PATTERN.test(session_id)) {
       return NextResponse.json(
-        { error: 'session_id is required' },
+        { error: 'Valid session_id is required' },
         { status: 400 }
       );
     }
 
-    const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-      global: { headers: { Authorization: `Bearer ${token}` } },
+    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey, {
+      auth: { persistSession: false },
     });
 
-    // Verify session belongs to user
-    const { data: session, error: sessionError } = await supabase
+    // Delete session (cascade will delete messages)
+    const { data: deletedSession, error: deleteError } = await supabaseAdmin
       .from('chat_sessions')
-      .select('user_id')
+      .delete()
       .eq('id', session_id)
-      .single();
+      .eq('user_id', user.id)
+      .select('id')
+      .maybeSingle();
 
-    if (sessionError || !session || session.user_id !== user.id) {
+    if (deleteError) throw deleteError;
+    if (!deletedSession) {
       return NextResponse.json(
         { error: 'Session not found or unauthorized' },
         { status: 404 }
       );
     }
-
-    // Delete session (cascade will delete messages)
-    const { error: deleteError } = await supabase
-      .from('chat_sessions')
-      .delete()
-      .eq('id', session_id);
-
-    if (deleteError) throw deleteError;
 
     return NextResponse.json({ success: true });
   } catch (error) {
