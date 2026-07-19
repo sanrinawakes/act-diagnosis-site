@@ -419,10 +419,13 @@ async function testImageAttachment(page) {
       /白|ホワイト/.test(result.assistantContent) &&
       result.assistantContent.length <= 30 &&
       !/行動|始め|一緒に考え/.test(result.assistantContent) &&
-      /\([\d.]+ (?:KB|MB)\)/.test(savedUserRows?.[0]?.content || '') &&
+      /\([\d.]+ (?:B|KB|MB)\)/.test(savedUserRows?.[0]?.content || '') &&
       !/\(4\.0 MB\)/.test(savedUserRows?.[0]?.content || '') &&
       /添付画像:\s*\n!\[/.test(savedUserRows?.[0]?.content || ''),
-    JSON.stringify(result)
+    JSON.stringify({
+      ...result,
+      savedUserContent: savedUserRows?.[0]?.content || '',
+    })
   );
 }
 
