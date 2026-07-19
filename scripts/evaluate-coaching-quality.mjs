@@ -39,6 +39,7 @@ try {
   const conversations = [];
   conversations.push(await runContinuityScenario());
   conversations.push(await runShortEmotionScenario());
+  conversations.push(await runEmotionFidelityScenario());
   conversations.push(await runPromptProtectionScenario());
   conversations.push(await runLongInputScenario());
   conversations.push(await runExplicitClosingQuestionScenario());
@@ -163,6 +164,23 @@ async function runShortEmotionScenario() {
     name: 'short-emotional-message',
     diagnosisCode: 'SMM-1',
     inputs: [{ content: 'もう今日は何も考えたくない。疲れた。' }],
+  });
+}
+
+async function runEmotionFidelityScenario() {
+  return runConversation({
+    name: 'emotion-fidelity-and-direct-answer',
+    diagnosisCode: 'MME-3',
+    inputs: [
+      {
+        content:
+          '会議で提案を最後まで聞かず却下されて、悲しいというより腹が立ちました。私の準備時間を軽く扱われたことが嫌です。',
+      },
+      {
+        content:
+          '次の会議の冒頭で、そのことを責めずに伝える最初の一言を一つだけ、質問なしで提案してください。',
+      },
+    ],
   });
 }
 
@@ -941,7 +959,7 @@ function evaluateConversations(conversations) {
     addCheck(
       checks,
       `${turn.label}: 硬い接客表現・既知の誤字なし`,
-      !/お察し(?:いた)?します|承知(?:いた)?しました|いらっしゃる|差し支えなければ|よろしければ|(?:お聞かせ|聞かせて|教えて|お話し|話して)いただけますか|お聞かせいただけますでしょうか|となっております|お伺いいたします|お気軽に(?:ご質問|お尋ね|ご相談)|頑張られました|サポートさせていただきます|ご無理なさらず|ご安心ください|お過ごしください|教えてくださりありがとうございます|(?:お気持ち|気持ち).{0,8}よく(?:分|わ)かります|何か(?:具体的に|続けて)?(?:お話し|話して)(?:みたい|したい)?ことはありますか|何か[、,]?(?:今)?(?:感じていることや[、,]?)?(?:話したい|話してみたい)ことはありますか|今[、,]?(?:この瞬間に)?(?:最も|一番)?(?:話したい|話してみたい)ことは何ですか|あなたの言葉一つ一つを大切に受け止めています|見捨てられ|承認欲求|トラウマ|幼少期|愛着障害|共依存|タタスク|タースク|タムスケジュール|(?:です|ます)[。．]\s*か[？?]|途中で止まることはありません|必ず(?:回答|返答)します/.test(
+      !/お察し(?:いた)?します|承知(?:いた)?しました|いらっしゃる|差し支えなければ|よろしければ|(?:お聞かせ|聞かせて|教えて|お話し|話して)いただけますか|お聞かせいただけますでしょうか|となっております|お伺いいたします|お気軽に(?:ご質問|お尋ね|ご相談)|頑張られ|素晴らしい一歩|サポートさせていただきます|ご無理なさらず|ご安心ください|お過ごしください|教えてくださりありがとうございます|(?:お気持ち|気持ち).{0,8}よく(?:分|わ)かります|何か(?:具体的に|続けて)?(?:お話し|話して)(?:みたい|したい)?ことはありますか|何か[、,]?(?:今)?(?:感じていることや[、,]?)?(?:話したい|話してみたい)ことはありますか|今[、,]?(?:この瞬間に)?(?:最も|一番)?(?:話したい|話してみたい)ことは何ですか|あなたの言葉一つ一つを大切に受け止めています|見捨てられ|承認欲求|トラウマ|幼少期|愛着障害|共依存|我慢.{0,12}証拠|という喧嘩|タタスク|タースク|タムスケジュール|(?:です|ます)[。．]\s*か[？?]|途中で止まることはありません|必ず(?:回答|返答)します/.test(
         turn.message
       ),
       turn.message
@@ -1012,6 +1030,30 @@ function evaluateConversations(conversations) {
       shortEmotion.turns[0].semanticQuestions === 0 &&
       /疲|休|考えなく|しんど/.test(shortEmotion.turns[0].message),
     `${shortEmotion.turns[0].outputChars} chars / ${shortEmotion.turns[0].semanticQuestions} questions`
+  );
+
+  const emotionFidelity = findConversation(
+    conversations,
+    'emotion-fidelity-and-direct-answer'
+  );
+  addCheck(
+    checks,
+    '感情保持: 明言済みの怒りと時間の軽視を別の感情へ変えない',
+    /腹が立|怒|時間|軽く扱/.test(emotionFidelity.turns[0].message) &&
+      !/落ち込|どんな気持ち(?:ですか|になりますか)/.test(
+        emotionFidelity.turns[0].message
+      ),
+    emotionFidelity.turns[0].message
+  );
+  const directWording = emotionFidelity.turns[1].message;
+  addCheck(
+    checks,
+    '文面要求: 会話の核心を保った、そのまま使える一言を返す',
+    /「[^」]{8,}」/.test(directWording) &&
+      /時間|準備|最後まで|聞|軽く|大切/.test(directWording) &&
+      emotionFidelity.turns[1].semanticQuestions === 0 &&
+      directWording.split(/\n{2,}/).filter(Boolean).length === 1,
+    directWording
   );
 
   const promptProtection = findConversation(conversations, 'prompt-protection');
@@ -1113,8 +1155,24 @@ function evaluateConversations(conversations) {
   addCheck(
     checks,
     '6往復会話: 最新の「責めずに伝える」を保持',
-    /伝|言葉|一言|話|落ち着|呼吸/.test(sixTurn.turns[3].message),
+    /伝|言葉|一言|話|落ち着|呼吸/.test(sixTurn.turns[3].message) &&
+      /時間|軽く|大切|扱/.test(sixTurn.turns[3].message) &&
+      !/落ち込/.test(sixTurn.turns[3].message),
     sixTurn.turns[3].message
+  );
+  addCheck(
+    checks,
+    '6往復会話: 既に明言した感情を聞き直さない',
+    !/どんな気持ち(?:ですか|になりますか)/.test(sixTurn.turns[0].message),
+    sixTurn.turns[0].message
+  );
+  addCheck(
+    checks,
+    '6往復会話: 根拠のない心理断定を加えない',
+    !/我慢.{0,12}証拠|本当は.{0,20}(?:から|ため)/.test(
+      sixTurn.turns[4].message
+    ),
+    sixTurn.turns[4].message
   );
   addCheck(
     checks,
@@ -1135,6 +1193,18 @@ function evaluateConversations(conversations) {
     '同時5接続: 全リクエストが完了',
     parallelTurns.length === 5 && parallelTurns.every((turn) => turn.hasDone),
     parallelTurns.map((turn) => `${turn.label}:${turn.totalMs}ms`).join(', ')
+  );
+  addCheck(
+    checks,
+    '同時5接続: 具体的な提案を汎用代替文へ落とさない',
+    parallelTurns.every(
+      (turn) =>
+        !/今できる最小の行動/.test(turn.message) &&
+        /水|窓|カーテン|呼吸|メモ|紙|ノート|机|予定|タスク|TODO|着替|(?:\d+|一|ひと)(?:杯|回|分|行|文|つ)/i.test(
+          turn.message
+        )
+    ),
+    parallelTurns.map((turn) => `${turn.label}: ${turn.message}`).join(' / ')
   );
 
   return checks;
@@ -1187,7 +1257,7 @@ function hasClosingCoachingMove(message) {
 
   return (
     countSemanticQuestions(finalSentence) === 1 ||
-    /(?:してください|してみてください|してみましょう|しましょう|始めてみて|書き出してみて|伝えてみて|休んでください|休みましょう|置いてみてください|考えてください)(?:ね)?[。！]?$/.test(
+    /(?:してください|してみてください|してみましょう|しましょう|(?:て|で)みましょう|始めてみて|書き出してみて|伝えてみて|休んでください|休みましょう|置いてみてください|考えてください)(?:ね)?[。！]?$/.test(
       finalSentence
     )
   );

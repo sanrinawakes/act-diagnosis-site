@@ -899,7 +899,7 @@ export function normalizeCoachingOutput(text: string, lastUserText: string) {
     .replace(/お察しします/g, '思います')
     .replace(
       /(?:その)?(?:お気持ち|気持ち)[、,]?(?:とても)?よく(?:分|わ)かります[。]?/g,
-      ''
+      '気持ちが伝わります。'
     )
     .replace(/承知いたしました[。]?/g, 'わかりました。')
     .replace(/[、,]?と承知しました[。]?/g, '、確認しました。')
@@ -918,7 +918,11 @@ export function normalizeCoachingOutput(text: string, lastUserText: string) {
     .replace(/(?:喜んで)?お伺いいたします[。]?/g, '一緒に考えます。')
     .replace(/(?:どうぞ)?お気軽に(?:ご質問|お尋ね|ご相談)ください[。]?/g, '気になることがあれば聞いてください。')
     .replace(/どうぞ(?=気になることがあれば)/g, '')
-    .replace(/今日は(?:もう、?)?たくさん頑張られましたね[。]?/g, '今日は本当にお疲れ様でした。')
+    .replace(
+      /今日は(?:もう、?)?たくさん頑張られ(?:ましたね|たのですね)[。]?/g,
+      '今日は本当にお疲れ様でした。'
+    )
+    .replace(/(?:それは)?素晴らしい一歩です[。！]?/g, '')
     .replace(/全力でサポートさせていただきます[。]?/g, '一緒に整理します。')
     .replace(/ご無理なさらず/g, '無理せず')
     .replace(/(?:ので[、,]?)?ご安心ください[。]?/g, '。')
@@ -1103,7 +1107,7 @@ function requestsConcreteSuggestion(text: string) {
 }
 
 function hasConcreteAction(text: string, lastUserText: string) {
-  const hasAction = /(?:してください|してみてください|してみましょう|しましょう|始めてみて|書き出して|書いて|伝えて|開いて|決めて|置いて|休んで|確認して|取り組んで|着手して|(?:答え|伝え|断り|言い)ます|提案します)|(?:\d+|一|ひと)つ(?:だけ)?(?:書|決|選|始|開|伝)|(?:\d+|一|ひと)(?:分|行|文|項目)/.test(
+  const hasAction = /(?:してください|してみてください|してみましょう|しましょう|(?:て|で)み(?:てください|ましょう)|始めてみて|書き出して|書いて|伝えて|開いて|決めて|置いて|休んで|確認して|取り組んで|着手して|(?:答え|伝え|断り|言い)ます|提案します)|(?:\d+|一|ひと)つ(?:だけ)?(?:書|決|選|始|開|伝)|(?:\d+|一|ひと)(?:分|行|文|項目)/.test(
     text
   );
 
@@ -1293,6 +1297,7 @@ function removeUnsupportedPsychologicalInference(
     '幼少期',
     '愛着障害',
     '共依存',
+    '証拠',
   ];
   const unsupportedTerms = loadedTerms.filter(
     (term) => text.includes(term) && !lastUserText.includes(term)

@@ -135,6 +135,31 @@ describe('normalizeCoachingOutput', () => {
     expect(result).toContain('二行目、確認しました。');
   });
 
+  it('定型的な理解表現を除いた後も直前の文を壊さない', () => {
+    const result = normalizeCoachingOutput(
+      'そうですね、落ち着いて伝えたいというお気持ち、とてもよく分かります。喧嘩にならずに、自分の気持ちを伝えるのは大切なことですね。',
+      '責める言い方をすると喧嘩になるので、落ち着いて伝えたいです。'
+    );
+
+    expect(result).toContain(
+      '落ち着いて伝えたいという気持ちが伝わります。'
+    );
+    expect(result).not.toContain('という喧嘩');
+    expect(result).not.toMatch(/お気持ち.*よく分かります/);
+  });
+
+  it('一つだけ指定された具体的な「〜てみましょう」を一般論へ置き換えない', () => {
+    const result = normalizeCoachingOutput(
+      '明日の朝は、まずコップ一杯の水をゆっくり飲んでみましょう。',
+      '明日の朝に始める行動を一つだけ、質問なしで答えてください。'
+    );
+
+    expect(result).toBe(
+      '明日の朝は、まずコップ一杯の水をゆっくり飲んでみましょう。'
+    );
+    expect(result).not.toContain('今できる最小の行動');
+  });
+
   it('広すぎる会話継続質問を具体的な問いへ置き換える', () => {
     const result = normalizeCoachingOutput(
       '前の話は踏まえています。何か具体的に話してみたいことはありますか？',
@@ -169,6 +194,30 @@ describe('normalizeCoachingOutput', () => {
 
     expect(result).toContain('二行目、確認しました。');
     expect(result).not.toMatch(/ありがとうございます|話したいことはありますか/);
+  });
+
+  it('感情から根拠なく心理状態を断定する文を残さない', () => {
+    const result = normalizeCoachingOutput(
+      [
+        'その言い方ならできそうですね。素晴らしい一歩です。',
+        '途中で感情的になりそうなのは、それだけ普段から我慢されている証拠かもしれませんね。',
+        '話す前に、伝えたいことを一文だけ書いてみてください。',
+      ].join('\n\n'),
+      'その言い方ならできそうですが、途中で感情的になりそうで不安です。'
+    );
+
+    expect(result).not.toMatch(/素晴らしい一歩|我慢されている証拠/);
+    expect(result).toContain('伝えたいことを一文だけ書いて');
+  });
+
+  it('短い疲労表現を硬い敬語のまま残さない', () => {
+    const result = normalizeCoachingOutput(
+      '今日はたくさん頑張られたのですね。今はゆっくり休んでください。',
+      'もう今日は何も考えたくない。疲れた。'
+    );
+
+    expect(result).toContain('今日は本当にお疲れ様でした。');
+    expect(result).not.toContain('頑張られたのですね');
   });
 
   it('内部の回答形式指定を利用者本文から分離する', () => {
