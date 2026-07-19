@@ -8,6 +8,8 @@
     "start": "next start",
     "lint": "eslint . --max-warnings 67",
     "test": "vitest run",
+    "verify:coaching:ci": "node scripts/verify-coaching-ci.mjs",
+    "verify:coaching:production": "npm run smoke:coaching && npm run test:coaching-quality && npm run test:coaching-browser",
     "smoke:coaching": "node scripts/smoke-coaching-chat.mjs",
     "test:coaching-quality": "node scripts/evaluate-coaching-quality.mjs",
     "test:coaching-browser": "node scripts/e2e-coaching-browser.mjs",
