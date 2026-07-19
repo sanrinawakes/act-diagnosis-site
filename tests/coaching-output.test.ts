@@ -89,6 +89,31 @@ describe('normalizeCoachingOutput', () => {
     expect(result).not.toContain('今できる最小の行動');
   });
 
+  it('断る一言を求められた時は後続の説明より引用文を優先する', () => {
+    const result = normalizeCoachingOutput(
+      [
+        '明日、急な依頼をされた時に角を立てずに断る一言ですね。',
+        '「ありがとうございます。ただ、今抱えている業務との兼ね合いで、今回はお引き受けが難しいです。」',
+        'このように伝えてみてはいかがでしょうか。',
+      ].join('\n\n'),
+      '明日また急な依頼をされた時に、角を立てずに断る一言を一つだけ提案してください。'
+    );
+
+    expect(result).toContain('今回はお引き受けが難しいです');
+    expect(result).not.toContain('このように伝えて');
+    expect(result.split(/\n{2,}/)).toHaveLength(1);
+  });
+
+  it('断り文の回りくどい許可表現を直接的で丁寧な文へ直す', () => {
+    const result = normalizeCoachingOutput(
+      '「ありがとうございます。ただ、今抱えている業務に集中したいので、今回は見送らせていただけますでしょうか。」',
+      '角を立てずに断る一言を一つだけ提案してください。'
+    );
+
+    expect(result).toContain('今回は見送らせてください');
+    expect(result).not.toContain('いただけますでしょうか');
+  });
+
   it('怖さを脇へ置かせず、感情を抱えたままできる一歩へ戻す', () => {
     const result = normalizeCoachingOutput(
       'その「能力がないと思われる怖さ」を少しだけ横に置いて、小さな一歩を踏み出してみませんか？',

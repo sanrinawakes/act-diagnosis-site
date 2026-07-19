@@ -815,6 +815,7 @@ async function sendStreamRequest({
   const decoder = new TextDecoder();
   let buffer = '';
   let message = '';
+  let rawMessage = '';
   let firstChunkMs = null;
   let doneMs = null;
   let donePayload = null;
@@ -832,6 +833,7 @@ async function sendStreamRequest({
       if (event.type === 'chunk' && event.text) {
         firstChunkMs ??= Date.now() - startedAt;
         message += event.text;
+        rawMessage += event.text;
       }
       if (event.type === 'done') {
         doneMs = Date.now() - startedAt;
@@ -864,6 +866,7 @@ async function sendStreamRequest({
     outputChars: message.length,
     questionMarks: countQuestionMarks(message),
     semanticQuestions: countSemanticQuestions(message),
+    rawMessage,
     message,
   };
 }
@@ -921,7 +924,7 @@ function evaluateConversations(conversations) {
       checks,
       `${turn.label}: 質問は最大1つ`,
       turn.semanticQuestions <= 1,
-      `${turn.semanticQuestions}`
+      `${turn.semanticQuestions}: ${turn.message} / raw: ${turn.rawMessage}`
     );
     addCheck(
       checks,
@@ -1033,7 +1036,7 @@ function evaluateConversations(conversations) {
       /ただ|今|今回は|難し|業務|仕事|申し訳|お願い|優先/.test(quotedRefusal) &&
       longInput.turns[0].outputChars <= 300 &&
       longInput.turns[0].semanticQuestions === 0,
-    `${longInput.turns[0].outputChars} chars / ${longInput.turns[0].semanticQuestions} questions: ${longInput.turns[0].message}`
+    `${longInput.turns[0].outputChars} chars / ${longInput.turns[0].semanticQuestions} questions: ${longInput.turns[0].message} / raw: ${longInput.turns[0].rawMessage}`
   );
 
   const image = findConversation(conversations, 'inline-image');

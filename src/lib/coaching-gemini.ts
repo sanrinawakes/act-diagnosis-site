@@ -930,6 +930,10 @@ export function normalizeCoachingOutput(text: string, lastUserText: string) {
     )
     .replace(/お聞かせいただけますでしょうか/g, '聞かせてもらえますか')
     .replace(/お聞かせください/g, '聞かせてください')
+    .replace(
+      /今回は見送らせていただけますでしょうか/g,
+      '今回は見送らせてください'
+    )
     .replace(/どうぞゆっくりお休みください[。]?/g, '今日はゆっくり休んでくださいね。')
     .replace(/のが良いでしょう[。]?/g, 'のがよさそうです。')
     .replace(/と伝えてみるのはいかがでしょうか[。]?/g, 'と伝えてみてください。')
@@ -1051,12 +1055,15 @@ function selectSingleAnswerBlock(text: string, lastUserText: string) {
     .split(/\n{2,}/)
     .map((paragraph) => paragraph.trim())
     .filter(Boolean);
+  const quotedAnswer = /一言|言い方|文面|返事/.test(lastUserText)
+    ? paragraphs.find((paragraph) => /「[^」]{4,}」/.test(paragraph))
+    : undefined;
   const concreteParagraph = paragraphs.find((paragraph) =>
     hasConcreteAction(paragraph, lastUserText)
   );
-  const selected = concreteParagraph || paragraphs.at(-1) || '';
+  const selected = quotedAnswer || concreteParagraph || paragraphs.at(-1) || '';
 
-  return selected && hasConcreteAction(selected, lastUserText)
+  return quotedAnswer || (selected && hasConcreteAction(selected, lastUserText))
     ? selected
     : buildNoQuestionFallback(lastUserText);
 }
