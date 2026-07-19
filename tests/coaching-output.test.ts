@@ -2067,6 +2067,18 @@ describe('normalizeCoachingOutput', () => {
     expect(result).not.toMatch(/例えば|あるいは/);
   });
 
+  it('落ち込みを抽象的な「気持ちの真ん中」で尋ねない', () => {
+    const result = normalizeCoachingOutput(
+      '仕事のことで少し落ち込んでいるのですね。\n\n今、その落ち込んでいる気持ちの真ん中にあるのは、どのようなことでしょうか。',
+      '仕事のことで少し落ち込んでいます。短く整理を手伝ってください。'
+    );
+
+    expect(result).toBe(
+      '仕事のことで少し落ち込んでいるのですね。\n\n今いちばん気になっている出来事は何ですか？'
+    );
+    expect(result).not.toMatch(/真ん中|中心|どのようなことでしょうか/);
+  });
+
   it('新しい仕事の明日の一動作を抽象的なステップで済ませない', () => {
     const result = normalizeCoachingOutput(
       '明日の朝、その仕事の最初の1ステップだけを15分間だけ進めてみてください。',
