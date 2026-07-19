@@ -84,7 +84,7 @@ export async function POST(request: NextRequest) {
     JSON.stringify({
       event: 'coaching_client_error_alert_delivery',
       stage: body.stage,
-      delivered: alertDelivery.delivered,
+      accepted: alertDelivery.accepted,
       status: alertDelivery.status || null,
       resendId: alertDelivery.id || null,
       reason: alertDelivery.reason || null,
@@ -94,7 +94,7 @@ export async function POST(request: NextRequest) {
   return NextResponse.json(
     {
       accepted: true,
-      alertDelivered: alertDelivery.delivered,
+      alertAccepted: alertDelivery.accepted,
     },
     { status: 202 }
   );

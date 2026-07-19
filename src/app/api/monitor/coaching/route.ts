@@ -87,7 +87,7 @@ export async function GET(request: NextRequest) {
     console.info(
       JSON.stringify({
         event: 'coaching_monitor_alert_delivery',
-        delivered: alertDelivery.delivered,
+        accepted: alertDelivery.accepted,
         status: alertDelivery.status || null,
         resendId: alertDelivery.id || null,
         reason: alertDelivery.reason || null,
@@ -100,7 +100,7 @@ export async function GET(request: NextRequest) {
         checkedAt: new Date().toISOString(),
         elapsedMs: Date.now() - startedAt,
         error: details.error,
-        alertDelivered: alertDelivery.delivered,
+        alertAccepted: alertDelivery.accepted,
       },
       { status: 500, headers: { 'Cache-Control': 'no-store' } }
     );

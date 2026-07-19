@@ -42,16 +42,16 @@ export async function sendCoachingAlert(params: {
   subject: string;
   summary: string;
   details?: Record<string, unknown>;
-}): Promise<{ delivered: boolean; status?: number; id?: string; reason?: string }> {
+}): Promise<{ accepted: boolean; status?: number; id?: string; reason?: string }> {
   if (!RESEND_API_KEY) {
     console.error('COACHING_ALERT_SKIPPED: RESEND_API_KEY is not configured');
-    return { delivered: false, reason: 'RESEND_API_KEY is not configured' };
+    return { accepted: false, reason: 'RESEND_API_KEY is not configured' };
   }
 
   const recipients = getAlertEmails();
   if (recipients.length === 0) {
     console.error('COACHING_ALERT_SKIPPED: no recipients configured');
-    return { delivered: false, reason: 'no recipients configured' };
+    return { accepted: false, reason: 'no recipients configured' };
   }
 
   const text = buildCoachingAlertText(params);
@@ -78,7 +78,7 @@ export async function sendCoachingAlert(params: {
         body,
       });
       return {
-        delivered: false,
+        accepted: false,
         status: response.status,
         reason: body.slice(0, 500),
       };
@@ -88,14 +88,14 @@ export async function sendCoachingAlert(params: {
       id?: string;
     } | null;
     return {
-      delivered: true,
+      accepted: true,
       status: response.status,
       id: responseBody?.id,
     };
   } catch (error) {
     console.error('COACHING_ALERT_FAILED', error);
     return {
-      delivered: false,
+      accepted: false,
       reason: error instanceof Error ? error.message : String(error),
     };
   }
