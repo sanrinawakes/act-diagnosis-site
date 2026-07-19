@@ -562,7 +562,10 @@ function assertResults(results) {
       );
     }
     if (
-      /[「『]今日確認したいこと[」』]/.test(result.message) &&
+      (/[「『]今日確認したいこと[」』]/.test(result.message) ||
+        /確認したい(?:こと|ポイント|内容)[^。！？\n]{0,40}(?:メモ|書き出)/.test(
+          result.message
+        )) &&
       !/確認/.test(result.lastUserText)
     ) {
       throw new Error(
@@ -703,6 +706,7 @@ function asksForMultipleAnswerDimensions(text) {
       (/(?:一つずつ|それぞれ)[^。！？?\n]{0,40}(?:聞かせ|教えて|答えて)/.test(
         trimmed
       ) ||
+        /(?:それとも|または|あるいは)/.test(trimmed) ||
         /(?:です|ます)か[、,]?(?:それとも|または|あるいは)[^。！？?\n]{1,100}(?:です|ます)か/.test(
           trimmed
         ) ||

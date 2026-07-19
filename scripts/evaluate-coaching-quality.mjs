@@ -1245,7 +1245,10 @@ function evaluateConversations(conversations) {
       checks,
       `${turn.label}: 本人未指定の曖昧な確認メモを提案しない`,
       !(
-        /[「『]今日確認したいこと[」』]/.test(turn.message) &&
+        (/[「『]今日確認したいこと[」』]/.test(turn.message) ||
+          /確認したい(?:こと|ポイント|内容)[^。！？\n]{0,40}(?:メモ|書き出)/.test(
+            turn.message
+          )) &&
         !/確認/.test(turn.userContext)
       ),
       turn.message
@@ -1624,6 +1627,7 @@ function asksForMultipleAnswerDimensions(text) {
       (/(?:一つずつ|それぞれ)[^。！？?\n]{0,40}(?:聞かせ|教えて|答えて)/.test(
         trimmed
       ) ||
+        /(?:それとも|または|あるいは)/.test(trimmed) ||
         /(?:です|ます)か[、,]?(?:それとも|または|あるいは)[^。！？?\n]{1,100}(?:です|ます)か/.test(
           trimmed
         ) ||

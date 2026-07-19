@@ -1016,6 +1016,10 @@ export function normalizeCoachingOutput(
     .replace(/いらっしゃるのですね/g, 'いるんですね')
     .replace(/いらっしゃる/g, 'いる')
     .replace(/上司の方/g, '上司')
+    .replace(
+      /上司に否定されたように感じて[、,]?次の一言が怖いと感じている/g,
+      '上司に否定されたように感じて、次の一言が怖い'
+    )
     .replace(/ご自身/g, '自分')
     .replace(/よろしければ/g, 'よかったら')
     .replace(/差し支えなければ/g, 'よかったら')
@@ -1549,6 +1553,14 @@ function isSingleActionRelevantToContext(
   if (/[「『]今日確認したいこと[」』]/.test(answer) && !/確認/.test(userContext)) {
     return false;
   }
+  if (
+    /確認したい(?:こと|ポイント|内容)[^。！？\n]{0,40}(?:メモ|書き出)/.test(
+      answer
+    ) &&
+    !/確認/.test(userContext)
+  ) {
+    return false;
+  }
   const contextChecks = [
     {
       present: /SNS|投稿|発信/.test(userContext),
@@ -1909,7 +1921,7 @@ function rewriteContextualClosingQuestion(text: string, lastUserText: string) {
   if (/仕事|職場|業務|会社|タスク/.test(lastUserText) && /落ち込/.test(lastUserText)) {
     return text
       .replace(
-        /今[^。！？?\n]{0,40}落ち込[^。！？?\n]{0,30}状態[^。！？?\n]{0,40}いちばん気になっている出来事[^。！？?\n]{0,40}(?:聞かせてもらえますか|何ですか)[。！？?]?/g,
+        /今[^。！？?\n]{0,40}落ち込[^。！？?\n]{0,30}(?:状態|気持ち)[^。！？?\n]{0,40}いちばん気になっている出来事[^。！？?\n]{0,40}(?:聞かせてもらえますか|何ですか)[。！？?]?/g,
         '仕事のことで、今いちばん気になっている出来事は何ですか？'
       )
       .replace(
@@ -2108,10 +2120,12 @@ function rewriteCompoundAnswerQuestions(text: string, lastUserText: string) {
         /(?:です|ます)か[、,]?(?:それとも|または|あるいは)[^。！？?\n]{1,100}(?:です|ます)か/.test(
           part
         );
+      const asksAnyAlternative = /(?:それとも|または|あるいは)/.test(part);
       if (
         !replaced &&
         (asksForPairedDimensions ||
           asksForcedAlternative ||
+          asksAnyAlternative ||
           /(?:一つずつ|それぞれ)[^。！？?\n]{0,40}(?:聞かせ|教えて|答えて)/.test(
             part
           )) &&

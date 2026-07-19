@@ -630,6 +630,16 @@ describe('normalizeCoachingOutput', () => {
     expect(result).toContain('いちばん避けたいことは何ですか？');
   });
 
+  it('準備するか伝えるかという二択質問を一つの対象へ絞る', () => {
+    const result = normalizeCoachingOutput(
+      '上司に否定されたように感じて、次の一言が怖いと感じているのですね。\n\n次にその上司と話すときに、これだけは事前に準備しておきたい、あるいは伝えておきたいと思うことは何かありますか。',
+      '上司に否定されたように感じて、次の一言が怖いです。'
+    );
+
+    expect(result).not.toMatch(/準備しておきたい.*あるいは.*伝えておきたい/);
+    expect(result).toContain('いちばん避けたいことは何ですか？');
+  });
+
   it('本人が決めていない会話範囲を業務確認だけに限定しない', () => {
     const result = normalizeCoachingOutput(
       '明日の朝、出社する前に「今日、上司と話すのは業務の確認だけにする」と心の中で一度唱えてみてください。',
@@ -664,6 +674,24 @@ describe('normalizeCoachingOutput', () => {
       '明日の朝、相手に最初に伝える一文だけをメモに書いてください。'
     );
     expect(result).not.toContain('確認したいこと');
+  });
+
+  it('確認したいポイントという中身のないメモを具体策として採用しない', () => {
+    const result = normalizeCoachingOutput(
+      '明日の朝、上司と話す前に「確認したいポイントを1つだけメモに書き出す」ことをお勧めします。',
+      'では、明日まず何をすればいいか一つだけ教えてください。',
+      [
+        {
+          role: 'user',
+          content: '上司に否定されたように感じて、次の一言が怖いです。',
+        },
+      ]
+    );
+
+    expect(result).toBe(
+      '明日の朝、相手に最初に伝える一文だけをメモに書いてください。'
+    );
+    expect(result).not.toContain('確認したいポイント');
   });
 
   it('本人が指定していないのに感情を除外して事実だけに限定しない', () => {
