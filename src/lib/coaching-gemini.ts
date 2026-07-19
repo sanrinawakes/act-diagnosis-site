@@ -1139,6 +1139,7 @@ export function normalizeCoachingOutput(
       /(?:一番|いちばん)[^。！？?\n]{0,24}引っかかっている(?:出来事|状況)(?:や(?:出来事|状況))?/g,
       'いちばん気になっている出来事'
     )
+    .replace(/気にかかっています/g, '気になっています')
     .replace(/気にかかっている/g, '気になっている')
     .replace(/何が一番心に引っかかっているか/g, '何が一番気になっているか')
     .replace(/何が一番しんどいか/g, '何が一番気になっているか')
@@ -2749,6 +2750,10 @@ function removeUnsupportedPsychologicalInference(
     {
       output: /心が疲れ|心も疲れ/,
       supportedBy: /疲れ|消耗/,
+    },
+    {
+      output: /頭の中だけで整理[^。！？?\n]{0,60}余計に疲/,
+      supportedBy: /頭の中だけで整理[^。！？?\n]{0,60}余計に疲/,
     },
     {
       output: /(?:お気持ち|気持ち|心)が沈/,
