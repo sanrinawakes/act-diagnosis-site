@@ -969,6 +969,7 @@ function evaluateConversations(conversations) {
           ),
           wounded: /傷つ/.test(userContext),
           bracing: /身構え/.test(userContext),
+          physicalFreeze: /身がすく/.test(userContext),
           prediction: /予測|また.{0,12}否定/.test(userContext),
           suffering: /苦し|つら|辛|しんど/.test(userContext),
           heartFatigue: /疲れ|消耗/.test(userContext),
@@ -1123,6 +1124,8 @@ function evaluateConversations(conversations) {
         (/期待に応え/.test(turn.message) &&
           !turn.userGrounding.expectation) ||
         (/萎縮/.test(turn.message) && !turn.userGrounding.intimidation) ||
+        (/身がすく/.test(turn.message) &&
+          !turn.userGrounding.physicalFreeze) ||
         (/緊張/.test(turn.message) && !turn.userGrounding.tension) ||
         (/ミス|失敗/.test(turn.message) && !turn.userGrounding.mistake) ||
         (/反応が返|返事が返/.test(turn.message) &&
@@ -1222,8 +1225,28 @@ function evaluateConversations(conversations) {
     addCheck(
       checks,
       `${turn.label}: 内容を丸投げする曖昧な行動を返さない`,
-      !/率直な状況|今の自分の(?:率直な)?状況|事実として一言|自分の本音を一言|心が引っかかって|引っかかっている(?:出来事|状況)/.test(
+      !/率直な状況|今の自分の(?:率直な)?状況|事実として一言|自分の本音を一言|心が引っかかって|気にかかっている|引っかかっている(?:出来事|状況)/.test(
         turn.message
+      ),
+      turn.message
+    );
+    addCheck(
+      checks,
+      `${turn.label}: 自分の次の一言を相手の返答と取り違えない`,
+      !(
+        /次の一言が怖/.test(turn.user) &&
+        /(?:上司|相手)から[^。！？?\n]{0,100}(?:返って|言われ|言葉)/.test(
+          turn.message
+        )
+      ),
+      turn.message
+    );
+    addCheck(
+      checks,
+      `${turn.label}: 本人未指定の曖昧な確認メモを提案しない`,
+      !(
+        /[「『]今日確認したいこと[」』]/.test(turn.message) &&
+        !/確認/.test(turn.userContext)
       ),
       turn.message
     );

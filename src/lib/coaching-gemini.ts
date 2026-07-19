@@ -1092,6 +1092,7 @@ export function normalizeCoachingOutput(
       /(?:一番|いちばん)[^。！？?\n]{0,24}引っかかっている(?:出来事|状況)(?:や(?:出来事|状況))?/g,
       'いちばん気になっている出来事'
     )
+    .replace(/気にかかっている/g, '気になっている')
     .replace(/何が一番心に引っかかっているか/g, '何が一番気になっているか')
     .replace(/何が一番しんどいか/g, '何が一番気になっているか')
     .replace(
@@ -1540,6 +1541,9 @@ function isSingleActionRelevantToContext(
   ) {
     return false;
   }
+  if (/[「『]今日確認したいこと[」』]/.test(answer) && !/確認/.test(userContext)) {
+    return false;
+  }
   const contextChecks = [
     {
       present: /SNS|投稿|発信/.test(userContext),
@@ -1905,10 +1909,15 @@ function rewriteContextualClosingQuestion(text: string, lastUserText: string) {
   }
 
   if (/次の一言が怖/.test(lastUserText)) {
-    return text.replace(
-      /その[「『]?次の一言[」』]?[^。！？?\n]{0,100}(?:ことでしょうか|ことですか)[。！？?]?/g,
-      '次にその上司へ話す時、いちばん避けたいことは何ですか？'
-    );
+    return text
+      .replace(
+        /その[「『]?次の一言[」』]?[^。！？?\n]{0,100}(?:ことでしょうか|ことですか)[。！？?]?/g,
+        '次にその上司へ話す時、いちばん避けたいことは何ですか？'
+      )
+      .replace(
+        /[^。！？?\n]{0,40}(?:上司|相手)から[^。！？?\n]{0,100}(?:返って|言われ|言葉)[^。！？?\n]{0,80}(?:感じていますか|思いますか|ですか|でしょうか)[。！？?]?/g,
+        '次にその上司へ話す時、いちばん避けたいことは何ですか？'
+      );
   }
 
   if (/感情的|感情が強|冷静でいられ|落ち着け.{0,8}不安/.test(lastUserText)) {
@@ -2218,6 +2227,7 @@ function removeUnsupportedPsychologicalInference(
     { output: /深く.{0,16}傷つ|傷つけ/, supportedBy: /傷つ/ },
     { output: /期待に応え/, supportedBy: /期待|応え/ },
     { output: /萎縮/, supportedBy: /萎縮/ },
+    { output: /身がすく/, supportedBy: /身がすく/ },
     { output: /身構え/, supportedBy: /身構え/ },
     { output: /緊張/, supportedBy: /緊張/ },
     { output: /ミス|失敗/, supportedBy: /ミス|失敗/ },

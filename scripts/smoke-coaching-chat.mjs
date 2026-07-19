@@ -302,6 +302,9 @@ async function sendStreamRequest({ email, diagnosisCode, messages, label }) {
       bracing: messages.some(
         (message) => message.role === 'user' && /身構え/.test(message.content)
       ),
+      physicalFreeze: messages.some(
+        (message) => message.role === 'user' && /身がすく/.test(message.content)
+      ),
       prediction: messages.some(
         (message) =>
           message.role === 'user' && /予測|また.{0,12}否定/.test(message.content)
@@ -493,6 +496,8 @@ function assertResults(results) {
       (/焦り|焦っ/.test(result.message) && !result.userGrounding.impatience) ||
       (/寂し/.test(result.message) && !result.userGrounding.loneliness) ||
       (/身構え/.test(result.message) && !result.userGrounding.bracing) ||
+      (/身がすく/.test(result.message) &&
+        !result.userGrounding.physicalFreeze) ||
       (/予測/.test(result.message) && !result.userGrounding.prediction) ||
       (/苦しめ/.test(result.message) && !result.userGrounding.suffering) ||
       (/心が疲れ|心も疲れ/.test(result.message) &&
@@ -544,6 +549,24 @@ function assertResults(results) {
     if (asksForMultipleAnswerDimensions(result.message)) {
       throw new Error(
         `${result.label} asked for multiple answer fields: ${result.message}`
+      );
+    }
+    if (
+      /次の一言が怖/.test(result.lastUserText) &&
+      /(?:上司|相手)から[^。！？?\n]{0,100}(?:返って|言われ|言葉)/.test(
+        result.message
+      )
+    ) {
+      throw new Error(
+        `${result.label} confused the user's next words with the other person's reply: ${result.message}`
+      );
+    }
+    if (
+      /[「『]今日確認したいこと[」』]/.test(result.message) &&
+      !/確認/.test(result.lastUserText)
+    ) {
+      throw new Error(
+        `${result.label} invented a vague confirmation task: ${result.message}`
       );
     }
     if (
@@ -622,7 +645,7 @@ function assertResults(results) {
       );
     }
     if (
-      /率直な状況|今の自分の(?:率直な)?状況|事実として一言|自分の本音を一言|心が引っかかって|引っかかっている(?:出来事|状況)/.test(
+      /率直な状況|今の自分の(?:率直な)?状況|事実として一言|自分の本音を一言|心が引っかかって|気にかかっている|引っかかっている(?:出来事|状況)/.test(
         result.message
       )
     ) {

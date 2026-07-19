@@ -608,6 +608,16 @@ describe('normalizeCoachingOutput', () => {
     expect(result).toContain('いちばん避けたいことは何ですか？');
   });
 
+  it('本人未使用の身体反応を補わず、自分の次の一言を上司の返答と取り違えない', () => {
+    const result = normalizeCoachingOutput(
+      '上司に否定されたように感じて、次の一言が怖くなっているのですね。そう感じて身がすくむような気持ちになるのは、とても自然なことです。\n\nその「次の一言」として、上司からどのような言葉が返ってきそうだと感じていますか。',
+      '上司に否定されたように感じて、次の一言が怖いです。'
+    );
+
+    expect(result).not.toMatch(/身がすく|上司から.*返って/);
+    expect(result).toContain('いちばん避けたいことは何ですか？');
+  });
+
   it('本人が決めていない会話範囲を業務確認だけに限定しない', () => {
     const result = normalizeCoachingOutput(
       '明日の朝、出社する前に「今日、上司と話すのは業務の確認だけにする」と心の中で一度唱えてみてください。',
@@ -624,6 +634,24 @@ describe('normalizeCoachingOutput', () => {
       '明日の朝、相手に最初に伝える一文だけをメモに書いてください。'
     );
     expect(result).not.toContain('業務の確認だけ');
+  });
+
+  it('本人が挙げていない「確認したいこと」を曖昧な行動として採用しない', () => {
+    const result = normalizeCoachingOutput(
+      '明日の朝、出社する前に「今日確認したいこと」を1つだけメモに書き出してください。',
+      'では、明日まず何をすればいいか一つだけ教えてください。',
+      [
+        {
+          role: 'user',
+          content: '上司に否定されたように感じて、次の一言が怖いです。',
+        },
+      ]
+    );
+
+    expect(result).toBe(
+      '明日の朝、相手に最初に伝える一文だけをメモに書いてください。'
+    );
+    expect(result).not.toContain('確認したいこと');
   });
 
   it('一つだけの行動に感じたことと言いたいことの二択を混ぜない', () => {
