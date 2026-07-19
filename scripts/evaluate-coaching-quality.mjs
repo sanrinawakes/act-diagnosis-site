@@ -957,6 +957,7 @@ function evaluateConversations(conversations) {
           pain: /つらい|辛い/.test(userContext),
           sadness: /悲し/.test(userContext),
           regret: /悔し/.test(userContext),
+          heartResidue: /心残り/.test(userContext),
           anxiety: /不安/.test(userContext),
           impatience: /焦り|焦っ/.test(userContext),
           loneliness: /寂し|孤独/.test(userContext),
@@ -1096,7 +1097,7 @@ function evaluateConversations(conversations) {
     addCheck(
       checks,
       `${turn.label}: 硬い接客表現・既知の誤字なし`,
-      !/お察し(?:いた)?します|承知(?:いた)?しました|いらっしゃる|差し支えなければ|よろしければ|(?:お聞かせ|聞かせて|教えて|お話し|話して)いただけますか|お聞かせいただけますでしょうか|させていただけますでしょうか|となっております|お伺いいたします|お気軽に(?:ご質問|お尋ね|ご相談)|頑張られ|(?:素晴らしい|大切な)一歩|大切な視点|本音が隠れて|サポートさせていただきます|ご無理なさらず|ご安心ください|お過ごしください|(?:教えて|伝えて|書いて|声をかけて|相談して|お話しして|話して)くださ(?:り|って)[、,]?ありがとうございます|(?:気持ち|状況|悩み)を言葉にしていただけて(?:よかった|うれしい)です|(?:お気持ち|気持ち).{0,8}よく(?:分|わ)かります|何か(?:具体的に|続けて)?(?:お話し|話して)(?:みたい|したい)?ことはありますか|何か[、,]?(?:今)?(?:感じていることや[、,]?)?(?:話したい|話してみたい)ことはありますか|今[、,]?(?:この瞬間に)?(?:最も|一番)?(?:話したい|話してみたい)ことは何ですか|この(?:提案|方法|考え)(?:について)?[、,]?(?:どのように|どう)(?:感じ|思い)ますか|あなたの言葉一つ一つを大切に受け止めています|受け止めさせてください|受け止めたいと思います|細かく分析する前に|見捨てられ|承認欲求|トラウマ|幼少期|愛着障害|共依存|我慢.{0,12}証拠|という喧嘩|タタスク|タースク|タムスケジュール|(?:です|ます)[。．]\s*か[？?]|途中で止まることはありません|必ず(?:回答|返答)します/.test(
+      !/お察し(?:いた)?します|承知(?:いた)?しました|いらっしゃる|差し支えなければ|よろしければ|(?:お聞かせ|聞かせて|教えて|お話し|話して)いただけますか|お聞かせいただけますでしょうか|させていただけますでしょうか|となっております|お伺いいたします|お気軽に(?:ご質問|お尋ね|ご相談)|頑張られ|(?:素晴らしい|大切な)一歩|大切な視点|本音が隠れて|サポートさせていただきます|ご無理なさらず|ご安心ください|お過ごしください|(?:教えて|伝えて|書いて|声をかけて|相談して|お話しして|話して)くださ(?:り|って)[、,]?ありがとうございます|(?:気持ち|状況|悩み)を言葉にしていただけて(?:よかった|うれしい)です|(?:お気持ち|気持ち).{0,8}よく(?:分|わ)かります|何か(?:具体的に|続けて)?(?:お話し|話して)(?:みたい|したい)?ことはありますか|何か[、,]?(?:今)?(?:感じていることや[、,]?)?(?:話したい|話してみたい)ことはありますか|今[、,]?(?:この瞬間に)?(?:最も|一番)?(?:話したい|話してみたい)ことは何ですか|この(?:提案|方法|考え)(?:について)?[、,]?(?:どのように|どう)(?:感じ|思い)ますか|この[^。！？?\n]{0,80}(?:いかがでしょうか|いかがですか|試せそうでしょうか|試せそうですか|できそうでしょうか|できそうですか|どう思いますか)|最後に[、,]?自分で判断を深めるための質問です|あなたの言葉一つ一つを大切に受け止めています|受け止めさせてください|受け止めたいと思います|細かく分析する前に|見捨てられ|承認欲求|トラウマ|幼少期|愛着障害|共依存|我慢.{0,12}証拠|という喧嘩|タタスク|タースク|タムスケジュール|(?:です|ます)[。．]\s*か[？?]|途中で止まることはありません|必ず(?:回答|返答)します/.test(
         turn.message
       ),
       turn.message
@@ -1153,6 +1154,7 @@ function evaluateConversations(conversations) {
         (/つらい|辛い/.test(turn.message) && !turn.userGrounding.pain) ||
         (/悲し/.test(turn.message) && !turn.userGrounding.sadness) ||
         (/悔し/.test(turn.message) && !turn.userGrounding.regret) ||
+        (/心残り/.test(turn.message) && !turn.userGrounding.heartResidue) ||
         (/不安/.test(turn.message) && !turn.userGrounding.anxiety) ||
         (/焦り|焦っ/.test(turn.message) && !turn.userGrounding.impatience) ||
         (/寂し/.test(turn.message) && !turn.userGrounding.loneliness) ||
@@ -1355,6 +1357,20 @@ function evaluateConversations(conversations) {
       ),
     continuity.turns[2].message
   );
+  addCheck(
+    checks,
+    '訂正後: 悔しさから根拠のない心理ブレーキを作らない',
+    !/ブレーキ|悔しさを感じたくない/.test(continuity.turns[1].message),
+    continuity.turns[1].message
+  );
+  addCheck(
+    checks,
+    '具体策要求: 括弧内へ複数の候補を詰めない',
+    !/（[^）]+(?:、|または|もしくは)[^）]+など）/.test(
+      continuity.turns[2].message
+    ),
+    continuity.turns[2].message
+  );
 
   const shortEmotion = findConversation(conversations, 'short-emotional-message');
   addCheck(
@@ -1374,7 +1390,7 @@ function evaluateConversations(conversations) {
     checks,
     '感情保持: 明言済みの怒りと時間の軽視を別の感情へ変えない',
     /腹が立|怒|時間|軽く扱/.test(emotionFidelity.turns[0].message) &&
-      !/落ち込|どんな気持ち(?:ですか|になりますか)/.test(
+      !/落ち込|心残り|どんな気持ち(?:ですか|になりますか)|(?:怒り|腹が立)[^。！？?\n]{0,80}(?:感じている|強い|でしょうか|ですか)/.test(
         emotionFidelity.turns[0].message
       ),
     emotionFidelity.turns[0].message
@@ -1386,7 +1402,7 @@ function evaluateConversations(conversations) {
     /「[^」]{8,}」/.test(directWording) &&
       /時間|準備|最後まで|聞|軽く|大切/.test(directWording) &&
       emotionFidelity.turns[1].semanticQuestions === 0 &&
-      !/悲し|落ち込|残念/.test(directWording) &&
+      !/悲し|落ち込|残念|心残り/.test(directWording) &&
       directWording.split(/\n{2,}/).filter(Boolean).length === 1,
     directWording
   );
@@ -1538,6 +1554,16 @@ function evaluateConversations(conversations) {
   );
   addCheck(
     checks,
+    '6往復会話: 時間を軽く扱われた核心から次へ進む',
+    /時間|軽く扱/.test(sixTurn.turns[1].message) &&
+      /変えてほしい|何をわかってほしい|どうしてほしい/.test(
+        sixTurn.turns[1].message
+      ) &&
+      !/見過ごしたくない本音/.test(sixTurn.turns[1].message),
+    sixTurn.turns[1].message
+  );
+  addCheck(
+    checks,
     '6往復会話: 根拠のない心理断定を加えない',
     !/我慢.{0,12}証拠|本当は.{0,20}(?:から|ため)/.test(
       sixTurn.turns[4].message
@@ -1640,6 +1666,10 @@ function countCoachingActionClauses(text) {
 }
 
 function containsAlternativeRequestedActions(text) {
+  if (/（[^）]+(?:、|または|もしくは)[^）]+など）/.test(text)) {
+    return true;
+  }
+
   return /(?:する|して|書く|書いて|伝える|話す|休む|閉じる|移動させる|オフにする|設定する|行う)か[、,]|(?:または|もしくは|あるいは)/.test(
     stripJapaneseQuotedContent(text)
   );

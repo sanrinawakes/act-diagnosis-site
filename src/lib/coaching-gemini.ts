@@ -1049,6 +1049,10 @@ export function normalizeCoachingOutput(
       /その[^。\n]{0,60}(?:大切な)?本音が隠れていそうです[。！]?/g,
       ''
     )
+    .replace(
+      /その悔しさ[^。\n]{0,100}(?:ブレーキ|手を止め)[^。\n]*[。！]?/g,
+      ''
+    )
     .replace(/全力でサポートさせていただきます[。]?/g, '一緒に整理します。')
     .replace(/ご無理なさらず/g, '無理せず')
     .replace(/(?:ので[、,]?)?ご安心ください[。]?/g, '。')
@@ -1137,6 +1141,7 @@ export function normalizeCoachingOutput(
       '特に気になっていることは何ですか'
     )
     .replace(/あなたの言葉一つ一つを大切に受け止めています[。]?/g, '')
+    .replace(/最後に[、,]?自分で判断を深めるための質問です[。]?/g, '')
     .replace(/。{2,}/g, '。');
   const contextualText = rewriteContextualClosingQuestion(
     naturalText,
@@ -1147,9 +1152,13 @@ export function normalizeCoachingOutput(
     lastUserText,
     historyMessages
   );
+  const followUpSafeText = rewriteGenericSuggestionFollowUp(
+    referenceSafeText,
+    lastUserText
+  );
   const temporallyAlignedText = /明日/.test(lastUserText)
-    ? referenceSafeText.replace(/先ほど/g, '前回')
-    : referenceSafeText;
+    ? followUpSafeText.replace(/先ほど/g, '前回')
+    : followUpSafeText;
   const responsiveText = removeAnsweredEmotionQuestion(
     temporallyAlignedText,
     lastUserText
@@ -1293,6 +1302,10 @@ function containsMultipleRequestedItems(text: string) {
       text
     )
   ) {
+    return true;
+  }
+
+  if (/（[^）]{1,100}(?:、|または|もしくは)[^）]{1,100}など）/.test(text)) {
     return true;
   }
 
@@ -1696,8 +1709,8 @@ function isGroundedDirectWording(
     .join('\n');
   const replacesAngerWithSadness =
     /腹が立|怒|悔|嫌/.test(userContext) &&
-    !/悲し|落ち込|残念/.test(userContext) &&
-    /悲し|落ち込|残念/.test(answer);
+    !/悲し|落ち込|残念|心残り/.test(userContext) &&
+    /悲し|落ち込|残念|心残り/.test(answer);
   if (replacesAngerWithSadness) return false;
 
   const hasForwardIntent =
@@ -1836,7 +1849,17 @@ function hasAnyCoachingQuestion(text: string) {
     .some(isQuestionSegment);
 }
 
+function reportsTimeTreatedLightly(text: string) {
+  return (
+    /時間[^。\n]{0,40}軽く扱/.test(text) &&
+    /嫌|腹が立|怒/.test(text)
+  );
+}
+
 function buildClosingCoachingQuestion(lastUserText: string) {
+  if (reportsTimeTreatedLightly(lastUserText)) {
+    return '自分の時間を軽く扱われないために、相手にまず何を変えてほしいですか？';
+  }
   if (/責め/.test(lastUserText) && /喧嘩|落ち着いて伝/.test(lastUserText)) {
     return '相手にまず何をわかってほしいですか？';
   }
@@ -1997,6 +2020,13 @@ function rewriteContextualClosingQuestion(text: string, lastUserText: string) {
       );
   }
 
+  if (reportsTimeTreatedLightly(lastUserText)) {
+    return directText.replace(
+      /今の話の中で[、,]?いちばん見過ごしたくない本音は何ですか[？?]?/g,
+      buildClosingCoachingQuestion(lastUserText)
+    );
+  }
+
   if (/次の一言が怖/.test(lastUserText)) {
     return directText
       .replace(
@@ -2059,6 +2089,39 @@ function rewriteUngroundedWordingReference(
 
   if (!unsupportedQuotedReference && !referencesMissingWording) return text;
   return buildClosingCoachingQuestion(lastUserText);
+}
+
+function rewriteGenericSuggestionFollowUp(text: string, lastUserText: string) {
+  const paragraphs = text
+    .split(/\n{2,}/)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean);
+  const isGenericFollowUp = (paragraph: string) =>
+    /(?:まずは[、,]?)?この[^。！？?\n]{0,80}(?:いかがでしょうか|いかがですか|試せそうでしょうか|試せそうですか|できそうでしょうか|できそうですか|どう思いますか)[。！？?]?/.test(
+      paragraph
+    );
+  const hasConcreteSuggestion = paragraphs.some(
+    (paragraph) =>
+      !isGenericFollowUp(paragraph) &&
+      (/[「『][^」』]{8,}[」』]/.test(paragraph) ||
+        /(?:おすすめします|提案します|置いておきます|(?:書いて|伝えて|始めて|取り組んで)(?:ください|みてください)|(?:て|で)(?:ください|みてください))/.test(
+          paragraph
+        ))
+  );
+  if (!paragraphs.some(isGenericFollowUp)) return text;
+
+  let insertedDirectQuestion = false;
+  const rewritten = paragraphs
+    .map((paragraph) => {
+      if (!isGenericFollowUp(paragraph)) return paragraph;
+      if (hasConcreteSuggestion || insertedDirectQuestion) return '';
+      insertedDirectQuestion = true;
+      return buildDirectContextQuestion(lastUserText);
+    })
+    .filter(Boolean)
+    .join('\n\n');
+
+  return rewritten || buildDirectContextQuestion(lastUserText);
 }
 
 function softenRepeatedAcknowledgement(text: string) {
@@ -2278,11 +2341,18 @@ function removeAnsweredEmotionQuestion(text: string, lastUserText: string) {
     return text;
   }
 
+  const userAlreadyStatedAnger = /腹が立|怒/.test(lastUserText);
+  const knownAngerConfirmation =
+    /(?:怒り|腹が立)[^。！？?\n]{0,80}(?:感じている|強い|でしょうか|ですか)/;
+
   return text
     .split(/(\n{2,})/)
     .filter(
       (part) =>
-        !/どんな気持ち(?:ですか|になりますか)[？?]?/.test(part)
+        !/どんな気持ち(?:ですか|になりますか)[？?]?/.test(part) &&
+        !(
+          userAlreadyStatedAnger && knownAngerConfirmation.test(part)
+        )
     )
     .join('')
     .replace(/\n{3,}/g, '\n\n')
@@ -2318,10 +2388,25 @@ function removeUnsupportedPsychologicalInference(
       '落ち込んでいる'
     );
   }
-  if (/時間.{0,28}軽く扱[^。\n]{0,28}嫌/.test(userContext)) {
+  if (reportsTimeTreatedLightly(userContext)) {
     candidateText = candidateText.replace(
       /家事の(?:分担|負担)[^。\n]{0,160}(?:存在|尊重|軽んじ|敬意)[^。\n]{0,100}(?:痛|つら|苦し|傷つ)[^。\n]*[。]?/g,
       '自分の時間を軽く扱われているように感じることが嫌なんですね。'
+    );
+  }
+  if (
+    /腹が立|怒/.test(userContext) &&
+    !/心残り|悲し|落ち込|残念/.test(userContext) &&
+    /心残り/.test(candidateText)
+  ) {
+    const groundedAnger = /準備に使った時間/.test(userContext)
+      ? '準備に使った時間を軽く扱われたことに腹が立っているのですね。'
+      : /時間[^。\n]{0,40}軽く扱/.test(userContext)
+        ? '自分の時間を軽く扱われたことに腹が立っているのですね。'
+        : 'そのことに腹が立っているのですね。';
+    candidateText = candidateText.replace(
+      /[^。！？?\n]{0,160}心残り[^。！？?\n]*[。！？?]?/g,
+      groundedAnger
     );
   }
   if (/能力がないと思われるのが悔し/.test(userContext)) {

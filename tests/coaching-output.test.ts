@@ -689,7 +689,9 @@ describe('normalizeCoachingOutput', () => {
 
     expect(result).not.toMatch(/教えてくださり|ありがとうございます/);
     expect(result.match(/軽く扱われている/g) || []).toHaveLength(1);
-    expect(result).toContain('見過ごしたくない本音は何ですか？');
+    expect(result).toContain(
+      '自分の時間を軽く扱われないために、相手にまず何を変えてほしいですか？'
+    );
   });
 
   it('具体策がないのに提案への感想を聞かず、相談内容へ直接進む', () => {
@@ -701,6 +703,43 @@ describe('normalizeCoachingOutput', () => {
     expect(result).not.toContain('この提案');
     expect(result).toContain(
       '家事の負担を減らすために、夫にまず何を変えてほしいですか？'
+    );
+  });
+
+  it('具体策がないのに「この方法」を試せるか聞かない', () => {
+    const result = normalizeCoachingOutput(
+      '家事を頼んでも後回しにされると、腹が立ちますよね。\n\nまずはこの方法、試せそうでしょうか。',
+      '夫に家事を頼んでも後回しにされます。私ばかり負担している気がして腹が立ちます。'
+    );
+
+    expect(result).not.toMatch(/この方法|試せそう/);
+    expect(result).toContain(
+      '家事の負担を減らすために、夫にまず何を変えてほしいですか？'
+    );
+  });
+
+  it('具体策がない時は汎用的な感想質問を複数残さない', () => {
+    const result = normalizeCoachingOutput(
+      '家事を頼んでも後回しにされると、腹が立ちますよね。\n\nこの方法は試せそうでしょうか。\n\nこの提案はどう思いますか。',
+      '夫に家事を頼んでも後回しにされます。私ばかり負担している気がして腹が立ちます。'
+    );
+
+    expect(result).not.toMatch(/この方法|この提案|試せそう|どう思いますか/);
+    expect(result.match(/[？?]/g) || []).toHaveLength(1);
+    expect(result).toContain(
+      '家事の負担を減らすために、夫にまず何を変えてほしいですか？'
+    );
+  });
+
+  it('本人が明言した怒りをもう一度確認せず、次の論点へ進む', () => {
+    const result = normalizeCoachingOutput(
+      '自分の時間を軽く扱われたようで腹が立ったのですね。\n\n今、一番強い怒りを感じているのでしょうか。',
+      '夫に家事を頼んでも後回しにされます。私の時間を軽く扱われている気がして腹が立ちます。'
+    );
+
+    expect(result).not.toMatch(/一番強い怒り|感じているのでしょうか/);
+    expect(result).toContain(
+      '自分の時間を軽く扱われないために、相手にまず何を変えてほしいですか？'
     );
   });
 
@@ -1577,6 +1616,22 @@ describe('normalizeCoachingOutput', () => {
     expect(result).not.toMatch(/存在|尊重されていない|何よりの痛み/);
   });
 
+  it('怒りを「心残り」という悲しみ寄りの表現へ変えない', () => {
+    const result = normalizeCoachingOutput(
+      '準備に使った時間を軽く扱われたことが、今も心残りなのですね。\n\n相手にどうしてほしいですか？',
+      '準備に使った時間を軽く扱われたことに腹が立っています。',
+      [
+        {
+          role: 'user',
+          content: '私の時間を軽く扱われたことが嫌でした。',
+        },
+      ]
+    );
+
+    expect(result).not.toContain('心残り');
+    expect(result).toMatch(/準備に使った時間|軽く扱/);
+  });
+
   it('使える伝達文を示した後に汎用質問を重ねない', () => {
     const result = normalizeCoachingOutput(
       '「家事そのものより、私の時間を軽く扱われているように感じるのが嫌です。このことを責めたいのではなく、これからどうするか一緒に話したいです。」\n\n今の話の中で、いちばん見過ごしたくない本音は何ですか？',
@@ -1586,6 +1641,28 @@ describe('normalizeCoachingOutput', () => {
     expect(result).toContain('これからどうするか一緒に話したいです');
     expect(result).not.toMatch(/[？?]/);
     expect(result).not.toContain('見過ごしたくない本音');
+  });
+
+  it('具体的な行動を提案した後に実行可否の確認を重ねない', () => {
+    const result = normalizeCoachingOutput(
+      '今夜、夫に頼みたい家事を一つだけメモに書いてください。\n\nこのメモを作ることは、今夜できそうでしょうか。',
+      '家事の負担を減らすために、今夜できることを一つ提案してください。'
+    );
+
+    expect(result).toContain('家事を一つだけメモに書いてください');
+    expect(result).not.toMatch(/このメモ|できそう/);
+    expect(result.match(/[？?]/g) || []).toHaveLength(0);
+  });
+
+  it('使える一言を示した後に「いかがでしょうか」を重ねない', () => {
+    const result = normalizeCoachingOutput(
+      '「今は手一杯なので、今回はお引き受けできません。」\n\nこのような一言はいかがでしょうか。',
+      '急な依頼を角を立てずに断る一言を、一つだけ提案してください。'
+    );
+
+    expect(result).toContain('今回はお引き受けできません');
+    expect(result).not.toMatch(/いかがでしょうか|このような一言/);
+    expect(result.match(/[？?]/g) || []).toHaveLength(0);
   });
 
   it('直前の長い伝達文を再掲せず最新の不安へ答える', () => {
@@ -1764,6 +1841,28 @@ describe('normalizeCoachingOutput', () => {
 
     expect(result).not.toMatch(/例：|メールを1通|資料を1ページ/);
     expect(result).toContain('仕事');
+  });
+
+  it('一つだけ指定に括弧内の複数候補を混ぜない', () => {
+    const result = normalizeCoachingOutput(
+      '明日の朝、その新しい仕事の「最初の1ステップ（資料を読む、最初の1行を書くなど）」を、5分間だけタイマーをかけて手をつけてみてください。',
+      '明日の朝にできることを一つだけ、質問なしで教えてください。',
+      [{ role: 'user', content: '新しい仕事に手をつけたいです。' }]
+    );
+
+    expect(result).toBe(
+      '明日の朝、今いちばん気になる仕事に5分だけ取り組んでください。'
+    );
+  });
+
+  it('質問の前にAI側の説明文を挟まない', () => {
+    const result = normalizeCoachingOutput(
+      '最後に、自分で判断を深めるための質問です。\n\n明日の朝、最初に何を始めますか？',
+      '明日始めることを整理したいです。最後に質問を一つしてください。'
+    );
+
+    expect(result).not.toContain('質問です');
+    expect(result.match(/[？?]/g) || []).toHaveLength(1);
   });
 
   it('本文へMarkdownの太字記号を残さない', () => {
