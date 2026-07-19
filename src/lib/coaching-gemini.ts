@@ -984,7 +984,7 @@ export function normalizeCoachingOutput(
       ''
     )
     .replace(
-      /(?:まずは[、,]?)?(?:その|今の)?(?:お気持ち|気持ち)を受け止めます[。]?/g,
+      /(?:まずは[、,]?)?(?:その|今の)?(?:お気持ち|気持ち)[^。\n]{0,18}受け止めます[。]?/g,
       ''
     )
     .replace(/いらっしゃるのですね/g, 'いるんですね')
@@ -1859,6 +1859,17 @@ function removeUnsupportedPsychologicalInference(
       .map((message) => stripAttachmentMarkdown(message.content)),
     lastUserText,
   ].join('\n');
+  const candidateText = /ミス|失敗/.test(userContext)
+    ? text
+    : text
+        .replace(
+          /仕事で(?:ミス|失敗)(?:があり|をして|してしまい|し)[、,]?/g,
+          '仕事のことで、'
+        )
+        .replace(
+          /今(?:一番|いちばん)気になっている[「『]?(?:ミス|失敗)[^」』。\n]{0,24}(?:場面|出来事)[」』]?/g,
+          '今いちばん気になっている出来事'
+        );
   const loadedInferences = [
     { output: /見捨てられ/, supportedBy: /見捨てられ/ },
     { output: /承認欲求/, supportedBy: /承認欲求/ },
@@ -1871,6 +1882,7 @@ function removeUnsupportedPsychologicalInference(
     { output: /萎縮/, supportedBy: /萎縮/ },
     { output: /身構え/, supportedBy: /身構え/ },
     { output: /緊張/, supportedBy: /緊張/ },
+    { output: /ミス|失敗/, supportedBy: /ミス|失敗/ },
     {
       output: /予測.{0,12}(?:から来|が原因)|(?:から来|原因).{0,12}予測/,
       supportedBy: /予測|また.{0,12}否定/,
@@ -1909,16 +1921,16 @@ function removeUnsupportedPsychologicalInference(
   ];
   const unsupportedTerms = loadedInferences.filter(
     ({ output, supportedBy }) =>
-      output.test(text) && !supportedBy.test(userContext)
+      output.test(candidateText) && !supportedBy.test(userContext)
   );
   const userUsedEmphaticCause = /(?:だからこそ|からこそ)/.test(userContext);
   const hasUnsupportedEmphaticCause =
-    /(?:だからこそ|からこそ)/.test(text) && !userUsedEmphaticCause;
+    /(?:だからこそ|からこそ)/.test(candidateText) && !userUsedEmphaticCause;
   if (unsupportedTerms.length === 0 && !hasUnsupportedEmphaticCause) {
-    return text;
+    return candidateText;
   }
 
-  const grounded = (text.match(/[^。！？?\n]+[。！？?]?|\n+/g) || [])
+  const grounded = (candidateText.match(/[^。！？?\n]+[。！？?]?|\n+/g) || [])
     .filter(
       (segment) =>
         !unsupportedTerms.some(({ output }) => output.test(segment)) &&

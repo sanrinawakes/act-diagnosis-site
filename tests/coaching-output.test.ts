@@ -315,6 +315,17 @@ describe('normalizeCoachingOutput', () => {
     expect(result).toContain('自分で納得できそう');
   });
 
+  it('本人が言っていない仕事のミスと姿勢宣言を補わない', () => {
+    const result = normalizeCoachingOutput(
+      '仕事でミスがあり、今は落ち込んでいるんですね。そのお気持ち、まずはそのまま受け止めます。\n\n状況を整理するために、今一番気になっている「ミスが起きた具体的な場面」を一つだけ聞かせてもらえますか？',
+      '仕事のことで少し落ち込んでいます。短く整理を手伝ってください。'
+    );
+
+    expect(result).not.toContain('ミス');
+    expect(result).not.toContain('受け止めます');
+    expect(result).toContain('落ち込');
+  });
+
   it('句点で終わる質問と「教えてください」を重ねない', () => {
     const result = normalizeCoachingOutput(
       [
