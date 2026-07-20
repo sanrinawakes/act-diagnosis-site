@@ -212,6 +212,23 @@ export default function AdminDashboard() {
                   <p className="text-green-600 text-sm font-medium">詳細を表示 →</p>
                 </Link>
 
+                {/* AI Coaching Usage Audit Link */}
+                <Link
+                  href="/admin/coaching-usage"
+                  className="bg-white/80 border border-red-200/50 rounded-lg p-6 hover:border-red-300 hover:shadow-md transition-all cursor-pointer group"
+                >
+                  <div className="flex items-start justify-between mb-4">
+                    <h2 className="text-xl font-semibold text-gray-900 group-hover:text-red-600 transition-colors">
+                      AI利用監査
+                    </h2>
+                    <span className="text-2xl">📋</span>
+                  </div>
+                  <p className="text-gray-600 text-sm mb-4">
+                    利用者別の回数、長文入力、用途外判定を確認
+                  </p>
+                  <p className="text-red-600 text-sm font-medium">詳細を表示 →</p>
+                </Link>
+
                 {/* Settings Link */}
                 <Link
                   href="/admin/settings"

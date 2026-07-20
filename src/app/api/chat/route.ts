@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { randomUUID } from 'crypto';
 import { createServerClient } from '@/lib/supabase-server';
 import {
@@ -22,6 +23,12 @@ import {
   getStreamHeaders,
 } from '@/lib/coaching-gemini';
 import { buildCoachingSessionContext } from '@/lib/coaching-session-memory';
+import {
+  COACHING_SCOPE_GUIDANCE,
+  classifyCoachingScope,
+  createScopeBlockedStream,
+  type CoachingScopeResult,
+} from '@/lib/coaching-scope';
 
 export const runtime = 'nodejs';
 // Vercel関数のデフォルト打ち切り(Hobby 10s)を延長し、Gemini生成の途中切断を防ぐ
@@ -37,6 +44,7 @@ const PROFILE_TIMEOUT_MS = 8000;
 const SETTINGS_TIMEOUT_MS = 5000;
 const SESSION_CONTEXT_TIMEOUT_MS = 8000;
 const ATTACHMENT_LOAD_TIMEOUT_MS = 20000;
+const USAGE_AUDIT_TIMEOUT_MS = 3000;
 const MAX_REQUEST_MESSAGES = 100;
 const MAX_MESSAGE_CHARS = 50000;
 const MAX_TOTAL_MESSAGE_CHARS = 200000;
@@ -163,8 +171,11 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    const currentChatCount =
+      profile.last_chat_date === today ? profile.chat_count_today || 0 : 0;
+
     if (profile && profile.role !== 'admin') {
-      const chatCountToday = profile.last_chat_date === today ? (profile.chat_count_today || 0) : 0;
+      const chatCountToday = currentChatCount;
 
       if (chatCountToday >= DAILY_CHAT_LIMIT) {
         return NextResponse.json(
@@ -227,6 +238,63 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: attachmentError }, { status: 400 });
     }
 
+    const activeSessionId = sessionId || session_id || null;
+    const scopeResult = classifyCoachingScope({
+      messages,
+      attachmentCount: attachments.length,
+    });
+    const usageAuditPromise = recordCoachingUsageEvent({
+      supabaseAdmin,
+      requestId,
+      userId: user.id,
+      sessionId: activeSessionId,
+      result: scopeResult,
+    });
+
+    if (scopeResult.decision === 'blocked') {
+      await usageAuditPromise;
+      const remaining =
+        profile.role === 'admin'
+          ? DAILY_CHAT_LIMIT
+          : Math.max(0, DAILY_CHAT_LIMIT - currentChatCount);
+      console.warn(
+        JSON.stringify({
+          event: 'chat_scope_blocked',
+          route: '/api/chat',
+          requestId,
+          userId: user.id,
+          sessionId: activeSessionId,
+          category: scopeResult.category,
+          matchedRule: scopeResult.matchedRule,
+          messageChars: scopeResult.messageChars,
+          isLongMessage: scopeResult.isLongMessage,
+          attachments: scopeResult.attachmentCount,
+        })
+      );
+
+      if (stream) {
+        return new Response(
+          createScopeBlockedStream({
+            result: scopeResult,
+            remaining,
+            limit: DAILY_CHAT_LIMIT,
+          }),
+          { headers: getStreamHeaders() }
+        );
+      }
+
+      return NextResponse.json({
+        message: COACHING_SCOPE_GUIDANCE,
+        remaining,
+        limit: DAILY_CHAT_LIMIT,
+        completionStatus: 'complete',
+        finishReason: 'SCOPE_BLOCKED',
+        scopeDecision: scopeResult.decision,
+        scopeCategory: scopeResult.category,
+        usage: {},
+      });
+    }
+
     let inlineAttachments;
     try {
       inlineAttachments = await withStageTimeout(
@@ -235,6 +303,7 @@ export async function POST(request: NextRequest) {
         'ATTACHMENT_LOAD_TIMEOUT'
       );
     } catch (error) {
+      await usageAuditPromise;
       logPreflightError(requestId, 'attachments', requestStartedAt, error);
       const timedOut =
         error instanceof Error && error.message === 'ATTACHMENT_LOAD_TIMEOUT';
@@ -259,7 +328,7 @@ export async function POST(request: NextRequest) {
       sessionContext = await withStageTimeout(
         buildCoachingSessionContext({
           supabaseAdmin,
-          sessionId: sessionId || session_id || null,
+          sessionId: activeSessionId,
           userId: user.id,
           requestMessages: messages,
         }),
@@ -295,13 +364,15 @@ export async function POST(request: NextRequest) {
       memoryUsed: sessionContext.memoryUsed,
       memoryRefreshed: sessionContext.memoryRefreshed,
       memoryCoveredMessages: sessionContext.memoryCoveredMessages,
+      scopeCategory: scopeResult.category,
+      isLongMessage: scopeResult.isLongMessage,
       preStreamMs: Date.now() - requestStartedAt,
       contextMs: Date.now() - contextStartedAt,
     };
 
     const completeSuccessfulResponse = async () => {
-      const currentCount = profile && profile.last_chat_date === today ? (profile.chat_count_today || 0) : 0;
-      const newCount = currentCount + 1;
+      await usageAuditPromise;
+      const newCount = currentChatCount + 1;
 
       const { error: countUpdateError } = await supabaseAdmin
         .from('profiles')
@@ -360,6 +431,7 @@ export async function POST(request: NextRequest) {
         })
       );
     } catch (genErr) {
+      await usageAuditPromise;
       const isTimeout =
         genErr instanceof Error && genErr.message === 'GEMINI_TIMEOUT';
       console.error(
@@ -443,6 +515,51 @@ function logPreflightError(
       error: error instanceof Error ? error.message : String(error),
     })
   );
+}
+
+async function recordCoachingUsageEvent(params: {
+  supabaseAdmin: SupabaseClient;
+  requestId: string;
+  userId: string;
+  sessionId: string | null;
+  result: CoachingScopeResult;
+}) {
+  try {
+    const insertResult = await withStageTimeout(
+      params.supabaseAdmin.from('coaching_usage_events').insert({
+        request_id: params.requestId,
+        user_id: params.userId,
+        session_id: params.sessionId,
+        decision: params.result.decision,
+        category: params.result.category,
+        matched_rule: params.result.matchedRule,
+        message_chars: params.result.messageChars,
+        total_request_chars: params.result.totalRequestChars,
+        line_count: params.result.lineCount,
+        is_long_message: params.result.isLongMessage,
+        attachment_count: params.result.attachmentCount,
+        provider_requested: params.result.decision === 'allowed',
+      }),
+      USAGE_AUDIT_TIMEOUT_MS,
+      'USAGE_AUDIT_TIMEOUT'
+    );
+
+    if (insertResult.error) {
+      throw new Error(`USAGE_AUDIT_FAILED: ${insertResult.error.message}`);
+    }
+  } catch (error) {
+    // The paid chat must remain available if only the audit write fails. Keep a
+    // structured event so operations can identify the failed request in logs.
+    console.error(
+      JSON.stringify({
+        event: 'coaching_usage_audit_failed',
+        route: '/api/chat',
+        requestId: params.requestId,
+        userId: params.userId,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    );
+  }
 }
 
 function validateRequestBody(input: unknown): {
