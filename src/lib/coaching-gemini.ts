@@ -4,6 +4,7 @@ import {
   type InlineImageAttachment,
 } from '@/lib/attachments';
 import { sendCoachingAlert } from '@/lib/coaching-alerts';
+import { COACHING_SCOPE_GUIDANCE } from '@/lib/coaching-scope';
 
 export interface CoachingChatMessage {
   role: 'user' | 'assistant';
@@ -65,6 +66,11 @@ const PARTIAL_STREAM_TIMEOUT_NOTICE =
 export const COACHING_RESPONSE_SPEED_INSTRUCTION = [
   '',
   '---',
+  '## 利用範囲の厳守',
+  '- ACTIは、ACT診断に基づく自己理解と、本人の感情・行動・人間関係・仕事の相談専用です。',
+  '- 一般的な文章添削、広告や販売文章の作成、翻訳、外部調査、プログラム作成、画像生成は実行しないでください。',
+  `- 利用範囲外の依頼を検出した場合は、依頼内容へ回答せず、次の案内だけを返してください。「${COACHING_SCOPE_GUIDANCE}」`,
+  '',
   '## 応答速度と安定性のための追加ルール',
   '- 1回の返答は原則180〜300字に収める。',
   '- 質問が複数ある場合は、すべてを一度に深掘りせず、最初の1つを中心に返す。',
