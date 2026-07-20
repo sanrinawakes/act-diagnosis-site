@@ -956,13 +956,27 @@ function requestsExplicitClosingQuestionInSmoke(text) {
 async function cleanup() {
   if (!supabase || createdEmails.length === 0) return;
 
-  const { error } = await supabase
+  const { error: deleteError } = await supabase
     .from('free_users')
     .delete()
     .in('email', createdEmails);
+  if (deleteError) {
+    console.error(`Failed to delete smoke test users: ${deleteError.message}`);
+    process.exitCode = 1;
+    return;
+  }
 
-  if (error) {
-    console.error(`Failed to delete smoke test users: ${error.message}`);
+  const { count, error: verifyError } = await supabase
+    .from('free_users')
+    .select('id', { count: 'exact', head: true })
+    .in('email', createdEmails);
+  if (verifyError || count !== 0) {
+    console.error(
+      `Smoke test cleanup verification failed: ${
+        verifyError?.message || `free_users=${count}`
+      }`
+    );
+    process.exitCode = 1;
   }
 }
 
