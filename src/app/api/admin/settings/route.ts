@@ -3,6 +3,15 @@ import { createServerClient as createSSRClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
 import type { SiteSettings } from '@/lib/types';
+import {
+  parseSiteSettingsPatch,
+  validateEnabledCoachingNotice,
+  type EditableSiteSettings,
+} from '@/lib/site-settings';
+import {
+  loadCoachingNoticeSettings,
+  saveCoachingNoticeSettings,
+} from '@/lib/coaching-notice-storage';
 
 // Helper to create admin Supabase client with service role key
 function createAdminClient() {
@@ -82,6 +91,7 @@ export async function GET(request: NextRequest) {
     }
 
     const adminClient = createAdminClient();
+    const noticeSettings = await loadCoachingNoticeSettings(adminClient);
 
     // Fetch site settings
     const { data: settings, error } = await adminClient
@@ -100,13 +110,14 @@ export async function GET(request: NextRequest) {
         id: 1,
         bot_enabled: true,
         maintenance_mode: false,
+        ...noticeSettings,
         updated_at: new Date().toISOString(),
         updated_by: null,
       };
       return NextResponse.json(defaultSettings, { status: 200 });
     }
 
-    return NextResponse.json(settings, { status: 200 });
+    return NextResponse.json({ ...settings, ...noticeSettings }, { status: 200 });
   } catch (error) {
     console.error('GET /api/admin/settings error:', error);
     return NextResponse.json(
@@ -127,27 +138,60 @@ export async function PATCH(request: NextRequest) {
 
     const adminClient = createAdminClient();
     const body = await request.json();
-    const { bot_enabled, maintenance_mode } = body;
+    let settingsPatch: Partial<EditableSiteSettings>;
+
+    try {
+      settingsPatch = parseSiteSettingsPatch(body);
+    } catch (error) {
+      return NextResponse.json(
+        { error: error instanceof Error ? error.message : '設定内容が正しくありません' },
+        { status: 400 }
+      );
+    }
+
+    // Get the current values so an enabled notice can never be saved without text.
+    const { data: existingSettings, error: existingSettingsError } = await adminClient
+      .from('site_settings')
+      .select('*')
+      .limit(1)
+      .maybeSingle();
+
+    if (existingSettingsError) {
+      throw existingSettingsError;
+    }
+
+    const currentNoticeSettings = await loadCoachingNoticeSettings(adminClient);
+
+    const currentEditableSettings: EditableSiteSettings = {
+      bot_enabled: existingSettings?.bot_enabled ?? true,
+      maintenance_mode: existingSettings?.maintenance_mode ?? false,
+      ...currentNoticeSettings,
+    };
+    const nextEditableSettings = {
+      ...currentEditableSettings,
+      ...settingsPatch,
+    };
+
+    try {
+      validateEnabledCoachingNotice(nextEditableSettings);
+    } catch (error) {
+      return NextResponse.json(
+        { error: error instanceof Error ? error.message : '告知内容が正しくありません' },
+        { status: 400 }
+      );
+    }
 
     // Build update object
-    const updateData: Record<string, any> = {
+    const updateData: Record<string, unknown> = {
       updated_at: new Date().toISOString(),
       updated_by: userId,
     };
-
-    if (bot_enabled !== undefined) {
-      updateData.bot_enabled = bot_enabled;
+    if (settingsPatch.bot_enabled !== undefined) {
+      updateData.bot_enabled = settingsPatch.bot_enabled;
     }
-    if (maintenance_mode !== undefined) {
-      updateData.maintenance_mode = maintenance_mode;
+    if (settingsPatch.maintenance_mode !== undefined) {
+      updateData.maintenance_mode = settingsPatch.maintenance_mode;
     }
-
-    // First, try to get existing settings
-    const { data: existingSettings } = await adminClient
-      .from('site_settings')
-      .select('id')
-      .limit(1)
-      .single();
 
     let result;
     let error;
@@ -164,7 +208,14 @@ export async function PATCH(request: NextRequest) {
       // Insert new settings
       ({ data: result, error } = await adminClient
         .from('site_settings')
-        .insert([{ id: 1, bot_enabled: true, maintenance_mode: false, ...updateData }])
+        .insert([
+          {
+            id: 1,
+            bot_enabled: nextEditableSettings.bot_enabled,
+            maintenance_mode: nextEditableSettings.maintenance_mode,
+            ...updateData,
+          },
+        ])
         .select()
         .single());
     }
@@ -173,7 +224,21 @@ export async function PATCH(request: NextRequest) {
       throw error;
     }
 
-    return NextResponse.json(result, { status: 200 });
+    await saveCoachingNoticeSettings(adminClient, {
+      coaching_notice_enabled: nextEditableSettings.coaching_notice_enabled,
+      coaching_notice_title: nextEditableSettings.coaching_notice_title,
+      coaching_notice_body: nextEditableSettings.coaching_notice_body,
+    });
+
+    return NextResponse.json(
+      {
+        ...result,
+        coaching_notice_enabled: nextEditableSettings.coaching_notice_enabled,
+        coaching_notice_title: nextEditableSettings.coaching_notice_title,
+        coaching_notice_body: nextEditableSettings.coaching_notice_body,
+      },
+      { status: 200 }
+    );
   } catch (error) {
     console.error('PATCH /api/admin/settings error:', error);
     return NextResponse.json(

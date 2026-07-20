@@ -5,9 +5,14 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import AuthGuard from '@/components/AuthGuard';
 import Header from '@/components/Header';
+import CoachingNoticeBanner from '@/components/CoachingNoticeBanner';
 import { createClient } from '@/lib/supabase';
 import { useI18n } from '@/lib/i18n';
 import type { Profile, DiagnosisResult } from '@/lib/types';
+import {
+  getVisibleCoachingNotice,
+  type CoachingNotice,
+} from '@/lib/site-settings';
 import { typeNames, levelNames } from '@/data/type-names';
 
 export default function DashboardPage() {
@@ -15,6 +20,7 @@ export default function DashboardPage() {
   const [latestDiagnosis, setLatestDiagnosis] = useState<DiagnosisResult | null>(null);
   const [diagnosisCount, setDiagnosisCount] = useState<number>(0);
   const [chatSessionCount, setChatSessionCount] = useState<number>(0);
+  const [coachingNotice, setCoachingNotice] = useState<CoachingNotice | null>(null);
   const [loading, setLoading] = useState(true);
   const [referralCode, setReferralCode] = useState('');
   const [referralMessage, setReferralMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -75,6 +81,27 @@ export default function DashboardPage() {
 
     fetchDashboardData();
   }, [router, supabase]);
+
+  useEffect(() => {
+    let active = true;
+    const fetchCoachingNotice = async () => {
+      try {
+        const response = await fetch('/api/coaching-notice', { cache: 'no-store' });
+        if (!response.ok) return;
+        const noticeSettings = await response.json();
+        if (active) {
+          setCoachingNotice(getVisibleCoachingNotice(noticeSettings));
+        }
+      } catch (error) {
+        console.error('Failed to fetch coaching notice:', error);
+      }
+    };
+
+    void fetchCoachingNotice();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   // ユーザーの権限判定
   const isAdmin = profile?.role === 'admin';
@@ -172,6 +199,14 @@ export default function DashboardPage() {
               )}
             </div>
           </div>
+
+          {isPaidUser && coachingNotice && (
+            <CoachingNoticeBanner
+              title={coachingNotice.title}
+              body={coachingNotice.body}
+              className="mb-8"
+            />
+          )}
 
           {/* 統計カード */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mb-8">

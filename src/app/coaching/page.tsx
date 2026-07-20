@@ -5,9 +5,14 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import AuthGuard from '@/components/AuthGuard';
 import Header from '@/components/Header';
+import CoachingNoticeBanner from '@/components/CoachingNoticeBanner';
 import { createClient } from '@/lib/supabase';
 import { useI18n } from '@/lib/i18n';
 import { useSubscriptionGuard } from '@/hooks/useSubscriptionGuard';
+import {
+  getVisibleCoachingNotice,
+  type CoachingNotice,
+} from '@/lib/site-settings';
 import {
   appendAttachmentMarkdown,
   parseAttachmentMarkdown,
@@ -224,6 +229,7 @@ function CoachingContent() {
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const [loading, setLoading] = useState(false);
   const [botDisabled, setBotDisabled] = useState(false);
+  const [coachingNotice, setCoachingNotice] = useState<CoachingNotice | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [diagnosisCode, setDiagnosisCode] = useState<string | null>(null);
   const [initialized, setInitialized] = useState(false);
@@ -333,6 +339,29 @@ function CoachingContent() {
     if (!isReady) return;
     fetchSidebarSessions(sidebarSearch, sidebarTab, 1);
   }, [isReady, sidebarTab, fetchSidebarSessions, sidebarSearch]);
+
+  useEffect(() => {
+    if (!isReady) return;
+
+    let active = true;
+    const fetchCoachingNotice = async () => {
+      try {
+        const response = await fetch('/api/coaching-notice', { cache: 'no-store' });
+        if (!response.ok) return;
+        const noticeSettings = await response.json();
+        if (active) {
+          setCoachingNotice(getVisibleCoachingNotice(noticeSettings));
+        }
+      } catch (error) {
+        console.error('Failed to fetch coaching notice:', error);
+      }
+    };
+
+    void fetchCoachingNotice();
+    return () => {
+      active = false;
+    };
+  }, [isReady]);
 
   // ─── Sidebar: pin/unpin ───
   const handlePin = async (sid: string, isPinned: boolean) => {
@@ -1443,6 +1472,14 @@ function CoachingContent() {
               )}
             </div>
           </div>
+
+          {coachingNotice && (
+            <CoachingNoticeBanner
+              title={coachingNotice.title}
+              body={coachingNotice.body}
+              className="mx-4 mt-4 flex-shrink-0 sm:mx-6"
+            />
+          )}
 
           {/* Messages Area */}
           <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">

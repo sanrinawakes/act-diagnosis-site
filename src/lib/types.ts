@@ -77,6 +77,9 @@ export interface SiteSettings {
   id: number;
   bot_enabled: boolean;
   maintenance_mode: boolean;
+  coaching_notice_enabled: boolean;
+  coaching_notice_title: string;
+  coaching_notice_body: string;
   updated_at: string;
   updated_by: string | null;
 }
