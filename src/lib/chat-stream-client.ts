@@ -15,13 +15,15 @@ export interface ChatStreamDone {
 }
 
 type StreamEvent =
-  | { type: 'chunk'; text?: string }
+  | { type: 'chunk'; text?: string; verified?: boolean }
   | ({ type: 'done' } & ChatStreamDone)
   | { type: 'error'; error?: string };
 
+export type ChatStreamUpdateMode = 'append' | 'replace';
+
 export async function readChatStream(
   response: Response,
-  onChunk: (text: string) => void
+  onChunk: (text: string, mode: ChatStreamUpdateMode) => void
 ): Promise<ChatStreamDone> {
   const contentType = response.headers.get('content-type') || '';
 
@@ -37,7 +39,7 @@ export async function readChatStream(
         'AIの応答データを確認できませんでした。もう一度お試しください。'
       );
     }
-    onChunk(data.message);
+    onChunk(data.message, 'replace');
     return data;
   }
 
@@ -60,8 +62,9 @@ export async function readChatStream(
       const event = parseRequiredStreamLine(line);
       if (!event) continue;
 
-      if (event.type === 'chunk' && event.text) {
+      if (event.type === 'chunk' && event.text && event.verified === true) {
         receivedText += event.text;
+        onChunk(event.text, 'append');
       }
 
       if (event.type === 'error') {
@@ -78,8 +81,9 @@ export async function readChatStream(
   const remaining = buffer.trim();
   if (remaining) {
     const event = parseRequiredStreamLine(remaining);
-    if (event?.type === 'chunk' && event.text) {
+    if (event?.type === 'chunk' && event.text && event.verified === true) {
       receivedText += event.text;
+      onChunk(event.text, 'append');
     }
     if (event?.type === 'error') {
       throw new Error(event.error || 'AIの応答生成に失敗しました。もう一度お試しください。');
@@ -102,7 +106,14 @@ export async function readChatStream(
     );
   }
 
-  onChunk(donePayload.message?.trim() ? donePayload.message : receivedText);
+  const finalText = donePayload.message?.trim()
+    ? donePayload.message
+    : receivedText;
+  if (finalText !== receivedText) {
+    onChunk(finalText, 'replace');
+  } else if (!receivedText) {
+    onChunk(finalText, 'replace');
+  }
 
   return donePayload;
 }

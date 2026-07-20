@@ -1063,8 +1063,9 @@ function CoachingContent() {
 
       failureStage = 'read_stream';
       const data = await withTimeout(
-        readChatStream(response, (chunk) => {
-          assistantContent += chunk;
+        readChatStream(response, (chunk, mode) => {
+          assistantContent =
+            mode === 'replace' ? chunk : assistantContent + chunk;
           setMessages((prev) =>
             prev.map((message) =>
               message.id === assistantMessageId

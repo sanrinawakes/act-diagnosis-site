@@ -2006,6 +2006,16 @@ describe('normalizeCoachingOutput', () => {
     ).toBe('添付された画像は3枚です。');
   });
 
+  it('画像の読込確認を短く求められた時は事実回答を行動提案へ変えない', () => {
+    const result = normalizeCoachingOutput(
+      'はい、添付画像は読み込めています。',
+      '添付した画像が読み込めたか、短く答えてください。'
+    );
+
+    expect(result).toBe('はい、添付画像は読み込めています。');
+    expect(result).not.toContain('メモに書いて');
+  });
+
   it('明日の断り文は読み上げる文だけを返し、外側に明日を付けない', () => {
     const result = normalizeCoachingOutput(
       '「ありがとうございます。ただ、今は手一杯のため、今回はお引き受けできません。」',
