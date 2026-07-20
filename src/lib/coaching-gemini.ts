@@ -1903,6 +1903,15 @@ function isGroundedDirectWording(
   ) {
     return false;
   }
+  if (
+    /家事|夫|妻/.test(userContext) &&
+    /後回し|時間[^。\n]{0,40}軽く扱/.test(userContext) &&
+    !/(?:いつ[^。！？?\n]{0,24}(?:対応|やる)|(?:対応|やる)[^。！？?\n]{0,24}いつ|一緒に決め|お願い|してほしい|後回しにしない)/.test(
+      answer
+    )
+  ) {
+    return false;
+  }
 
   const statement = selectGroundingStatement(historyMessages);
   if (!statement) return true;
@@ -1922,10 +1931,14 @@ function isGroundedDirectWording(
   const salientTerms = DIRECT_WORDING_GROUNDING_TERMS.filter(
     ([term, weight]) => weight >= 3 && statement.includes(term)
   ).map(([term]) => term);
+  const groundingAnswer = answer.replace(
+    /(?:今夜|今日|明日)[はに]?[、,\s]*(?:少し[、,\s]*)?時間[はが]?(?:ある|取れる|空いて(?:いる)?|もらえる)(?:かな|か|でしょうか)?[？?]?/g,
+    ''
+  );
 
   return (
     salientTerms.length === 0 ||
-    salientTerms.some((term) => answer.includes(term))
+    salientTerms.some((term) => groundingAnswer.includes(term))
   );
 }
 
