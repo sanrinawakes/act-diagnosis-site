@@ -2,6 +2,7 @@ import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   DEFAULT_COACHING_NOTICE_SETTINGS,
+  INTERIM_DEFAULT_COACHING_NOTICE_BODY,
   PREVIOUS_DEFAULT_COACHING_NOTICE_BODY,
   parseSiteSettingsPatch,
   validateEnabledCoachingNotice,
@@ -30,7 +31,10 @@ function parseStoredNotice(input: unknown): CoachingNoticeSettings {
       ? {}
       : { coaching_notice_body: patch.coaching_notice_body }),
   };
-  if (notice.coaching_notice_body === PREVIOUS_DEFAULT_COACHING_NOTICE_BODY) {
+  if (
+    notice.coaching_notice_body === PREVIOUS_DEFAULT_COACHING_NOTICE_BODY ||
+    notice.coaching_notice_body === INTERIM_DEFAULT_COACHING_NOTICE_BODY
+  ) {
     return {
       ...DEFAULT_COACHING_NOTICE_SETTINGS,
       coaching_notice_enabled: notice.coaching_notice_enabled,
