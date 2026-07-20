@@ -1200,6 +1200,34 @@ describe('normalizeCoachingOutput', () => {
     expect(result).not.toBe('「家事のことで、私の気持ちを聞いてほしいな」');
   });
 
+  it('予定確認の「時間」を本人の時間尊重と誤認せず、具体的なお願いへ戻す', () => {
+    const history = [
+      {
+        role: 'user' as const,
+        content:
+          '夫に家事を頼んでも後回しにされます。私ばかり負担している気がして腹が立ちます。',
+      },
+      {
+        role: 'user' as const,
+        content:
+          '家事そのものより、私の時間を軽く扱われているように感じることが嫌なんです。',
+      },
+      {
+        role: 'user' as const,
+        content: '責める言い方をすると喧嘩になるので、落ち着いて伝えたいです。',
+      },
+    ];
+    const result = normalizeCoachingOutput(
+      '「私の時間も大切にしたいから、家事の分担について少し落ち着いて話したいんだけど、今夜時間あるかな？」',
+      '今夜話すなら、最初の一言はどうすればいいですか？',
+      history
+    );
+
+    expect(result).toBe(
+      '「私の時間も大切にしたいので、家事を頼んだ時に、いつ対応するかを一緒に決めたいです。」'
+    );
+  });
+
   it('本人の怒りを悲しみに変えた文面を履歴に基づいて修復する', () => {
     const history = [
       {
