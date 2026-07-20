@@ -6,7 +6,10 @@ import {
   COACHING_TEXT_THINKING_LEVEL,
   buildGeminiParts,
   buildIncompleteGenerationRecoveryResponse,
+  buildUrgentSafetyResponse,
   classifyGeminiCompletion,
+  createJsonLineStream,
+  generateCoachingText,
   getCoachingGeminiModelName,
   normalizeCoachingOutput,
   stripInternalResponseStyleHint,
@@ -60,6 +63,85 @@ describe('classifyGeminiCompletion', () => {
     expect(classifyGeminiCompletion('MAX_TOKENS')).toBe('partial');
     expect(classifyGeminiCompletion('SAFETY')).toBe('partial');
     expect(classifyGeminiCompletion(undefined)).toBe('partial');
+  });
+});
+
+describe('buildUrgentSafetyResponse', () => {
+  it('自殺・自傷の危険がある相談では公的窓口と安全確保を優先する', () => {
+    const result = buildUrgentSafetyResponse(
+      'もう消えたいです。今から自分を傷つけるかもしれません。'
+    );
+
+    expect(result).toContain('一人にならず');
+    expect(result).toContain('119');
+    expect(result).toContain('0120-061-338');
+    expect(result).toContain('0120-279-338');
+    expect(result).toContain('24時間・無料');
+    expect(result).not.toContain('タイプ');
+  });
+
+  it('非ストリーム経路ではGeminiを呼ばず安全応答を返す', async () => {
+    const result = await generateCoachingText({
+      systemPrompt: 'test',
+      historyMessages: [],
+      lastUserParts: [{ text: '自分を傷つけたいです。' }],
+    });
+
+    expect(result.modelName).toBe('local-safety');
+    expect(result.completionStatus).toBe('complete');
+    expect(result.finishReason).toBe('LOCAL_SAFETY_RESPONSE');
+    expect(result.text).toContain('0120-061-338');
+  });
+
+  it('ストリーム経路でも安全応答と会話後処理を完了する', async () => {
+    const stream = createJsonLineStream({
+      systemPrompt: 'test',
+      historyMessages: [],
+      lastUserParts: [{ text: 'もう死にたいです。' }],
+      onDone: async () => ({ remaining: 49 }),
+    });
+    const events = (await new Response(stream).text())
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+    const chunk = events.find((event) => event.type === 'chunk');
+    const done = events.find((event) => event.type === 'done');
+
+    expect(chunk?.text).toContain('0120-279-338');
+    expect(done).toMatchObject({
+      modelName: 'local-safety',
+      completionStatus: 'complete',
+      finalizationStatus: 'complete',
+      finishReason: 'LOCAL_SAFETY_RESPONSE',
+      remaining: 49,
+    });
+  });
+
+  it('身近な人の自殺相談にも安全案内を返す', () => {
+    const result = buildUrgentSafetyResponse(
+      '家族が死にたいと言っています。どうすればいいですか？'
+    );
+
+    expect(result).toContain('あなた自身または身近な方');
+    expect(result).toContain('119');
+  });
+
+  it.each([
+    '自殺しようと思っています。',
+    '死んだ方がましです。',
+    'もう生きられない。',
+    '大量服薬を考えています。',
+    'I want to kill myself.',
+  ])('危険を示す言い換え「%s」を見落とさない', (message) => {
+    expect(buildUrgentSafetyResponse(message)).toContain('119');
+  });
+
+  it.each([
+    '仕事で失敗して落ち込んでいます。',
+    '自殺予防についての資料を作っています。',
+    '死にたくないので相談したいです。',
+  ])('通常相談や話題説明「%s」には緊急案内を出さない', (message) => {
+    expect(buildUrgentSafetyResponse(message)).toBeNull();
   });
 });
 

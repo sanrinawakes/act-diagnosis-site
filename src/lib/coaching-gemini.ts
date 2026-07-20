@@ -261,6 +261,18 @@ export async function generateCoachingText(params: {
   historyMessages: CoachingChatMessage[];
   lastUserParts: GeminiPart[];
 }) {
+  const lastUserText = extractTextFromParts(params.lastUserParts);
+  const urgentSafetyResponse = buildUrgentSafetyResponse(lastUserText);
+  if (urgentSafetyResponse) {
+    return {
+      text: urgentSafetyResponse,
+      usage: {},
+      modelName: 'local-safety',
+      completionStatus: 'complete' as const,
+      finishReason: 'LOCAL_SAFETY_RESPONSE',
+    };
+  }
+
   const modelName = getCoachingGeminiModelName(params.lastUserParts);
   const result = await runWithGeminiRetry(async () => {
     const model = getCoachingGeminiModel(params.systemPrompt, modelName);
@@ -274,7 +286,6 @@ export async function generateCoachingText(params: {
     );
   });
   const response = result.response;
-  const lastUserText = extractTextFromParts(params.lastUserParts);
   const finishReason = getFinishReason(response);
   const completionStatus = classifyGeminiCompletion(finishReason);
   const text = completionStatus === 'partial'
@@ -323,6 +334,38 @@ export function createJsonLineStream(params: {
       };
 
       try {
+        const lastUserText = extractTextFromParts(params.lastUserParts);
+        const urgentSafetyResponse = buildUrgentSafetyResponse(lastUserText);
+        if (urgentSafetyResponse) {
+          fullText = urgentSafetyResponse;
+          firstChunkMs = Date.now() - startedAt;
+          write({ type: 'chunk', text: fullText });
+          const finalization = await resolveDonePayload(params.onDone, {});
+          logChatTelemetry('done', params.telemetry, {
+            modelName: 'local-safety',
+            elapsedMs: Date.now() - startedAt,
+            firstChunkMs,
+            generationFirstChunkMs,
+            finalizationStatus: finalization.status,
+            finalizationMs: finalization.elapsedMs,
+            finalizationError: finalization.error,
+            outputChars: fullText.length,
+            finishReason: 'LOCAL_SAFETY_RESPONSE',
+            usage: {},
+          });
+          write({
+            type: 'done',
+            modelName: 'local-safety',
+            completionStatus: 'complete',
+            finalizationStatus: finalization.status,
+            finishReason: 'LOCAL_SAFETY_RESPONSE',
+            message: fullText,
+            usage: {},
+            ...finalization.payload,
+          });
+          return;
+        }
+
         let response:
           | {
               candidates?: Array<{ finishReason?: string }>;
@@ -378,7 +421,6 @@ export function createJsonLineStream(params: {
           throw new Error('GEMINI_EMPTY_RESPONSE');
         }
 
-        const lastUserText = extractTextFromParts(params.lastUserParts);
         const finishReason = getFinishReason(response);
         const completionStatus = classifyGeminiCompletion(finishReason);
         fullText = completionStatus === 'partial'
@@ -911,6 +953,9 @@ export function buildIncompleteGenerationRecoveryResponse(
   lastUserText: string,
   historyMessages: CoachingChatMessage[] = []
 ) {
+  const urgentSafetyResponse = buildUrgentSafetyResponse(lastUserText);
+  if (urgentSafetyResponse) return urgentSafetyResponse;
+
   if (
     /仕事|職場|業務|会社|タスク/.test(lastUserText) &&
     /落ち込/.test(lastUserText) &&
@@ -939,6 +984,9 @@ function buildTimeoutFallbackResponse(
 ) {
   const diagnosisCode = extractDiagnosisCode(systemPrompt);
   const userText = extractTextFromParts(parts);
+  const urgentSafetyResponse = buildUrgentSafetyResponse(userText);
+  if (urgentSafetyResponse) return urgentSafetyResponse;
+
   const [typeCode, level] = diagnosisCode?.split('-') || [];
   const typeSummary = typeCode ? TYPE_SUMMARIES[typeCode] : null;
   const levelSummary = level ? LEVEL_SUMMARIES[level] : null;
@@ -987,6 +1035,9 @@ export function normalizeCoachingOutput(
   lastUserText: string,
   historyMessages: CoachingChatMessage[] = []
 ) {
+  const urgentSafetyResponse = buildUrgentSafetyResponse(lastUserText);
+  if (urgentSafetyResponse) return urgentSafetyResponse;
+
   if (requestsInternalPromptDisclosure(lastUserText)) {
     return 'その内容は公開できません。代わりに、今抱えている悩みや目標について一緒に考えます。今いちばん相談したいことは何ですか？';
   }
@@ -1335,6 +1386,27 @@ export function normalizeCoachingOutput(
     ),
     lastUserText
   );
+}
+
+export function buildUrgentSafetyResponse(text: string) {
+  const normalized = text.replace(/\s+/g, ' ').trim();
+  if (!normalized) return null;
+
+  const mentionsSelfHarm = [
+    /死にたい|死んで(?:しまい)?たい|死んだ(?:ほう|方)が(?:まし|いい)/,
+    /消えたい|生きていたくない|生きるのをやめたい|もう生きられない/,
+    /自殺(?:したい|しよう|する|を考|を図)|命を(?:絶|断)/,
+    /自分(?:自身)?を傷つけ|自傷|リストカット/,
+    /飛び降り|首を吊|大量(?:の)?薬|薬を大量|大量服薬|オーバードーズ|\bOD(?:したい|する|しよう)\b/i,
+    /\bsuicid(?:e|al)\b|kill myself|hurt myself|self[- ]harm/i,
+  ].some((pattern) => pattern.test(normalized));
+  if (!mentionsSelfHarm) return null;
+
+  return [
+    '今はコーチングより、安全の確保を優先してください。あなた自身または身近な方が今すぐ自分を傷つける可能性がある場合は、一人にならず、危険な物や場所から離れ、近くの人に「今、一人にしないで」と伝えてください。日本国内なら119へ連絡してください。国外にいる場合は、現地の緊急番号へ連絡してください。',
+    '今すぐの危険がなくても、いのちSOS（0120-061-338）または、よりそいホットライン（0120-279-338）へ電話してください。どちらも24時間・無料です。',
+    'このBotだけで抱え込まず、今すぐ連絡できる人へ電話できますか？',
+  ].join('\n\n');
 }
 
 function preserveRequestedActionTime(text: string, lastUserText: string) {
