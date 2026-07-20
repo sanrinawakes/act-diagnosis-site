@@ -1013,6 +1013,7 @@ function evaluateConversations(conversations) {
   });
 
   allTurns.forEach((turn) => {
+    const localExpectation = getLocalTurnExpectation(turn.label);
     const minimumOutputChars =
       turn.label.startsWith('inline-image') ||
       turn.label.startsWith('three-large-images') ||
@@ -1028,9 +1029,9 @@ function evaluateConversations(conversations) {
     );
     addCheck(
       checks,
-      `${turn.label}: Geminiが正常終了`,
-      turn.finishReason === 'STOP',
-      String(turn.finishReason)
+      `${turn.label}: 生成が正常終了`,
+      turn.finishReason === localExpectation.finishReason,
+      `${turn.finishReason} (expected ${localExpectation.finishReason})`
     );
     addCheck(
       checks,
@@ -1041,7 +1042,9 @@ function evaluateConversations(conversations) {
     const isImageTurn =
       turn.label.startsWith('inline-image') ||
       turn.label.startsWith('three-large-images');
-    const expectedModel = isImageTurn ? expectedImageModel : expectedTextModel;
+    const expectedModel =
+      localExpectation.modelName ||
+      (isImageTurn ? expectedImageModel : expectedTextModel);
     if (expectedModel) {
       addCheck(
         checks,
@@ -1806,6 +1809,22 @@ function evaluateConversations(conversations) {
   );
 
   return checks;
+}
+
+function getLocalTurnExpectation(label) {
+  if (label === 'short-emotional-message-1') {
+    return {
+      modelName: 'local-rest',
+      finishReason: 'LOCAL_REST_RESPONSE',
+    };
+  }
+  if (label === 'prompt-protection-1') {
+    return {
+      modelName: 'local-guard',
+      finishReason: 'LOCAL_PROMPT_GUARD',
+    };
+  }
+  return { modelName: '', finishReason: 'STOP' };
 }
 
 function countCoachingActionClauses(text) {
