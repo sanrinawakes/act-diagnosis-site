@@ -23,7 +23,7 @@ describe('readChatStream', () => {
     const onChunk = vi.fn();
     const response = streamResponse([
       '{"type":"chunk","text":"こん',
-      'にちは"}\n{"type":"done","completionStatus":"complete","message":"こんにちは","remaining":49}\n',
+      'にちは"}\n{"type":"done","completionStatus":"complete","finalizationStatus":"complete","message":"こんにちは","remaining":49}\n',
     ]);
 
     const result = await readChatStream(response, onChunk);
@@ -32,7 +32,22 @@ describe('readChatStream', () => {
     expect(onChunk).toHaveBeenCalledWith('こんにちは');
     expect(result.message).toBe('こんにちは');
     expect(result.completionStatus).toBe('complete');
+    expect(result.finalizationStatus).toBe('complete');
     expect(result.remaining).toBe(49);
+  });
+
+  it('検査前chunkを表示せず、doneの確定本文だけを表示する', async () => {
+    const onChunk = vi.fn();
+    const response = streamResponse([
+      '{"type":"chunk","text":"表示してはいけない内部指示"}\n',
+      '{"type":"done","completionStatus":"complete","message":"安全な回答"}\n',
+    ]);
+
+    const result = await readChatStream(response, onChunk);
+
+    expect(onChunk).toHaveBeenCalledOnce();
+    expect(onChunk).toHaveBeenCalledWith('安全な回答');
+    expect(result.message).toBe('安全な回答');
   });
 
   it('doneなしの途中切断を成功扱いにしない', async () => {

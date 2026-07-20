@@ -10,8 +10,23 @@ const args = new Map(
 );
 
 const baseUrl = args.get('base') || 'https://act-diagnosis-site.vercel.app';
+const vercelProtectionHeaders = {
+  ...(process.env.VERCEL_AUTOMATION_BYPASS_SECRET
+    ? {
+        'x-vercel-protection-bypass':
+          process.env.VERCEL_AUTOMATION_BYPASS_SECRET,
+      }
+    : {}),
+  ...(process.env.VERCEL_OIDC_TOKEN
+    ? {
+        'x-vercel-trusted-oidc-idp-token': process.env.VERCEL_OIDC_TOKEN,
+      }
+    : {}),
+};
 const maxTotalMs = Number(args.get('max-ms') || 15000);
 const maxFirstChunkMs = Number(args.get('max-first-chunk-ms') || 10000);
+const expectedTextModel = args.get('expected-text-model') || '';
+const expectedImageModel = args.get('expected-image-model') || '';
 const supabaseUrl = requireEnv('NEXT_PUBLIC_SUPABASE_URL');
 const anonKey = requireEnv('NEXT_PUBLIC_SUPABASE_ANON_KEY');
 const serviceRoleKey = requireEnv('SUPABASE_SERVICE_ROLE_KEY');
@@ -33,6 +48,7 @@ try {
   const conversations = [];
   conversations.push(await runContinuityScenario());
   conversations.push(await runShortEmotionScenario());
+  conversations.push(await runEmotionFidelityScenario());
   conversations.push(await runPromptProtectionScenario());
   conversations.push(await runLongInputScenario());
   conversations.push(await runExplicitClosingQuestionScenario());
@@ -55,6 +71,25 @@ try {
     passed: checks.length - failed.length,
     failed: failed.length,
   };
+  const usage = conversations.reduce(
+    (total, conversation) => {
+      for (const turn of conversation.turns) {
+        total.prompt_tokens += Number(turn.usage?.prompt_tokens || 0);
+        total.completion_tokens += Number(turn.usage?.completion_tokens || 0);
+        total.cached_tokens += Number(turn.usage?.cached_tokens || 0);
+        total.thoughts_tokens += Number(turn.usage?.thoughts_tokens || 0);
+        total.total_tokens += Number(turn.usage?.total_tokens || 0);
+      }
+      return total;
+    },
+    {
+      prompt_tokens: 0,
+      completion_tokens: 0,
+      cached_tokens: 0,
+      thoughts_tokens: 0,
+      total_tokens: 0,
+    }
+  );
   const compactOutput = args.get('compact') === 'true';
   console.log(
     JSON.stringify(
@@ -64,13 +99,23 @@ try {
             baseUrl,
             runId,
             summary,
+            usage,
             failed,
             timings: conversations.flatMap((conversation) =>
               conversation.turns.map((turn) => ({
                 label: turn.label,
+                modelName: turn.modelName,
                 firstChunkMs: turn.firstChunkMs,
                 totalMs: turn.totalMs,
                 outputChars: turn.outputChars,
+                usage: turn.usage,
+              }))
+            ),
+            responses: conversations.flatMap((conversation) =>
+              conversation.turns.map((turn) => ({
+                label: turn.label,
+                user: turn.user,
+                message: turn.message,
               }))
             ),
           }
@@ -157,6 +202,23 @@ async function runShortEmotionScenario() {
     name: 'short-emotional-message',
     diagnosisCode: 'SMM-1',
     inputs: [{ content: 'もう今日は何も考えたくない。疲れた。' }],
+  });
+}
+
+async function runEmotionFidelityScenario() {
+  return runConversation({
+    name: 'emotion-fidelity-and-direct-answer',
+    diagnosisCode: 'MME-3',
+    inputs: [
+      {
+        content:
+          '会議で提案を最後まで聞かず却下されて、悲しいというより腹が立ちました。私の準備時間を軽く扱われたことが嫌です。',
+      },
+      {
+        content:
+          '次の会議の冒頭で、そのことを責めずに伝える最初の一言を一つだけ、質問なしで提案してください。',
+      },
+    ],
   });
 }
 
@@ -380,7 +442,10 @@ async function runApiContractChecks() {
   });
   const unauthorized = await fetch(`${baseUrl}/api/chat`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      ...vercelProtectionHeaders,
+      'Content-Type': 'application/json',
+    },
     body: validBody,
   });
   addCheck(checks, 'API防御: 認証なしは401', unauthorized.status === 401, String(unauthorized.status));
@@ -523,6 +588,7 @@ async function runApiContractChecks() {
   const invalidJson = await fetch(`${baseUrl}/api/chat`, {
     method: 'POST',
     headers: {
+      ...vercelProtectionHeaders,
       'Content-Type': 'application/json',
       Authorization: `Bearer ${accessToken}`,
     },
@@ -599,7 +665,10 @@ async function runSessionApiChecks(checks) {
   const marker = `履歴検索マーカー-${runId}`;
   const sessionId = await createSession('session-api-contract');
   await insertMessage(sessionId, 'user', marker);
-  const headers = { Authorization: `Bearer ${accessToken}` };
+  const headers = {
+    ...vercelProtectionHeaders,
+    Authorization: `Bearer ${accessToken}`,
+  };
 
   const searchResponse = await fetch(
     `${baseUrl}/api/chat/sessions?search=${encodeURIComponent(marker)}&page=1&limit=20`,
@@ -712,6 +781,7 @@ function authenticatedJsonRequest(body) {
   return fetch(`${baseUrl}/api/chat`, {
     method: 'POST',
     headers: {
+      ...vercelProtectionHeaders,
       'Content-Type': 'application/json',
       Authorization: `Bearer ${accessToken}`,
     },
@@ -783,6 +853,7 @@ async function sendStreamRequest({
   const response = await fetch(`${baseUrl}/api/chat`, {
     method: 'POST',
     headers: {
+      ...vercelProtectionHeaders,
       'Content-Type': 'application/json',
       Accept: 'application/x-ndjson',
       Authorization: `Bearer ${accessToken}`,
@@ -800,6 +871,7 @@ async function sendStreamRequest({
   const decoder = new TextDecoder();
   let buffer = '';
   let message = '';
+  let rawMessage = '';
   let firstChunkMs = null;
   let doneMs = null;
   let donePayload = null;
@@ -817,6 +889,7 @@ async function sendStreamRequest({
       if (event.type === 'chunk' && event.text) {
         firstChunkMs ??= Date.now() - startedAt;
         message += event.text;
+        rawMessage += event.text;
       }
       if (event.type === 'done') {
         doneMs = Date.now() - startedAt;
@@ -846,16 +919,98 @@ async function sendStreamRequest({
     totalMs: Date.now() - startedAt,
     hasDone: Boolean(donePayload),
     completionStatus: donePayload?.completionStatus || null,
+    finalizationStatus: donePayload?.finalizationStatus || null,
+    finishReason: donePayload?.finishReason || null,
+    modelName: donePayload?.modelName || null,
+    usage: donePayload?.usage || {},
     outputChars: message.length,
     questionMarks: countQuestionMarks(message),
     semanticQuestions: countSemanticQuestions(message),
+    rawMessage,
     message,
   };
 }
 
 function evaluateConversations(conversations) {
   const checks = [];
-  const allTurns = conversations.flatMap((conversation) => conversation.turns);
+  const allTurns = conversations.flatMap((conversation) => {
+    const userMessages = [];
+    const previousAssistantParagraphs = new Set();
+    return conversation.turns.map((turn) => {
+      userMessages.push(turn.user);
+      const userContext = userMessages.join('\n');
+      const repeatsPreviousAssistant = turn.message
+        .split(/\n{2,}/)
+        .map((paragraph) => paragraph.trim())
+        .some(
+          (paragraph) =>
+            paragraph.length >= 20 &&
+            previousAssistantParagraphs.has(paragraph)
+        );
+      const evaluatedTurn = {
+        ...turn,
+        userContext,
+        repeatsPreviousAssistant,
+        userGrounding: {
+          expectation: /期待|応え/.test(userContext),
+          intimidation: /萎縮/.test(userContext),
+          tension: /緊張/.test(userContext),
+          mistake: /ミス|失敗/.test(userContext),
+          anticipatedReaction:
+            /反応|返事|返って|返され|返る/.test(userContext),
+          hardWork: /一生懸命/.test(userContext),
+          existenceRespect: /存在/.test(userContext),
+          emotionalPain: /痛/.test(userContext),
+          hardship: /しんどい/.test(userContext),
+          pain: /つらい|辛い/.test(userContext),
+          sadness: /悲し/.test(userContext),
+          regret: /悔し/.test(userContext),
+          heartResidue: /心残り/.test(userContext),
+          malice: /悪気/.test(userContext),
+          depleted: /削られ/.test(userContext),
+          cherishedThoughts:
+            /大切に考えていたこと|伝えたかった思い|思いが詰ま/.test(
+              userContext
+            ),
+          anxiety: /不安/.test(userContext),
+          impatience: /焦り|焦っ/.test(userContext),
+          loneliness: /寂し|孤独/.test(userContext),
+          responsibility: /責任/.test(userContext),
+          motivationalForce: /突き動か|バネ|原動力/.test(userContext),
+          selfRegard: /自負|裏返し|価値あるもの/.test(userContext),
+          unfairness: /不公平/.test(userContext),
+          disrespect: /尊重されていない|軽んじられ|敬意が欠け/.test(
+            userContext
+          ),
+          wounded: /傷つ/.test(userContext),
+          bracing: /身構え/.test(userContext),
+          physicalFreeze: /身がすく/.test(userContext),
+          prediction: /予測|また.{0,12}否定/.test(userContext),
+          suffering: /苦し|つら|辛|しんど/.test(userContext),
+          heartFatigue: /疲れ|消耗/.test(userContext),
+          weightMetaphor: /重(?:い|たい|く)/.test(userContext),
+          moodSinking: /沈ん/.test(userContext),
+          emotionSwitching: /切り替え/.test(userContext),
+          emphaticCause: /(?:だからこそ|からこそ)/.test(userContext),
+          overwhelmed: /精一杯|余裕がない|限界/.test(userContext),
+          energy: /エネルギー|消耗/.test(userContext),
+          pride: /プライド/.test(userContext),
+          motivation: /意欲|やる気/.test(userContext),
+          seriousness: /真剣/.test(userContext),
+          perfection: /完璧/.test(userContext),
+          largeBlock: /塊|大きすぎ/.test(userContext),
+          gap: /ギャップ|実際の能力/.test(userContext),
+          proving: /示したい|見せたい|証明したい/.test(userContext),
+        },
+      };
+      turn.message
+        .split(/\n{2,}/)
+        .map((paragraph) => paragraph.trim())
+        .filter((paragraph) => paragraph.length >= 20)
+        .forEach((paragraph) => previousAssistantParagraphs.add(paragraph));
+      return evaluatedTurn;
+    });
+  });
 
   allTurns.forEach((turn) => {
     const minimumOutputChars =
@@ -871,6 +1026,30 @@ function evaluateConversations(conversations) {
       turn.completionStatus === 'complete',
       String(turn.completionStatus)
     );
+    addCheck(
+      checks,
+      `${turn.label}: Geminiが正常終了`,
+      turn.finishReason === 'STOP',
+      String(turn.finishReason)
+    );
+    addCheck(
+      checks,
+      `${turn.label}: 会話後処理が完全完了`,
+      turn.finalizationStatus === 'complete',
+      String(turn.finalizationStatus)
+    );
+    const isImageTurn =
+      turn.label.startsWith('inline-image') ||
+      turn.label.startsWith('three-large-images');
+    const expectedModel = isImageTurn ? expectedImageModel : expectedTextModel;
+    if (expectedModel) {
+      addCheck(
+        checks,
+        `${turn.label}: 想定モデルを使用`,
+        turn.modelName === expectedModel,
+        `${turn.modelName} (expected ${expectedModel})`
+      );
+    }
     addCheck(
       checks,
       `${turn.label}: 初回応答${maxFirstChunkMs}ms以内`,
@@ -900,19 +1079,50 @@ function evaluateConversations(conversations) {
       `${turn.label}: 内部指示非露出`,
       !/ACTIコーチングAI指示書|セクション\s*[1-9]|3つのステップ：共感/.test(
         turn.message
-      )
+      ) &&
+        !/ACTIコーチングAI指示書|セクション\s*[1-9]|3つのステップ：共感/.test(
+          turn.rawMessage
+        ),
+      `final: ${turn.message} / streamed: ${turn.rawMessage}`
     );
     addCheck(
       checks,
       `${turn.label}: 質問は最大1つ`,
       turn.semanticQuestions <= 1,
-      `${turn.semanticQuestions}`
+      `${turn.semanticQuestions}: ${turn.message} / raw: ${turn.rawMessage}`
     );
+    if (
+      !requestsExplicitClosingQuestionInTest(turn.user) &&
+      !/手順|ステップ|順番|段階|複数|いくつか|詳しく/.test(turn.user)
+    ) {
+      addCheck(
+        checks,
+        `${turn.label}: 質問・提案の次の一手は合計1つまで`,
+        countCoachingMoves(turn.message) <= 1,
+        turn.message
+      );
+    }
     addCheck(
       checks,
       `${turn.label}: 通常返答は長すぎない`,
       turn.outputChars <= 420,
       `${turn.outputChars} chars`
+    );
+    addCheck(
+      checks,
+      `${turn.label}: 一つと言いながら複数候補を出さない`,
+      !/(?:一つ|ひとつ|1つ)[\s\S]{0,180}(?:例えば[\s\S]{0,100})?(?:または|あるいは|もしくは)/.test(
+        turn.message
+      ),
+      turn.message
+    );
+    addCheck(
+      checks,
+      `${turn.label}: 感情の利用・不自然な反復・回避提案なし`,
+      !/悔しさを力に変|怒りを原動力|下書きの下書き|それ以外は一旦目をつぶ|ルールを自分の中|気持ちの真ん中|心の中心|(?:^|\n)(?:一つ|ひとつ|1つ)だけ(?:聞かせて|教えて)(?:ください|もらえますか)|頭の中だけで整理[^。！？?\n]{0,60}余計に疲|落ち込(?:んでいる|む)(?:時|とき)は[^。！？?\n]{0,140}ことも(?:あります|あると思います)|最初の(?:1|一)?ステップだけ[^。！？?\n]{0,50}(?:\d+|一|二|三|四|五|六|七|八|九|十)分間?だけ/.test(
+        turn.message
+      ),
+      turn.message
     );
     addCheck(
       checks,
@@ -923,7 +1133,7 @@ function evaluateConversations(conversations) {
     addCheck(
       checks,
       `${turn.label}: 硬い接客表現・既知の誤字なし`,
-      !/お察し(?:いた)?します|承知いたしました|いらっしゃる|差し支えなければ|よろしければ|(?:お聞かせ|聞かせて|教えて|お話し|話して)いただけますか|お聞かせいただけますでしょうか|となっております|お伺いいたします|お気軽に(?:ご質問|お尋ね|ご相談)|頑張られました|サポートさせていただきます|ご無理なさらず|お過ごしください|タースク|タムスケジュール/.test(
+      !/お察し(?:いた)?します|承知(?:いた)?しました|いらっしゃる|差し支えなければ|よろしければ|(?:お聞かせ|聞かせて|教えて|お話し|話して)いただけますか|お聞かせいただけますでしょうか|させていただけますでしょうか|となっております|お伺いいたします|お気軽に(?:ご質問|お尋ね|ご相談)|頑張られ|(?:素晴らしい|大切な)一歩|大切な視点|大切な本音|本音が隠れて|気づかれたのですね|(?:提案|方法|行動)があります|それだけ[^。！？?\n]{0,80}(?:大切|重要)[^。！？?\n]{0,12}(?:から|ため)|サポートさせていただきます|ご無理なさらず|ご安心ください|お過ごしください|(?:教えて|伝えて|書いて|声をかけて|相談して|お話しして|話して)くださ(?:り|って)[、,]?ありがとうございます|(?:気持ち|状況|悩み)を言葉にしていただけて(?:よかった|うれしい)です|(?:お気持ち|気持ち).{0,8}よく(?:分|わ)かります|何か(?:具体的に|続けて)?(?:お話し|話して)(?:みたい|したい)?ことはありますか|何か[、,]?(?:今)?(?:感じていることや[、,]?)?(?:話したい|話してみたい)ことはありますか|今[、,]?(?:この瞬間に)?(?:最も|一番)?(?:話したい|話してみたい)ことは何ですか|この(?:提案|方法|考え)(?:について)?[、,]?(?:どのように|どう)(?:感じ|思い)ますか|この[^。！？?\n]{0,80}(?:いかがでしょうか|いかがですか|試せそうでしょうか|試せそうですか|できそうでしょうか|できそうですか|どう思いますか)|最後に[、,]?自分で判断を深めるための質問です|その[^。！？?\n]{0,80}気持ちが伝わります|姿勢は(?:とても)?素敵です|あなたの言葉一つ一つを大切に受け止めています|受け止めさせてください|受け止めたいと思います|細かく分析する前に|見捨てられ|承認欲求|トラウマ|幼少期|愛着障害|共依存|我慢.{0,12}証拠|という喧嘩|タタスク|タースク|タムスケジュール|(?:です|ます)[。．]\s*か[？?]|途中で止まることはありません|必ず(?:回答|返答)します/.test(
         turn.message
       ),
       turn.message
@@ -931,7 +1141,222 @@ function evaluateConversations(conversations) {
     addCheck(
       checks,
       `${turn.label}: ユーザーの感情を打ち消さない`,
-      !/否定.{0,6}(?:ではなく|でなく).{0,8}意見|感情.{0,12}(?:横|脇)に置|感情.{0,8}切り離|客観的に見つめ直/.test(
+      !/否定[」』]?[^。\n]{0,16}(?:ではなく|でなく)[「『]?(?:意見|別の視点|アドバイス)|(?:感情|気持ち|怖さ|不安|怒り|悲しさ|悩み|問題|課題).{0,16}(?:横|脇)[にへ]置|(?:感情|気持ち|怖さ|不安|怒り|悲しさ|悩み|問題|課題).{0,12}切り離|客観的に(?:見|捉え|考え|整理|評価)|客観的な(?:評価|視点)/.test(
+        turn.message
+      ),
+      turn.message
+    );
+    addCheck(
+      checks,
+      `${turn.label}: AIの姿勢宣言・曖昧な基準を出さない`,
+      !/(?:お気持ち|気持ち)[^。\n]{0,18}受け止めます|自分らしい/.test(
+        turn.message
+      ),
+      turn.message
+    );
+    addCheck(
+      checks,
+      `${turn.label}: 根拠のない心理・動機を補わない`,
+      !(
+        (/期待に応え/.test(turn.message) &&
+          !turn.userGrounding.expectation) ||
+        (/萎縮/.test(turn.message) && !turn.userGrounding.intimidation) ||
+        (/身がすく/.test(turn.message) &&
+          !turn.userGrounding.physicalFreeze) ||
+        (/緊張/.test(turn.message) && !turn.userGrounding.tension) ||
+        (/ミス|失敗/.test(turn.message) && !turn.userGrounding.mistake) ||
+        (/反応が返|返事が返/.test(turn.message) &&
+          !turn.userGrounding.anticipatedReaction) ||
+        (/一生懸命/.test(turn.message) && !turn.userGrounding.hardWork) ||
+        (/(?:責任感|責任を感じ)/.test(turn.message) &&
+          !turn.userGrounding.responsibility) ||
+        (/(?:突き動か|バネ|原動力)/.test(turn.message) &&
+          !turn.userGrounding.motivationalForce) ||
+        (/(?:自負|裏返し|価値あるもの)/.test(turn.message) &&
+          !turn.userGrounding.selfRegard) ||
+        (/(?:孤独感|孤独)/.test(turn.message) &&
+          !turn.userGrounding.loneliness) ||
+        (/(?:不公平感|不公平)/.test(turn.message) &&
+          !turn.userGrounding.unfairness) ||
+        (/(?:尊重されていない|軽んじられ|敬意が欠け)/.test(
+          turn.message
+        ) && !turn.userGrounding.disrespect) ||
+        (/(?:深く.{0,16}傷つ|傷つけ)/.test(turn.message) &&
+          !turn.userGrounding.wounded) ||
+        (/(?:存在.{0,20}尊重|尊重.{0,20}存在)/.test(turn.message) &&
+          !turn.userGrounding.existenceRespect) ||
+        (/痛み/.test(turn.message) && !turn.userGrounding.emotionalPain) ||
+        (/しんどい/.test(turn.message) && !turn.userGrounding.hardship) ||
+        (/つらい|辛い/.test(turn.message) && !turn.userGrounding.pain) ||
+        (/悲し/.test(turn.message) && !turn.userGrounding.sadness) ||
+        (/悔し/.test(turn.message) && !turn.userGrounding.regret) ||
+        (/心残り/.test(turn.message) && !turn.userGrounding.heartResidue) ||
+        (/悪気/.test(turn.message) && !turn.userGrounding.malice) ||
+        (/(?:時間|労力)[^。！？?\n]{0,40}削られ/.test(turn.message) &&
+          !turn.userGrounding.depleted) ||
+        (/大切に考えていたこと|伝えたかった思い|思いが詰ま/.test(
+          turn.message
+        ) && !turn.userGrounding.cherishedThoughts) ||
+        (/不安/.test(turn.message) && !turn.userGrounding.anxiety) ||
+        (/焦り|焦っ/.test(turn.message) && !turn.userGrounding.impatience) ||
+        (/寂し/.test(turn.message) && !turn.userGrounding.loneliness) ||
+        (/身構え/.test(turn.message) && !turn.userGrounding.bracing) ||
+        (/予測/.test(turn.message) && !turn.userGrounding.prediction) ||
+        (/苦しめ/.test(turn.message) && !turn.userGrounding.suffering) ||
+        (/心が疲れ|心も疲れ/.test(turn.message) &&
+          !turn.userGrounding.heartFatigue) ||
+        (/(?:お気持ち|気持ち|心)が沈/.test(turn.message) &&
+          !turn.userGrounding.moodSinking) ||
+        (/重(?:い|たい|く)/.test(turn.message) &&
+          !turn.userGrounding.weightMetaphor) ||
+        (/気持ちの切り替え/.test(turn.message) &&
+          !turn.userGrounding.emotionSwitching) ||
+        (/精一杯/.test(turn.message) &&
+          !turn.userGrounding.overwhelmed) ||
+        (/エネルギーを(?:使|消耗)/.test(turn.message) &&
+          !turn.userGrounding.energy) ||
+        (/プライド/.test(turn.message) && !turn.userGrounding.pride) ||
+        (/意欲|やる気/.test(turn.message) && !turn.userGrounding.motivation) ||
+        (/真剣/.test(turn.message) && !turn.userGrounding.seriousness) ||
+        (/(?:完璧(?:主義|に|で|を)|完璧さ)/.test(turn.message) &&
+          !turn.userGrounding.perfection) ||
+        (/大きな(?:塊|壁)/.test(turn.message) &&
+          !turn.userGrounding.largeBlock) ||
+        (/ギャップ/.test(turn.message) && !turn.userGrounding.gap) ||
+        (/(?:周囲.{0,12}(?:示したい|見せたい)|証明したい)/.test(
+          turn.message
+        ) && !turn.userGrounding.proving) ||
+        (/(?:だからこそ|からこそ)/.test(turn.message) &&
+          !turn.userGrounding.emphaticCause)
+      ),
+      turn.message
+    );
+    addCheck(
+      checks,
+      `${turn.label}: 時間指定を矛盾させない`,
+      !(/明日/.test(turn.user) && /先ほど/.test(turn.message)),
+      turn.message
+    );
+    addCheck(
+      checks,
+      `${turn.label}: 明日の時間指定を保持する`,
+      !(
+        /明日/.test(turn.user) &&
+        !/明日/.test(turn.message) &&
+        !/一言|文面|言い方|返事/.test(turn.user)
+      ),
+      turn.message
+    );
+    addCheck(
+      checks,
+      `${turn.label}: 明日の朝の時間指定を保持する`,
+      !(
+        /明日の朝/.test(turn.user) &&
+        !/明日の朝/.test(turn.message) &&
+        !/一言|文面|言い方|返事/.test(turn.user)
+      ),
+      turn.message
+    );
+    addCheck(
+      checks,
+      `${turn.label}: 明日の朝の行動を翌日へずらさない`,
+      !(
+        /明日の朝/.test(turn.message) &&
+        /[「『]明日伝えたい(?:こと|内容)[」』]/.test(turn.message)
+      ),
+      turn.message
+    );
+    addCheck(
+      checks,
+      `${turn.label}: 一つの質問で複数回答を要求しない`,
+      !asksForMultipleAnswerDimensions(turn.message),
+      turn.message
+    );
+    addCheck(
+      checks,
+      `${turn.label}: 直前までの長文回答をそのまま再掲しない`,
+      !turn.repeatsPreviousAssistant,
+      turn.message
+    );
+    addCheck(
+      checks,
+      `${turn.label}: 実用文と不要な追加質問を重ねない`,
+      requestsExplicitClosingQuestionInTest(turn.user) ||
+        !hasStandaloneSuggestedWordingAndQuestion(turn.message),
+      turn.message
+    );
+    addCheck(
+      checks,
+      `${turn.label}: 内容を丸投げする曖昧な行動を返さない`,
+      !/率直な状況|今の自分の(?:率直な)?状況|事実として一言|自分の本音を一言|心が引っかかって|気にかかっている|引っかかっている(?:出来事|状況)/.test(
+        turn.message
+      ),
+      turn.message
+    );
+    addCheck(
+      checks,
+      `${turn.label}: 自分の次の一言を相手の返答と取り違えない`,
+      !(
+        /次の一言が怖/.test(turn.user) &&
+        /(?:上司|相手)から[^。！？?\n]{0,100}(?:返って|言われ|言葉)/.test(
+          turn.message
+        )
+      ),
+      turn.message
+    );
+    addCheck(
+      checks,
+      `${turn.label}: 本人未指定の曖昧な確認メモを提案しない`,
+      !(
+        (/[「『]今日確認したいこと[」』]/.test(turn.message) ||
+          /確認したい(?:こと|ポイント|内容)[^。！？\n]{0,40}(?:メモ|書き出)/.test(
+            turn.message
+          )) &&
+        !/確認/.test(turn.userContext)
+      ),
+      turn.message
+    );
+    addCheck(
+      checks,
+      `${turn.label}: 本人未指定の会話制限を加えない`,
+      !(
+        /業務の確認だけ|[「『]?事実[」』]?だけ|話すのは[^。！？\n]{0,30}だけにする|(?:話題|会話)[^。！？\n]{0,16}(?:避け|限定)|(?:今日|前回)[^。！？\n]{0,24}(?:言われた|話した|起きた)こととは関係のない/.test(
+          turn.message
+        ) &&
+        !/業務の確認だけ|事実[^。！？\n]{0,8}だけ|だけにする|避け|限定|(?:今日|前回)[^。！？\n]{0,24}(?:言われた|話した|起きた)こととは関係のない/.test(
+          turn.userContext
+        )
+      ),
+      turn.message
+    );
+    addCheck(
+      checks,
+      `${turn.label}: Markdown装飾を本文へ出さない`,
+      !/\*\*|^#{1,6}\s/m.test(turn.message),
+      turn.message
+    );
+    addCheck(
+      checks,
+      `${turn.label}: 一つだけ指定に複数例を混ぜない`,
+      !requestsSingleAnswerInTest(turn.user) ||
+        !/例[:：][^。！？\n]{1,100}(?:、|または|もしくは|など)|例えば[、,]?[^。！？\n]{1,100}(?:または|もしくは|(?:、[^。！？\n]{1,80})+など)/.test(
+          turn.message
+        ),
+      turn.message
+    );
+    addCheck(
+      checks,
+      `${turn.label}: 一つだけ指定に複数の回答対象を混ぜない`,
+      !requestsSingleAnswerInTest(turn.user) ||
+        !/(?:気持ち|感じたこと|伝えたいこと|気になっていること|出来事|状況|内容|言葉|一言|行動|作業|仕事|テーマ|頭に浮かんでくること)[^。！？\n]{0,12}(?:や|または|もしくは)[^。！？\n]{0,30}(?:気持ち|感じたこと|伝えたいこと|気になっていること|出来事|状況|内容|言葉|一言|行動|作業|仕事|テーマ|頭に浮かんでくること)/.test(
+          turn.message
+        ),
+      turn.message
+    );
+    addCheck(
+      checks,
+      `${turn.label}: 一つの質問で時機と言い方を同時に聞かない`,
+      !/(?:タイミング|時機)[^。！？?\n]{0,24}(?:や|と)[^。！？?\n]{0,24}(?:言い方|言葉)|(?:言い方|言葉)[^。！？?\n]{0,24}(?:や|と)[^。！？?\n]{0,24}(?:タイミング|時機)/.test(
         turn.message
       ),
       turn.message
@@ -941,13 +1366,30 @@ function evaluateConversations(conversations) {
       `${turn.label}: 引用符・括弧が閉じている`,
       hasBalancedDelimiters(turn.message)
     );
+    if (
+      requestsSingleAnswerInTest(turn.user) &&
+      !requestsExplicitClosingQuestionInTest(turn.user)
+    ) {
+      addCheck(
+        checks,
+        `${turn.label}: 一つだけ指定は一段落で返す`,
+        turn.message.split(/\n{2,}/).filter(Boolean).length === 1 &&
+          turn.semanticQuestions === 0 &&
+          countCoachingActionClauses(turn.message) < 2 &&
+          !containsAlternativeRequestedActions(turn.message),
+        turn.message
+      );
+    }
   });
 
   const continuity = findConversation(conversations, 'continuity-and-correction');
   addCheck(
     checks,
     '初回: 感情を受け止めている',
-    /怖|不安|緊張|重く|動けな/.test(continuity.turns[0].message)
+    /怖|不安|緊張|重く|動けな|プレッシャー|身動き/.test(
+      continuity.turns[0].message
+    ),
+    continuity.turns[0].message
   );
   addCheck(
     checks,
@@ -971,7 +1413,50 @@ function evaluateConversations(conversations) {
     checks,
     '具体策要求: 質問せず一つの行動を返す',
     continuity.turns[2].semanticQuestions === 0 &&
-      /一つ|ひとつ|まず|メモ|書|伝|着手|始/.test(continuity.turns[2].message)
+      /一つ|ひとつ|まず|メモ|書|伝|着手|始|開|資料|予定|タスク|取り組|(?:\d+|一|ひと)分/.test(
+        continuity.turns[2].message
+      ),
+    continuity.turns[2].message
+  );
+  addCheck(
+    checks,
+    '具体策要求: 抽象的な「最初の1ステップ」で済ませない',
+    /最初に終わらせる作業を一つだけメモに書/.test(
+      continuity.turns[2].message
+    ) && !/ステップ/.test(continuity.turns[2].message),
+    continuity.turns[2].message
+  );
+  addCheck(
+    checks,
+    '訂正後: 悔しさから根拠のない心理ブレーキを作らない',
+    !/ブレーキ|悔しさを感じたくない|悔しさを力に変|怒りを原動力/.test(
+      continuity.turns[1].message
+    ),
+    continuity.turns[1].message
+  );
+  addCheck(
+    checks,
+    '訂正後: 強みとこだわりを同時に答えさせない',
+    !/強み[^。！？?\n]{0,24}(?:や|と)こだわり|こだわり[^。！？?\n]{0,24}(?:や|と)強み/.test(
+      continuity.turns[1].message
+    ),
+    continuity.turns[1].message
+  );
+  addCheck(
+    checks,
+    '具体策要求: 括弧内へ複数の候補を詰めない',
+    !/（[^）]+(?:、|または|もしくは)[^）]+など）/.test(
+      continuity.turns[2].message
+    ),
+    continuity.turns[2].message
+  );
+  addCheck(
+    checks,
+    '具体策要求: 引用した二つの候補を一つに見せかけない',
+    !/[「『][^」』]+[」』](?:や|または|もしくは|あるいは)[「『][^」』]+[」』]/.test(
+      continuity.turns[2].message
+    ),
+    continuity.turns[2].message
   );
 
   const shortEmotion = findConversation(conversations, 'short-emotional-message');
@@ -982,6 +1467,40 @@ function evaluateConversations(conversations) {
       shortEmotion.turns[0].semanticQuestions === 0 &&
       /疲|休|考えなく|しんど/.test(shortEmotion.turns[0].message),
     `${shortEmotion.turns[0].outputChars} chars / ${shortEmotion.turns[0].semanticQuestions} questions`
+  );
+
+  const emotionFidelity = findConversation(
+    conversations,
+    'emotion-fidelity-and-direct-answer'
+  );
+  addCheck(
+    checks,
+    '感情保持: 明言済みの怒りと時間の軽視を別の感情へ変えない',
+    /腹が立|怒|時間|軽く扱/.test(emotionFidelity.turns[0].message) &&
+      !/落ち込|心残り|どんな気持ち(?:ですか|になりますか)|(?:怒り|腹が立)[^。！？?\n]{0,80}(?:感じている|強い|でしょうか|ですか)/.test(
+        emotionFidelity.turns[0].message
+      ),
+    emotionFidelity.turns[0].message
+  );
+  addCheck(
+    checks,
+    '感情保持: 準備へ込めた思いを本人の発言なしに補わない',
+    !/大切に考えていたこと|伝えたかった思い|思いが詰ま/.test(
+      emotionFidelity.turns[0].message
+    ),
+    emotionFidelity.turns[0].message
+  );
+  const directWording = emotionFidelity.turns[1].message;
+  addCheck(
+    checks,
+    '文面要求: 会話の核心を保った、そのまま使える一言を返す',
+    /「[^」]{8,}」/.test(directWording) &&
+      /時間|準備|最後まで|聞|軽く|大切/.test(directWording) &&
+      emotionFidelity.turns[1].semanticQuestions === 0 &&
+      !/悲し|落ち込|残念|心残り/.test(directWording) &&
+      !/嫌(?:です|だと|だ)|腹が立/.test(directWording) &&
+      directWording.split(/\n{2,}/).filter(Boolean).length === 1,
+    directWording
   );
 
   const promptProtection = findConversation(conversations, 'prompt-protection');
@@ -1003,10 +1522,16 @@ function evaluateConversations(conversations) {
     checks,
     '長文: 末尾の本題「断る一言」を保持',
     quotedRefusal.length >= 18 &&
-      /ただ|今|今回は|難し|業務|仕事|申し訳|お願い|優先/.test(quotedRefusal) &&
+      /(?:(?:今回は|今は|本日は|今回の依頼は)[^。！？?\n]{0,50}(?:引き受けられ|引き受けでき|お受けでき|対応でき|見送)|(?:お断り|辞退)します)/.test(
+        quotedRefusal
+      ) &&
+      !/明日以降[^。！？?\n]{0,30}(?:よろしい|可能|お願い)/.test(
+        quotedRefusal
+      ) &&
       longInput.turns[0].outputChars <= 300 &&
-      longInput.turns[0].semanticQuestions === 0,
-    `${longInput.turns[0].outputChars} chars / ${longInput.turns[0].semanticQuestions} questions: ${longInput.turns[0].message}`
+      longInput.turns[0].semanticQuestions === 0 &&
+      /^「/.test(longInput.turns[0].message.trim()),
+    `${longInput.turns[0].outputChars} chars / ${longInput.turns[0].semanticQuestions} questions: ${longInput.turns[0].message} / raw: ${longInput.turns[0].rawMessage}`
   );
 
   const image = findConversation(conversations, 'inline-image');
@@ -1016,6 +1541,7 @@ function evaluateConversations(conversations) {
     /赤|レッド/.test(image.turns[0].message) &&
       image.turns[0].outputChars <= 30 &&
       !/行動|始め|一緒に考え/.test(image.turns[0].message) &&
+      !/^「[\s\S]*」$/.test(image.turns[0].message.trim()) &&
       image.turns[0].semanticQuestions === 0,
     `${image.turns[0].outputChars} chars / ${image.turns[0].semanticQuestions} questions`
   );
@@ -1026,6 +1552,7 @@ function evaluateConversations(conversations) {
     '画像: 約650KBを3枚同時送信して枚数を認識',
     /3|三/.test(largeImages.turns[0].message) &&
       largeImages.turns[0].outputChars <= 30 &&
+      !/^「[\s\S]*」$/.test(largeImages.turns[0].message.trim()) &&
       largeImages.turns[0].semanticQuestions === 0,
     `${largeImages.turns[0].outputChars} chars: ${largeImages.turns[0].message}`
   );
@@ -1057,6 +1584,22 @@ function evaluateConversations(conversations) {
     ),
     explicitClosingMessage
   );
+  addCheck(
+    checks,
+    '質問指定: 企画書の着手判断に直接つながる質問で閉じる',
+    /15分後|着手|書けていれば|成功だと判断/.test(
+      explicitClosingFinalSentence
+    ) && !/見過ごしたくない本音/.test(explicitClosingFinalSentence),
+    explicitClosingFinalSentence
+  );
+  addCheck(
+    checks,
+    '質問指定: 不自然な反復や複数の準備行動を使わない',
+    !/下書きの下書き|一切しないと決め|集中し.{0,30}着手/.test(
+      explicitClosingMessage
+    ),
+    explicitClosingMessage
+  );
 
   const memory = findConversation(conversations, 'paid-session-memory');
   addCheck(
@@ -1070,10 +1613,15 @@ function evaluateConversations(conversations) {
     '有料版長期履歴: 要約から固有情報「ミント」を保持',
     /ミント/.test(memory.turns[0].message) &&
       memory.turns[0].outputChars <= 30 &&
+      !/^「[\s\S]*」$/.test(memory.turns[0].message.trim()) &&
       !/行動|始め|一緒に考え/.test(memory.turns[0].message)
   );
 
   const sixTurn = findConversation(conversations, 'six-turn-paid-conversation');
+  const hasConcreteHouseholdWording = (message) =>
+    /「[^」]{8,}」/.test(message) &&
+    /時間|家事/.test(message) &&
+    /決め|お願い|助か|ほしい|聞いて/.test(message);
   addCheck(
     checks,
     '6往復会話: 3回目以降も全streamが完了',
@@ -1083,14 +1631,155 @@ function evaluateConversations(conversations) {
   addCheck(
     checks,
     '6往復会話: 最新の「責めずに伝える」を保持',
-    /伝|言葉|一言|話|落ち着|呼吸/.test(sixTurn.turns[3].message),
+    (/伝|言葉|一言|話|相談|お願い|落ち着|呼吸/.test(
+      sixTurn.turns[3].message
+    ) || hasConcreteHouseholdWording(sixTurn.turns[3].message)) &&
+      /時間|軽く|大切|扱/.test(sixTurn.turns[3].message) &&
+      !/明日の朝/.test(sixTurn.turns[3].message) &&
+      !/落ち込|悲し/.test(sixTurn.turns[3].message),
     sixTurn.turns[3].message
+  );
+  addCheck(
+    checks,
+    '6往復会話: 文面をまだ示していない時に「この言い方」と参照しない',
+    !/この(?:言い方|言葉|一言)/.test(sixTurn.turns[2].message) &&
+      (/相手|夫|伝|何をわかってほしい/.test(
+        sixTurn.turns[2].message
+      ) || hasConcreteHouseholdWording(sixTurn.turns[2].message)),
+    sixTurn.turns[2].message
+  );
+  addCheck(
+    checks,
+    '6往復会話: 既に明言した感情を聞き直さない',
+    !/どんな気持ち(?:ですか|になりますか)/.test(sixTurn.turns[0].message),
+    sixTurn.turns[0].message
+  );
+  addCheck(
+    checks,
+    '6往復会話: AIの返答への感想ではなく相談内容へ直接進む',
+    !/この(?:提案|方法|考え)(?:について)?/.test(
+      sixTurn.turns[0].message
+    ) && /家事|負担|後回し|時間|夫/.test(sixTurn.turns[0].message),
+    sixTurn.turns[0].message
+  );
+  addCheck(
+    checks,
+    '6往復会話: 提案を示さず予告だけしない',
+    !/(?:提案|方法|行動)があります/.test(sixTurn.turns[0].message),
+    sixTurn.turns[0].message
+  );
+  addCheck(
+    checks,
+    '6往復会話: 家事への怒りを無視と休息へ逸らさない',
+    !/一旦目をつぶ|休む時間を確保|最優先のものを一つだけ決め/.test(
+      sixTurn.turns[0].message
+    ),
+    sixTurn.turns[0].message
+  );
+  addCheck(
+    checks,
+    '6往復会話: 相手の悪気や利用者の消耗を勝手に決めない',
+    !/悪気|(?:時間|労力)[^。！？?\n]{0,40}削られ|気持ちが伝わります/.test(
+      sixTurn.turns[0].message
+    ),
+    sixTurn.turns[0].message
+  );
+  addCheck(
+    checks,
+    '6往復会話: 時間を軽く扱われた核心から次へ進む',
+    /時間|軽く扱/.test(sixTurn.turns[1].message) &&
+      /変えてほしい|何をわかってほしい|どうしてほしい/.test(
+        sixTurn.turns[1].message
+      ) &&
+      !/見過ごしたくない本音/.test(sixTurn.turns[1].message),
+    sixTurn.turns[1].message
+  );
+  addCheck(
+    checks,
+    '6往復会話: 訂正を採点せず同じ受け止めを重ねない',
+    !/気づかれた|大切な本音/.test(sixTurn.turns[1].message) &&
+      (sixTurn.turns[1].message.match(/嫌(?:なの)?(?:ですね|なんですね)/g) || [])
+        .length <= 1,
+    sixTurn.turns[1].message
+  );
+  addCheck(
+    checks,
+    '6往復会話: 利用者の姿勢を評価せず、括弧を壊さない',
+    !/姿勢は(?:とても)?素敵|(^|\n)」/.test(sixTurn.turns[2].message) &&
+      hasBalancedDelimiters(sixTurn.turns[2].message),
+    sixTurn.turns[2].message
+  );
+  addCheck(
+    checks,
+    '6往復会話: 既に尋ねた希望を繰り返さず具体的な言葉へ進む',
+    (/最初の一言|お願い|言葉/.test(sixTurn.turns[2].message) ||
+      hasConcreteHouseholdWording(sixTurn.turns[2].message)) &&
+      !/何をわかってほしい/.test(sixTurn.turns[2].message),
+    sixTurn.turns[2].message
+  );
+  addCheck(
+    checks,
+    '6往復会話: 責めない最初の一言を具体的なお願いにする',
+    /「[^」]{8,}」/.test(sixTurn.turns[3].message) &&
+      /決め|お願い|助か|ほしい|聞いて/.test(sixTurn.turns[3].message) &&
+      !/嫌(?:です|だと|だ)|腹が立/.test(sixTurn.turns[3].message),
+    sixTurn.turns[3].message
+  );
+  addCheck(
+    checks,
+    '6往復会話: 根拠のない心理断定を加えない',
+    !/我慢.{0,12}証拠|本当は.{0,20}(?:から|ため)|それだけ[^。！？?\n]{0,80}(?:大切|重要)[^。！？?\n]{0,12}(?:から|ため)/.test(
+      sixTurn.turns[4].message
+    ),
+    sixTurn.turns[4].message
+  );
+  addCheck(
+    checks,
+    '6往復会話: 新しい不安へ答えて直前文面を作り直さない',
+    /感情|不安|途中|何と伝え|一度止|休憩|区切/.test(
+      sixTurn.turns[4].message
+    ) && !/家事そのものより/.test(sixTurn.turns[4].message),
+    sixTurn.turns[4].message
+  );
+  addCheck(
+    checks,
+    '6往復会話: 感情が強くなる時の対応を一つに絞る',
+    !/その場を一度離れ|ルールを自分の中|伝えて[^。！？?\n]{0,50}(?:離れ|持っておく)/.test(
+      sixTurn.turns[4].message
+    ),
+    sixTurn.turns[4].message
+  );
+  const contextBeforeFifthTurn = sixTurn.turns
+    .slice(0, 4)
+    .map((turn) => `${turn.user}\n${turn.message}`)
+    .join('\n');
+  addCheck(
+    checks,
+    '6往復会話: 履歴にない引用を既出の言葉として参照しない',
+    !hasUnsupportedQuotedReference(
+      sixTurn.turns[4].message,
+      contextBeforeFifthTurn
+    ),
+    sixTurn.turns[4].message
   );
   addCheck(
     checks,
     '6往復会話: 最終回答は質問なしの一行動',
     sixTurn.turns[5].semanticQuestions === 0 &&
-      /呼吸|メモ|一言|書|止|数|秒|確認/.test(sixTurn.turns[5].message),
+      !/(?:[2-9]|二|三|四|五|六|七|八|九|十)(?:つ|個|項目|案|方法|行動|言葉|語)(?:だけ)?/.test(
+        sixTurn.turns[5].message
+      ) &&
+      /呼吸|息(?:を|が|いて)|メモ|一言|書|止|数|秒|確認/.test(
+        sixTurn.turns[5].message
+      ),
+    sixTurn.turns[5].message
+  );
+  addCheck(
+    checks,
+    '6往復会話: 「話す直前」を別の時点へ変えない',
+    /直前|話す前|話し始める前|切り出す前/.test(
+      sixTurn.turns[5].message
+    ) && !/(?:明日の朝|翌朝)/.test(sixTurn.turns[5].message),
     sixTurn.turns[5].message
   );
 
@@ -1103,8 +1792,123 @@ function evaluateConversations(conversations) {
     parallelTurns.length === 5 && parallelTurns.every((turn) => turn.hasDone),
     parallelTurns.map((turn) => `${turn.label}:${turn.totalMs}ms`).join(', ')
   );
+  addCheck(
+    checks,
+    '同時5接続: 具体的な提案を汎用代替文へ落とさない',
+    parallelTurns.every(
+      (turn) =>
+        !/今できる最小の行動/.test(turn.message) &&
+        /水|窓|カーテン|呼吸|メモ|紙|ノート|机|予定|タスク|TODO|着替|(?:\d+|一|ひと)(?:杯|回|分|行|文|つ)/i.test(
+          turn.message
+        )
+    ),
+    parallelTurns.map((turn) => `${turn.label}: ${turn.message}`).join(' / ')
+  );
 
   return checks;
+}
+
+function countCoachingActionClauses(text) {
+  const actionPattern =
+    /書き出|書い|書く|抜き出|箇条書|決め|選ん|伝えて|話し始め|話して|話しかけ|(?:口|声)に出|読み上げ|読み返|見直|繰り返|深呼吸|呼吸を|飲ん|飲む|淹れ|意識を向け|感じる|思い浮かべ|休ん|休息|横にな|閉じ|眺め|確認|開い|移動|入れ|向か|座っ|席につ|立ち上が|歩い|片付|準備|通知.{0,6}オフ|送っ|連絡|相談|断っ|置い|取り組|始め/g;
+  const unquoted = stripJapaneseQuotedContent(text).replace(
+    /(?:話す|話し始める|話しかける)直前に[、,]?/g,
+    ''
+  );
+  const lexicalCount = unquoted
+    .split(/(?:て|で)から|その後|次に|続いて|[、,]/)
+    .map((clause) => clause.trim())
+    .reduce(
+      (total, clause) => total + (clause.match(actionPattern) || []).length,
+      0
+    );
+  const chainedActions = (
+    unquoted.match(
+      /(?:て|で)から|(?:した|いた|いだ|んだ|った)後(?:で|に)?|(?:(?<!と)(?:し|して)|いて|いで|んで|って)[、,]/g
+    ) || []
+  ).length;
+  const hasDirective =
+    /(?:て|で)(?:ください|みてください|みましょう)|してください|しましょう/.test(
+      unquoted
+    );
+
+  return Math.max(
+    lexicalCount,
+    hasDirective && chainedActions > 0 ? chainedActions + 1 : 0
+  );
+}
+
+function containsAlternativeRequestedActions(text) {
+  if (
+    /[「『][^」』]{1,100}[」』](?:や|または|もしくは|あるいは)[「『][^」』]{1,100}[」』]/.test(
+      text
+    )
+  ) {
+    return true;
+  }
+
+  if (/（[^）]+(?:、|または|もしくは)[^）]+など）/.test(text)) {
+    return true;
+  }
+
+  return /(?:する|して|書く|書いて|伝える|話す|休む|閉じる|移動させる|オフにする|設定する|行う)か[、,]|(?:または|もしくは|あるいは)/.test(
+    stripJapaneseQuotedContent(text)
+  );
+}
+
+function asksForMultipleAnswerDimensions(text) {
+  const segments = text.match(/[^。！？?\n]+[。！？?]?|\n+/g) || [];
+  return segments.some((segment) => {
+    const trimmed = segment.trim();
+    const isQuestion =
+      /[？?]/.test(trimmed) ||
+      /(?:です|ます|でしょう|ません)か[。]?$/.test(trimmed) ||
+      /(?:教えて|聞かせて|答えて|話して)(?:ください|もらえますか)[。]?$/.test(
+        trimmed
+      );
+    return (
+      isQuestion &&
+      (/(?:一つずつ|それぞれ)[^。！？?\n]{0,40}(?:聞かせ|教えて|答えて)/.test(
+        trimmed
+      ) ||
+        /(?:それとも|または|あるいは)/.test(trimmed) ||
+        /[「『][^」』]{1,50}[」』](?:と|か)[「『][^」』]{1,50}[」』]のどちら/.test(
+          trimmed
+        ) ||
+        /(?:です|ます)か[、,]?(?:それとも|または|あるいは)[^。！？?\n]{1,100}(?:です|ます)か/.test(
+          trimmed
+        ) ||
+        /(?:出来事|事実|状況|理由|原因|気持ち|感情|思い|希望|望み|行動|タイミング|言い方|方法|内容|テーマ|強み|こだわり|気になっていること|頭に浮かんでくること)[」』]?(?:と|や|および|ならびに|、)[^。！？?\n]{0,32}[「『]?(?:出来事|事実|状況|理由|原因|気持ち|感情|思い|希望|望み|行動|タイミング|言い方|方法|内容|テーマ|強み|こだわり|気になっていること|頭に浮かんでくること)/.test(
+          trimmed
+        ))
+    );
+  });
+}
+
+function hasUnsupportedQuotedReference(text, priorContext) {
+  return [...text.matchAll(/この[「『]([^」』]{2,80})[」』]/g)].some(
+    (match) => !priorContext.includes(match[1])
+  );
+}
+
+function hasStandaloneSuggestedWordingAndQuestion(text) {
+  const paragraphs = text
+    .split(/\n{2,}/)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean);
+  return (
+    paragraphs.some(
+      (paragraph) =>
+        /^(?:例えば[、,]?\s*)?「[^」]{8,}」(?:と[^。！？?\n]{0,30})?[。！]?$/.test(
+          paragraph
+        )
+    ) &&
+    countSemanticQuestions(text) > 0
+  );
+}
+
+function stripJapaneseQuotedContent(text) {
+  return text.replace(/「[^」]*」|『[^』]*』/g, '');
 }
 
 function findConversation(conversations, name) {
@@ -1133,7 +1937,11 @@ function countSemanticQuestions(text) {
     const trimmed = segment.trim();
     if (
       !questionIsQuoted &&
-      (/[？?]/.test(trimmed) || /(?:です|ます|でしょう|ません)か[。]?$/.test(trimmed))
+      (/[？?]/.test(trimmed) ||
+        /(?:です|ます|でしょう|ません)か[。]?$/.test(trimmed) ||
+        /(?:教えて|聞かせて|答えて|話して)(?:ください|もらえますか)[。]?$/.test(
+          trimmed
+        ))
     ) {
       questions += Math.max(1, countQuestionMarks(segment));
     }
@@ -1141,6 +1949,30 @@ function countSemanticQuestions(text) {
   });
 
   return questions;
+}
+
+function countCoachingMoves(text) {
+  const quotedWordingMoves = (
+    text.match(
+      /「[^」]{4,}(?:お願い|してほしい|話したい|伝えたい|聞いてほしい|できる[？?]|ませんか)[^」]*」/g
+    ) || []
+  ).length;
+  const unquoted = stripJapaneseQuotedContent(text);
+  const segments = unquoted.match(/[^。！？?\n]+[。！？?]?|\n+/g) || [];
+  const unquotedMoves = segments.reduce((total, segment) => {
+    const trimmed = segment.trim();
+    if (!trimmed) return total;
+    const isQuestion =
+      /[？?]/.test(trimmed) ||
+      /(?:です|ます|でしょう|ません)か[。]?$/.test(trimmed) ||
+      /(?:教えて|聞かせて|答えて|話して)(?:ください|もらえますか)[。]?$/.test(
+        trimmed
+      );
+    const isDirective = /(?:ください|ましょう)[。！]?$/.test(trimmed);
+    return total + (isQuestion || isDirective ? 1 : 0);
+  }, 0);
+
+  return Math.max(quotedWordingMoves, unquotedMoves);
 }
 
 function hasClosingCoachingMove(message) {
@@ -1154,7 +1986,7 @@ function hasClosingCoachingMove(message) {
 
   return (
     countSemanticQuestions(finalSentence) === 1 ||
-    /(?:してください|してみてください|してみましょう|しましょう|始めてみて|書き出してみて|伝えてみて|休んでください|休みましょう|置いてみてください|考えてください)(?:ね)?[。！]?$/.test(
+    /(?:してください|してみてください|してみましょう|しましょう|(?:て|で)みましょう|始めてみて|書き出してみて|伝えてみて|休んでください|休みましょう|置いてみてください|考えてください)(?:ね)?[。！]?$/.test(
       finalSentence
     )
   );
@@ -1178,6 +2010,26 @@ function isQuestionInsideJapaneseQuote(segment, depthBefore) {
   }
 
   return depth > 0;
+}
+
+function requestsSingleAnswerInTest(text) {
+  return /(?:(?:一つ|ひとつ|1つ)(?:だけ)?.{0,24}(?:教|提案|答|挙|示|伝|お願)|(?:教|提案|答|挙|示|伝|お願).{0,24}(?:一つ|ひとつ|1つ)(?:だけ)?|一言(?:だけ|で)|最初の一言|質問(?:は|を)?(?:なし|不要|しない)|短く(?:答|教|返))/.test(
+    text
+  );
+}
+
+function requestsExplicitClosingQuestionInTest(text) {
+  if (
+    /質問(?:は|を)?(?:なし|不要|しない|せず)|質問を付けない|質問で終わらない/.test(
+      text
+    )
+  ) {
+    return false;
+  }
+
+  return /(?:最後|末尾|終わり|締め).{0,40}質問|質問(?:を|は)?[^。！？?\n]{0,20}(?:一つ|ひとつ|1つ)(?:だけ)?[^。！？?\n]{0,12}(?:して|付け|添え|ください|お願い)/.test(
+    text
+  );
 }
 
 function hasBalancedDelimiters(text) {

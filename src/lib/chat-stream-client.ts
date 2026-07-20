@@ -1,11 +1,15 @@
 export interface ChatStreamDone {
   message?: string;
   completionStatus?: 'complete' | 'partial' | 'fallback';
+  finalizationStatus?: 'complete' | 'failed';
+  finishReason?: string;
   remaining?: number;
   limit?: number;
   usage?: {
     prompt_tokens?: number;
     completion_tokens?: number;
+    cached_tokens?: number;
+    thoughts_tokens?: number;
     total_tokens?: number;
   };
 }
@@ -58,7 +62,6 @@ export async function readChatStream(
 
       if (event.type === 'chunk' && event.text) {
         receivedText += event.text;
-        onChunk(event.text);
       }
 
       if (event.type === 'error') {
@@ -77,7 +80,6 @@ export async function readChatStream(
     const event = parseRequiredStreamLine(remaining);
     if (event?.type === 'chunk' && event.text) {
       receivedText += event.text;
-      onChunk(event.text);
     }
     if (event?.type === 'error') {
       throw new Error(event.error || 'AIの応答生成に失敗しました。もう一度お試しください。');
@@ -99,6 +101,8 @@ export async function readChatStream(
       'AIから空の応答が返されました。入力内容は保存されています。もう一度お試しください。'
     );
   }
+
+  onChunk(donePayload.message?.trim() ? donePayload.message : receivedText);
 
   return donePayload;
 }

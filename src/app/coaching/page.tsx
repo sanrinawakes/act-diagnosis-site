@@ -91,8 +91,6 @@ type ClientChatFailurePayload = {
 const CHAT_RESPONSE_TIMEOUT_MS = 60000;
 const CHAT_PERSIST_TIMEOUT_MS = 10000;
 const CHAT_INITIALIZATION_TIMEOUT_MS = 12000;
-const ATTACHMENT_PRIVACY_NOTICE =
-  'クリップボタンを押して写真選択画面を開いただけでは、画像は送信されません。選んだ画像も、送信ボタンを押す前なら削除できます。';
 const CHAT_BUSY_MESSAGE =
   'AIが前の返信を処理中です。完了すると送信できます。入力内容はこのまま残ります。';
 const CHAT_NOT_READY_MESSAGE =
@@ -1603,9 +1601,6 @@ function CoachingContent() {
                       ))}
                     </div>
                   )}
-                  <p className="mb-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs leading-relaxed text-blue-700">
-                    {ATTACHMENT_PRIVACY_NOTICE}
-                  </p>
                   {attachmentError && (
                     <p className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
                       {attachmentError}

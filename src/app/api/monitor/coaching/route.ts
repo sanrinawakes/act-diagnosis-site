@@ -38,6 +38,7 @@ type MonitorResult = {
   outputChars: number;
   returnedFallback: boolean;
   completionStatus: string | null;
+  finalizationStatus: string | null;
   remaining: number | null;
   cookieAuthUsed: boolean;
 };
@@ -381,6 +382,7 @@ async function runPaidCoachingMonitor(params: {
       outputChars: streamResult.message.length,
       returnedFallback: streamResult.returnedFallback,
       completionStatus: streamResult.completionStatus,
+      finalizationStatus: streamResult.finalizationStatus,
       remaining: streamResult.remaining,
       cookieAuthUsed: true,
     };
@@ -472,6 +474,10 @@ async function readMonitorStream(response: Response, startedAt: number) {
       typeof donePayload?.completionStatus === 'string'
         ? donePayload.completionStatus
         : null,
+    finalizationStatus:
+      typeof donePayload?.finalizationStatus === 'string'
+        ? donePayload.finalizationStatus
+        : null,
     remaining:
       typeof donePayload?.remaining === 'number' ? donePayload.remaining : null,
   };
@@ -488,6 +494,13 @@ function assertHealthyMonitorResult(result: MonitorResult) {
     throw new Error(
       `monitor received incomplete AI result: ${
         result.completionStatus || 'missing status'
+      }`
+    );
+  }
+  if (result.finalizationStatus !== 'complete') {
+    throw new Error(
+      `monitor did not complete chat metadata: ${
+        result.finalizationStatus || 'missing status'
       }`
     );
   }

@@ -12,6 +12,19 @@ const args = new Map(
   })
 );
 const baseUrl = args.get('base') || 'https://act-diagnosis-site.vercel.app';
+const vercelProtectionHeaders = {
+  ...(process.env.VERCEL_AUTOMATION_BYPASS_SECRET
+    ? {
+        'x-vercel-protection-bypass':
+          process.env.VERCEL_AUTOMATION_BYPASS_SECRET,
+      }
+    : {}),
+  ...(process.env.VERCEL_OIDC_TOKEN
+    ? {
+        'x-vercel-trusted-oidc-idp-token': process.env.VERCEL_OIDC_TOKEN,
+      }
+    : {}),
+};
 const supabaseUrl = requireEnv('NEXT_PUBLIC_SUPABASE_URL');
 const serviceRoleKey = requireEnv('SUPABASE_SERVICE_ROLE_KEY');
 const admin = createClient(supabaseUrl, serviceRoleKey, {
@@ -24,6 +37,7 @@ const password = `Browser-${randomUUID()}-9a!`;
 const checks = [];
 const timings = [];
 const browserErrors = [];
+const generatedCoachingOutputs = [];
 let userId = null;
 let sessionId = null;
 let browser = null;
@@ -37,6 +51,7 @@ try {
     locale: 'ja-JP',
     timezoneId: 'Asia/Tokyo',
   });
+  await configureVercelProtectionBypass(desktop);
   const desktopPage = await desktop.newPage();
   collectBrowserErrors(desktopPage, 'desktop');
   await loginAndOpenNewChat(desktopPage);
@@ -66,6 +81,7 @@ try {
     locale: 'ja-JP',
     timezoneId: 'Asia/Tokyo',
   });
+  await configureVercelProtectionBypass(mobile);
   const mobilePage = await mobile.newPage();
   collectBrowserErrors(mobilePage, 'mobile');
   await loginToExistingChat(mobilePage, sessionId);
@@ -80,6 +96,16 @@ try {
     'ブラウザ: JavaScript例外なし',
     browserErrors.length === 0,
     browserErrors.join(' | ')
+  );
+  const invalidOutputs = generatedCoachingOutputs.filter(({ content }) =>
+    /お察し(?:いた)?します|承知(?:いた)?しました|ご安心ください|頑張られ|素晴らしい一歩|させていただけますでしょうか|(?:教えて|お話しして|話して)くださ(?:り|って)ありがとうございます|(?:お気持ち|気持ち).{0,8}よく(?:分|わ)かります|何か(?:具体的に|続けて)?(?:お話し|話して)(?:みたい|したい)?ことはありますか|何か[、,]?(?:今)?(?:感じていることや[、,]?)?(?:話したい|話してみたい)ことはありますか|今[、,]?(?:この瞬間に)?(?:最も|一番)?(?:話したい|話してみたい)ことは何ですか|あなたの言葉一つ一つを大切に受け止めています|見捨てられ|承認欲求|トラウマ|幼少期|愛着障害|共依存|我慢.{0,12}証拠|という喧嘩|(?:感情|気持ち|怖さ|不安|怒り|悲しさ|悩み|問題|課題).{0,16}(?:横|脇)[にへ]置|(?:感情|気持ち|怖さ|不安|怒り|悲しさ|悩み|問題|課題).{0,12}切り離|(?:て|で)から[^。\n]{0,60}(?:て|で)から|タタスク|タースク|タムスケジュール|(?:です|ます)[。．]\s*か[？?]|途中で止まることはありません|必ず(?:回答|返答)します/.test(
+      content
+    )
+  );
+  addCheck(
+    'AI回答: 既知の日本語崩れ・事実でない稼働保証なし',
+    invalidOutputs.length === 0,
+    JSON.stringify(invalidOutputs)
   );
 
   const failed = checks.filter((check) => !check.passed);
@@ -139,6 +165,20 @@ async function createTestMember() {
     chat_count_today: 0,
   });
   if (profileError) throw profileError;
+}
+
+async function configureVercelProtectionBypass(context) {
+  if (Object.keys(vercelProtectionHeaders).length === 0) return;
+
+  const appOrigin = new URL(baseUrl).origin;
+  await context.route(`${appOrigin}/**`, async (route) => {
+    await route.continue({
+      headers: {
+        ...route.request().headers(),
+        ...vercelProtectionHeaders,
+      },
+    });
+  });
 }
 
 async function loginAndOpenNewChat(page) {
@@ -226,6 +266,7 @@ async function testDesktopEnterSend(page) {
   await page.locator('textarea').fill(`${marker}。明日の一歩を一つ教えてください。`);
   await page.locator('textarea').press('Enter');
   const result = await waitForCompletedTurn(marker);
+  recordGeneratedOutput('desktop-enter', result.assistantContent);
   timings.push({ name: 'desktop-enter', elapsedMs: Date.now() - startedAt });
   addCheck(
     'PC: Enterで一度だけ送信して回答を保存',
@@ -242,6 +283,7 @@ async function testSynchronousDoubleSendGuard(page) {
     button.click();
   });
   const result = await waitForCompletedTurn(marker);
+  recordGeneratedOutput('double-send', result.assistantContent);
   addCheck(
     'PC: 同期的な二重クリックでもユーザー行は1件',
     result.userRows === 1,
@@ -263,6 +305,7 @@ async function testRepeatedConversation(page) {
     await page.locator('textarea').fill(`${marker} ${prompts[index]}`);
     await page.locator('button', { hasText: /^送信$/ }).click();
     const result = await waitForCompletedTurn(marker, 70000);
+    recordGeneratedOutput(`repeated-${index + 1}`, result.assistantContent);
     timings.push({
       name: `repeated-${index + 1}`,
       elapsedMs: Date.now() - startedAt,
@@ -321,10 +364,11 @@ async function testIncompleteStreamRecovery(page) {
   await page.locator('button', { hasText: /^送信$/ }).click();
   const result = await waitForCompletedTurn(marker, 30000);
   addCheck(
-    '途中切断: 相談文と途中回答を履歴へ保存',
+    '途中切断: 相談文と再試行案内を履歴へ保存',
     result.userRows === 1 &&
-      result.assistantContent.includes('途中までの回答です。') &&
-      result.assistantContent.includes('接続が不安定'),
+      result.assistantContent.includes('AIの応答が途中で切れました。') &&
+      result.assistantContent.includes('入力内容は保存されています。') &&
+      !result.assistantContent.includes('途中までの回答です。'),
     JSON.stringify(result)
   );
 
@@ -334,8 +378,9 @@ async function testIncompleteStreamRecovery(page) {
   addCheck(
     '途中切断: 再読み込み後も相談文と案内を表示',
     pageText.includes(marker) &&
-      pageText.includes('途中までの回答です。') &&
-      pageText.includes('接続が不安定'),
+      pageText.includes('AIの応答が途中で切れました。') &&
+      pageText.includes('入力内容は保存されています。') &&
+      !pageText.includes('途中までの回答です。'),
     pageText.slice(-500)
   );
 }
@@ -360,6 +405,7 @@ async function testImageAttachment(page) {
   await page.locator('textarea').fill(`${marker}。この画像の色を一言で答えてください。`);
   await page.locator('button', { hasText: /^送信$/ }).click();
   const result = await waitForCompletedTurn(marker, 70000);
+  recordGeneratedOutput('image', result.assistantContent);
   const { data: savedUserRows, error } = await admin
     .from('chat_messages')
     .select('content')
@@ -373,9 +419,13 @@ async function testImageAttachment(page) {
       /白|ホワイト/.test(result.assistantContent) &&
       result.assistantContent.length <= 30 &&
       !/行動|始め|一緒に考え/.test(result.assistantContent) &&
-      /\(4\.0 MB\)/.test(savedUserRows?.[0]?.content || '') &&
+      /\([\d.]+ (?:B|KB|MB)\)/.test(savedUserRows?.[0]?.content || '') &&
+      !/\(4\.0 MB\)/.test(savedUserRows?.[0]?.content || '') &&
       /添付画像:\s*\n!\[/.test(savedUserRows?.[0]?.content || ''),
-    JSON.stringify(result)
+    JSON.stringify({
+      ...result,
+      savedUserContent: savedUserRows?.[0]?.content || '',
+    })
   );
 }
 
@@ -421,6 +471,7 @@ async function testMobileEnterAndButton(page) {
 
   await page.locator('button', { hasText: /^送信$/ }).click();
   const result = await waitForCompletedTurn(marker, 70000);
+  recordGeneratedOutput('mobile', result.assistantContent);
   addCheck(
     'スマホ: 送信ボタンで回答と履歴を保存',
     result.userRows === 1 && result.assistantContent.length >= 8,
@@ -472,6 +523,10 @@ async function waitForCompletedTurn(marker, timeoutMs = 60000) {
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
   throw new Error(`Timed out waiting for completed turn: ${marker}`);
+}
+
+function recordGeneratedOutput(label, content) {
+  generatedCoachingOutputs.push({ label, content });
 }
 
 async function countMessages(sid) {
@@ -585,7 +640,7 @@ async function cleanup() {
     process.exitCode = 1;
   }
   const testAttachmentPaths = (attachmentFiles || [])
-    .filter((file) => file.name.includes('acti-e2e-red.png'))
+    .filter((file) => file.name.includes('acti-e2e-red'))
     .map((file) => `${attachmentFolder}/${file.name}`);
   if (testAttachmentPaths.length > 0) {
     const { error: attachmentRemoveError } = await admin.storage
@@ -617,7 +672,7 @@ async function cleanup() {
   const { data: remainingAttachments, error: attachmentVerifyError } =
     await admin.storage.from(attachmentBucket).list(attachmentFolder, { limit: 100 });
   const remainingTestAttachments = (remainingAttachments || []).filter((file) =>
-    file.name.includes('acti-e2e-red.png')
+    file.name.includes('acti-e2e-red')
   );
   if (
     profileError ||
