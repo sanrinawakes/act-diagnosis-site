@@ -28,9 +28,6 @@ interface RateLimitModal {
   isOpen: boolean;
 }
 
-const ATTACHMENT_PRIVACY_NOTICE =
-  'クリップボタンを押して写真選択画面を開いただけでは、画像は送信されません。選んだ画像も、送信ボタンを押す前なら削除できます。';
-
 export default function FreeCoachingPage() {
   const router = useRouter();
   const supabase = createClient();
@@ -484,9 +481,6 @@ export default function FreeCoachingPage() {
                   ))}
                 </div>
               )}
-              <p className="mb-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs leading-relaxed text-blue-700">
-                {ATTACHMENT_PRIVACY_NOTICE}
-              </p>
               {attachmentError && (
                 <p className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
                   {attachmentError}
