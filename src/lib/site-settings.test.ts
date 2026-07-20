@@ -10,13 +10,22 @@ describe('getVisibleCoachingNotice', () => {
   it('uses an enabled Japanese apology as the production fallback', () => {
     expect(DEFAULT_COACHING_NOTICE_SETTINGS.coaching_notice_enabled).toBe(true);
     expect(DEFAULT_COACHING_NOTICE_SETTINGS.coaching_notice_title).toBe(
-      'AIコーチングBotのご利用について'
+      'AIコーチングBotのエラー対応について'
     );
     expect(DEFAULT_COACHING_NOTICE_SETTINGS.coaching_notice_body).toContain(
-      '十分な確認が終わる前にご案内してしまい、本当に申し訳ございません。'
+      '十分な確認が終わる前に「改善しました」とご案内してしまい、本当に申し訳ございません。'
     );
     expect(DEFAULT_COACHING_NOTICE_SETTINGS.coaching_notice_body).toContain(
-      'ご利用を数日お待ちくださいますようお願いいたします。'
+      'AIコーチングBotは引き続きご利用いただけます。'
+    );
+    expect(DEFAULT_COACHING_NOTICE_SETTINGS.coaching_notice_body).toContain(
+      'こちらでも動作を監視しており、検知したエラーは順次、原因を確認して修正しています。'
+    );
+    expect(DEFAULT_COACHING_NOTICE_SETTINGS.coaching_notice_body).toContain(
+      'その間もAIコーチングBotをお使いいただきながら'
+    );
+    expect(DEFAULT_COACHING_NOTICE_SETTINGS.coaching_notice_body).not.toContain(
+      'ご利用を数日お待ちくださいますよう'
     );
   });
 

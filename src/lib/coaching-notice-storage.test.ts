@@ -1,6 +1,9 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { DEFAULT_COACHING_NOTICE_SETTINGS } from '@/lib/site-settings';
+import {
+  DEFAULT_COACHING_NOTICE_SETTINGS,
+  PREVIOUS_DEFAULT_COACHING_NOTICE_BODY,
+} from '@/lib/site-settings';
 
 vi.mock('server-only', () => ({}));
 
@@ -65,6 +68,39 @@ describe('coaching notice storage', () => {
     await expect(loadCoachingNoticeSettings(storage.client)).resolves.toEqual(
       DEFAULT_COACHING_NOTICE_SETTINGS
     );
+  });
+
+  it('replaces the previous stop-using wording even when it was saved', async () => {
+    const storage = createStorageClient({
+      downloadData: new Blob([
+        JSON.stringify({
+          coaching_notice_enabled: true,
+          coaching_notice_title: 'AIコーチングBotのご利用について',
+          coaching_notice_body: PREVIOUS_DEFAULT_COACHING_NOTICE_BODY,
+        }),
+      ]),
+    });
+
+    await expect(loadCoachingNoticeSettings(storage.client)).resolves.toEqual(
+      DEFAULT_COACHING_NOTICE_SETTINGS
+    );
+  });
+
+  it('preserves an administrator choice to hide the previous notice', async () => {
+    const storage = createStorageClient({
+      downloadData: new Blob([
+        JSON.stringify({
+          coaching_notice_enabled: false,
+          coaching_notice_title: 'AIコーチングBotのご利用について',
+          coaching_notice_body: PREVIOUS_DEFAULT_COACHING_NOTICE_BODY,
+        }),
+      ]),
+    });
+
+    await expect(loadCoachingNoticeSettings(storage.client)).resolves.toEqual({
+      ...DEFAULT_COACHING_NOTICE_SETTINGS,
+      coaching_notice_enabled: false,
+    });
   });
 
   it('saves the exact notice as JSON with cache disabled and upsert enabled', async () => {
