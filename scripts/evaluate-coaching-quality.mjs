@@ -1621,7 +1621,8 @@ function evaluateConversations(conversations) {
   const hasConcreteHouseholdWording = (message) =>
     /「[^」]{8,}」/.test(message) &&
     /時間|家事/.test(message) &&
-    /決め|お願い|助か|ほしい|聞いて/.test(message);
+    /いつ|分担|頼ん|対応|やる/.test(message) &&
+    /決め|お願い|助か|ほしい|聞いて|話したい|話せる/.test(message);
   addCheck(
     checks,
     '6往復会話: 3回目以降も全streamが完了',
@@ -1720,8 +1721,7 @@ function evaluateConversations(conversations) {
   addCheck(
     checks,
     '6往復会話: 責めない最初の一言を具体的なお願いにする',
-    /「[^」]{8,}」/.test(sixTurn.turns[3].message) &&
-      /決め|お願い|助か|ほしい|聞いて/.test(sixTurn.turns[3].message) &&
+    hasConcreteHouseholdWording(sixTurn.turns[3].message) &&
       !/嫌(?:です|だと|だ)|腹が立/.test(sixTurn.turns[3].message),
     sixTurn.turns[3].message
   );
