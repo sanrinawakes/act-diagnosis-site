@@ -16,6 +16,10 @@ const maxFirstChunkMs = Number(
 );
 const MONITOR_STAGE_TIMEOUT_MS = 10000;
 const MONITOR_HISTORY_PAIRS = 40;
+const MONITOR_CHAT_TIMEOUT_MS = Math.max(
+  5000,
+  Math.min(45000, maxTotalMs + 5000)
+);
 
 type MonitorResult = {
   status: number;
@@ -37,6 +41,8 @@ type MonitorResult = {
   hasDone: boolean;
   outputChars: number;
   returnedFallback: boolean;
+  provider: string;
+  fallbackFrom: string | null;
   completionStatus: string | null;
   finalizationStatus: string | null;
   remaining: number | null;
@@ -312,6 +318,7 @@ async function runPaidCoachingMonitor(params: {
       },
       body: JSON.stringify(body),
       cache: 'no-store',
+      signal: AbortSignal.timeout(MONITOR_CHAT_TIMEOUT_MS),
     });
 
     const streamResult = await readMonitorStream(response, chatStartedAt);
@@ -381,6 +388,8 @@ async function runPaidCoachingMonitor(params: {
       hasDone: streamResult.hasDone,
       outputChars: streamResult.message.length,
       returnedFallback: streamResult.returnedFallback,
+      provider: streamResult.provider,
+      fallbackFrom: streamResult.fallbackFrom,
       completionStatus: streamResult.completionStatus,
       finalizationStatus: streamResult.finalizationStatus,
       remaining: streamResult.remaining,
@@ -469,7 +478,18 @@ async function readMonitorStream(response: Response, startedAt: number) {
     message,
     returnedFallback:
       /応答に時間がかかりすぎ|応答に失敗|中断しました/.test(message) ||
+      typeof donePayload?.fallbackFrom === 'string' ||
+      (typeof donePayload?.provider === 'string' &&
+        donePayload.provider !== 'gemini') ||
       donePayload?.completionStatus !== 'complete',
+    provider:
+      typeof donePayload?.provider === 'string'
+        ? donePayload.provider
+        : 'gemini',
+    fallbackFrom:
+      typeof donePayload?.fallbackFrom === 'string'
+        ? donePayload.fallbackFrom
+        : null,
     completionStatus:
       typeof donePayload?.completionStatus === 'string'
         ? donePayload.completionStatus
@@ -510,11 +530,15 @@ function assertHealthyMonitorResult(result: MonitorResult) {
   if (result.chatTotalMs > maxTotalMs) {
     throw new Error(`monitor chat response too slow: ${result.chatTotalMs}ms`);
   }
-  if (result.outputChars <= 0) {
+  if (result.outputChars < 8) {
     throw new Error(`monitor output too short: ${result.outputChars} chars`);
   }
   if (result.returnedFallback) {
-    throw new Error('monitor returned fallback/error text');
+    throw new Error(
+      `monitor detected provider fallback: ${
+        result.fallbackFrom || 'gemini'
+      } -> ${result.provider}`
+    );
   }
   if (result.storedMessagesAfterReply !== result.storedMessagesBeforeReply + 1) {
     throw new Error('monitor did not persist the complete conversation');

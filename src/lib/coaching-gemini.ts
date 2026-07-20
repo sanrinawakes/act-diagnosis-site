@@ -48,9 +48,12 @@ const HISTORY_MESSAGE_CHAR_LIMIT = 700;
 const API_HISTORY_LIMIT = 14;
 const API_HISTORY_CHAR_LIMIT = 700;
 const API_LAST_USER_CHAR_LIMIT = 2500;
-const GEMINI_TIMEOUT_MS = 45000;
+const GEMINI_TEXT_TIMEOUT_MS = 12000;
+const GEMINI_IMAGE_TIMEOUT_MS = 20000;
 const GEMINI_FINALIZE_TIMEOUT_MS = 4000;
-const GEMINI_RETRY_DELAYS_MS = [800, 1600];
+const EXTERNAL_FALLBACK_TIMEOUT_MS = 10000;
+const EXTERNAL_IMAGE_FALLBACK_TIMEOUT_MS = 15000;
+const GEMINI_RETRY_DELAYS_MS = [300];
 const ALERT_SLOW_RESPONSE_MS = 10000;
 const ALERT_THROTTLE_MS = 5 * 60 * 1000;
 export const COACHING_TEXT_MODEL = 'gemini-3.5-flash';
@@ -59,7 +62,7 @@ export const COACHING_MAX_OUTPUT_TOKENS = 4096;
 export const COACHING_TEXT_THINKING_LEVEL = 'minimal';
 const PARTIAL_STREAM_TIMEOUT_NOTICE =
   '\n\n（応答処理に時間がかかったため、ここで一度区切りました。続きが必要な場合は「続き」と送ってください。）';
-const RESPONSE_SPEED_INSTRUCTION = [
+export const COACHING_RESPONSE_SPEED_INSTRUCTION = [
   '',
   '---',
   '## 応答速度と安定性のための追加ルール',
@@ -70,45 +73,6 @@ const RESPONSE_SPEED_INSTRUCTION = [
 ].join('\n');
 
 const alertLastSentAt = new Map<string, number>();
-
-const TYPE_SUMMARIES: Record<string, string> = {
-  SVA: '思索探求者。理想や思想を深く掘り下げ、自分なりの真理を探す力があります。',
-  SVM: '慎重な調整者。急がず丁寧に状況を見て、無理のないバランスを取る力があります。',
-  SVE: '共感リーダー。人の気持ちを受け取りながら、あたたかく周囲を導く力があります。',
-  SMA: '内省的戦略家。自分を深く見つめ、改善点を見つけて計画的に進む力があります。',
-  SMM: '平和主義の調和者。場の空気を読み、穏やかに関係性を整える力があります。',
-  SME: '感性豊かな癒し手。人の痛みや違和感に気づき、安心感を与える力があります。',
-  SGA: '緻密な現実主義者。細部まで丁寧に見て、現実的に物事を整える力があります。',
-  SGM: '安定志向のバランサー。安心できる土台を大切にし、着実に整える力があります。',
-  SGE: '現場に強い共感実務家。人の気持ちを汲みながら、現場で実際に動ける力があります。',
-  MVA: '理想現実の橋渡し人。理想と現実の両方を見ながら、接点を作る力があります。',
-  MVM: 'バランス思考の調整役。全体を見渡し、偏りを整える力があります。',
-  MVE: '感性とビジョンの共創者。未来像と感覚を結びつけ、新しい可能性を作る力があります。',
-  MMA: '論理と実行の精密設計者。筋道を立てて考え、計画を形にする力があります。',
-  MMM: '中心軸を持つ均衡型。自分の軸を保ちながら、周囲とのバランスを取る力があります。',
-  MME: '穏やかなる共感調整者。落ち着いた共感力で、人と人の間を整える力があります。',
-  MGA: '現実に強い着実実行者。現実的な判断で、必要なことを一歩ずつ進める力があります。',
-  MGM: '堅実な安定構築者。長く続く仕組みや安心できる基盤を作る力があります。',
-  MGE: '地に足ついた感情調整者。感情を受け止めつつ、現実的に整える力があります。',
-  PVA: '革新的アイデアマン。新しい発想で可能性を広げ、人に刺激を与える力があります。',
-  PVM: '現場志向の推進者。動きながら状況を前に進める力があります。',
-  PVE: '熱意あふれる表現者。思いや感情を表現し、人を明るく動かす力があります。',
-  PMA: '論理で切り拓く挑戦者。分析力と挑戦心で、困難を突破する力があります。',
-  PMM: '行動する安定志向者。安定を大切にしながら、必要な行動を起こす力があります。',
-  PME: '感情と創造の実験家。感情のエネルギーを創造や挑戦につなげる力があります。',
-  PGA: '結果にこだわる実行者。目標を定め、結果に向けて力強く動く力があります。',
-  PGM: '効率的な現実構築者。効率と現実性を重視し、形にしていく力があります。',
-  PGE: '感情を動力にする達成者。気持ちの強さを行動力に変えて達成する力があります。',
-};
-
-const LEVEL_SUMMARIES: Record<string, string> = {
-  '1': '今は安全や安心を重視しやすい段階です。小さく試せる行動から始めると進みやすくなります。',
-  '2': '内側に葛藤が出やすい段階です。どちらかを否定せず、両方の思いを整理することが助けになります。',
-  '3': '自分の価値観で判断し、自立して進もうとする段階です。自分の軸を大切にしながら、周囲と協力する視点を持つと広がります。',
-  '4': '自分と周囲の調和を大切にできる段階です。遠慮しすぎず、自分の望みも丁寧に扱うことが成長につながります。',
-  '5': '創造性や貢献意識が高まりやすい段階です。ビジョンを具体的な行動に落とすことで力が発揮されます。',
-  '6': '広い視点で物事を捉えやすい段階です。大きな視野と日常の実践をつなげることが鍵になります。',
-};
 
 export function getCoachingGeminiModelName(parts: GeminiPart[]) {
   return parts.some((part) => 'inlineData' in part)
@@ -134,7 +98,7 @@ export function getCoachingGeminiModel(
 
   return getGenAI().getGenerativeModel({
     model: modelName,
-    systemInstruction: `${systemPrompt}${RESPONSE_SPEED_INSTRUCTION}`,
+    systemInstruction: `${systemPrompt}${COACHING_RESPONSE_SPEED_INSTRUCTION}`,
     generationConfig,
   });
 }
@@ -262,29 +226,58 @@ export async function generateCoachingText(params: {
   lastUserParts: GeminiPart[];
 }) {
   const lastUserText = extractTextFromParts(params.lastUserParts);
-  const urgentSafetyResponse = buildUrgentSafetyResponse(lastUserText);
-  if (urgentSafetyResponse) {
+  const immediateResponse = buildImmediateCoachingResponse(lastUserText);
+  if (immediateResponse) {
     return {
-      text: urgentSafetyResponse,
+      text: immediateResponse.text,
       usage: {},
-      modelName: 'local-safety',
+      modelName: immediateResponse.modelName,
       completionStatus: 'complete' as const,
-      finishReason: 'LOCAL_SAFETY_RESPONSE',
+      finishReason: immediateResponse.finishReason,
     };
   }
 
   const modelName = getCoachingGeminiModelName(params.lastUserParts);
-  const result = await runWithGeminiRetry(async () => {
-    const model = getCoachingGeminiModel(params.systemPrompt, modelName);
-    const chat = model.startChat({
-      history: prepareGeminiHistory(params.historyMessages),
-    });
+  let result;
+  try {
+    result = await runWithGeminiRetry(async () => {
+      const model = getCoachingGeminiModel(params.systemPrompt, modelName);
+      const chat = model.startChat({
+        history: prepareGeminiHistory(params.historyMessages),
+      });
 
-    return withTimeout(
-      chat.sendMessage(params.lastUserParts),
-      GEMINI_TIMEOUT_MS
-    );
-  });
+      return withTimeout(
+        chat.sendMessage(params.lastUserParts, {
+          timeout: getGeminiTimeoutMs(modelName),
+        }),
+        getGeminiTimeoutMs(modelName)
+      );
+    });
+  } catch (error) {
+    const fallback = await tryExternalProviderFallback(params);
+    if (fallback) {
+      return {
+        text: normalizeCoachingOutput(
+          fallback.rawText,
+          lastUserText,
+          params.historyMessages
+        ),
+        usage: fallback.usage,
+        modelName: fallback.model,
+        provider: fallback.provider,
+        completionStatus: 'complete' as const,
+        finishReason: fallback.finishReason || 'EXTERNAL_FALLBACK',
+      };
+    }
+
+    return {
+      text: buildResilientLocalFallback(lastUserText, params.historyMessages),
+      usage: {},
+      modelName: 'local-fallback',
+      completionStatus: 'fallback' as const,
+      finishReason: getErrorMessage(error),
+    };
+  }
   const response = result.response;
   const finishReason = getFinishReason(response);
   const completionStatus = classifyGeminiCompletion(finishReason);
@@ -325,6 +318,9 @@ export function createJsonLineStream(params: {
   return new ReadableStream<Uint8Array>({
     async start(controller) {
       let fullText = '';
+      let emittedText = '';
+      let pendingText = '';
+      let streamingBlocked = false;
       const startedAt = Date.now();
       let firstChunkMs: number | null = null;
       let generationFirstChunkMs: number | null = null;
@@ -333,16 +329,22 @@ export function createJsonLineStream(params: {
         controller.enqueue(encoder.encode(`${JSON.stringify(payload)}\n`));
       };
 
+      const writeVerifiedChunk = (text: string) => {
+        if (!text) return;
+        firstChunkMs ??= Date.now() - startedAt;
+        emittedText += text;
+        write({ type: 'chunk', text, verified: true });
+      };
+
       try {
         const lastUserText = extractTextFromParts(params.lastUserParts);
-        const urgentSafetyResponse = buildUrgentSafetyResponse(lastUserText);
-        if (urgentSafetyResponse) {
-          fullText = urgentSafetyResponse;
-          firstChunkMs = Date.now() - startedAt;
-          write({ type: 'chunk', text: fullText });
+        const immediateResponse = buildImmediateCoachingResponse(lastUserText);
+        if (immediateResponse) {
+          fullText = immediateResponse.text;
+          writeVerifiedChunk(fullText);
           const finalization = await resolveDonePayload(params.onDone, {});
           logChatTelemetry('done', params.telemetry, {
-            modelName: 'local-safety',
+            modelName: immediateResponse.modelName,
             elapsedMs: Date.now() - startedAt,
             firstChunkMs,
             generationFirstChunkMs,
@@ -350,21 +352,42 @@ export function createJsonLineStream(params: {
             finalizationMs: finalization.elapsedMs,
             finalizationError: finalization.error,
             outputChars: fullText.length,
-            finishReason: 'LOCAL_SAFETY_RESPONSE',
+            finishReason: immediateResponse.finishReason,
             usage: {},
           });
           write({
             type: 'done',
-            modelName: 'local-safety',
+            modelName: immediateResponse.modelName,
             completionStatus: 'complete',
             finalizationStatus: finalization.status,
-            finishReason: 'LOCAL_SAFETY_RESPONSE',
+            finishReason: immediateResponse.finishReason,
             message: fullText,
             usage: {},
             ...finalization.payload,
           });
           return;
         }
+
+        const holdRawStream = shouldHoldRawStreaming(lastUserText);
+        const acceptGeneratedText = (text: string) => {
+          if (!text) return;
+          fullText += text;
+          generationFirstChunkMs ??= Date.now() - startedAt;
+          if (holdRawStream || streamingBlocked) return;
+
+          pendingText += text;
+          if (containsProtectedInternalContent(fullText)) {
+            streamingBlocked = true;
+            pendingText = '';
+            return;
+          }
+
+          const boundary = findVerifiedStreamingBoundary(pendingText);
+          if (boundary <= 0) return;
+          const verifiedText = pendingText.slice(0, boundary);
+          pendingText = pendingText.slice(boundary);
+          writeVerifiedChunk(verifiedText);
+        };
 
         let response:
           | {
@@ -380,22 +403,26 @@ export function createJsonLineStream(params: {
           | undefined;
 
         await runWithGeminiRetry(async () => {
+          fullText = '';
+          pendingText = '';
+          streamingBlocked = false;
           const model = getCoachingGeminiModel(params.systemPrompt, modelName);
           const chat = model.startChat({
             history: prepareGeminiHistory(params.historyMessages),
           });
           const result = await withTimeout(
-            chat.sendMessageStream(params.lastUserParts),
-            GEMINI_TIMEOUT_MS
+            chat.sendMessageStream(params.lastUserParts, {
+              timeout: getGeminiTimeoutMs(modelName),
+            }),
+            getGeminiTimeoutMs(modelName)
           );
 
           try {
             await withTimeout(
               consumeGeminiStream(result.stream, (text) => {
-                fullText += text;
-                generationFirstChunkMs ??= Date.now() - startedAt;
+                acceptGeneratedText(text);
               }),
-              GEMINI_TIMEOUT_MS
+              getGeminiTimeoutMs(modelName)
             );
           } catch (streamError) {
             if (fullText.trim()) {
@@ -434,8 +461,7 @@ export function createJsonLineStream(params: {
               params.historyMessages
             );
         const usage = getUsage(response);
-        firstChunkMs = Date.now() - startedAt;
-        write({ type: 'chunk', text: fullText });
+        if (!emittedText) writeVerifiedChunk(fullText);
         const finalization = await resolveDonePayload(params.onDone, usage);
 
         logChatTelemetry(completionStatus === 'partial' ? 'partial_done' : 'done', params.telemetry, {
@@ -464,20 +490,64 @@ export function createJsonLineStream(params: {
       } catch (error) {
         const isTimeout =
           error instanceof Error && error.message === 'GEMINI_TIMEOUT';
+        const fallbackUserText = extractTextFromParts(params.lastUserParts);
         console.error('Gemini stream error:', error);
+
+        if (!emittedText) {
+          const externalFallback = await tryExternalProviderFallback(params);
+          if (externalFallback) {
+            fullText = normalizeCoachingOutput(
+              externalFallback.rawText,
+              fallbackUserText,
+              params.historyMessages
+            );
+            writeVerifiedChunk(fullText);
+            const finalization = await resolveDonePayload(
+              params.onDone,
+              externalFallback.usage
+            );
+            logChatTelemetry('fallback_done', params.telemetry, {
+              modelName: externalFallback.model,
+              provider: externalFallback.provider,
+              fallbackFrom: modelName,
+              elapsedMs: Date.now() - startedAt,
+              firstChunkMs,
+              generationFirstChunkMs,
+              finalizationStatus: finalization.status,
+              finalizationMs: finalization.elapsedMs,
+              finalizationError: finalization.error,
+              outputChars: fullText.length,
+              finishReason: externalFallback.finishReason,
+              usage: externalFallback.usage,
+              error: getErrorMessage(error),
+            });
+            write({
+              type: 'done',
+              modelName: externalFallback.model,
+              provider: externalFallback.provider,
+              fallbackFrom: modelName,
+              completionStatus: 'complete',
+              finalizationStatus: finalization.status,
+              finishReason: externalFallback.finishReason,
+              message: fullText,
+              usage: externalFallback.usage,
+              ...finalization.payload,
+            });
+            return;
+          }
+        }
 
         if (fullText.trim()) {
           fullText = trimToNaturalContinuationBoundary(fullText);
           fullText = normalizeCoachingOutput(
             fullText,
-            extractTextFromParts(params.lastUserParts),
+            fallbackUserText,
             params.historyMessages
           );
           if (isTimeout) {
             fullText += PARTIAL_STREAM_TIMEOUT_NOTICE;
           }
-          firstChunkMs = Date.now() - startedAt;
-          write({ type: 'chunk', text: fullText });
+          if (!emittedText) writeVerifiedChunk(fullText);
           const finalization = await resolveDonePayload(params.onDone, {});
           logChatTelemetry('partial_done', params.telemetry, {
             modelName,
@@ -502,51 +572,34 @@ export function createJsonLineStream(params: {
           return;
         }
 
-        if (
-          isTimeout ||
-          (error instanceof Error && error.message === 'GEMINI_EMPTY_RESPONSE')
-        ) {
-          const fallbackText = buildTimeoutFallbackResponse(
-            params.systemPrompt,
-            params.lastUserParts
-          );
-          const finalization = await resolveDonePayload(params.onDone, {});
-          firstChunkMs = Date.now() - startedAt;
-          write({ type: 'chunk', text: fallbackText });
-          logChatTelemetry('fallback_done', params.telemetry, {
-            modelName,
-            elapsedMs: Date.now() - startedAt,
-            firstChunkMs,
-            generationFirstChunkMs,
-            finalizationStatus: finalization.status,
-            finalizationMs: finalization.elapsedMs,
-            finalizationError: finalization.error,
-            outputChars: fallbackText.length,
-            error: getErrorMessage(error),
-          });
-          write({
-            type: 'done',
-            modelName,
-            completionStatus: 'fallback',
-            finalizationStatus: finalization.status,
-            message: fallbackText,
-            usage: {},
-            ...finalization.payload,
-          });
-          return;
-        }
-
-        write({
-          type: 'error',
-          error: 'AIの応答生成に失敗しました。もう一度お試しください。',
-        });
-        logChatTelemetry('error', params.telemetry, {
-          modelName,
+        const fallbackText = buildResilientLocalFallback(
+          fallbackUserText,
+          params.historyMessages
+        );
+        writeVerifiedChunk(fallbackText);
+        const finalization = await resolveDonePayload(params.onDone, {});
+        logChatTelemetry('fallback_done', params.telemetry, {
+          modelName: 'local-fallback',
+          fallbackFrom: modelName,
           elapsedMs: Date.now() - startedAt,
           firstChunkMs,
           generationFirstChunkMs,
-          outputChars: fullText.length,
+          finalizationStatus: finalization.status,
+          finalizationMs: finalization.elapsedMs,
+          finalizationError: finalization.error,
+          outputChars: fallbackText.length,
           error: getErrorMessage(error),
+        });
+        write({
+          type: 'done',
+          modelName: 'local-fallback',
+          fallbackFrom: modelName,
+          completionStatus: 'fallback',
+          finalizationStatus: finalization.status,
+          finishReason: 'LOCAL_FALLBACK',
+          message: fallbackText,
+          usage: {},
+          ...finalization.payload,
         });
       } finally {
         controller.close();
@@ -978,43 +1031,202 @@ export function buildIncompleteGenerationRecoveryResponse(
   return buildClosingCoachingQuestion(lastUserText, historyMessages);
 }
 
-function buildTimeoutFallbackResponse(
-  systemPrompt: string,
-  parts: GeminiPart[]
-) {
-  const diagnosisCode = extractDiagnosisCode(systemPrompt);
-  const userText = extractTextFromParts(parts);
-  const urgentSafetyResponse = buildUrgentSafetyResponse(userText);
-  if (urgentSafetyResponse) return urgentSafetyResponse;
-
-  const [typeCode, level] = diagnosisCode?.split('-') || [];
-  const typeSummary = typeCode ? TYPE_SUMMARIES[typeCode] : null;
-  const levelSummary = level ? LEVEL_SUMMARIES[level] : null;
-
-  if (typeSummary || levelSummary) {
-    return [
-      'お待たせしました。まず短くお返しします。',
-      diagnosisCode ? `あなたのタイプ「${diagnosisCode}」は、${typeSummary || '自分らしさを大切にしながら成長していくタイプです。'}` : typeSummary,
-      levelSummary,
-      userText.includes('特徴') || userText.includes('タイプ')
-        ? '強みは、変化や人の気持ちに気づきやすいことです。まず「私はどう感じたか」を一言で置いてみると、次の行動が見えやすくなります。'
-        : '今は、結論を急ぐより「何が一番引っかかっているか」を一言にするのがおすすめです。',
-      '続ける場合は、気になる点を一つだけ送ってください。',
-    ]
-      .filter(Boolean)
-      .join('\n');
+function buildImmediateCoachingResponse(text: string) {
+  const urgentSafetyResponse = buildUrgentSafetyResponse(text);
+  if (urgentSafetyResponse) {
+    return {
+      text: urgentSafetyResponse,
+      modelName: 'local-safety',
+      finishReason: 'LOCAL_SAFETY_RESPONSE',
+    };
   }
-
-  return [
-    'お待たせしました。まず短くお返しします。',
-    '今は、いちばん気になっていることを一文にするところから始めるのが良さそうです。',
-    'その一文を送っていただければ、そこから一緒に整理します。',
-  ].join('\n');
+  if (requestsInternalPromptDisclosure(text)) {
+    return {
+      text: 'その内容は公開できません。代わりに、今抱えている悩みや目標について一緒に考えます。今いちばん相談したいことは何ですか？',
+      modelName: 'local-guard',
+      finishReason: 'LOCAL_PROMPT_GUARD',
+    };
+  }
+  if (requestsShortRestResponse(text)) {
+    return {
+      text: '今日はゆっくり休んでください。',
+      modelName: 'local-rest',
+      finishReason: 'LOCAL_REST_RESPONSE',
+    };
+  }
+  return null;
 }
 
-function extractDiagnosisCode(systemPrompt: string) {
-  const match = systemPrompt.match(/診断コード:\s*([A-Z]{3}-[1-6])/);
-  return match?.[1] || null;
+function getGeminiTimeoutMs(modelName: string) {
+  return modelName === COACHING_IMAGE_MODEL
+    ? GEMINI_IMAGE_TIMEOUT_MS
+    : GEMINI_TEXT_TIMEOUT_MS;
+}
+
+function shouldHoldRawStreaming(lastUserText: string) {
+  return (
+    requestsInternalPromptDisclosure(lastUserText) ||
+    requestsSingleAnswerFormat(lastUserText) ||
+    requestsExplicitClosingQuestion(lastUserText) ||
+    requestsDirectWording(lastUserText) ||
+    /(?:システム|system)\s*プロンプト|内部(?:指示|設定)|developer\s*(?:message|instruction)|上の(?:文章|指示)/i.test(
+      lastUserText
+    )
+  );
+}
+
+function findVerifiedStreamingBoundary(text: string) {
+  let boundary = 0;
+  const sentenceBoundary = /[。！？!?][」』）)]?/g;
+  for (const match of text.matchAll(sentenceBoundary)) {
+    boundary = (match.index || 0) + match[0].length;
+  }
+  const paragraphBoundary = text.lastIndexOf('\n\n');
+  return Math.max(boundary, paragraphBoundary >= 0 ? paragraphBoundary + 2 : 0);
+}
+
+export function containsProtectedInternalContent(text: string) {
+  return /ACTIコーチングAI指示書|#{1,3}\s*セクション\s*[1-9]|3つのステップ[：:]\s*共感|変装検出ルール|クライアントに関する非表示の参考情報|【内部応答形式】|診断コード\s*[:：]\s*[SMP][VMG][AME]-[1-6]|(?:システム|system)\s*プロンプト.{0,24}(?:全文|以下|内容|指示)/i.test(
+    text
+  );
+}
+
+async function tryExternalProviderFallback(params: {
+  systemPrompt: string;
+  historyMessages: CoachingChatMessage[];
+  lastUserParts: GeminiPart[];
+}) {
+  const modelInput = params.lastUserParts
+    .map((part) => ('text' in part ? part.text : ''))
+    .join('\n')
+    .trim();
+  if (!modelInput) return null;
+  const images = params.lastUserParts
+    .filter((part): part is GeminiImagePart => 'inlineData' in part)
+    .map((part) => part.inlineData);
+
+  const fallbackHistory: CoachingChatMessage[] = params.historyMessages.map(
+    (message) => ({
+      role: message.role,
+      content: stripAttachmentMarkdown(message.content).trim(),
+    })
+  );
+  const messages: CoachingChatMessage[] = [
+    ...fallbackHistory.filter((message) => message.content),
+    { role: 'user' as const, content: modelInput },
+  ];
+  const candidates = [
+    process.env.OPENAI_API_KEY
+      ? {
+          provider: 'openai' as const,
+          model: process.env.COACHING_FALLBACK_OPENAI_MODEL || 'gpt-5.6-luna',
+        }
+      : null,
+    process.env.ANTHROPIC_API_KEY
+      ? {
+          provider: 'anthropic' as const,
+          model:
+            process.env.COACHING_FALLBACK_ANTHROPIC_MODEL || 'claude-sonnet-5',
+        }
+      : null,
+  ].filter(
+    (
+      candidate
+    ): candidate is {
+      provider: 'openai' | 'anthropic';
+      model: string;
+    } => Boolean(candidate)
+  );
+  if (candidates.length === 0) return null;
+
+  const { generateCoachingProviderCandidate } = await import(
+    '@/lib/coaching-provider-candidates'
+  );
+  const controllers = candidates.map(() => new AbortController());
+  let winnerSelected = false;
+  const attempts = candidates.map(async (candidate, index) => {
+    try {
+      const result = await generateCoachingProviderCandidate({
+        ...candidate,
+        systemPrompt: params.systemPrompt,
+        messages,
+        images,
+        timeoutMs:
+          images.length > 0
+            ? EXTERNAL_IMAGE_FALLBACK_TIMEOUT_MS
+            : EXTERNAL_FALLBACK_TIMEOUT_MS,
+        signal: controllers[index].signal,
+      });
+      if (result.complete && result.rawText.trim()) {
+        return { ...result, ...candidate };
+      }
+      console.warn(
+        JSON.stringify({
+          event: 'coaching_fallback_candidate_incomplete',
+          ...candidate,
+          finishReason: result.finishReason,
+          outputChars: result.rawText.length,
+        })
+      );
+      throw new Error('COACHING_FALLBACK_INCOMPLETE');
+    } catch (error) {
+      if (
+        !winnerSelected &&
+        !controllers[index].signal.aborted &&
+        getErrorMessage(error) !== 'COACHING_FALLBACK_INCOMPLETE'
+      ) {
+        console.warn(
+          JSON.stringify({
+            event: 'coaching_fallback_candidate_failed',
+            ...candidate,
+            error: getErrorMessage(error).slice(0, 500),
+          })
+        );
+      }
+      throw error;
+    }
+  });
+
+  try {
+    const winner = await Promise.any(attempts);
+    winnerSelected = true;
+    return winner;
+  } catch {
+    return null;
+  } finally {
+    winnerSelected = true;
+    controllers.forEach((controller) => controller.abort());
+  }
+}
+
+function buildResilientLocalFallback(
+  lastUserText: string,
+  historyMessages: CoachingChatMessage[]
+) {
+  const immediateResponse = buildImmediateCoachingResponse(lastUserText);
+  if (immediateResponse) return immediateResponse.text;
+  if (requestsNoFollowUpQuestion(lastUserText)) {
+    return preserveRequestedActionTime(
+      buildNoQuestionFallback(lastUserText, historyMessages),
+      lastUserText
+    );
+  }
+
+  const acknowledgement = /悔/.test(lastUserText)
+    ? '悔しさが強いんですね。'
+    : /腹が立|怒|許せな|むかつ/.test(lastUserText)
+      ? '腹が立っているんですね。'
+      : /怖|恐/.test(lastUserText)
+        ? '怖さを感じているんですね。'
+        : /不安|心配/.test(lastUserText)
+          ? '不安が続いているんですね。'
+          : /疲|しんど|限界/.test(lastUserText)
+            ? 'かなり疲れているんですね。'
+            : '書いてくれた状況を踏まえて、まず一つに絞ります。';
+  return `${acknowledgement}\n\n${buildClosingCoachingQuestion(
+    lastUserText,
+    historyMessages
+  )}`;
 }
 
 function extractTextFromParts(parts: GeminiPart[]) {
@@ -1040,6 +1252,10 @@ export function normalizeCoachingOutput(
 
   if (requestsInternalPromptDisclosure(lastUserText)) {
     return 'その内容は公開できません。代わりに、今抱えている悩みや目標について一緒に考えます。今いちばん相談したいことは何ですか？';
+  }
+
+  if (containsProtectedInternalContent(text)) {
+    return '内部設定に関する内容には回答できません。今相談したい出来事について、一緒に考えます。';
   }
 
   if (requestsShortRestResponse(lastUserText)) {
@@ -1362,6 +1578,10 @@ export function normalizeCoachingOutput(
         : unwrapStandaloneJapaneseQuote(shortAnswer),
       lastUserText
     );
+  }
+
+  if (requestsFactualShortAnswer(lastUserText)) {
+    return unwrapStandaloneJapaneseQuote(firstNonEmptyParagraph(singleAnswerSafe));
   }
 
   if (
@@ -2643,6 +2863,17 @@ function requestsDirectWording(text: string) {
 
   return /最初の一言|断(?:る|りたい|り方)[^。！？\n]{0,24}(?:一言|言い方|文面|返事|言葉)|(?:一言|言い方|文面|返事|言葉)[^。！？\n]{0,28}(?:教えて|提案して|考えて|作って|示して|どうすれば|どうしたら)|(?:教えて|提案して|考えて|作って|示して)[^。！？\n]{0,28}(?:一言|言い方|文面|返事|言葉)|(?:どう|何と|なんて)(?:言|伝え)(?:え|たら|れば|る|う)/.test(
     text
+  );
+}
+
+function requestsFactualShortAnswer(text: string) {
+  return (
+    /画像|添付|名前|色|枚数|個数|件数|種類|日時|日付|時刻|場所|金額|価格|コード/.test(
+      text
+    ) &&
+    /答えて|教えて|確認|読み込め|見え|何(?:色|枚|個|件|時|円)|どれ/.test(
+      text
+    )
   );
 }
 

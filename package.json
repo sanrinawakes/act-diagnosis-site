@@ -12,6 +12,7 @@
     "verify:coaching:production": "npm run smoke:coaching && npm run test:coaching-quality:3x && npm run test:coaching-image-latency && npm run test:coaching-browser",
     "smoke:coaching": "node scripts/smoke-coaching-chat.mjs",
     "test:coaching-quality": "node scripts/evaluate-coaching-quality.mjs",
+    "benchmark:coaching-providers": "RUN_PROVIDER_BENCHMARK=1 vitest run scripts/benchmark-coaching-providers.test.ts --reporter=verbose",
     "test:coaching-quality:3x": "npm run test:coaching-quality && npm run test:coaching-quality && npm run test:coaching-quality",
     "test:coaching-image-latency": "node scripts/probe-coaching-image-latency.mjs",
     "test:coaching-browser": "node scripts/e2e-coaching-browser.mjs",
@@ -33,6 +34,7 @@
     "typescript": "^5.7.0"
   },
   "devDependencies": {
+    "@types/react-dom": "^19.2.3",
     "eslint": "^9.39.5",
     "eslint-config-next": "^15.5.18",
     "playwright": "^1.61.1",

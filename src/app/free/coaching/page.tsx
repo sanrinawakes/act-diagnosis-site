@@ -257,8 +257,9 @@ export default function FreeCoachingPage() {
       };
       setMessages((prev) => [...prev, assistantMessage]);
 
-      const data = await readChatStream(response, (chunk) => {
-        assistantContent += chunk;
+      const data = await readChatStream(response, (chunk, mode) => {
+        assistantContent =
+          mode === 'replace' ? chunk : assistantContent + chunk;
         setMessages((prev) =>
           prev.map((message) =>
             message.id === assistantMessageId

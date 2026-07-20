@@ -29,7 +29,7 @@ describe('readChatStream', () => {
     const result = await readChatStream(response, onChunk);
 
     expect(onChunk).toHaveBeenCalledOnce();
-    expect(onChunk).toHaveBeenCalledWith('こんにちは');
+    expect(onChunk).toHaveBeenCalledWith('こんにちは', 'replace');
     expect(result.message).toBe('こんにちは');
     expect(result.completionStatus).toBe('complete');
     expect(result.finalizationStatus).toBe('complete');
@@ -46,7 +46,7 @@ describe('readChatStream', () => {
     const result = await readChatStream(response, onChunk);
 
     expect(onChunk).toHaveBeenCalledOnce();
-    expect(onChunk).toHaveBeenCalledWith('安全な回答');
+    expect(onChunk).toHaveBeenCalledWith('安全な回答', 'replace');
     expect(result.message).toBe('安全な回答');
   });
 
@@ -96,7 +96,7 @@ describe('readChatStream', () => {
 
     const result = await readChatStream(response, onChunk);
 
-    expect(onChunk).toHaveBeenCalledWith('短い回答');
+    expect(onChunk).toHaveBeenCalledWith('短い回答', 'replace');
     expect(result.remaining).toBe(48);
   });
 
@@ -109,5 +109,23 @@ describe('readChatStream', () => {
     await expect(readChatStream(response, vi.fn())).rejects.toThrow(
       '有料会員のみご利用いただけます。'
     );
+  });
+
+  it('検査済みchunkを到着順に表示し、確定本文で置き換える', async () => {
+    const onChunk = vi.fn();
+    const response = streamResponse([
+      '{"type":"chunk","text":"まず受け止めます。","verified":true}\n',
+      '{"type":"chunk","text":"次の質問です。","verified":true}\n',
+      '{"type":"done","completionStatus":"complete","message":"まず受け止めます。最終的な質問です。"}\n',
+    ]);
+
+    const result = await readChatStream(response, onChunk);
+
+    expect(onChunk.mock.calls).toEqual([
+      ['まず受け止めます。', 'append'],
+      ['次の質問です。', 'append'],
+      ['まず受け止めます。最終的な質問です。', 'replace'],
+    ]);
+    expect(result.message).toBe('まず受け止めます。最終的な質問です。');
   });
 });
