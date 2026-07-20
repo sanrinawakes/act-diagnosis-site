@@ -111,14 +111,21 @@ export default function SubscriptionRequired() {
                 <div className="space-y-3">
                   <p className="text-sm text-gray-500">
                     Awakesオンラインスクールに入会済みの方で、このメッセージが表示される場合は、
-                    MyASPに登録しているメールアドレスと同じアドレスでアカウントを作成してください。
-                    決済が確認され次第、自動的にアクセスが有効化されます。
+                    MyASPに登録しているメールアドレスで有料会員情報を紐付けてください。
+                    ACTIのログインメールとMyASPの登録メールが違う場合も、紐付け後にアクセスが有効化されます。
                   </p>
 
                   <div className="flex flex-col gap-3 mt-6">
                     <Link
-                      href="/register"
+                      href="/claim-subscription"
                       className="w-full py-3 px-4 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors"
+                    >
+                      MyASPの登録メールで紐付ける
+                    </Link>
+
+                    <Link
+                      href="/register"
+                      className="w-full py-3 px-4 bg-white text-blue-600 border border-blue-200 rounded-lg font-medium hover:bg-blue-50 transition-colors"
                     >
                       新規アカウント作成
                     </Link>
