@@ -1965,7 +1965,7 @@ function buildGroundedDirectWording(
     /家事|夫|妻/.test(userContext) &&
     /後回し|時間[^。\n]{0,40}軽く扱/.test(userContext)
   ) {
-    return '「私の時間も大切にしたいので、家事を頼んだ時に、いつ対応するかを一緒に決めたいです。」';
+    return buildHouseholdDirectWording(lastUserText, historyMessages);
   }
 
   const naturalStatement = statement
@@ -2190,7 +2190,11 @@ function buildNoQuestionFallback(
     );
 
   if (requestsDirectWording(lastUserText)) {
-    return buildDirectWordingFallback(lastUserText, userContext);
+    return buildDirectWordingFallback(
+      lastUserText,
+      userContext,
+      historyMessages
+    );
   }
 
   if (/直前/.test(lastUserText)) {
@@ -2220,7 +2224,11 @@ function buildNoQuestionFallback(
   return '今いちばん気になっていることを一文だけメモに書いてください。';
 }
 
-function buildDirectWordingFallback(lastUserText: string, userContext: string) {
+function buildDirectWordingFallback(
+  lastUserText: string,
+  userContext: string,
+  historyMessages: CoachingChatMessage[] = []
+) {
   if (/断る|断り|引き受けられ|引き受けでき/.test(userContext)) {
     return '「ありがとうございます。ただ、今は手一杯のため、今回はお引き受けできません。」';
   }
@@ -2228,12 +2236,36 @@ function buildDirectWordingFallback(lastUserText: string, userContext: string) {
     return '「前回は提案を最後までお伝えできなかったので、今回は結論まで聞いてからご意見をいただけると助かります。」';
   }
   if (/家事|夫|妻/.test(userContext)) {
-    return '「私の時間も大切にしたいので、家事を頼んだ時に、いつ対応するかを一緒に決めたいです。」';
+    return buildHouseholdDirectWording(lastUserText, historyMessages);
   }
   if (/今夜/.test(lastUserText)) {
     return '「今夜、責めたいのではなく、これからどうするかを落ち着いて話したいです。」';
   }
   return '「責めたいのではなく、これからどうするかを一緒に話したいです。」';
+}
+
+function buildHouseholdDirectWording(
+  lastUserText: string,
+  historyMessages: CoachingChatMessage[] = []
+) {
+  const previousAssistantText =
+    [...historyMessages]
+      .reverse()
+      .find((message) => message.role === 'assistant')?.content || '';
+  const alreadyProposedConcreteRequest =
+    /私の時間も大切にしたい/.test(previousAssistantText) &&
+    /家事を頼んだ時に/.test(previousAssistantText) &&
+    /いつ(?:対応する|やる)か/.test(previousAssistantText) &&
+    /一緒に決め/.test(previousAssistantText);
+
+  if (
+    /最初の一言|今夜[^。！？\n]{0,20}話/.test(lastUserText) &&
+    alreadyProposedConcreteRequest
+  ) {
+    return '「私の時間も大切にしたいから、家事を頼んだ時にいつやるかを一緒に決めたいんだけど、今夜少し話せる？」';
+  }
+
+  return '「私の時間も大切にしたいので、家事を頼んだ時に、いつ対応するかを一緒に決めたいです。」';
 }
 
 function removeRepeatedAssistantParagraphs(
