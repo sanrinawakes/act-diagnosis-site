@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   DEFAULT_COACHING_NOTICE_SETTINGS,
+  INTERIM_DEFAULT_COACHING_NOTICE_BODY,
   PREVIOUS_DEFAULT_COACHING_NOTICE_BODY,
 } from '@/lib/site-settings';
 
@@ -77,6 +78,22 @@ describe('coaching notice storage', () => {
           coaching_notice_enabled: true,
           coaching_notice_title: 'AIコーチングBotのご利用について',
           coaching_notice_body: PREVIOUS_DEFAULT_COACHING_NOTICE_BODY,
+        }),
+      ]),
+    });
+
+    await expect(loadCoachingNoticeSettings(storage.client)).resolves.toEqual(
+      DEFAULT_COACHING_NOTICE_SETTINGS
+    );
+  });
+
+  it('replaces the interim apology wording even when it was saved', async () => {
+    const storage = createStorageClient({
+      downloadData: new Blob([
+        JSON.stringify({
+          coaching_notice_enabled: true,
+          coaching_notice_title: 'AIコーチングBotのエラー対応について',
+          coaching_notice_body: INTERIM_DEFAULT_COACHING_NOTICE_BODY,
         }),
       ]),
     });
