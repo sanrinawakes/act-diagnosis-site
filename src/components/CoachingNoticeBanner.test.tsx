@@ -7,7 +7,7 @@ describe('CoachingNoticeBanner', () => {
   it('renders an accessible, prominent notice with the supplied Japanese text', () => {
     const markup = renderToStaticMarkup(
       createElement(CoachingNoticeBanner, {
-        title: 'AIコーチングBotのご利用について',
+        title: 'AIコーチングBotのエラー対応について',
         body: '現在、修正と検証を進めています。\n数日お待ちください。',
         className: 'dashboard-notice',
       })
@@ -19,7 +19,7 @@ describe('CoachingNoticeBanner', () => {
     expect(markup).toContain('border-red-600');
     expect(markup).toContain('dashboard-notice');
     expect(markup).toContain('重要なお知らせ');
-    expect(markup).toContain('AIコーチングBotのご利用について');
+    expect(markup).toContain('AIコーチングBotのエラー対応について');
     expect(markup).toContain('現在、修正と検証を進めています。\n数日お待ちください。');
   });
 });
