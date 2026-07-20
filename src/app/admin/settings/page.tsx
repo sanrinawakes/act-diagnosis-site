@@ -4,8 +4,12 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import AdminGuard from '@/components/AdminGuard';
 import Header from '@/components/Header';
-import { createClient } from '@/lib/supabase';
 import type { SiteSettings } from '@/lib/types';
+import {
+  COACHING_NOTICE_BODY_MAX_LENGTH,
+  COACHING_NOTICE_TITLE_MAX_LENGTH,
+  validateEnabledCoachingNotice,
+} from '@/lib/site-settings';
 
 export default function SiteSettings() {
   const [settings, setSettings] = useState<SiteSettings | null>(null);
@@ -15,7 +19,9 @@ export default function SiteSettings() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [botEnabled, setBotEnabled] = useState(true);
   const [maintenanceMode, setMaintenanceMode] = useState(false);
-  const supabase = createClient();
+  const [coachingNoticeEnabled, setCoachingNoticeEnabled] = useState(false);
+  const [coachingNoticeTitle, setCoachingNoticeTitle] = useState('');
+  const [coachingNoticeBody, setCoachingNoticeBody] = useState('');
 
   // Fetch settings on mount
   useEffect(() => {
@@ -40,6 +46,9 @@ export default function SiteSettings() {
       setSettings(data);
       setBotEnabled(data.bot_enabled);
       setMaintenanceMode(data.maintenance_mode);
+      setCoachingNoticeEnabled(data.coaching_notice_enabled ?? false);
+      setCoachingNoticeTitle(data.coaching_notice_title ?? '');
+      setCoachingNoticeBody(data.coaching_notice_body ?? '');
     } catch (err) {
       console.error('Failed to fetch settings:', err);
       setError(err instanceof Error ? err.message : '設定の取得に失敗しました');
@@ -49,6 +58,17 @@ export default function SiteSettings() {
   };
 
   const handleSaveSettings = async () => {
+    try {
+      validateEnabledCoachingNotice({
+        coaching_notice_enabled: coachingNoticeEnabled,
+        coaching_notice_title: coachingNoticeTitle,
+        coaching_notice_body: coachingNoticeBody,
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '告知内容を確認してください');
+      return;
+    }
+
     if (!window.confirm('設定を保存してもよろしいですか？')) {
       return;
     }
@@ -63,6 +83,9 @@ export default function SiteSettings() {
         body: JSON.stringify({
           bot_enabled: botEnabled,
           maintenance_mode: maintenanceMode,
+          coaching_notice_enabled: coachingNoticeEnabled,
+          coaching_notice_title: coachingNoticeTitle,
+          coaching_notice_body: coachingNoticeBody,
         }),
       });
 
@@ -73,6 +96,11 @@ export default function SiteSettings() {
 
       const data = (await response.json()) as SiteSettings;
       setSettings(data);
+      setBotEnabled(data.bot_enabled);
+      setMaintenanceMode(data.maintenance_mode);
+      setCoachingNoticeEnabled(data.coaching_notice_enabled);
+      setCoachingNoticeTitle(data.coaching_notice_title);
+      setCoachingNoticeBody(data.coaching_notice_body);
 
       setSuccessMessage('設定が正常に保存されました');
       setTimeout(() => setSuccessMessage(null), 3000);
@@ -84,7 +112,13 @@ export default function SiteSettings() {
     }
   };
 
-  const hasChanges = settings && (settings.bot_enabled !== botEnabled || settings.maintenance_mode !== maintenanceMode);
+  const hasChanges =
+    settings &&
+    (settings.bot_enabled !== botEnabled ||
+      settings.maintenance_mode !== maintenanceMode ||
+      settings.coaching_notice_enabled !== coachingNoticeEnabled ||
+      settings.coaching_notice_title !== coachingNoticeTitle ||
+      settings.coaching_notice_body !== coachingNoticeBody);
 
   return (
     <AdminGuard>
@@ -176,6 +210,71 @@ export default function SiteSettings() {
                       現在: <span className="text-gray-900 font-medium">{botEnabled ? '有効' : '無効'}</span>
                     </p>
                   </div>
+                </div>
+
+                {/* Coaching notice setting */}
+                <div className="bg-white/80 border border-red-200 rounded-lg p-6 shadow-sm">
+                  <div className="mb-4">
+                    <h2 className="text-xl font-semibold text-gray-900">AIコーチングのお知らせ</h2>
+                    <p className="text-gray-600 text-sm mt-1">
+                      マイページとAIコーチング画面に表示する重要なお知らせを管理します
+                    </p>
+                  </div>
+
+                  <div className="bg-red-50 border border-red-200 rounded p-4 mb-4">
+                    <div className="flex items-center gap-4">
+                      <button
+                        type="button"
+                        onClick={() => setCoachingNoticeEnabled(true)}
+                        className={`flex-1 px-4 py-3 rounded font-medium transition-all ${
+                          coachingNoticeEnabled
+                            ? 'bg-red-600 text-white shadow-lg'
+                            : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
+                        }`}
+                      >
+                        表示する
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setCoachingNoticeEnabled(false)}
+                        className={`flex-1 px-4 py-3 rounded font-medium transition-all ${
+                          !coachingNoticeEnabled
+                            ? 'bg-gray-700 text-white shadow-lg'
+                            : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
+                        }`}
+                      >
+                        非表示にする
+                      </button>
+                    </div>
+                  </div>
+
+                  <label className="block mb-4">
+                    <span className="block text-sm font-medium text-gray-800 mb-1">見出し</span>
+                    <input
+                      type="text"
+                      value={coachingNoticeTitle}
+                      onChange={(event) => setCoachingNoticeTitle(event.target.value)}
+                      maxLength={COACHING_NOTICE_TITLE_MAX_LENGTH}
+                      className="w-full rounded border border-gray-300 bg-white px-3 py-2 text-gray-900 focus:border-red-500 focus:outline-none focus:ring-1 focus:ring-red-300"
+                    />
+                    <span className="mt-1 block text-right text-xs text-gray-500">
+                      {coachingNoticeTitle.length}/{COACHING_NOTICE_TITLE_MAX_LENGTH}文字
+                    </span>
+                  </label>
+
+                  <label className="block">
+                    <span className="block text-sm font-medium text-gray-800 mb-1">本文</span>
+                    <textarea
+                      rows={8}
+                      value={coachingNoticeBody}
+                      onChange={(event) => setCoachingNoticeBody(event.target.value)}
+                      maxLength={COACHING_NOTICE_BODY_MAX_LENGTH}
+                      className="w-full resize-y rounded border border-gray-300 bg-white px-3 py-2 text-gray-900 focus:border-red-500 focus:outline-none focus:ring-1 focus:ring-red-300"
+                    />
+                    <span className="mt-1 block text-right text-xs text-gray-500">
+                      {coachingNoticeBody.length}/{COACHING_NOTICE_BODY_MAX_LENGTH}文字
+                    </span>
+                  </label>
                 </div>
 
                 {/* Maintenance Mode Setting */}
