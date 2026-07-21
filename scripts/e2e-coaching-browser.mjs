@@ -40,6 +40,7 @@ const browserErrors = [];
 const generatedCoachingOutputs = [];
 let userId = null;
 let sessionId = null;
+let longHistorySessionId = null;
 let browser = null;
 
 try {
@@ -68,6 +69,7 @@ try {
   await testImageAttachment(desktopPage);
   await testDesktopLayout(desktopPage);
   await testSidebarHistory(desktopPage);
+  await testLongHistoryPaging(desktopPage);
 
   const desktopScreenshot = join(tmpdir(), `acti-coaching-desktop-${runId}.png`);
   await desktopPage.screenshot({ path: desktopScreenshot, fullPage: false });
@@ -450,6 +452,90 @@ async function testSidebarHistory(page) {
     (await currentSession.count()) === 1,
     sessionId
   );
+}
+
+async function testLongHistoryPaging(page) {
+  const originalSessionId = sessionId;
+  const { data: createdSession, error: sessionError } = await admin
+    .from('chat_sessions')
+    .insert({
+      user_id: userId,
+      title: 'ACTI長履歴ページングE2E',
+      message_count: 240,
+      last_message_at: new Date().toISOString(),
+    })
+    .select('id')
+    .single();
+  if (sessionError || !createdSession) {
+    throw sessionError || new Error('Failed to create long-history session');
+  }
+  longHistorySessionId = createdSession.id;
+
+  const oldestMarker = `長履歴-最古-${runId}`;
+  const newestMarker = `長履歴-最新-${runId}`;
+  const baseTime = Date.now() - 240 * 1000;
+  const rows = Array.from({ length: 240 }, (_, index) => ({
+    session_id: longHistorySessionId,
+    role: index % 2 === 0 ? 'user' : 'assistant',
+    content:
+      index === 0
+        ? oldestMarker
+        : index === 239
+          ? newestMarker
+          : `長履歴メッセージ${index}-${runId}`,
+    created_at: new Date(baseTime + index * 1000).toISOString(),
+  }));
+  const { error: messagesError } = await admin.from('chat_messages').insert(rows);
+  if (messagesError) throw messagesError;
+
+  const startedAt = Date.now();
+  await page.goto(`${baseUrl}/coaching?session=${longHistorySessionId}`, {
+    waitUntil: 'domcontentloaded',
+    timeout: 30000,
+  });
+  await waitForChatReady(page);
+  const initialLoadMs = Date.now() - startedAt;
+  const body = page.locator('body');
+  addCheck(
+    '長履歴: 初回は最新100件を読み込む',
+    (await body.innerText()).includes(newestMarker) &&
+      !(await body.innerText()).includes(oldestMarker),
+    `initialLoadMs=${initialLoadMs}`
+  );
+
+  const loadOlderButton = page.locator('button', {
+    hasText: '過去のメッセージを読み込む',
+  });
+  await loadOlderButton.click();
+  await page.waitForFunction(
+    () => {
+      const button = Array.from(document.querySelectorAll('button')).find((item) =>
+        item.textContent?.includes('過去のメッセージを読み込む')
+      );
+      return button instanceof HTMLButtonElement && !button.disabled;
+    },
+    null,
+    { timeout: 15000 }
+  );
+  await loadOlderButton.click();
+  await page.waitForFunction(
+    (marker) => document.body.innerText.includes(marker),
+    oldestMarker,
+    { timeout: 15000 }
+  );
+  addCheck(
+    '長履歴: 追加読込で最古のメッセージまで表示',
+    (await body.innerText()).includes(oldestMarker) &&
+      (await loadOlderButton.count()) === 0,
+    `session=${longHistorySessionId}`
+  );
+  timings.push({ name: 'long-history-initial-load', elapsedMs: initialLoadMs });
+
+  await page.goto(`${baseUrl}/coaching?session=${originalSessionId}`, {
+    waitUntil: 'domcontentloaded',
+    timeout: 30000,
+  });
+  await waitForChatReady(page);
 }
 
 async function testMobileEnterAndButton(page) {

@@ -85,7 +85,8 @@ export async function GET(request: NextRequest) {
         updated_at,
         is_pinned,
         last_message_at,
-        message_count
+        message_count,
+        chat_messages(content, created_at)
       `,
         { count: 'exact' }
       )
@@ -114,9 +115,16 @@ export async function GET(request: NextRequest) {
     }
 
     // Order: pinned first, then by last_message_at descending
-    sessionsQuery = sessionsQuery.order('is_pinned', { ascending: false })
+    sessionsQuery = sessionsQuery
+      .eq('chat_messages.role', 'user')
+      .order('is_pinned', { ascending: false })
       .order('last_message_at', { ascending: false, nullsFirst: false })
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false })
+      .order('created_at', {
+        ascending: true,
+        referencedTable: 'chat_messages',
+      })
+      .limit(1, { referencedTable: 'chat_messages' });
 
     const offset = (page - 1) * limit;
     sessionsQuery = sessionsQuery.range(offset, offset + limit - 1);
@@ -136,28 +144,23 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Fetch first user message as preview for each session
-    const sessionsWithPreviews: SessionWithPreview[] = await Promise.all(
-      sessions.map(async (session) => {
-        const { data: messages } = await supabase
-          .from('chat_messages')
-          .select('content')
-          .eq('session_id', session.id)
-          .eq('role', 'user')
-          .order('created_at', { ascending: true })
-          .limit(1);
-
-        const preview =
-          messages && messages.length > 0
-            ? messages[0].content.substring(0, 50)
-            : null;
-
-        return {
-          ...session,
-          preview,
-        };
-      })
-    );
+    const sessionsWithPreviews: SessionWithPreview[] = sessions.map((session) => {
+      const firstUserMessage = session.chat_messages?.[0]?.content;
+      return {
+        id: session.id,
+        user_id: session.user_id,
+        title: session.title,
+        created_at: session.created_at,
+        updated_at: session.updated_at,
+        is_pinned: session.is_pinned,
+        last_message_at: session.last_message_at,
+        message_count: session.message_count,
+        preview:
+          typeof firstUserMessage === 'string'
+            ? firstUserMessage.substring(0, 50)
+            : null,
+      };
+    });
 
     return NextResponse.json({
       sessions: sessionsWithPreviews,

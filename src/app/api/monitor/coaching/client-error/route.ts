@@ -15,6 +15,7 @@ const alertLastSentAt = new Map<string, number>();
 
 const CLIENT_FAILURE_STAGES = new Set([
   'initialize_chat',
+  'load_older_history',
   'prepare_attachments',
   'save_user_message',
   'load_history',
