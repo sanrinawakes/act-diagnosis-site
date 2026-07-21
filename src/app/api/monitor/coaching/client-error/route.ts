@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { sendCoachingAlert } from '@/lib/coaching-alerts';
 
 export const runtime = 'nodejs';
+export const preferredRegion = 'hnd1';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
 

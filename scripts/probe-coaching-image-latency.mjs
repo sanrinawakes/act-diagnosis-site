@@ -10,6 +10,7 @@ const args = new Map(
 );
 const baseUrl = args.get('base') || 'https://act-diagnosis-site.vercel.app';
 const attempts = Number(args.get('attempts') || 20);
+const mode = args.get('mode') || 'stored';
 const maxFirstChunkMs = Number(args.get('max-first-chunk-ms') || 10000);
 const maxTotalMs = Number(args.get('max-ms') || 15000);
 const supabaseUrl = requireEnv('NEXT_PUBLIC_SUPABASE_URL');
@@ -35,10 +36,14 @@ const runId = `${Date.now()}-${randomUUID().slice(0, 8)}`;
 const email = `codex-image-probe-${runId}@example.com`;
 const password = `Image-${randomUUID()}-9a!`;
 let userId = null;
+const attachmentPaths = [];
 
 try {
   if (!Number.isInteger(attempts) || attempts < 1 || attempts > 40) {
     throw new Error('--attempts must be an integer between 1 and 40');
+  }
+  if (!['stored', 'inline'].includes(mode)) {
+    throw new Error('--mode must be stored or inline');
   }
 
   const { data, error } = await admin.auth.admin.createUser({
@@ -72,11 +77,8 @@ try {
     throw signInError || new Error('Image latency test sign-in failed');
   }
 
-  const attachment = {
-    name: 'latency-probe.png',
-    mimeType: 'image/png',
-    data: createSolidPngBase64(32, 32, 255, 0, 0, 255),
-  };
+  const imageBase64 = createSolidPngBase64(32, 32, 255, 0, 0, 255);
+  const attachment = await prepareAttachment(imageBase64);
   const results = [];
   for (let index = 1; index <= attempts; index += 1) {
     results.push(
@@ -122,6 +124,7 @@ try {
         ok: failed.length === 0,
         baseUrl,
         runId,
+        mode,
         thresholds: { maxFirstChunkMs, maxTotalMs },
         summary,
         results,
@@ -221,6 +224,33 @@ async function sendImage(accessToken, attachment, index) {
 async function cleanup() {
   if (!userId) return;
 
+  if (attachmentPaths.length > 0) {
+    const { error: removeError } = await admin.storage
+      .from('acti-attachments')
+      .remove(attachmentPaths);
+    if (removeError) {
+      console.error(`Image latency storage cleanup failed: ${removeError.message}`);
+      process.exitCode = 1;
+    }
+
+    for (const path of attachmentPaths) {
+      const separator = path.lastIndexOf('/');
+      const folder = path.slice(0, separator);
+      const fileName = path.slice(separator + 1);
+      const { data: remaining, error: listError } = await admin.storage
+        .from('acti-attachments')
+        .list(folder, { search: fileName });
+      if (listError || remaining?.some((file) => file.name === fileName)) {
+        console.error(
+          `Image latency storage cleanup verification failed: ${
+            listError?.message || path
+          }`
+        );
+        process.exitCode = 1;
+      }
+    }
+  }
+
   const { error } = await admin.auth.admin.deleteUser(userId);
   if (error) {
     console.error(`Image latency cleanup failed: ${error.message}`);
@@ -240,6 +270,33 @@ async function cleanup() {
     );
     process.exitCode = 1;
   }
+}
+
+async function prepareAttachment(imageBase64) {
+  if (mode === 'inline') {
+    return {
+      name: 'latency-probe.png',
+      mimeType: 'image/png',
+      data: imageBase64,
+    };
+  }
+
+  const path = `chat/${userId}/${new Date().toISOString().slice(0, 10)}/${runId}-latency-probe.png`;
+  const { error } = await admin.storage
+    .from('acti-attachments')
+    .upload(path, Buffer.from(imageBase64, 'base64'), {
+      contentType: 'image/png',
+      cacheControl: '31536000',
+      upsert: false,
+    });
+  if (error) throw new Error(`Stored image probe upload failed: ${error.message}`);
+  attachmentPaths.push(path);
+
+  return {
+    name: 'latency-probe.png',
+    mimeType: 'image/png',
+    path,
+  };
 }
 
 function createSolidPngBase64(width, height, red, green, blue, alpha) {
