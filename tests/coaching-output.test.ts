@@ -2355,6 +2355,32 @@ describe('normalizeCoachingOutput', () => {
     expect(result).not.toMatch(/ステップ|だけ[^\n]{0,30}だけ/);
   });
 
+  it('長い相談という語だけで相手への伝言へ脱線しない', () => {
+    const result = normalizeCoachingOutput(
+      '明日の朝、相手に最初に伝える一文だけをメモに書いてください。',
+      `${'長い相談でも止まらないことを確認します。'.repeat(35)}最後に、明日の行動を一つだけ教えてください。`,
+      [
+        {
+          role: 'user',
+          content: '仕事を完璧にしようとして着手できません。',
+        },
+        {
+          role: 'user',
+          content: '失敗より、能力がないと思われるのが怖いです。',
+        },
+        {
+          role: 'user',
+          content: '三回目の送信です。今も前の話を踏まえられていますか？',
+        },
+      ]
+    );
+
+    expect(result).toBe(
+      '明日の朝、今いちばん気になる仕事に5分だけ取り組んでください。'
+    );
+    expect(result).not.toContain('相手に最初に伝える');
+  });
+
   it('新しい仕事の履歴があっても別件の翌朝行動を置き換えない', () => {
     const result = normalizeCoachingOutput(
       '明日の朝、洗濯機を一回回してください。',

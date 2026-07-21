@@ -2403,12 +2403,15 @@ function buildNoQuestionFallback(
   const userContext = [historicalUserContext, lastUserText]
     .filter(Boolean)
     .join('\n');
-  const hasHistoricalCommunicationIntent =
-    /上司|同僚|夫|妻|家族|親|子ども|友人|相手/.test(
-      historicalUserContext
-    ) &&
-    /話|伝|言葉|一言|言い方|文面|会話|相談|連絡|返事|頼ん|断/.test(
-      historicalUserContext
+  const hasHistoricalCommunicationIntent = historyMessages
+    .filter((message) => message.role === 'user')
+    .map((message) => stripAttachmentMarkdown(message.content))
+    .some(
+      (message) =>
+        /上司|同僚|夫|妻|家族|親|子ども|友人|相手/.test(message) &&
+        /話(?:す|したい|せる|そう|し合)|伝|言葉|一言|言い方|文面|会話|連絡|返事|頼ん|断/.test(
+          message
+        )
     );
 
   if (requestsDirectWording(lastUserText)) {
@@ -2428,7 +2431,11 @@ function buildNoQuestionFallback(
   if (/企画|資料|文章|書|作成/.test(lastUserText)) {
     return '完成を目指さず、まず最初の15分で見出しを一つだけ書いてみてください。';
   }
-  if (/話|伝|言葉|一言|言い方|文面|会話|相談|連絡|返事/.test(lastUserText)) {
+  if (
+    /話(?:す|したい|せる|そう|し合)|伝|言葉|一言|言い方|文面|会話|連絡|返事/.test(
+      lastUserText
+    )
+  ) {
     return '明日の朝、相手に最初に伝える一文だけをメモに書いてください。';
   }
   if (/疲|休|しんど|限界/.test(lastUserText)) {
