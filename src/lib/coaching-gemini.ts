@@ -325,8 +325,6 @@ export function createJsonLineStream(params: {
     async start(controller) {
       let fullText = '';
       let emittedText = '';
-      let pendingText = '';
-      let streamingBlocked = false;
       const startedAt = Date.now();
       let firstChunkMs: number | null = null;
       let generationFirstChunkMs: number | null = null;
@@ -374,25 +372,10 @@ export function createJsonLineStream(params: {
           return;
         }
 
-        const holdRawStream = shouldHoldRawStreaming(lastUserText);
         const acceptGeneratedText = (text: string) => {
           if (!text) return;
           fullText += text;
           generationFirstChunkMs ??= Date.now() - startedAt;
-          if (holdRawStream || streamingBlocked) return;
-
-          pendingText += text;
-          if (containsProtectedInternalContent(fullText)) {
-            streamingBlocked = true;
-            pendingText = '';
-            return;
-          }
-
-          const boundary = findVerifiedStreamingBoundary(pendingText);
-          if (boundary <= 0) return;
-          const verifiedText = pendingText.slice(0, boundary);
-          pendingText = pendingText.slice(boundary);
-          writeVerifiedChunk(verifiedText);
         };
 
         let response:
@@ -410,8 +393,6 @@ export function createJsonLineStream(params: {
 
         await runWithGeminiRetry(async () => {
           fullText = '';
-          pendingText = '';
-          streamingBlocked = false;
           const model = getCoachingGeminiModel(params.systemPrompt, modelName);
           const chat = model.startChat({
             history: prepareGeminiHistory(params.historyMessages),
@@ -1097,28 +1078,6 @@ function getGeminiTimeoutMs(modelName: string) {
   return modelName === COACHING_IMAGE_MODEL
     ? GEMINI_IMAGE_TIMEOUT_MS
     : GEMINI_TEXT_TIMEOUT_MS;
-}
-
-function shouldHoldRawStreaming(lastUserText: string) {
-  return (
-    requestsInternalPromptDisclosure(lastUserText) ||
-    requestsSingleAnswerFormat(lastUserText) ||
-    requestsExplicitClosingQuestion(lastUserText) ||
-    requestsDirectWording(lastUserText) ||
-    /(?:システム|system)\s*プロンプト|内部(?:指示|設定)|developer\s*(?:message|instruction)|上の(?:文章|指示)/i.test(
-      lastUserText
-    )
-  );
-}
-
-function findVerifiedStreamingBoundary(text: string) {
-  let boundary = 0;
-  const sentenceBoundary = /[。！？!?][」』）)]?/g;
-  for (const match of text.matchAll(sentenceBoundary)) {
-    boundary = (match.index || 0) + match[0].length;
-  }
-  const paragraphBoundary = text.lastIndexOf('\n\n');
-  return Math.max(boundary, paragraphBoundary >= 0 ? paragraphBoundary + 2 : 0);
 }
 
 export function containsProtectedInternalContent(text: string) {

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const state = vi.hoisted(() => ({
-  mode: 'success' as 'success' | 'error',
+  mode: 'success' as 'success' | 'error' | 'partial-error',
   releaseSecondChunk: (() => undefined) as () => void,
   secondChunkGate: Promise.resolve(),
   externalCalls: 0,
@@ -22,6 +22,9 @@ vi.mock('@/lib/openai', () => ({
             stream: (async function* () {
               yield { text: () => '最初の文です。' };
               await state.secondChunkGate;
+              if (state.mode === 'partial-error') {
+                throw new Error('connection reset');
+              }
               yield { text: () => '次に進む質問ですか？' };
             })(),
             response: Promise.resolve({
@@ -106,7 +109,7 @@ afterEach(() => {
 });
 
 describe('createJsonLineStream', () => {
-  it('生成完了を待たず、検査済みの最初の文を送る', async () => {
+  it('生成途中の未検査文を送らず、最終検査後の本文だけを送る', async () => {
     const stream = createJsonLineStream({
       systemPrompt: 'テスト用指示',
       historyMessages: [],
@@ -115,16 +118,18 @@ describe('createJsonLineStream', () => {
     });
     const reader = stream.getReader();
 
-    const firstRead = await reader.read();
-    const firstEvent = JSON.parse(decoder.decode(firstRead.value).trim());
-
-    expect(firstEvent).toEqual({
-      type: 'chunk',
-      text: '最初の文です。',
-      verified: true,
+    let settledBeforeCompletion = false;
+    const firstReadPromise = reader.read().then((result) => {
+      settledBeforeCompletion = true;
+      return result;
     });
+    await Promise.resolve();
+    expect(settledBeforeCompletion).toBe(false);
 
     state.releaseSecondChunk();
+    const firstRead = await firstReadPromise;
+    const firstEvent = JSON.parse(decoder.decode(firstRead.value).trim());
+    expect(firstEvent).toMatchObject({ type: 'chunk', verified: true });
     const remaining = await readRemaining(reader);
     const events = remaining
       .trim()
@@ -132,11 +137,43 @@ describe('createJsonLineStream', () => {
       .filter(Boolean)
       .map((line) => JSON.parse(line));
 
-    expect(events.some((event) => event.type === 'chunk')).toBe(true);
+    expect(events.some((event) => event.type === 'chunk')).toBe(false);
     expect(events.find((event) => event.type === 'done')).toMatchObject({
       completionStatus: 'complete',
       finalizationStatus: 'complete',
       remaining: 49,
+    });
+  });
+
+  it('Geminiが文章生成の途中で切れても未検査文を見せず予備AIへ切り替える', async () => {
+    state.mode = 'partial-error';
+    process.env.OPENAI_API_KEY = 'test-openai-key';
+
+    const stream = createJsonLineStream({
+      systemPrompt: 'テスト用指示',
+      historyMessages: [],
+      lastUserParts: [{ text: '仕事のことで迷っています。' }],
+      onDone: async () => ({ remaining: 48 }),
+    });
+    const responsePromise = new Response(stream).text();
+    state.releaseSecondChunk();
+    const events = (await responsePromise)
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+    const chunks = events.filter((event) => event.type === 'chunk');
+    const done = events.find((event) => event.type === 'done');
+
+    expect(state.externalCalls).toBe(1);
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0].text).not.toContain('最初の文です。');
+    expect(done).toMatchObject({
+      modelName: 'gpt-5.6-luna',
+      provider: 'openai',
+      fallbackFrom: 'gemini-3.5-flash',
+      completionStatus: 'complete',
+      finalizationStatus: 'complete',
+      remaining: 48,
     });
   });
 
