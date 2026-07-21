@@ -660,12 +660,18 @@ function validateRequestBody(input: unknown): {
     }
   }
 
-  if (
-    body.diagnosisCode !== undefined &&
-    (typeof body.diagnosisCode !== 'string' ||
-      !DIAGNOSIS_CODE_PATTERN.test(body.diagnosisCode))
-  ) {
-    return { error: 'Invalid diagnosis code' };
+  // Older paid-chat sessions legitimately have no linked diagnosis. The
+  // browser serializes that state as null, so treat null like an omitted code
+  // while continuing to reject malformed non-null values.
+  let diagnosisCode: string | undefined;
+  if (body.diagnosisCode !== undefined && body.diagnosisCode !== null) {
+    if (
+      typeof body.diagnosisCode !== 'string' ||
+      !DIAGNOSIS_CODE_PATTERN.test(body.diagnosisCode)
+    ) {
+      return { error: 'Invalid diagnosis code' };
+    }
+    diagnosisCode = body.diagnosisCode;
   }
   if (body.stream !== undefined && typeof body.stream !== 'boolean') {
     return { error: 'Invalid stream option' };
@@ -682,7 +688,7 @@ function validateRequestBody(input: unknown): {
   return {
     body: {
       messages,
-      diagnosisCode: body.diagnosisCode as string | undefined,
+      diagnosisCode,
       attachments,
       stream: body.stream as boolean | undefined,
       sessionId:
