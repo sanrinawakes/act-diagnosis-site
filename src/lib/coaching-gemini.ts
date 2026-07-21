@@ -1273,6 +1273,7 @@ export function normalizeCoachingOutput(
   );
   const naturalText = deduplicatedText
     .replace(/\*\*/g, '')
+    .replace(/下書きの(?:さらに)?下書き/g, '下書き')
     .replace(/タタスク/g, 'タスク')
     .replace(/タースク/g, 'タスク')
     .replace(/タムスケジュール/g, 'タイムスケジュール')

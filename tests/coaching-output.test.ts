@@ -2434,6 +2434,16 @@ describe('normalizeCoachingOutput', () => {
     expect(result).not.toContain('下書きの下書き');
   });
 
+  it('「下書きのさらに下書き」も自然な表現へ直す', () => {
+    const result = normalizeCoachingOutput(
+      '明日は、最初の5分間だけ「下書きのさらに下書き」を作るつもりで、手元を動かしてみてください。',
+      '仕事を完璧にしようとして着手できません。'
+    );
+
+    expect(result).toContain('「下書き」を作る');
+    expect(result).not.toMatch(/下書きの(?:さらに)?下書き/);
+  });
+
   it('提案書と今日の指定を企画書・明日へ置き換えない', () => {
     const result = normalizeCoachingOutput(
       '完璧に書こうとして手が止まっています。',
