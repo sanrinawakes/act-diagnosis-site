@@ -57,6 +57,7 @@ type MonitorResult = {
   finalizationStatus: string | null;
   remaining: number | null;
   cookieAuthUsed: boolean;
+  diagnosisCodeProvided: boolean;
 };
 
 type MonitorMessage = {
@@ -464,7 +465,7 @@ async function runPaidCoachingMonitor(params: {
 
     const body = {
       sessionId,
-      diagnosisCode: 'SMM-1',
+      diagnosisCode: null,
       messages: apiMessages,
       stream: true,
     };
@@ -555,6 +556,7 @@ async function runPaidCoachingMonitor(params: {
       finalizationStatus: streamResult.finalizationStatus,
       remaining: streamResult.remaining,
       cookieAuthUsed: true,
+      diagnosisCodeProvided: false,
     };
   } finally {
     if (sessionId) {

@@ -38,6 +38,7 @@ const checks = [];
 const timings = [];
 const browserErrors = [];
 const generatedCoachingOutputs = [];
+const chatRequestPayloads = [];
 let userId = null;
 let sessionId = null;
 let longHistorySessionId = null;
@@ -55,9 +56,11 @@ try {
   await configureVercelProtectionBypass(desktop);
   const desktopPage = await desktop.newPage();
   collectBrowserErrors(desktopPage, 'desktop');
+  collectChatRequestPayloads(desktopPage);
   await loginAndOpenNewChat(desktopPage);
   sessionId = readSessionId(desktopPage.url());
   addCheck('PC: 有料会員でセッションを作成', Boolean(sessionId), sessionId || 'none');
+  await assertDiagnosisFreeSession();
 
   await testJapaneseCompositionEnter(desktopPage);
   await testShiftEnter(desktopPage);
@@ -184,9 +187,23 @@ async function configureVercelProtectionBypass(context) {
 }
 
 async function loginAndOpenNewChat(page) {
-  const redirect = '/coaching?new=1&code=PMA-2';
+  const redirect = '/coaching?new=1';
   await login(page, redirect);
   await waitForChatReady(page);
+}
+
+async function assertDiagnosisFreeSession() {
+  const { data, error } = await admin
+    .from('chat_sessions')
+    .select('diagnosis_result_id, title')
+    .eq('id', sessionId)
+    .single();
+  if (error) throw error;
+  addCheck(
+    'PC: 診断結果なしの旧互換セッションを使用',
+    data.diagnosis_result_id === null && data.title === 'Chat Session',
+    JSON.stringify(data)
+  );
 }
 
 async function loginToExistingChat(page, sid) {
@@ -274,6 +291,15 @@ async function testDesktopEnterSend(page) {
     'PC: Enterで一度だけ送信して回答を保存',
     result.userRows === 1 && result.assistantContent.length >= 8,
     JSON.stringify(result)
+  );
+  const requestPayload = chatRequestPayloads.find((payload) =>
+    payload.messages?.some((message) => message.content?.includes(marker))
+  );
+  addCheck(
+    'PC: 診断結果なしの場合はdiagnosisCodeを送らない',
+    Boolean(requestPayload) &&
+      !Object.prototype.hasOwnProperty.call(requestPayload, 'diagnosisCode'),
+    JSON.stringify(requestPayload || null)
   );
 }
 
@@ -644,6 +670,22 @@ function collectBrowserErrors(page, label) {
     const failure = request.failure()?.errorText || '';
     if (!/ERR_ABORTED/.test(failure)) {
       browserErrors.push(`${label}: requestfailed: ${request.url()} ${failure}`);
+    }
+  });
+}
+
+function collectChatRequestPayloads(page) {
+  page.on('request', (request) => {
+    if (
+      request.method() !== 'POST' ||
+      new URL(request.url()).pathname !== '/api/chat'
+    ) {
+      return;
+    }
+    try {
+      chatRequestPayloads.push(request.postDataJSON());
+    } catch {
+      chatRequestPayloads.push({ parseError: true });
     }
   });
 }

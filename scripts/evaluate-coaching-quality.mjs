@@ -558,6 +558,17 @@ async function runApiContractChecks() {
     String(invalidDiagnosis.status)
   );
 
+  const legacyNullDiagnosis = await authenticatedJsonRequest({
+    messages: [{ role: 'user', content: '広告の文章を3案作って' }],
+    diagnosisCode: null,
+  });
+  addCheck(
+    checks,
+    'API互換性: 診断なし旧セッションのnullは200',
+    legacyNullDiagnosis.status === 200,
+    String(legacyNullDiagnosis.status)
+  );
+
   const invalidSessionId = await authenticatedJsonRequest({
     messages: [{ role: 'user', content: 'セッションIDテスト' }],
     sessionId: 'not-a-uuid',

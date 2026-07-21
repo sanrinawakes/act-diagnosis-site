@@ -197,4 +197,76 @@ describe('POST /api/chat scope guard', () => {
     );
   });
 
+  it('accepts an explicit null diagnosis code for legacy sessions', async () => {
+    const request = new NextRequest('http://localhost/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sessionId: SESSION_ID,
+        messages: [
+          {
+            role: 'user',
+            content: '診断前ですが、今の悩みについて相談してもいいですか？',
+          },
+        ],
+        diagnosisCode: null,
+        stream: true,
+      }),
+    });
+
+    const response = await POST(request);
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain('相談への回答');
+    expect(mocks.createJsonLineStream).toHaveBeenCalledTimes(1);
+  });
+
+  it('continues to reject a malformed non-null diagnosis code', async () => {
+    const request = new NextRequest('http://localhost/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sessionId: SESSION_ID,
+        messages: [
+          {
+            role: 'user',
+            content: '今の悩みについて相談したいです。',
+          },
+        ],
+        diagnosisCode: 'INVALID-9',
+        stream: true,
+      }),
+    });
+
+    const response = await POST(request);
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: 'Invalid diagnosis code' });
+    expect(mocks.createJsonLineStream).not.toHaveBeenCalled();
+  });
+
+  it.each([false, 3, {}, 'MGA-0', 'MGA-7', 'XYZ-3', ' MGA-3 '])(
+    'rejects the invalid diagnosis value %j',
+    async (diagnosisCode) => {
+      const request = new NextRequest('http://localhost/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId: SESSION_ID,
+          messages: [
+            {
+              role: 'user',
+              content: '今の悩みについて相談したいです。',
+            },
+          ],
+          diagnosisCode,
+          stream: true,
+        }),
+      });
+
+      const response = await POST(request);
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ error: 'Invalid diagnosis code' });
+      expect(mocks.createJsonLineStream).not.toHaveBeenCalled();
+    }
+  );
+
 });

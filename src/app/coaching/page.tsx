@@ -1209,7 +1209,7 @@ function CoachingContent() {
           body: JSON.stringify({
             sessionId: activeSessionId,
             messages: apiMessages,
-            diagnosisCode,
+            ...(diagnosisCode ? { diagnosisCode } : {}),
             attachments: chatAttachments,
             stream: true,
           }),
@@ -1935,6 +1935,10 @@ function getUserFacingChatError(error: unknown) {
 
   if (/Failed to get response|Internal server error/.test(error.message)) {
     return 'サーバーから回答を受け取れませんでした。入力内容は保存されています。少し待ってから、もう一度送信してください。';
+  }
+
+  if (/Invalid diagnosis code/.test(error.message)) {
+    return '診断情報を確認できませんでした。入力内容は保存されています。画面を再読み込みして、もう一度送信してください。';
   }
 
   return error.message;
