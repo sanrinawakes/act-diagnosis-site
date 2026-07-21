@@ -2119,6 +2119,13 @@ function isGroundedDirectWording(
     return false;
   }
   if (
+    /会議|提案/.test(userContext) &&
+    /最後まで|却下/.test(userContext) &&
+    /最後まで意見を聞/.test(answer)
+  ) {
+    return false;
+  }
+  if (
     /家事|夫|妻/.test(userContext) &&
     /後回し|時間[^。\n]{0,40}軽く扱/.test(userContext) &&
     !/(?:いつ[^。！？?\n]{0,24}(?:対応|やる)|(?:対応|やる)[^。！？?\n]{0,24}いつ|一緒に決め|お願い|してほしい|後回しにしない)/.test(
