@@ -11,6 +11,7 @@ import {
   type StaleCoachingMonitorRun,
   updateCoachingMonitorAlertDelivery,
 } from '@/lib/coaching-monitor-runs';
+import { assertHealthyCoachingMonitorResult } from '@/lib/coaching-monitor-health';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -103,7 +104,10 @@ export async function GET(request: NextRequest) {
       baseUrl,
       supabaseAdmin,
     });
-    assertHealthyMonitorResult(monitorResult);
+    assertHealthyCoachingMonitorResult(monitorResult, {
+      maxFirstChunkMs,
+      maxTotalMs,
+    });
 
     const elapsedMs = Date.now() - startedAt;
     await persistCoachingMonitorRun(
@@ -658,48 +662,6 @@ async function readMonitorStream(response: Response, startedAt: number) {
     remaining:
       typeof donePayload?.remaining === 'number' ? donePayload.remaining : null,
   };
-}
-
-function assertHealthyMonitorResult(result: MonitorResult) {
-  if (!result.cookieAuthUsed) {
-    throw new Error('monitor did not use paid cookie authentication');
-  }
-  if (!result.hasDone) {
-    throw new Error('monitor did not receive done event');
-  }
-  if (result.completionStatus !== 'complete') {
-    throw new Error(
-      `monitor received incomplete AI result: ${
-        result.completionStatus || 'missing status'
-      }`
-    );
-  }
-  if (result.finalizationStatus !== 'complete') {
-    throw new Error(
-      `monitor did not complete chat metadata: ${
-        result.finalizationStatus || 'missing status'
-      }`
-    );
-  }
-  if (result.firstChunkMs === null || result.firstChunkMs > maxFirstChunkMs) {
-    throw new Error(`monitor first chunk too slow: ${result.firstChunkMs}ms`);
-  }
-  if (result.chatTotalMs > maxTotalMs) {
-    throw new Error(`monitor chat response too slow: ${result.chatTotalMs}ms`);
-  }
-  if (result.outputChars < 8) {
-    throw new Error(`monitor output too short: ${result.outputChars} chars`);
-  }
-  if (result.returnedFallback) {
-    throw new Error(
-      `monitor detected provider fallback: ${
-        result.fallbackFrom || 'gemini'
-      } -> ${result.provider}`
-    );
-  }
-  if (result.storedMessagesAfterReply !== result.storedMessagesBeforeReply + 1) {
-    throw new Error('monitor did not persist the complete conversation');
-  }
 }
 
 function validateMonitorAuthorization(request: NextRequest) {

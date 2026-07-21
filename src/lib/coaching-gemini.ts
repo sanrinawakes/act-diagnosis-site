@@ -349,6 +349,7 @@ export function createJsonLineStream(params: {
           const finalization = await resolveDonePayload(params.onDone, {});
           logChatTelemetry('done', params.telemetry, {
             modelName: immediateResponse.modelName,
+            completionStatus: 'complete',
             elapsedMs: Date.now() - startedAt,
             firstChunkMs,
             generationFirstChunkMs,
@@ -453,6 +454,7 @@ export function createJsonLineStream(params: {
 
         logChatTelemetry(completionStatus === 'partial' ? 'partial_done' : 'done', params.telemetry, {
           modelName,
+          completionStatus,
           elapsedMs: Date.now() - startedAt,
           firstChunkMs,
           generationFirstChunkMs,
@@ -497,6 +499,7 @@ export function createJsonLineStream(params: {
               modelName: externalFallback.model,
               provider: externalFallback.provider,
               fallbackFrom: modelName,
+              completionStatus: 'complete',
               elapsedMs: Date.now() - startedAt,
               firstChunkMs,
               generationFirstChunkMs,
@@ -538,6 +541,7 @@ export function createJsonLineStream(params: {
           const finalization = await resolveDonePayload(params.onDone, {});
           logChatTelemetry('partial_done', params.telemetry, {
             modelName,
+            completionStatus: 'partial',
             elapsedMs: Date.now() - startedAt,
             firstChunkMs,
             generationFirstChunkMs,
@@ -568,6 +572,7 @@ export function createJsonLineStream(params: {
         logChatTelemetry('fallback_done', params.telemetry, {
           modelName: 'local-fallback',
           fallbackFrom: modelName,
+          completionStatus: 'fallback',
           elapsedMs: Date.now() - startedAt,
           firstChunkMs,
           generationFirstChunkMs,
@@ -595,10 +600,53 @@ export function createJsonLineStream(params: {
   });
 }
 
+type CoachingStreamStatus =
+  | 'done'
+  | 'partial_done'
+  | 'fallback_done'
+  | 'error';
+
+type CoachingTelemetryDetails = {
+  completionStatus: 'complete' | 'partial' | 'fallback';
+  elapsedMs: number;
+  finalizationStatus: 'complete' | 'failed';
+  [key: string]: unknown;
+};
+
+export function isRecoveredProviderFallback(
+  status: CoachingStreamStatus,
+  payload: Record<string, unknown>
+) {
+  return (
+    status === 'fallback_done' &&
+    payload.completionStatus === 'complete' &&
+    payload.finalizationStatus === 'complete'
+  );
+}
+
+export function shouldAlertForCoachingTelemetry(
+  status: CoachingStreamStatus,
+  payload: Record<string, unknown>
+) {
+  const elapsedMs =
+    typeof payload.elapsedMs === 'number' ? payload.elapsedMs : 0;
+  const finalizationFailed = payload.finalizationStatus === 'failed';
+  const recoveredProviderFallback = isRecoveredProviderFallback(
+    status,
+    payload
+  );
+
+  return (
+    (status !== 'done' && !recoveredProviderFallback) ||
+    finalizationFailed ||
+    elapsedMs >= ALERT_SLOW_RESPONSE_MS
+  );
+}
+
 function logChatTelemetry(
-  status: 'done' | 'partial_done' | 'fallback_done' | 'error',
+  status: CoachingStreamStatus,
   telemetry: CoachingTelemetry | undefined,
-  details: Record<string, unknown>
+  details: CoachingTelemetryDetails
 ) {
   if (!telemetry) return;
 
@@ -608,13 +656,7 @@ function logChatTelemetry(
     ...details,
   };
 
-  const elapsedMs =
-    typeof details.elapsedMs === 'number' ? details.elapsedMs : 0;
-  const finalizationFailed = details.finalizationStatus === 'failed';
-  const shouldWarn =
-    status !== 'done' ||
-    finalizationFailed ||
-    elapsedMs >= ALERT_SLOW_RESPONSE_MS;
+  const shouldWarn = shouldAlertForCoachingTelemetry(status, payload);
   const message = JSON.stringify(payload);
 
   if (shouldWarn) {
@@ -627,12 +669,11 @@ function logChatTelemetry(
 }
 
 function queueCoachingAlert(
-  status: 'done' | 'partial_done' | 'fallback_done' | 'error',
+  status: CoachingStreamStatus,
   payload: Record<string, unknown>
 ) {
   const route = typeof payload.route === 'string' ? payload.route : 'unknown';
-  const finalizationFailed = payload.finalizationStatus === 'failed';
-  const alertKind = finalizationFailed ? 'finalization_failed' : status;
+  const alertKind = getCoachingAlertThrottleKind(status, payload);
   const throttleKey = `${route}:${alertKind}`;
   const now = Date.now();
   const lastSentAt = alertLastSentAt.get(throttleKey) || 0;
@@ -651,15 +692,30 @@ function queueCoachingAlert(
   });
 }
 
+export function getCoachingAlertThrottleKind(
+  status: CoachingStreamStatus,
+  payload: Record<string, unknown>
+) {
+  if (payload.finalizationStatus === 'failed') {
+    return 'finalization_failed';
+  }
+  if (isRecoveredProviderFallback(status, payload)) {
+    return 'provider_fallback_recovered_slow';
+  }
+  return status;
+}
+
 export function getCoachingAlertCopy(
-  status: 'done' | 'partial_done' | 'fallback_done' | 'error',
+  status: CoachingStreamStatus,
   payload: Record<string, unknown>
 ) {
   const finalizationFailed = payload.finalizationStatus === 'failed';
-  const recoveredProviderFallback =
-    status === 'fallback_done' &&
-    payload.completionStatus === 'complete' &&
-    payload.finalizationStatus === 'complete';
+  const recoveredProviderFallback = isRecoveredProviderFallback(
+    status,
+    payload
+  );
+  const elapsedMs =
+    typeof payload.elapsedMs === 'number' ? payload.elapsedMs : 0;
 
   if (finalizationFailed) {
     return {
@@ -676,6 +732,13 @@ export function getCoachingAlertCopy(
     };
   }
   if (recoveredProviderFallback) {
+    if (elapsedMs >= ALERT_SLOW_RESPONSE_MS) {
+      return {
+        subject: '[ACTI Bot] 自動復旧しましたが応答が遅延しました',
+        summary:
+          '主系AIの生成が中断しましたが、予備AIが回答を完了し、会話履歴の保存も完了しました。利用者には回答が表示されていますが、応答時間が基準を超えたため確認してください。',
+      };
+    }
     return {
       subject: '[ACTI Bot] 予備AIへの自動切替を検知しました',
       summary:
