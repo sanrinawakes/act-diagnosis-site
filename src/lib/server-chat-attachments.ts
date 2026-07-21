@@ -8,6 +8,19 @@ import {
   type InlineImageAttachment,
 } from '@/lib/attachments';
 
+const ATTACHMENT_DOWNLOAD_ATTEMPT_TIMEOUT_MS = 5000;
+const ATTACHMENT_DOWNLOAD_RETRY_DELAYS_MS = [250, 750];
+
+type ResolveChatAttachmentsOptions = {
+  attemptTimeoutMs?: number;
+  retryDelaysMs?: number[];
+  onRetry?: (details: {
+    attachmentIndex: number;
+    nextAttempt: number;
+    error: unknown;
+  }) => void;
+};
+
 export function validateChatAttachments(
   attachments: ChatImageAttachment[],
   userId: string | null
@@ -49,15 +62,72 @@ export function validateChatAttachments(
 
 export async function resolveChatAttachments(
   attachments: ChatImageAttachment[],
-  supabaseAdmin: SupabaseClient
+  supabaseAdmin: SupabaseClient,
+  options: ResolveChatAttachmentsOptions = {}
 ): Promise<InlineImageAttachment[]> {
+  const attemptTimeoutMs =
+    options.attemptTimeoutMs ?? ATTACHMENT_DOWNLOAD_ATTEMPT_TIMEOUT_MS;
+  const retryDelaysMs =
+    options.retryDelaysMs ?? ATTACHMENT_DOWNLOAD_RETRY_DELAYS_MS;
+
   return Promise.all(
-    attachments.map(async (attachment) => {
+    attachments.map(async (attachment, attachmentIndex) => {
       if ('data' in attachment) return attachment;
 
-      const { data, error } = await supabaseAdmin.storage
+      let lastError: unknown = new Error('ATTACHMENT_DOWNLOAD_FAILED');
+      for (let attempt = 0; attempt <= retryDelaysMs.length; attempt += 1) {
+        try {
+          return await downloadStoredAttachment({
+            attachment,
+            supabaseAdmin,
+            timeoutMs: attemptTimeoutMs,
+          });
+        } catch (error) {
+          lastError = error;
+          if (
+            error instanceof Error &&
+            error.message.startsWith('ATTACHMENT_SIZE_INVALID')
+          ) {
+            throw error;
+          }
+          if (attempt >= retryDelaysMs.length) throw error;
+
+          options.onRetry?.({
+            attachmentIndex,
+            nextAttempt: attempt + 2,
+            error,
+          });
+          await delay(retryDelaysMs[attempt]);
+        }
+      }
+
+      throw lastError;
+    })
+  );
+}
+
+async function downloadStoredAttachment({
+  attachment,
+  supabaseAdmin,
+  timeoutMs,
+}: {
+  attachment: Extract<ChatImageAttachment, { path: string }>;
+  supabaseAdmin: SupabaseClient;
+  timeoutMs: number;
+}): Promise<InlineImageAttachment> {
+  const controller = new AbortController();
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+  try {
+    const download = Promise.resolve(
+      supabaseAdmin.storage
         .from(ATTACHMENT_BUCKET)
-        .download(attachment.path);
+        .download(
+          attachment.path,
+          {},
+          { signal: controller.signal, cache: 'no-store' }
+        )
+    ).then(async ({ data, error }) => {
       if (error || !data) {
         throw new Error(
           `ATTACHMENT_DOWNLOAD_FAILED: ${error?.message || 'empty file'}`
@@ -74,9 +144,24 @@ export async function resolveChatAttachments(
         mimeType: attachment.mimeType,
         data: buffer.toString('base64'),
       };
-    })
-  );
+    });
+
+    return await Promise.race([
+      download,
+      new Promise<InlineImageAttachment>((_, reject) => {
+        timeoutId = setTimeout(() => {
+          reject(new Error('ATTACHMENT_LOAD_TIMEOUT'));
+          controller.abort();
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
 }
+
+const delay = (ms: number) =>
+  new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 function isValidBase64(value: string) {
   const clean = value.replace(/\s/g, '');

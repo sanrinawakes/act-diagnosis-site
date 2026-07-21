@@ -295,10 +295,24 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    const attachmentStartedAt = Date.now();
     let inlineAttachments;
     try {
       inlineAttachments = await withStageTimeout(
-        resolveChatAttachments(attachments, supabaseAdmin),
+        resolveChatAttachments(attachments, supabaseAdmin, {
+          onRetry: ({ attachmentIndex, nextAttempt, error }) => {
+            console.warn(
+              JSON.stringify({
+                event: 'chat_attachment_download_retry',
+                route: '/api/chat',
+                requestId,
+                attachmentIndex,
+                nextAttempt,
+                error: error instanceof Error ? error.message : String(error),
+              })
+            );
+          },
+        }),
         ATTACHMENT_LOAD_TIMEOUT_MS,
         'ATTACHMENT_LOAD_TIMEOUT'
       );
@@ -367,6 +381,7 @@ export async function POST(request: NextRequest) {
       scopeCategory: scopeResult.category,
       isLongMessage: scopeResult.isLongMessage,
       preStreamMs: Date.now() - requestStartedAt,
+      attachmentMs: Date.now() - attachmentStartedAt,
       contextMs: Date.now() - contextStartedAt,
     };
 

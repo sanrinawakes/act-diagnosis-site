@@ -325,8 +325,6 @@ export function createJsonLineStream(params: {
     async start(controller) {
       let fullText = '';
       let emittedText = '';
-      let pendingText = '';
-      let streamingBlocked = false;
       const startedAt = Date.now();
       let firstChunkMs: number | null = null;
       let generationFirstChunkMs: number | null = null;
@@ -374,25 +372,10 @@ export function createJsonLineStream(params: {
           return;
         }
 
-        const holdRawStream = shouldHoldRawStreaming(lastUserText);
         const acceptGeneratedText = (text: string) => {
           if (!text) return;
           fullText += text;
           generationFirstChunkMs ??= Date.now() - startedAt;
-          if (holdRawStream || streamingBlocked) return;
-
-          pendingText += text;
-          if (containsProtectedInternalContent(fullText)) {
-            streamingBlocked = true;
-            pendingText = '';
-            return;
-          }
-
-          const boundary = findVerifiedStreamingBoundary(pendingText);
-          if (boundary <= 0) return;
-          const verifiedText = pendingText.slice(0, boundary);
-          pendingText = pendingText.slice(boundary);
-          writeVerifiedChunk(verifiedText);
         };
 
         let response:
@@ -410,8 +393,6 @@ export function createJsonLineStream(params: {
 
         await runWithGeminiRetry(async () => {
           fullText = '';
-          pendingText = '';
-          streamingBlocked = false;
           const model = getCoachingGeminiModel(params.systemPrompt, modelName);
           const chat = model.startChat({
             history: prepareGeminiHistory(params.historyMessages),
@@ -1099,28 +1080,6 @@ function getGeminiTimeoutMs(modelName: string) {
     : GEMINI_TEXT_TIMEOUT_MS;
 }
 
-function shouldHoldRawStreaming(lastUserText: string) {
-  return (
-    requestsInternalPromptDisclosure(lastUserText) ||
-    requestsSingleAnswerFormat(lastUserText) ||
-    requestsExplicitClosingQuestion(lastUserText) ||
-    requestsDirectWording(lastUserText) ||
-    /(?:システム|system)\s*プロンプト|内部(?:指示|設定)|developer\s*(?:message|instruction)|上の(?:文章|指示)/i.test(
-      lastUserText
-    )
-  );
-}
-
-function findVerifiedStreamingBoundary(text: string) {
-  let boundary = 0;
-  const sentenceBoundary = /[。！？!?][」』）)]?/g;
-  for (const match of text.matchAll(sentenceBoundary)) {
-    boundary = (match.index || 0) + match[0].length;
-  }
-  const paragraphBoundary = text.lastIndexOf('\n\n');
-  return Math.max(boundary, paragraphBoundary >= 0 ? paragraphBoundary + 2 : 0);
-}
-
 export function containsProtectedInternalContent(text: string) {
   return /ACTIコーチングAI指示書|#{1,3}\s*セクション\s*[1-9]|3つのステップ[：:]\s*共感|変装検出ルール|クライアントに関する非表示の参考情報|【内部応答形式】|診断コード\s*[:：]\s*[SMP][VMG][AME]-[1-6]|(?:システム|system)\s*プロンプト.{0,24}(?:全文|以下|内容|指示)/i.test(
     text
@@ -1314,6 +1273,7 @@ export function normalizeCoachingOutput(
   );
   const naturalText = deduplicatedText
     .replace(/\*\*/g, '')
+    .replace(/下書きの(?:さらに)?下書き/g, '下書き')
     .replace(/タタスク/g, 'タスク')
     .replace(/タースク/g, 'タスク')
     .replace(/タムスケジュール/g, 'タイムスケジュール')
@@ -2160,6 +2120,13 @@ function isGroundedDirectWording(
     return false;
   }
   if (
+    /会議|提案/.test(userContext) &&
+    /最後まで|却下/.test(userContext) &&
+    /最後まで意見を聞/.test(answer)
+  ) {
+    return false;
+  }
+  if (
     /家事|夫|妻/.test(userContext) &&
     /後回し|時間[^。\n]{0,40}軽く扱/.test(userContext) &&
     !/(?:いつ[^。！？?\n]{0,24}(?:対応|やる)|(?:対応|やる)[^。！？?\n]{0,24}いつ|一緒に決め|お願い|してほしい|後回しにしない)/.test(
@@ -2437,12 +2404,15 @@ function buildNoQuestionFallback(
   const userContext = [historicalUserContext, lastUserText]
     .filter(Boolean)
     .join('\n');
-  const hasHistoricalCommunicationIntent =
-    /上司|同僚|夫|妻|家族|親|子ども|友人|相手/.test(
-      historicalUserContext
-    ) &&
-    /話|伝|言葉|一言|言い方|文面|会話|相談|連絡|返事|頼ん|断/.test(
-      historicalUserContext
+  const hasHistoricalCommunicationIntent = historyMessages
+    .filter((message) => message.role === 'user')
+    .map((message) => stripAttachmentMarkdown(message.content))
+    .some(
+      (message) =>
+        /上司|同僚|夫|妻|家族|親|子ども|友人|相手/.test(message) &&
+        /話(?:す|したい|せる|そう|し合)|伝|言葉|一言|言い方|文面|会話|連絡|返事|頼ん|断/.test(
+          message
+        )
     );
 
   if (requestsDirectWording(lastUserText)) {
@@ -2462,7 +2432,11 @@ function buildNoQuestionFallback(
   if (/企画|資料|文章|書|作成/.test(lastUserText)) {
     return '完成を目指さず、まず最初の15分で見出しを一つだけ書いてみてください。';
   }
-  if (/話|伝|言葉|一言|言い方|文面|会話|相談|連絡|返事/.test(lastUserText)) {
+  if (
+    /話(?:す|したい|せる|そう|し合)|伝|言葉|一言|言い方|文面|会話|連絡|返事/.test(
+      lastUserText
+    )
+  ) {
     return '明日の朝、相手に最初に伝える一文だけをメモに書いてください。';
   }
   if (/疲|休|しんど|限界/.test(lastUserText)) {

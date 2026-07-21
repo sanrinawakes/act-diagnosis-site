@@ -2200,6 +2200,25 @@ describe('normalizeCoachingOutput', () => {
     expect(result).not.toMatch(/嫌|腹が立/);
   });
 
+  it('会議で誰の意見か曖昧な文面を提案の聞き取り依頼へ戻す', () => {
+    const result = normalizeCoachingOutput(
+      '「今回の提案は準備に時間をかけてきたので、まずは最後まで意見を聞いた上で判断してほしいです」',
+      '次の会議の冒頭で、そのことを責めずに伝える最初の一言を一つだけ、質問なしで提案してください。',
+      [
+        {
+          role: 'user',
+          content:
+            '会議で提案を最後まで聞かず却下されて、悲しいというより腹が立ちました。私の準備時間を軽く扱われたことが嫌です。',
+        },
+      ]
+    );
+
+    expect(result).toBe(
+      '「前回は提案を最後までお伝えできなかったので、今回は結論まで聞いてからご意見をいただけると助かります。」'
+    );
+    expect(result).not.toContain('最後まで意見を聞いた上で');
+  });
+
   it('責めずに伝える家事の一言を具体的なお願いにする', () => {
     const result = normalizeCoachingOutput(
       '「家事そのものより、私の時間を軽く扱われているように感じるのが嫌です。このことを責めたいのではなく、これからどうするか一緒に話したいです。」',
@@ -2336,6 +2355,32 @@ describe('normalizeCoachingOutput', () => {
     expect(result).not.toMatch(/ステップ|だけ[^\n]{0,30}だけ/);
   });
 
+  it('長い相談という語だけで相手への伝言へ脱線しない', () => {
+    const result = normalizeCoachingOutput(
+      '明日の朝、相手に最初に伝える一文だけをメモに書いてください。',
+      `${'長い相談でも止まらないことを確認します。'.repeat(35)}最後に、明日の行動を一つだけ教えてください。`,
+      [
+        {
+          role: 'user',
+          content: '仕事を完璧にしようとして着手できません。',
+        },
+        {
+          role: 'user',
+          content: '失敗より、能力がないと思われるのが怖いです。',
+        },
+        {
+          role: 'user',
+          content: '三回目の送信です。今も前の話を踏まえられていますか？',
+        },
+      ]
+    );
+
+    expect(result).toBe(
+      '明日の朝、今いちばん気になる仕事に5分だけ取り組んでください。'
+    );
+    expect(result).not.toContain('相手に最初に伝える');
+  });
+
   it('新しい仕事の履歴があっても別件の翌朝行動を置き換えない', () => {
     const result = normalizeCoachingOutput(
       '明日の朝、洗濯機を一回回してください。',
@@ -2387,6 +2432,16 @@ describe('normalizeCoachingOutput', () => {
       '明日、最初の15分で企画書の見出しを一つだけ書いてください。\n\n15分後に何が書けていれば、着手は成功だと判断しますか？'
     );
     expect(result).not.toContain('下書きの下書き');
+  });
+
+  it('「下書きのさらに下書き」も自然な表現へ直す', () => {
+    const result = normalizeCoachingOutput(
+      '明日は、最初の5分間だけ「下書きのさらに下書き」を作るつもりで、手元を動かしてみてください。',
+      '仕事を完璧にしようとして着手できません。'
+    );
+
+    expect(result).toContain('「下書き」を作る');
+    expect(result).not.toMatch(/下書きの(?:さらに)?下書き/);
   });
 
   it('提案書と今日の指定を企画書・明日へ置き換えない', () => {

@@ -1,7 +1,16 @@
 import { createServerClient } from '@supabase/ssr';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { randomUUID } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { sendCoachingAlert } from '@/lib/coaching-alerts';
+import {
+  buildCoachingMonitorRunRecord,
+  COACHING_MONITOR_PATH,
+  failStaleCoachingMonitorRuns,
+  persistCoachingMonitorRun,
+  type StaleCoachingMonitorRun,
+  updateCoachingMonitorAlertDelivery,
+} from '@/lib/coaching-monitor-runs';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -63,6 +72,10 @@ type CookieRecord = {
 export async function GET(request: NextRequest) {
   const startedAt = Date.now();
   const baseUrl = getBaseUrl(request);
+  const monitorRunId = randomUUID();
+  const checkedAt = new Date().toISOString();
+  let monitorResult: MonitorResult | null = null;
+  let staleMonitorRuns: StaleCoachingMonitorRun[] = [];
   const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
@@ -73,39 +86,104 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: authError }, { status: 401 });
     }
 
-    const result = await runPaidCoachingMonitor({
+    staleMonitorRuns = await failStaleCoachingMonitorRuns(supabaseAdmin);
+    await persistCoachingMonitorRun(
+      supabaseAdmin,
+      buildCoachingMonitorRunRecord({
+        id: monitorRunId,
+        status: 'running',
+        baseUrl,
+        checkedAt,
+        elapsedMs: 0,
+        result: null,
+      })
+    );
+
+    monitorResult = await runPaidCoachingMonitor({
       baseUrl,
       supabaseAdmin,
     });
-    assertHealthyMonitorResult(result);
+    assertHealthyMonitorResult(monitorResult);
+
+    const elapsedMs = Date.now() - startedAt;
+    await persistCoachingMonitorRun(
+      supabaseAdmin,
+      buildCoachingMonitorRunRecord({
+        id: monitorRunId,
+        status: 'success',
+        baseUrl,
+        checkedAt,
+        elapsedMs,
+        result: monitorResult,
+      })
+    );
 
     console.info(
       JSON.stringify({
         event: 'coaching_monitor_succeeded',
         route: '/api/monitor/coaching',
-        monitorPath: 'paid-cookie-auth-and-persistence',
-        checkedAt: new Date().toISOString(),
-        ...result,
+        monitorPath: COACHING_MONITOR_PATH,
+        monitorRunId,
+        checkedAt,
+        ...monitorResult,
       })
     );
+
+    if (staleMonitorRuns.length > 0) {
+      await notifyStaleMonitorRuns({
+        supabaseAdmin,
+        staleMonitorRuns,
+        currentMonitorRunId: monitorRunId,
+      });
+    }
 
     return NextResponse.json(
       {
         ok: true,
-        checkedAt: new Date().toISOString(),
-        elapsedMs: Date.now() - startedAt,
-        result,
+        monitorRunId,
+        checkedAt,
+        elapsedMs,
+        result: monitorResult,
       },
       { headers: { 'Cache-Control': 'no-store' } }
     );
   } catch (error) {
+    const rootError = error instanceof Error ? error.message : String(error);
+    let monitorPersisted = false;
+    let monitorPersistenceError: string | null = null;
+
+    try {
+      await persistCoachingMonitorRun(
+        supabaseAdmin,
+        buildCoachingMonitorRunRecord({
+          id: monitorRunId,
+          status: 'failure',
+          baseUrl,
+          checkedAt,
+          elapsedMs: Date.now() - startedAt,
+          result: monitorResult,
+          error: rootError,
+        })
+      );
+      monitorPersisted = true;
+    } catch (persistenceError) {
+      monitorPersistenceError =
+        persistenceError instanceof Error
+          ? persistenceError.message
+          : String(persistenceError);
+    }
+
     const details = {
       event: 'coaching_monitor_failed',
       route: '/api/monitor/coaching',
-      monitorPath: 'paid-cookie-auth-and-persistence',
+      monitorPath: COACHING_MONITOR_PATH,
       baseUrl,
       elapsedMs: Date.now() - startedAt,
-      error: error instanceof Error ? error.message : String(error),
+      monitorRunId,
+      monitorPersisted,
+      monitorPersistenceError,
+      staleMonitorRunIds: staleMonitorRuns.map((run) => run.id),
+      error: rootError,
     };
 
     console.error(JSON.stringify(details));
@@ -115,6 +193,25 @@ export async function GET(request: NextRequest) {
         '有料会員と同じログインCookie・履歴保存・AI送信・返信保存の定期監視で異常を検知しました。',
       details,
     });
+    if (monitorPersisted) {
+      try {
+        await updateCoachingMonitorAlertDelivery(supabaseAdmin, [
+          monitorRunId,
+          ...staleMonitorRuns.map((run) => run.id),
+        ], alertDelivery);
+      } catch (alertPersistenceError) {
+        console.error(
+          JSON.stringify({
+            event: 'coaching_monitor_alert_persistence_failed',
+            monitorRunId,
+            error:
+              alertPersistenceError instanceof Error
+                ? alertPersistenceError.message
+                : String(alertPersistenceError),
+          })
+        );
+      }
+    }
     console.info(
       JSON.stringify({
         event: 'coaching_monitor_alert_delivery',
@@ -128,7 +225,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(
       {
         ok: false,
-        checkedAt: new Date().toISOString(),
+        monitorRunId,
+        checkedAt,
         elapsedMs: Date.now() - startedAt,
         error: details.error,
         alertAccepted: alertDelivery.accepted,
@@ -136,6 +234,55 @@ export async function GET(request: NextRequest) {
       { status: 500, headers: { 'Cache-Control': 'no-store' } }
     );
   }
+}
+
+async function notifyStaleMonitorRuns(params: {
+  supabaseAdmin: SupabaseClient;
+  staleMonitorRuns: StaleCoachingMonitorRun[];
+  currentMonitorRunId: string;
+}) {
+  const details = {
+    event: 'coaching_monitor_stale_runs_recovered',
+    route: '/api/monitor/coaching',
+    monitorPath: COACHING_MONITOR_PATH,
+    currentMonitorRunId: params.currentMonitorRunId,
+    staleMonitorRuns: params.staleMonitorRuns,
+  };
+  console.error(JSON.stringify(details));
+
+  const alertDelivery = await sendCoachingAlert({
+    subject: '[ACTI Bot] 前回の定期監視が完了しませんでした',
+    summary:
+      '前回のAIコーチング定期監視が完了記録を残さず中断していたため、次の定期監視で検知しました。',
+    details,
+  });
+
+  try {
+    await updateCoachingMonitorAlertDelivery(
+      params.supabaseAdmin,
+      params.staleMonitorRuns.map((run) => run.id),
+      alertDelivery
+    );
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        event: 'coaching_monitor_stale_alert_persistence_failed',
+        monitorRunIds: params.staleMonitorRuns.map((run) => run.id),
+        error: error instanceof Error ? error.message : String(error),
+      })
+    );
+  }
+
+  console.info(
+    JSON.stringify({
+      event: 'coaching_monitor_stale_alert_delivery',
+      monitorRunIds: params.staleMonitorRuns.map((run) => run.id),
+      accepted: alertDelivery.accepted,
+      status: alertDelivery.status || null,
+      resendId: alertDelivery.id || null,
+      reason: alertDelivery.reason || null,
+    })
+  );
 }
 
 async function runPaidCoachingMonitor(params: {
