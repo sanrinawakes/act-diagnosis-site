@@ -31,7 +31,6 @@ import {
 } from '@/lib/coaching-scope';
 
 export const runtime = 'nodejs';
-export const preferredRegion = 'hnd1';
 // Vercel関数のデフォルト打ち切り(Hobby 10s)を延長し、Gemini生成の途中切断を防ぐ
 export const maxDuration = 60;
 

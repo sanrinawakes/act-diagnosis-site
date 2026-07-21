@@ -4,7 +4,6 @@ import { uploadImageAttachments } from '@/lib/server-attachments';
 import { createServerClient } from '@/lib/supabase-server';
 
 export const runtime = 'nodejs';
-export const preferredRegion = 'hnd1';
 
 export async function POST(request: NextRequest) {
   try {
