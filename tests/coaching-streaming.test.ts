@@ -96,8 +96,10 @@ vi.mock('@/lib/coaching-alerts', () => ({
 import { createJsonLineStream } from '../src/lib/coaching-gemini';
 
 const decoder = new TextDecoder();
+let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
 
 beforeEach(() => {
+  consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
   state.mode = 'success';
   state.externalCalls = 0;
   state.externalMode = 'success';
@@ -112,6 +114,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  consoleErrorSpy.mockRestore();
   state.releaseSecondChunk();
   delete process.env.OPENAI_API_KEY;
   delete process.env.ANTHROPIC_API_KEY;
@@ -189,6 +192,7 @@ describe('createJsonLineStream', () => {
       remaining: 48,
     });
     expect(state.alerts).toHaveLength(0);
+    expect(consoleErrorSpy).not.toHaveBeenCalled();
   });
 
   it('Geminiが生成前に失敗した時はOpenAIで回答を完了する', async () => {
@@ -320,6 +324,9 @@ describe('createJsonLineStream', () => {
     expect(done.message).toContain('不安');
     expect(state.alerts).toHaveLength(1);
     expect(state.alerts[0].subject).toContain('応答失敗/中断');
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('"event":"chat_stream_fallback_done"')
+    );
   });
 });
 

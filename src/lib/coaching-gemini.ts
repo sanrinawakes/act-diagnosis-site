@@ -480,7 +480,6 @@ export function createJsonLineStream(params: {
         const isTimeout =
           error instanceof Error && error.message === 'GEMINI_TIMEOUT';
         const fallbackUserText = extractTextFromParts(params.lastUserParts);
-        console.error('Gemini stream error:', error);
 
         if (!emittedText) {
           const externalFallback = await tryExternalProviderFallback(params);
@@ -628,6 +627,13 @@ export function shouldAlertForCoachingTelemetry(
   status: CoachingStreamStatus,
   payload: Record<string, unknown>
 ) {
+  return getCoachingTelemetryLevel(status, payload) !== 'info';
+}
+
+export function getCoachingTelemetryLevel(
+  status: CoachingStreamStatus,
+  payload: Record<string, unknown>
+) {
   const elapsedMs =
     typeof payload.elapsedMs === 'number' ? payload.elapsedMs : 0;
   const finalizationFailed = payload.finalizationStatus === 'failed';
@@ -636,11 +642,13 @@ export function shouldAlertForCoachingTelemetry(
     payload
   );
 
-  return (
-    (status !== 'done' && !recoveredProviderFallback) ||
-    finalizationFailed ||
-    elapsedMs >= ALERT_SLOW_RESPONSE_MS
-  );
+  if (finalizationFailed || (status !== 'done' && !recoveredProviderFallback)) {
+    return 'error' as const;
+  }
+  if (elapsedMs >= ALERT_SLOW_RESPONSE_MS) {
+    return 'warning' as const;
+  }
+  return 'info' as const;
 }
 
 function logChatTelemetry(
@@ -656,10 +664,15 @@ function logChatTelemetry(
     ...details,
   };
 
-  const shouldWarn = shouldAlertForCoachingTelemetry(status, payload);
+  const level = getCoachingTelemetryLevel(status, payload);
   const message = JSON.stringify(payload);
 
-  if (shouldWarn) {
+  if (level === 'error') {
+    console.error(message);
+    queueCoachingAlert(status, payload);
+    return;
+  }
+  if (level === 'warning') {
     console.warn(message);
     queueCoachingAlert(status, payload);
     return;

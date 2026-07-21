@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   getCoachingAlertThrottleKind,
   getCoachingAlertCopy,
+  getCoachingTelemetryLevel,
   shouldAlertForCoachingTelemetry,
 } from '@/lib/coaching-gemini';
 
@@ -23,6 +24,7 @@ describe('getCoachingAlertCopy', () => {
     expect(shouldAlertForCoachingTelemetry('fallback_done', payload)).toBe(
       false
     );
+    expect(getCoachingTelemetryLevel('fallback_done', payload)).toBe('info');
   });
 
   it('classifies a completed but slow provider fallback as latency', () => {
@@ -45,6 +47,9 @@ describe('getCoachingAlertCopy', () => {
     expect(getCoachingAlertThrottleKind('fallback_done', payload)).toBe(
       'provider_fallback_recovered_slow'
     );
+    expect(getCoachingTelemetryLevel('fallback_done', payload)).toBe(
+      'warning'
+    );
   });
 
   it('keeps incomplete fallback responses classified as failures', () => {
@@ -62,6 +67,7 @@ describe('getCoachingAlertCopy', () => {
     expect(getCoachingAlertThrottleKind('fallback_done', payload)).toBe(
       'fallback_done'
     );
+    expect(getCoachingTelemetryLevel('fallback_done', payload)).toBe('error');
   });
 
   it('prioritizes a failed finalization over provider recovery', () => {
@@ -72,5 +78,29 @@ describe('getCoachingAlertCopy', () => {
     });
 
     expect(copy.subject).toContain('会話後処理の失敗');
+    expect(
+      getCoachingTelemetryLevel('fallback_done', {
+        completionStatus: 'complete',
+        finalizationStatus: 'failed',
+        provider: 'anthropic',
+      })
+    ).toBe('error');
+  });
+
+  it('keeps completed primary responses at info or warning by latency', () => {
+    expect(
+      getCoachingTelemetryLevel('done', {
+        completionStatus: 'complete',
+        finalizationStatus: 'complete',
+        elapsedMs: 9999,
+      })
+    ).toBe('info');
+    expect(
+      getCoachingTelemetryLevel('done', {
+        completionStatus: 'complete',
+        finalizationStatus: 'complete',
+        elapsedMs: 10000,
+      })
+    ).toBe('warning');
   });
 });
