@@ -1090,6 +1090,12 @@ function evaluateConversations(conversations) {
     );
     addCheck(
       checks,
+      `${turn.label}: 途中表示も最終検査済み本文と一致`,
+      turn.rawMessage === turn.message,
+      `final: ${turn.message} / streamed: ${turn.rawMessage}`
+    );
+    addCheck(
+      checks,
       `${turn.label}: 質問は最大1つ`,
       turn.semanticQuestions <= 1,
       `${turn.semanticQuestions}: ${turn.message} / raw: ${turn.rawMessage}`
