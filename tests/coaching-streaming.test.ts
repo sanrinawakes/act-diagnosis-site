@@ -10,6 +10,7 @@ const state = vi.hoisted(() => ({
   externalTimeouts: [] as number[],
   externalImageCounts: [] as number[],
   openAIAborted: false,
+  alerts: [] as Array<{ subject: string; summary: string }>,
 }));
 
 vi.mock('@/lib/openai', () => ({
@@ -85,6 +86,13 @@ vi.mock('@/lib/coaching-provider-candidates', () => ({
   },
 }));
 
+vi.mock('@/lib/coaching-alerts', () => ({
+  sendCoachingAlert: async (params: { subject: string; summary: string }) => {
+    state.alerts.push(params);
+    return { accepted: true, status: 200, id: 'test-alert' };
+  },
+}));
+
 import { createJsonLineStream } from '../src/lib/coaching-gemini';
 
 const decoder = new TextDecoder();
@@ -97,6 +105,7 @@ beforeEach(() => {
   state.externalTimeouts = [];
   state.externalImageCounts = [];
   state.openAIAborted = false;
+  state.alerts = [];
   state.secondChunkGate = new Promise<void>((resolve) => {
     state.releaseSecondChunk = resolve;
   });
@@ -154,6 +163,10 @@ describe('createJsonLineStream', () => {
       historyMessages: [],
       lastUserParts: [{ text: '仕事のことで迷っています。' }],
       onDone: async () => ({ remaining: 48 }),
+      telemetry: {
+        route: '/api/chat/test-provider-fallback',
+        requestId: 'provider-fallback',
+      },
     });
     const responsePromise = new Response(stream).text();
     state.releaseSecondChunk();
@@ -175,6 +188,7 @@ describe('createJsonLineStream', () => {
       finalizationStatus: 'complete',
       remaining: 48,
     });
+    expect(state.alerts).toHaveLength(0);
   });
 
   it('Geminiが生成前に失敗した時はOpenAIで回答を完了する', async () => {
@@ -282,6 +296,10 @@ describe('createJsonLineStream', () => {
       historyMessages: [],
       lastUserParts: [{ text: '仕事がうまくいくか不安です。' }],
       onDone: async () => ({ remaining: 46 }),
+      telemetry: {
+        route: '/api/chat/test-local-fallback',
+        requestId: 'local-fallback',
+      },
     });
     const text = await new Response(stream).text();
     const events = text
@@ -300,6 +318,8 @@ describe('createJsonLineStream', () => {
       remaining: 46,
     });
     expect(done.message).toContain('不安');
+    expect(state.alerts).toHaveLength(1);
+    expect(state.alerts[0].subject).toContain('応答失敗/中断');
   });
 });
 
