@@ -391,7 +391,7 @@ async function testImageAttachment(page) {
   const before = await countMessages(sessionId);
   const png = createPaddedWhitePng(4 * 1024 * 1024);
   await page.locator('input[type="file"]').setInputFiles({
-    name: 'acti-e2e-red.png',
+    name: 'acti-e2e-white.png',
     mimeType: 'image/png',
     buffer: png,
   });
@@ -726,7 +726,7 @@ async function cleanup() {
     process.exitCode = 1;
   }
   const testAttachmentPaths = (attachmentFiles || [])
-    .filter((file) => file.name.includes('acti-e2e-red'))
+    .filter((file) => file.name.includes('acti-e2e-white'))
     .map((file) => `${attachmentFolder}/${file.name}`);
   if (testAttachmentPaths.length > 0) {
     const { error: attachmentRemoveError } = await admin.storage
@@ -758,7 +758,7 @@ async function cleanup() {
   const { data: remainingAttachments, error: attachmentVerifyError } =
     await admin.storage.from(attachmentBucket).list(attachmentFolder, { limit: 100 });
   const remainingTestAttachments = (remainingAttachments || []).filter((file) =>
-    file.name.includes('acti-e2e-red')
+    file.name.includes('acti-e2e-white')
   );
   if (
     profileError ||
