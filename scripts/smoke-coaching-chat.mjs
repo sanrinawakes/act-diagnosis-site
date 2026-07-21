@@ -162,6 +162,9 @@ async function runConcurrentConversations() {
           },
         ],
         label: `concurrent-${index + 1}`,
+        expectedModelName: 'local-rest',
+        expectedFinishReason: 'LOCAL_REST_RESPONSE',
+        requiredResponseFragments: ['今日はゆっくり休んでください。'],
       });
     })
   );

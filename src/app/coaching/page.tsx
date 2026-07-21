@@ -25,6 +25,12 @@ import {
   type PendingImageAttachment,
 } from '@/lib/client-attachments';
 import { readChatStream } from '@/lib/chat-stream-client';
+import {
+  COACHING_HISTORY_PAGE_SIZE,
+  COACHING_HISTORY_READ_TIMEOUT_MS,
+  COACHING_HISTORY_RETRY_DELAYS_MS,
+  retryClientRead,
+} from '@/lib/coaching-history';
 
 interface Message {
   id: string;
@@ -77,6 +83,7 @@ interface PaginatedResponse {
 
 type ChatClientFailureStage =
   | 'initialize_chat'
+  | 'load_older_history'
   | 'prepare_attachments'
   | 'save_user_message'
   | 'load_history'
@@ -132,6 +139,30 @@ const withTimeout = async <T,>(
 
 const delay = (ms: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+const retryCoachingRead = <T,>(
+  operation: (signal: AbortSignal) => PromiseLike<T>,
+  timeoutMessage: string
+) =>
+  retryClientRead(
+    async (signal) => {
+      const result = await operation(signal);
+      const error = (result as { error?: unknown }).error;
+      if (error) throw error;
+      return result;
+    },
+    {
+      timeoutMs: COACHING_HISTORY_READ_TIMEOUT_MS,
+      timeoutMessage,
+      retryDelaysMs: COACHING_HISTORY_RETRY_DELAYS_MS,
+      onRetry: (error, nextAttempt) => {
+        console.warn('Retrying coaching data read', {
+          nextAttempt,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      },
+    }
+  );
 
 const createMessageId = () =>
   globalThis.crypto?.randomUUID?.() ||
@@ -233,6 +264,9 @@ function CoachingContent() {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [diagnosisCode, setDiagnosisCode] = useState<string | null>(null);
   const [initialized, setInitialized] = useState(false);
+  const [historyCursor, setHistoryCursor] = useState<string | null>(null);
+  const [historyHasMore, setHistoryHasMore] = useState(false);
+  const [historyLoadingOlder, setHistoryLoadingOlder] = useState(false);
   const [remainingChats, setRemainingChats] = useState<number | null>(null);
   const [chatLimit, setChatLimit] = useState<number>(50);
   const [rateLimitReached, setRateLimitReached] = useState(false);
@@ -252,6 +286,8 @@ function CoachingContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesScrollRef = useRef<HTMLDivElement>(null);
+  const previousHistoryScrollHeightRef = useRef<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pendingAttachmentsRef = useRef<PendingImageAttachment[]>([]);
   const sendInFlightRef = useRef(false);
@@ -266,6 +302,16 @@ function CoachingContent() {
   };
 
   useEffect(() => {
+    const scrollContainer = messagesScrollRef.current;
+    const previousScrollHeight = previousHistoryScrollHeightRef.current;
+    if (previousScrollHeight !== null) {
+      previousHistoryScrollHeightRef.current = null;
+      if (scrollContainer) {
+        scrollContainer.scrollTop += scrollContainer.scrollHeight - previousScrollHeight;
+      }
+      return;
+    }
+
     scrollToBottom();
   }, [messages]);
 
@@ -336,9 +382,9 @@ function CoachingContent() {
 
   // Fetch sidebar sessions on mount and when tab/search changes
   useEffect(() => {
-    if (!isReady) return;
+    if (!isReady || !initialized) return;
     fetchSidebarSessions(sidebarSearch, sidebarTab, 1);
-  }, [isReady, sidebarTab, fetchSidebarSessions, sidebarSearch]);
+  }, [isReady, initialized, sidebarTab, fetchSidebarSessions, sidebarSearch]);
 
   useEffect(() => {
     if (!isReady) return;
@@ -453,8 +499,19 @@ function CoachingContent() {
   useEffect(() => {
     if (!isReady) return;
 
+    let active = true;
+
     const initializeChat = async () => {
       const initializationStartedAt = Date.now();
+      setInitialized(false);
+      setSessionId(null);
+      setMessages([]);
+      setDiagnosisCode(null);
+      setBotDisabled(false);
+      setHistoryCursor(null);
+      setHistoryHasMore(false);
+      setHistoryLoadingOlder(false);
+      setAttachmentError(null);
       try {
         const {
           data: { user },
@@ -463,6 +520,8 @@ function CoachingContent() {
           CHAT_INITIALIZATION_TIMEOUT_MS,
           'ログイン状態の確認に時間がかかりすぎました。'
         );
+
+        if (!active) return;
 
         if (!user) {
           router.push('/login');
@@ -474,11 +533,17 @@ function CoachingContent() {
         const codeParam = searchParams.get('code');
 
         // サイト設定確認
-        const { data: settings } = await withTimeout(
-          supabase.from('site_settings').select('bot_enabled').single(),
-          CHAT_INITIALIZATION_TIMEOUT_MS,
+        const { data: settings } = await retryCoachingRead(
+          (signal) =>
+            supabase
+              .from('site_settings')
+              .select('bot_enabled')
+              .abortSignal(signal)
+              .single(),
           'チャット設定の確認に時間がかかりすぎました。'
         );
+
+        if (!active) return;
 
         if (settings && !settings.bot_enabled) {
           setBotDisabled(true);
@@ -488,16 +553,19 @@ function CoachingContent() {
 
         // 既存セッションを再開する場合
         if (sessionIdParam) {
-          const { data: existingSession, error: sessionError } = await withTimeout(
-            supabase
+          const { data: existingSession, error: sessionError } = await retryCoachingRead(
+            (signal) =>
+              supabase
               .from('chat_sessions')
               .select('*')
               .eq('id', sessionIdParam)
               .eq('user_id', user.id)
-              .single(),
-            CHAT_INITIALIZATION_TIMEOUT_MS,
+              .abortSignal(signal)
+              .maybeSingle(),
             'チャット履歴の確認に時間がかかりすぎました。'
           );
+
+          if (!active) return;
 
           if (sessionError || !existingSession) {
             console.error('Session not found');
@@ -507,21 +575,31 @@ function CoachingContent() {
 
           setSessionId(existingSession.id);
 
-          const { data: msgs, error: messagesError } = await withTimeout(
-            supabase
-              .from('chat_messages')
-              .select('*')
-              .eq('session_id', existingSession.id)
-              .order('created_at', { ascending: true }),
-            CHAT_INITIALIZATION_TIMEOUT_MS,
+          const {
+            data: msgs,
+            error: messagesError,
+          } = await retryCoachingRead(
+            (signal) =>
+              supabase
+                .from('chat_messages')
+                .select('id, role, content, created_at')
+                .eq('session_id', existingSession.id)
+                .in('role', ['user', 'assistant'])
+                .order('created_at', { ascending: false })
+                .limit(COACHING_HISTORY_PAGE_SIZE + 1)
+                .abortSignal(signal),
             'メッセージ履歴の読み込みに時間がかかりすぎました。'
           );
+
+          if (!active) return;
 
           if (messagesError) {
             console.error('Failed to load messages:', messagesError);
           } else if (msgs) {
-            const loadedMessages = msgs
-              .filter((m) => m.role !== 'system')
+            const pageRows = msgs.slice(0, COACHING_HISTORY_PAGE_SIZE);
+            const loadedMessages = pageRows
+              .slice()
+              .reverse()
               .map((m) => ({
                 id: m.id,
                 role: m.role as 'user' | 'assistant',
@@ -529,19 +607,24 @@ function CoachingContent() {
                 createdAt: m.created_at,
               }));
             setMessages(loadedMessages);
+            setHistoryCursor(pageRows.at(-1)?.created_at || null);
+            setHistoryHasMore(msgs.length > COACHING_HISTORY_PAGE_SIZE);
           }
 
           let code: string | null = null;
           if (existingSession.diagnosis_result_id) {
-            const { data: diagnosis } = await withTimeout(
-              supabase
+            const { data: diagnosis } = await retryCoachingRead(
+              (signal) =>
+                supabase
                 .from('diagnosis_results')
                 .select('type_code, consciousness_level')
                 .eq('id', existingSession.diagnosis_result_id)
-                .single(),
-              CHAT_INITIALIZATION_TIMEOUT_MS,
+                .abortSignal(signal)
+                .maybeSingle(),
               '診断結果の読み込みに時間がかかりすぎました。'
             );
+
+            if (!active) return;
 
             if (diagnosis) {
               code = `${diagnosis.type_code}-${diagnosis.consciousness_level}`;
@@ -561,18 +644,21 @@ function CoachingContent() {
         }
 
         if (!forceNewSession && !codeParam) {
-          const { data: latestSession } = await withTimeout(
-            supabase
+          const { data: latestSession } = await retryCoachingRead(
+            (signal) =>
+              supabase
               .from('chat_sessions')
               .select('id')
               .eq('user_id', user.id)
               .order('last_message_at', { ascending: false, nullsFirst: false })
               .order('created_at', { ascending: false })
               .limit(1)
+              .abortSignal(signal)
               .maybeSingle(),
-            CHAT_INITIALIZATION_TIMEOUT_MS,
             '最新チャットの確認に時間がかかりすぎました。'
           );
+
+          if (!active) return;
 
           if (latestSession?.id) {
             router.replace(`/coaching?session=${latestSession.id}`);
@@ -585,16 +671,19 @@ function CoachingContent() {
         let diagnosisResultId: string | null = null;
 
         if (!code) {
-          const { data: diagnosisData } = await withTimeout(
-            supabase
+          const { data: diagnosisData } = await retryCoachingRead(
+            (signal) =>
+              supabase
               .from('diagnosis_results')
               .select('*')
               .eq('user_id', user.id)
               .order('created_at', { ascending: false })
-              .limit(1),
-            CHAT_INITIALIZATION_TIMEOUT_MS,
+              .limit(1)
+              .abortSignal(signal),
             '診断結果の確認に時間がかかりすぎました。'
           );
+
+          if (!active) return;
 
           if (diagnosisData && diagnosisData.length > 0) {
             diagnosisResultId = diagnosisData[0].id;
@@ -618,6 +707,8 @@ function CoachingContent() {
           '新しいチャットの作成に時間がかかりすぎました。'
         );
 
+        if (!active) return;
+
         if (sessionError) throw sessionError;
 
         setSessionId(session.id);
@@ -631,6 +722,7 @@ function CoachingContent() {
         fetchSidebarSessions(sidebarSearch, sidebarTab, 1);
         router.replace(`/coaching?session=${session.id}`);
       } catch (err) {
+        if (!active) return;
         console.error('Chat initialization error:', err);
         reportClientChatFailure({
           stage: 'initialize_chat',
@@ -647,7 +739,91 @@ function CoachingContent() {
     };
 
     initializeChat();
+
+    return () => {
+      active = false;
+    };
   }, [router, supabase, searchParams, isReady]);
+
+  const loadOlderMessages = async () => {
+    const activeSessionId = sessionId;
+    const activeCursor = historyCursor;
+    if (
+      !activeSessionId ||
+      !activeCursor ||
+      !historyHasMore ||
+      historyLoadingOlder
+    ) {
+      return;
+    }
+
+    const startedAt = Date.now();
+    setHistoryLoadingOlder(true);
+    setAttachmentError(null);
+
+    try {
+      const {
+        data: olderRows,
+        error,
+      } = await retryCoachingRead(
+        (signal) =>
+          supabase
+            .from('chat_messages')
+            .select('id, role, content, created_at')
+            .eq('session_id', activeSessionId)
+            .in('role', ['user', 'assistant'])
+            .lt('created_at', activeCursor)
+            .order('created_at', { ascending: false })
+            .limit(COACHING_HISTORY_PAGE_SIZE + 1)
+            .abortSignal(signal),
+        '過去のメッセージの読み込みに時間がかかりすぎました。'
+      );
+
+      if (error) throw error;
+      const rows = (olderRows || []).slice(0, COACHING_HISTORY_PAGE_SIZE);
+      if (rows.length === 0) {
+        setHistoryHasMore(false);
+        return;
+      }
+
+      const olderMessages = rows
+        .slice()
+        .reverse()
+        .map((message) => ({
+          id: message.id,
+          role: message.role as 'user' | 'assistant',
+          content: message.content,
+          createdAt: message.created_at,
+        }));
+
+      previousHistoryScrollHeightRef.current =
+        messagesScrollRef.current?.scrollHeight ?? null;
+      setMessages((currentMessages) => {
+        const currentIds = new Set(currentMessages.map((message) => message.id));
+        return [
+          ...olderMessages.filter((message) => !currentIds.has(message.id)),
+          ...currentMessages,
+        ];
+      });
+      setHistoryCursor(rows.at(-1)?.created_at || null);
+      setHistoryHasMore((olderRows || []).length > COACHING_HISTORY_PAGE_SIZE);
+    } catch (error) {
+      previousHistoryScrollHeightRef.current = null;
+      console.error('Failed to load older chat messages:', error);
+      setAttachmentError(
+        '過去のメッセージを読み込めませんでした。通信状態を確認して、もう一度お試しください。'
+      );
+      reportClientChatFailure({
+        stage: 'load_older_history',
+        sessionId: activeSessionId,
+        elapsedMs: Date.now() - startedAt,
+        hadPartialResponse: false,
+        error,
+      });
+    } finally {
+      setHistoryLoadingOlder(false);
+    }
+  };
 
   const sendInitialMessage = async (sid: string, code: string) => {
     try {
@@ -1483,7 +1659,10 @@ function CoachingContent() {
           )}
 
           {/* Messages Area */}
-          <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">
+          <div
+            ref={messagesScrollRef}
+            className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4"
+          >
             {botDisabled && (
               <div className="bg-yellow-50 border border-yellow-200 text-yellow-900 p-4 rounded-lg text-center">
                 <p className="font-semibold">{t('coaching.botDisabled')}</p>
@@ -1511,6 +1690,21 @@ function CoachingContent() {
             {messages.length === 0 && !botDisabled && diagnosisCode && (
               <div className="flex items-center justify-center h-full text-gray-600">
                 <p>コーチングを準備中...</p>
+              </div>
+            )}
+
+            {historyHasMore && (
+              <div className="flex justify-center">
+                <button
+                  type="button"
+                  onClick={loadOlderMessages}
+                  disabled={historyLoadingOlder}
+                  className="rounded-lg border border-blue-200 bg-white px-4 py-2 text-sm font-medium text-blue-700 transition-colors hover:bg-blue-50 disabled:cursor-wait disabled:opacity-60"
+                >
+                  {historyLoadingOlder
+                    ? '読み込み中...'
+                    : '過去のメッセージを読み込む'}
+                </button>
               </div>
             )}
 

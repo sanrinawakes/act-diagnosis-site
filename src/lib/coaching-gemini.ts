@@ -661,22 +661,52 @@ function queueCoachingAlert(
   }
 
   alertLastSentAt.set(throttleKey, now);
+  const { subject, summary } = getCoachingAlertCopy(status, payload);
 
   void sendCoachingAlert({
-    subject:
-      finalizationFailed
-        ? '[ACTI Bot] 会話後処理の失敗を検知しました'
-        : status === 'done'
-        ? '[ACTI Bot] 応答遅延を検知しました'
-        : '[ACTI Bot] 応答失敗/中断を検知しました',
-    summary:
-      finalizationFailed
-        ? 'AIの回答生成後に、利用回数などの会話後処理を完了できませんでした。VercelログのrequestIdで詳細を確認してください。'
-        : status === 'done'
-        ? 'AIコーチングbotで応答遅延を検知しました。VercelログのrequestIdで詳細を確認してください。'
-        : 'AIコーチングbotで応答失敗または中断を検知しました。VercelログのrequestIdで詳細を確認してください。',
+    subject,
+    summary,
     details: payload,
   });
+}
+
+export function getCoachingAlertCopy(
+  status: 'done' | 'partial_done' | 'fallback_done' | 'error',
+  payload: Record<string, unknown>
+) {
+  const finalizationFailed = payload.finalizationStatus === 'failed';
+  const recoveredProviderFallback =
+    status === 'fallback_done' &&
+    payload.completionStatus === 'complete' &&
+    payload.finalizationStatus === 'complete';
+
+  if (finalizationFailed) {
+    return {
+      subject: '[ACTI Bot] 会話後処理の失敗を検知しました',
+      summary:
+        'AIの回答生成後に、利用回数などの会話後処理を完了できませんでした。VercelログのrequestIdで詳細を確認してください。',
+    };
+  }
+  if (status === 'done') {
+    return {
+      subject: '[ACTI Bot] 応答遅延を検知しました',
+      summary:
+        'AIコーチングbotで応答遅延を検知しました。VercelログのrequestIdで詳細を確認してください。',
+    };
+  }
+  if (recoveredProviderFallback) {
+    return {
+      subject: '[ACTI Bot] 予備AIへの自動切替を検知しました',
+      summary:
+        '主系AIの生成が中断しましたが、予備AIが回答を完了し、会話履歴の保存も完了しました。利用者には回答が表示されています。',
+    };
+  }
+
+  return {
+    subject: '[ACTI Bot] 応答失敗/中断を検知しました',
+    summary:
+      'AIコーチングbotで応答失敗または中断を検知しました。VercelログのrequestIdで詳細を確認してください。',
+  };
 }
 
 function getErrorMessage(error: unknown) {

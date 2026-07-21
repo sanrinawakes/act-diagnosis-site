@@ -79,6 +79,16 @@ export async function GET(request: NextRequest) {
     });
     assertHealthyMonitorResult(result);
 
+    console.info(
+      JSON.stringify({
+        event: 'coaching_monitor_succeeded',
+        route: '/api/monitor/coaching',
+        monitorPath: 'paid-cookie-auth-and-persistence',
+        checkedAt: new Date().toISOString(),
+        ...result,
+      })
+    );
+
     return NextResponse.json(
       {
         ok: true,
