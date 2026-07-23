@@ -419,6 +419,7 @@ async function runPaidCoachingMonitor(params: {
 
     const allMessages = buildMonitorMessages();
     const storedRows = allMessages.map((message, index) => ({
+      id: randomUUID(),
       session_id: sessionId,
       role: message.role,
       content: message.content,
@@ -465,6 +466,8 @@ async function runPaidCoachingMonitor(params: {
 
     const body = {
       sessionId,
+      requestId: storedRows[storedRows.length - 1].id,
+      assistantMessageId: randomUUID(),
       diagnosisCode: null,
       messages: apiMessages,
       stream: true,
@@ -486,18 +489,26 @@ async function runPaidCoachingMonitor(params: {
     const streamResult = await readMonitorStream(response, chatStartedAt);
 
     const assistantSaveStartedAt = Date.now();
-    const { error: assistantSaveError } = await withMonitorTimeout(
-      userClient.from('chat_messages').insert({
-        session_id: sessionId,
-        role: 'assistant',
-        content: streamResult.message,
-      }),
-      MONITOR_STAGE_TIMEOUT_MS,
-      'assistant-save'
-    );
-    if (assistantSaveError) {
+    const { data: savedAssistant, error: assistantSaveError } =
+      await withMonitorTimeout(
+        userClient
+          .from('chat_messages')
+          .select('id, role, content')
+          .eq('id', body.assistantMessageId)
+          .eq('session_id', sessionId)
+          .maybeSingle(),
+        MONITOR_STAGE_TIMEOUT_MS,
+        'assistant-save'
+      );
+    if (
+      assistantSaveError ||
+      savedAssistant?.role !== 'assistant' ||
+      savedAssistant.content !== streamResult.message
+    ) {
       throw new Error(
-        `paid monitor assistant save failed: ${assistantSaveError.message}`
+        `paid monitor assistant save failed: ${
+          assistantSaveError?.message || 'server response was not persisted'
+        }`
       );
     }
     const assistantSaveMs = Date.now() - assistantSaveStartedAt;

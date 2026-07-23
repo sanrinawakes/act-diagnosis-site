@@ -21,8 +21,18 @@ import {
   createJsonLineStream,
   generateCoachingText,
   getStreamHeaders,
+  type CoachingCompletionDetails,
 } from '@/lib/coaching-gemini';
 import { buildCoachingSessionContext } from '@/lib/coaching-session-memory';
+import {
+  claimCoachingResponse,
+  completeCoachingResponse,
+  createCachedCoachingStream,
+  inspectCoachingResponse,
+  validateCoachingRequestOwnership,
+  waitForCoachingResponse,
+  type CoachingResponseState,
+} from '@/lib/coaching-response-store';
 import {
   COACHING_SCOPE_GUIDANCE,
   classifyCoachingScope,
@@ -64,6 +74,8 @@ interface RequestBody {
   stream?: boolean;
   sessionId?: string;
   session_id?: string;
+  requestId?: string;
+  assistantMessageId?: string;
 }
 
 export async function POST(request: NextRequest) {
@@ -122,6 +134,35 @@ export async function POST(request: NextRequest) {
     // Service role client for rate limit updates (bypasses RLS)
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey);
 
+    const rawBody: unknown = await request.json();
+    const bodyValidation = validateRequestBody(rawBody);
+    if (!bodyValidation.body) {
+      return NextResponse.json(
+        { error: bodyValidation.error || 'Invalid request body' },
+        { status: 400 }
+      );
+    }
+    const body = bodyValidation.body;
+    const {
+      messages,
+      diagnosisCode,
+      attachments = [],
+      stream = false,
+      sessionId,
+      session_id,
+      requestId: clientRequestId,
+      assistantMessageId,
+    } = body;
+    const activeSessionId = sessionId || session_id || null;
+    const recovery =
+      activeSessionId && clientRequestId && assistantMessageId
+        ? {
+            sessionId: activeSessionId,
+            clientRequestId,
+            assistantMessageId,
+          }
+        : null;
+
     // Check daily chat limit
     const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
     let profile;
@@ -173,6 +214,128 @@ export async function POST(request: NextRequest) {
 
     const currentChatCount =
       profile.last_chat_date === today ? profile.chat_count_today || 0 : 0;
+    const currentRemaining =
+      profile.role === 'admin'
+        ? DAILY_CHAT_LIMIT
+        : Math.max(0, DAILY_CHAT_LIMIT - currentChatCount);
+    let responseMarker: string | null = null;
+
+    const respondFromState = async (
+      initialState: CoachingResponseState
+    ): Promise<Response | null> => {
+      if (!recovery) return null;
+      let state = initialState;
+
+      if (state.status === 'pending') {
+        state = await waitForCoachingResponse({
+          supabaseAdmin,
+          sessionId: recovery.sessionId,
+          assistantMessageId: recovery.assistantMessageId,
+        });
+      }
+
+      if (state.status === 'complete') {
+        console.info(
+          JSON.stringify({
+            event: 'chat_response_replayed',
+            route: '/api/chat',
+            requestId,
+            clientRequestId: recovery.clientRequestId,
+            sessionId: recovery.sessionId,
+          })
+        );
+        if (stream) {
+          return new Response(
+            createCachedCoachingStream({
+              message: state.message,
+              remaining: currentRemaining,
+              limit: DAILY_CHAT_LIMIT,
+            }),
+            {
+              headers: {
+                ...getStreamHeaders(),
+                'X-ACTI-Chat-Status': 'replayed',
+              },
+            }
+          );
+        }
+        return NextResponse.json({
+          message: state.message,
+          remaining: currentRemaining,
+          limit: DAILY_CHAT_LIMIT,
+          completionStatus: 'complete',
+          finalizationStatus: 'complete',
+          finishReason: 'CACHED_REPLAY',
+        });
+      }
+
+      if (state.status === 'pending') {
+        return NextResponse.json(
+          {
+            error:
+              '同じ相談への回答を処理中です。自動的に再接続しますので、そのままお待ちください。',
+            code: 'CHAT_RESPONSE_PENDING',
+          },
+          {
+            status: 409,
+            headers: {
+              'X-ACTI-Chat-Status': 'pending',
+              'Retry-After': '2',
+            },
+          }
+        );
+      }
+
+      if (state.status === 'conflict') {
+        return NextResponse.json(
+          {
+            error:
+              '送信情報が一致しませんでした。入力内容は保存されています。画面を再読み込みして、もう一度送信してください。',
+          },
+          { status: 409 }
+        );
+      }
+
+      return null;
+    };
+
+    const claimResponse = async (): Promise<Response | null> => {
+      if (!recovery) return null;
+      const claim = await claimCoachingResponse({
+        supabaseAdmin,
+        sessionId: recovery.sessionId,
+        assistantMessageId: recovery.assistantMessageId,
+        serverRequestId: requestId,
+      });
+      if (claim.status === 'owner') {
+        responseMarker = claim.marker;
+        return null;
+      }
+      return respondFromState(claim);
+    };
+
+    if (recovery) {
+      const ownsRequest = await validateCoachingRequestOwnership({
+        supabaseAdmin,
+        userId: user.id,
+        sessionId: recovery.sessionId,
+        requestId: recovery.clientRequestId,
+      });
+      if (!ownsRequest) {
+        return NextResponse.json(
+          { error: '保存済みの相談内容を確認できませんでした。' },
+          { status: 400 }
+        );
+      }
+
+      const existingResponse = await inspectCoachingResponse({
+        supabaseAdmin,
+        sessionId: recovery.sessionId,
+        assistantMessageId: recovery.assistantMessageId,
+      });
+      const recoveredResponse = await respondFromState(existingResponse);
+      if (recoveredResponse) return recoveredResponse;
+    }
 
     if (profile && profile.role !== 'admin') {
       const chatCountToday = currentChatCount;
@@ -189,7 +352,8 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Check site settings
+    // Check site settings after cached-response recovery so a completed answer
+    // remains deliverable even if the bot is temporarily disabled.
     let settings;
     let settingsError;
     try {
@@ -215,37 +379,18 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const rawBody: unknown = await request.json();
-    const bodyValidation = validateRequestBody(rawBody);
-    if (!bodyValidation.body) {
-      return NextResponse.json(
-        { error: bodyValidation.error || 'Invalid request body' },
-        { status: 400 }
-      );
-    }
-    const body = bodyValidation.body;
-    const {
-      messages,
-      diagnosisCode,
-      attachments = [],
-      stream = false,
-      sessionId,
-      session_id,
-    } = body;
-
     const attachmentError = validateChatAttachments(attachments, user.id);
     if (attachmentError) {
       return NextResponse.json({ error: attachmentError }, { status: 400 });
     }
 
-    const activeSessionId = sessionId || session_id || null;
     const scopeResult = classifyCoachingScope({
       messages,
       attachmentCount: attachments.length,
     });
     const usageAuditPromise = recordCoachingUsageEvent({
       supabaseAdmin,
-      requestId,
+      requestId: clientRequestId || requestId,
       userId: user.id,
       sessionId: activeSessionId,
       result: scopeResult,
@@ -253,6 +398,17 @@ export async function POST(request: NextRequest) {
 
     if (scopeResult.decision === 'blocked') {
       await usageAuditPromise;
+      const claimedResponse = await claimResponse();
+      if (claimedResponse) return claimedResponse;
+      if (recovery && responseMarker) {
+        await completeCoachingResponse({
+          supabaseAdmin,
+          sessionId: recovery.sessionId,
+          assistantMessageId: recovery.assistantMessageId,
+          marker: responseMarker,
+          message: COACHING_SCOPE_GUIDANCE,
+        });
+      }
       const remaining =
         profile.role === 'admin'
           ? DAILY_CHAT_LIMIT
@@ -385,8 +541,26 @@ export async function POST(request: NextRequest) {
       contextMs: Date.now() - contextStartedAt,
     };
 
-    const completeSuccessfulResponse = async () => {
+    const claimedResponse = await claimResponse();
+    if (claimedResponse) return claimedResponse;
+
+    const completeSuccessfulResponse = async (
+      _usage?: unknown,
+      completion?: CoachingCompletionDetails
+    ) => {
       await usageAuditPromise;
+      if (recovery && responseMarker) {
+        if (!completion?.message.trim()) {
+          throw new Error('CHAT_RESPONSE_TEXT_MISSING');
+        }
+        await completeCoachingResponse({
+          supabaseAdmin,
+          sessionId: recovery.sessionId,
+          assistantMessageId: recovery.assistantMessageId,
+          marker: responseMarker,
+          message: completion.message,
+        });
+      }
       const newCount = currentChatCount + 1;
 
       const { error: countUpdateError } = await supabaseAdmin
@@ -424,6 +598,7 @@ export async function POST(request: NextRequest) {
     let usage;
     let completionStatus;
     let finishReason;
+    let generatedModelName = '';
     try {
       const result = await generateCoachingText({
         systemPrompt,
@@ -434,6 +609,7 @@ export async function POST(request: NextRequest) {
       usage = result.usage;
       completionStatus = result.completionStatus;
       finishReason = result.finishReason;
+      generatedModelName = result.modelName;
       console.info(
         JSON.stringify({
           event: 'chat_nonstream_done',
@@ -467,7 +643,12 @@ export async function POST(request: NextRequest) {
     }
 
     // Increment daily chat count
-    const { remaining, limit } = await completeSuccessfulResponse();
+    const { remaining, limit } = await completeSuccessfulResponse(usage, {
+      message: assistantMessage,
+      completionStatus,
+      finishReason,
+      modelName: generatedModelName,
+    });
 
     return NextResponse.json({
       message: assistantMessage,
@@ -560,6 +741,7 @@ async function recordCoachingUsageEvent(params: {
     );
 
     if (insertResult.error) {
+      if (insertResult.error.code === '23505') return;
       throw new Error(`USAGE_AUDIT_FAILED: ${insertResult.error.message}`);
     }
   } catch (error) {
@@ -685,6 +867,34 @@ function validateRequestBody(input: unknown): {
     return { error: 'Invalid session ID' };
   }
 
+  const hasRequestId = body.requestId !== undefined;
+  const hasAssistantMessageId = body.assistantMessageId !== undefined;
+  if (hasRequestId !== hasAssistantMessageId) {
+    return {
+      error: 'requestId and assistantMessageId must be provided together',
+    };
+  }
+  if (
+    hasRequestId &&
+    (typeof body.requestId !== 'string' ||
+      !UUID_PATTERN.test(body.requestId))
+  ) {
+    return { error: 'Invalid request ID' };
+  }
+  if (
+    hasAssistantMessageId &&
+    (typeof body.assistantMessageId !== 'string' ||
+      !UUID_PATTERN.test(body.assistantMessageId))
+  ) {
+    return { error: 'Invalid assistant message ID' };
+  }
+  if (
+    hasRequestId &&
+    (!sessionId || body.requestId === body.assistantMessageId)
+  ) {
+    return { error: 'Invalid chat recovery identifiers' };
+  }
+
   return {
     body: {
       messages,
@@ -695,6 +905,12 @@ function validateRequestBody(input: unknown): {
         typeof body.sessionId === 'string' ? body.sessionId : undefined,
       session_id:
         typeof body.session_id === 'string' ? body.session_id : undefined,
+      requestId:
+        typeof body.requestId === 'string' ? body.requestId : undefined,
+      assistantMessageId:
+        typeof body.assistantMessageId === 'string'
+          ? body.assistantMessageId
+          : undefined,
     },
   };
 }

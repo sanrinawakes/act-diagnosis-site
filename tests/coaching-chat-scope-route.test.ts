@@ -269,4 +269,44 @@ describe('POST /api/chat scope guard', () => {
     }
   );
 
+  it('rejects an incomplete recovery identifier pair', async () => {
+    const request = new NextRequest('http://localhost/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sessionId: SESSION_ID,
+        requestId: '33333333-3333-4333-8333-333333333333',
+        messages: [{ role: 'user', content: '相談したいです。' }],
+        stream: true,
+      }),
+    });
+
+    const response = await POST(request);
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: 'requestId and assistantMessageId must be provided together',
+    });
+  });
+
+  it('rejects identical user and assistant message IDs', async () => {
+    const duplicateId = '33333333-3333-4333-8333-333333333333';
+    const request = new NextRequest('http://localhost/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sessionId: SESSION_ID,
+        requestId: duplicateId,
+        assistantMessageId: duplicateId,
+        messages: [{ role: 'user', content: '相談したいです。' }],
+        stream: true,
+      }),
+    });
+
+    const response = await POST(request);
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: 'Invalid chat recovery identifiers',
+    });
+  });
+
 });

@@ -26,6 +26,10 @@ import {
 } from '@/lib/client-attachments';
 import { readChatStream } from '@/lib/chat-stream-client';
 import {
+  connectChatWithRecovery,
+  getUserFacingChatError,
+} from '@/lib/chat-request-client';
+import {
   COACHING_HISTORY_PAGE_SIZE,
   COACHING_HISTORY_READ_TIMEOUT_MS,
   COACHING_HISTORY_RETRY_DELAYS_MS,
@@ -1105,6 +1109,7 @@ function CoachingContent() {
 
     let shouldPersistFallback = false;
     let assistantMessageId: string | null = null;
+    let responseMessageId: string | null = null;
     let assistantContent = '';
     let controller: AbortController | null = null;
     const sendStartedAt = Date.now();
@@ -1197,28 +1202,24 @@ function CoachingContent() {
 
       // クライアント側でも60秒で打ち切る。fetch開始からストリーム読み取り完了までを対象にし、
       // 途中で応答が止まっても「送信中…」が固着しないようにする。
-      controller = new AbortController();
+      responseMessageId = createMessageId();
       failureStage = 'connect_chat';
-      const response = await withTimeout(
-        fetch('/api/chat', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Accept: 'application/x-ndjson',
-          },
-          body: JSON.stringify({
-            sessionId: activeSessionId,
-            messages: apiMessages,
-            ...(diagnosisCode ? { diagnosisCode } : {}),
-            attachments: chatAttachments,
-            stream: true,
-          }),
-          signal: controller.signal,
-        }),
-        CHAT_RESPONSE_TIMEOUT_MS,
-        'AIへの接続に時間がかかりすぎました。もう一度お試しください。',
-        () => controller?.abort()
-      );
+      const connection = await connectChatWithRecovery({
+        body: {
+          sessionId: activeSessionId,
+          requestId: userMessage.id,
+          assistantMessageId: responseMessageId,
+          messages: apiMessages,
+          ...(diagnosisCode ? { diagnosisCode } : {}),
+          attachments: chatAttachments,
+          stream: true,
+        },
+        timeoutMs: CHAT_RESPONSE_TIMEOUT_MS,
+        timeoutMessage:
+          'AIへの接続に時間がかかりすぎました。もう一度お試しください。',
+      });
+      controller = connection.controller;
+      const response = connection.response;
 
       if (response.status === 429) {
         const data = await response.json();
@@ -1228,7 +1229,7 @@ function CoachingContent() {
         throw new Error(data.error || '本日の利用上限に達しました。');
       }
 
-      assistantMessageId = createMessageId();
+      assistantMessageId = responseMessageId;
       const assistantMessage: Message = {
         id: assistantMessageId,
         role: 'assistant',
@@ -1347,7 +1348,7 @@ function CoachingContent() {
         setMessages((prev) => [
           ...prev,
           {
-            id: (Date.now() + 2).toString(),
+            id: responseMessageId || createMessageId(),
             role: 'assistant',
             content: failContent,
             createdAt: new Date().toISOString(),
@@ -1357,7 +1358,7 @@ function CoachingContent() {
       // 失敗時もassistant行とセッション更新を保存し、再読込で履歴が消えたように見える状態を防ぐ。
       try {
         await persistChatMessage({
-          id: assistantMessageId || createMessageId(),
+          id: assistantMessageId || responseMessageId || createMessageId(),
           sessionId: activeSessionId,
           role: 'assistant',
           content: failContent,
@@ -1922,26 +1923,6 @@ function CoachingContent() {
       </div>
     </AuthGuard>
   );
-}
-
-function getUserFacingChatError(error: unknown) {
-  if (!(error instanceof Error) || !error.message) {
-    return '送信に失敗しました。入力内容は保存されています。少し待ってから、もう一度送信してください。';
-  }
-
-  if (/Unauthorized|ログインが必要/.test(error.message)) {
-    return 'ログイン状態を確認できませんでした。入力内容は保存されています。画面を再読み込みして、もう一度送信してください。';
-  }
-
-  if (/Failed to get response|Internal server error/.test(error.message)) {
-    return 'サーバーから回答を受け取れませんでした。入力内容は保存されています。少し待ってから、もう一度送信してください。';
-  }
-
-  if (/Invalid diagnosis code/.test(error.message)) {
-    return '診断情報を確認できませんでした。入力内容は保存されています。画面を再読み込みして、もう一度送信してください。';
-  }
-
-  return error.message;
 }
 
 export default function CoachingPage() {
