@@ -96,6 +96,24 @@ describe('connectChatWithRecovery', () => {
     expect(result.attempts).toBe(1);
     expect(fetchFn).toHaveBeenCalledTimes(1);
   });
+
+  it('stops after the configured number of transient-network retries', async () => {
+    const fetchFn = vi
+      .fn<typeof fetch>()
+      .mockRejectedValue(new TypeError('Failed to fetch'));
+
+    await expect(
+      connectChatWithRecovery({
+        body: requestBody,
+        timeoutMs: 1000,
+        timeoutMessage: 'timeout',
+        retryDelaysMs: [0, 0],
+        fetchFn,
+        delayFn: async () => {},
+      })
+    ).rejects.toThrow('Failed to fetch');
+    expect(fetchFn).toHaveBeenCalledTimes(3);
+  });
 });
 
 describe('getUserFacingChatError', () => {
