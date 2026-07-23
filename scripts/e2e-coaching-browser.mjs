@@ -387,6 +387,7 @@ async function testConnectionDropRecovery(page) {
       usageRows,
       profileCountBefore,
       profileCountAfter,
+      expectedChatConnectionFailures,
       telemetryBefore,
       telemetryAfter: clientErrorTelemetryRequests,
     })
