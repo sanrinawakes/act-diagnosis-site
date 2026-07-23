@@ -121,6 +121,36 @@ afterEach(() => {
 });
 
 describe('createJsonLineStream', () => {
+  it('ブラウザ側の接続が切れても回答生成と会話後処理を最後まで続ける', async () => {
+    const onDone = vi.fn().mockResolvedValue({ remaining: 49 });
+    const stream = createJsonLineStream({
+      systemPrompt: 'テスト用指示',
+      historyMessages: [],
+      lastUserParts: [{ text: '仕事について相談したいです。' }],
+      onDone,
+    });
+    const reader = stream.getReader();
+
+    const cancelPromise = reader.cancel('client disconnected');
+    state.releaseSecondChunk();
+    await cancelPromise;
+
+    await vi.waitFor(() => {
+      expect(onDone).toHaveBeenCalledTimes(1);
+    });
+    expect(onDone).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt_tokens: 10,
+        completion_tokens: 8,
+        total_tokens: 18,
+      }),
+      expect.objectContaining({
+        message: expect.any(String),
+        completionStatus: 'complete',
+      })
+    );
+  });
+
   it('生成途中の未検査文を送らず、最終検査後の本文だけを送る', async () => {
     const stream = createJsonLineStream({
       systemPrompt: 'テスト用指示',
@@ -169,6 +199,11 @@ describe('createJsonLineStream', () => {
       telemetry: {
         route: '/api/chat/test-provider-fallback',
         requestId: 'provider-fallback',
+        requestMessages: 1,
+        compactMessages: 1,
+        historyMessages: 0,
+        attachments: 0,
+        lastUserChars: 13,
       },
     });
     const responsePromise = new Response(stream).text();
@@ -303,6 +338,11 @@ describe('createJsonLineStream', () => {
       telemetry: {
         route: '/api/chat/test-local-fallback',
         requestId: 'local-fallback',
+        requestMessages: 1,
+        compactMessages: 1,
+        historyMessages: 0,
+        attachments: 0,
+        lastUserChars: 14,
       },
     });
     const text = await new Response(stream).text();

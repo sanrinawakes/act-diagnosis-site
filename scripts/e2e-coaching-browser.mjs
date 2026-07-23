@@ -39,6 +39,8 @@ const timings = [];
 const browserErrors = [];
 const generatedCoachingOutputs = [];
 const chatRequestPayloads = [];
+let expectedChatConnectionFailures = 0;
+let clientErrorTelemetryRequests = 0;
 let userId = null;
 let sessionId = null;
 let longHistorySessionId = null;
@@ -66,6 +68,7 @@ try {
   await testShiftEnter(desktopPage);
   await testDesktopEnterSend(desktopPage);
   await testSynchronousDoubleSendGuard(desktopPage);
+  await testConnectionDropRecovery(desktopPage);
   await testRepeatedConversation(desktopPage);
   await testReloadPersistence(desktopPage);
   await testIncompleteStreamRecovery(desktopPage);
@@ -316,6 +319,78 @@ async function testSynchronousDoubleSendGuard(page) {
     'PC: 同期的な二重クリックでもユーザー行は1件',
     result.userRows === 1,
     JSON.stringify(result)
+  );
+}
+
+async function testConnectionDropRecovery(page) {
+  const marker = `通信切断自動復旧-${runId}`;
+  const profileCountBefore = await getProfileChatCount();
+  const telemetryBefore = clientErrorTelemetryRequests;
+  expectedChatConnectionFailures += 1;
+
+  await page.route(
+    '**/api/chat',
+    async (route) => {
+      const upstream = await route.fetch();
+      await upstream.body();
+      await route.abort('connectionfailed');
+    },
+    { times: 1 }
+  );
+
+  await page
+    .locator('textarea')
+    .fill(`${marker}。通信が一度切れても回答を一度だけ保存してください。`);
+  await page.locator('button', { hasText: /^送信$/ }).click();
+  const result = await waitForCompletedTurn(marker, 70000);
+  await page.waitForFunction(
+    (text) => document.body.innerText.includes(text),
+    result.assistantContent.slice(0, 20),
+    { timeout: 30000 }
+  );
+
+  const payload = [...chatRequestPayloads]
+    .reverse()
+    .find((item) =>
+      item.messages?.some((message) => message.content?.includes(marker))
+    );
+  const { data: assistantRows, error: assistantError } = await admin
+    .from('chat_messages')
+    .select('id, role, content')
+    .eq('id', payload?.assistantMessageId || '')
+    .eq('session_id', sessionId);
+  if (assistantError) throw assistantError;
+
+  const { count: usageRows, error: usageError } = await admin
+    .from('coaching_usage_events')
+    .select('id', { count: 'exact', head: true })
+    .eq('request_id', payload?.requestId || '');
+  if (usageError) throw usageError;
+
+  const profileCountAfter = await getProfileChatCount();
+  const pageText = await page.locator('body').innerText();
+  addCheck(
+    '通信切断: 同じIDで自動再接続し回答生成・利用回数・監査を重複させない',
+    result.userRows === 1 &&
+      assistantRows?.length === 1 &&
+      assistantRows[0].role === 'assistant' &&
+      assistantRows[0].content === result.assistantContent &&
+      usageRows === 1 &&
+      profileCountAfter === profileCountBefore + 1 &&
+      expectedChatConnectionFailures === 0 &&
+      clientErrorTelemetryRequests === telemetryBefore &&
+      !pageText.includes('Failed to fetch'),
+    JSON.stringify({
+      result,
+      payload,
+      assistantRows,
+      usageRows,
+      profileCountBefore,
+      profileCountAfter,
+      expectedChatConnectionFailures,
+      telemetryBefore,
+      telemetryAfter: clientErrorTelemetryRequests,
+    })
   );
 }
 
@@ -650,6 +725,16 @@ async function countMessages(sid) {
   return count || 0;
 }
 
+async function getProfileChatCount() {
+  const { data, error } = await admin
+    .from('profiles')
+    .select('chat_count_today')
+    .eq('id', userId)
+    .single();
+  if (error) throw error;
+  return data.chat_count_today || 0;
+}
+
 async function latestConversationRows(sid, limit) {
   const { data, error } = await admin
     .from('chat_messages')
@@ -668,8 +753,22 @@ function collectBrowserErrors(page, label) {
   });
   page.on('requestfailed', (request) => {
     const failure = request.failure()?.errorText || '';
+    if (
+      expectedChatConnectionFailures > 0 &&
+      new URL(request.url()).pathname === '/api/chat'
+    ) {
+      expectedChatConnectionFailures -= 1;
+      return;
+    }
     if (!/ERR_ABORTED/.test(failure)) {
       browserErrors.push(`${label}: requestfailed: ${request.url()} ${failure}`);
+    }
+  });
+  page.on('request', (request) => {
+    if (
+      new URL(request.url()).pathname === '/api/monitor/coaching/client-error'
+    ) {
+      clientErrorTelemetryRequests += 1;
     }
   });
 }

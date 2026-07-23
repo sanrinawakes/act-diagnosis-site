@@ -315,11 +315,15 @@ export function createJsonLineStream(params: {
   systemPrompt: string;
   historyMessages: CoachingChatMessage[];
   lastUserParts: GeminiPart[];
-  onDone: (usage: CoachingUsage) => Promise<Record<string, unknown>>;
+  onDone: (
+    usage: CoachingUsage,
+    completion: CoachingCompletionDetails
+  ) => Promise<Record<string, unknown>>;
   telemetry?: CoachingTelemetry;
 }) {
   const encoder = new TextEncoder();
   const modelName = getCoachingGeminiModelName(params.lastUserParts);
+  let deliveryOpen = true;
 
   return new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -330,7 +334,12 @@ export function createJsonLineStream(params: {
       let generationFirstChunkMs: number | null = null;
 
       const write = (payload: Record<string, unknown>) => {
-        controller.enqueue(encoder.encode(`${JSON.stringify(payload)}\n`));
+        if (!deliveryOpen) return;
+        try {
+          controller.enqueue(encoder.encode(`${JSON.stringify(payload)}\n`));
+        } catch {
+          deliveryOpen = false;
+        }
       };
 
       const writeVerifiedChunk = (text: string) => {
@@ -346,7 +355,12 @@ export function createJsonLineStream(params: {
         if (immediateResponse) {
           fullText = immediateResponse.text;
           writeVerifiedChunk(fullText);
-          const finalization = await resolveDonePayload(params.onDone, {});
+          const finalization = await resolveDonePayload(params.onDone, {}, {
+            message: fullText,
+            completionStatus: 'complete',
+            finishReason: immediateResponse.finishReason,
+            modelName: immediateResponse.modelName,
+          });
           logChatTelemetry('done', params.telemetry, {
             modelName: immediateResponse.modelName,
             completionStatus: 'complete',
@@ -450,7 +464,12 @@ export function createJsonLineStream(params: {
             );
         const usage = getUsage(response);
         if (!emittedText) writeVerifiedChunk(fullText);
-        const finalization = await resolveDonePayload(params.onDone, usage);
+        const finalization = await resolveDonePayload(params.onDone, usage, {
+          message: fullText,
+          completionStatus,
+          finishReason,
+          modelName,
+        });
 
         logChatTelemetry(completionStatus === 'partial' ? 'partial_done' : 'done', params.telemetry, {
           modelName,
@@ -492,7 +511,14 @@ export function createJsonLineStream(params: {
             writeVerifiedChunk(fullText);
             const finalization = await resolveDonePayload(
               params.onDone,
-              externalFallback.usage
+              externalFallback.usage,
+              {
+                message: fullText,
+                completionStatus: 'complete',
+                finishReason: externalFallback.finishReason ?? undefined,
+                modelName: externalFallback.model,
+                provider: externalFallback.provider,
+              }
             );
             logChatTelemetry('fallback_done', params.telemetry, {
               modelName: externalFallback.model,
@@ -537,7 +563,11 @@ export function createJsonLineStream(params: {
             fullText += PARTIAL_STREAM_TIMEOUT_NOTICE;
           }
           if (!emittedText) writeVerifiedChunk(fullText);
-          const finalization = await resolveDonePayload(params.onDone, {});
+          const finalization = await resolveDonePayload(params.onDone, {}, {
+            message: fullText,
+            completionStatus: 'partial',
+            modelName,
+          });
           logChatTelemetry('partial_done', params.telemetry, {
             modelName,
             completionStatus: 'partial',
@@ -567,7 +597,12 @@ export function createJsonLineStream(params: {
           params.historyMessages
         );
         writeVerifiedChunk(fallbackText);
-        const finalization = await resolveDonePayload(params.onDone, {});
+        const finalization = await resolveDonePayload(params.onDone, {}, {
+          message: fallbackText,
+          completionStatus: 'fallback',
+          finishReason: 'LOCAL_FALLBACK',
+          modelName: 'local-fallback',
+        });
         logChatTelemetry('fallback_done', params.telemetry, {
           modelName: 'local-fallback',
           fallbackFrom: modelName,
@@ -593,11 +628,28 @@ export function createJsonLineStream(params: {
           ...finalization.payload,
         });
       } finally {
-        controller.close();
+        if (deliveryOpen) {
+          try {
+            controller.close();
+          } catch {
+            deliveryOpen = false;
+          }
+        }
       }
+    },
+    cancel() {
+      deliveryOpen = false;
     },
   });
 }
+
+export type CoachingCompletionDetails = {
+  message: string;
+  completionStatus: 'complete' | 'partial' | 'fallback';
+  finishReason?: string;
+  modelName: string;
+  provider?: string;
+};
 
 type CoachingStreamStatus =
   | 'done'
@@ -781,14 +833,18 @@ async function consumeGeminiStream(
 }
 
 async function resolveDonePayload(
-  onDone: (usage: CoachingUsage) => Promise<Record<string, unknown>>,
-  usage: CoachingUsage
+  onDone: (
+    usage: CoachingUsage,
+    completion: CoachingCompletionDetails
+  ) => Promise<Record<string, unknown>>,
+  usage: CoachingUsage,
+  completion: CoachingCompletionDetails
 ) {
   const startedAt = Date.now();
   try {
     return {
       payload: await withTimeout(
-        onDone(usage),
+        onDone(usage, completion),
         GEMINI_FINALIZE_TIMEOUT_MS,
         'CHAT_FINALIZE_TIMEOUT'
       ),
