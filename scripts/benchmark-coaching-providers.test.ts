@@ -888,7 +888,7 @@ function countQuestions(text: string) {
   const punctuation = (text.match(/[？?]/g) || []).length;
   const semantic = (
     text.match(
-      /(?:ですか|ますか|でしょうか|ませんか|何を|何が|どこ|いつ|誰|どう|どんな|どちら|なぜ|いかが)(?:[。！？?]|$)/g
+      /(?:(?:です|ます|でした|ました|でしょう|ません|ではない|だろう|なの|の|だった|べき)か|何を|何が|どこ|いつ|誰|どう|どんな|どちら|なぜ|いかが)(?:[。！？?]|$)/g
     ) || []
   ).length;
   return Math.max(punctuation, semantic);

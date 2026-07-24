@@ -839,6 +839,34 @@ describe('normalizeCoachingOutput', () => {
     expect(result).toContain('夫にまずどの行動を変えてほしいですか？');
   });
 
+  it('過去形の丁寧疑問文も質問として数え、最後の質問だけを残す', () => {
+    const result = normalizeCoachingOutput(
+      'スマホでの改行、しっかり届いています。\n\n仕事の着手について、何か少しでも進められそうなことは見つかりましたか。\n\n今の話の中で、いちばん見過ごしたくない本音は何ですか？',
+      'スマホ改行テスト\n二行目',
+      [
+        {
+          role: 'user',
+          content: '仕事を完璧にしようとして、なかなか着手できません。',
+        },
+      ]
+    );
+
+    expect(result).not.toContain('見つかりましたか');
+    expect(result).toContain(
+      '今の話の中で、いちばん見過ごしたくない本音は何ですか？'
+    );
+  });
+
+  it('「静か。」のように「か」で終わる通常文を質問と誤認しない', () => {
+    const result = normalizeCoachingOutput(
+      '相談できる部屋は静か。\n\n今いちばん相談したいことは何ですか？',
+      '少し相談したいです。'
+    );
+
+    expect(result).toContain('相談できる部屋は静か。');
+    expect(result).toContain('今いちばん相談したいことは何ですか？');
+  });
+
   it('本人が明言した怒りをもう一度確認せず、次の論点へ進む', () => {
     const result = normalizeCoachingOutput(
       '自分の時間を軽く扱われたようで腹が立ったのですね。\n\n今、一番強い怒りを感じているのでしょうか。',
