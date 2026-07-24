@@ -5,6 +5,7 @@ import {
   COACHING_MONITOR_STALE_AFTER_MS,
   failStaleCoachingMonitorRuns,
   persistCoachingMonitorRun,
+  recoverStaleCoachingMonitorRuns,
   updateCoachingMonitorAlertDelivery,
   type CoachingMonitorMetrics,
 } from '@/lib/coaching-monitor-runs';
@@ -267,5 +268,78 @@ describe('monitor run persistence', () => {
       'checked_at',
       '2026-07-21T07:58:00.000Z'
     );
+  });
+
+  it('retries a stale-run timeout without failing the monitor cycle', async () => {
+    const abortSignal = vi
+      .fn()
+      .mockRejectedValueOnce(
+        new Error('TimeoutError: The operation was aborted due to timeout')
+      )
+      .mockResolvedValueOnce({
+        data: [
+          {
+            id: 'bd945da2-a8ee-48da-8786-c95a1635b168',
+            checked_at: '2026-07-21T07:57:00.000Z',
+          },
+        ],
+        error: null,
+      });
+    const select = vi.fn(() => ({ abortSignal }));
+    const lt = vi.fn(() => ({ select }));
+    const eq = vi.fn(() => ({ lt }));
+    const update = vi.fn(() => ({ eq }));
+    const from = vi.fn(() => ({ update }));
+
+    const result = await recoverStaleCoachingMonitorRuns(
+      { from } as unknown as SupabaseClient,
+      {
+        now: new Date('2026-07-21T08:00:00.000Z'),
+        maxAttempts: 2,
+        retryDelayMs: 0,
+      }
+    );
+
+    expect(result).toEqual({
+      runs: [
+        {
+          id: 'bd945da2-a8ee-48da-8786-c95a1635b168',
+          checked_at: '2026-07-21T07:57:00.000Z',
+        },
+      ],
+      attempts: 2,
+      error: null,
+    });
+    expect(abortSignal).toHaveBeenCalledTimes(2);
+  });
+
+  it('reports repeated stale-run timeouts as maintenance without throwing', async () => {
+    const abortSignal = vi
+      .fn()
+      .mockRejectedValue(
+        new Error('TimeoutError: The operation was aborted due to timeout')
+      );
+    const select = vi.fn(() => ({ abortSignal }));
+    const lt = vi.fn(() => ({ select }));
+    const eq = vi.fn(() => ({ lt }));
+    const update = vi.fn(() => ({ eq }));
+    const from = vi.fn(() => ({ update }));
+
+    await expect(
+      recoverStaleCoachingMonitorRuns(
+        { from } as unknown as SupabaseClient,
+        {
+          now: new Date('2026-07-21T08:00:00.000Z'),
+          maxAttempts: 2,
+          retryDelayMs: 0,
+        }
+      )
+    ).resolves.toEqual({
+      runs: [],
+      attempts: 2,
+      error:
+        'stale coaching monitor recovery failed: TimeoutError: The operation was aborted due to timeout',
+    });
+    expect(abortSignal).toHaveBeenCalledTimes(2);
   });
 });

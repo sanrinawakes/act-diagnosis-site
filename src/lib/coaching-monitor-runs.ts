@@ -2,6 +2,8 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 
 export const COACHING_MONITOR_PATH = 'paid-cookie-auth-and-persistence';
 export const COACHING_MONITOR_STALE_AFTER_MS = 2 * 60 * 1000;
+export const COACHING_MONITOR_STALE_RECOVERY_ATTEMPTS = 2;
+export const COACHING_MONITOR_STALE_RECOVERY_RETRY_MS = 250;
 const MONITOR_PERSISTENCE_TIMEOUT_MS = 5000;
 
 export type CoachingMonitorMetrics = {
@@ -37,6 +39,12 @@ type MonitorRunStatus = 'running' | 'success' | 'failure';
 export type StaleCoachingMonitorRun = {
   id: string;
   checked_at: string;
+};
+
+export type StaleCoachingMonitorRecovery = {
+  runs: StaleCoachingMonitorRun[];
+  attempts: number;
+  error: string | null;
 };
 
 export type CoachingMonitorRunRecord = {
@@ -193,6 +201,47 @@ export async function failStaleCoachingMonitorRuns(
   }));
 }
 
+export async function recoverStaleCoachingMonitorRuns(
+  supabaseAdmin: SupabaseClient,
+  options: {
+    now?: Date;
+    maxAttempts?: number;
+    retryDelayMs?: number;
+  } = {}
+): Promise<StaleCoachingMonitorRecovery> {
+  const maxAttempts = Math.max(
+    1,
+    options.maxAttempts ?? COACHING_MONITOR_STALE_RECOVERY_ATTEMPTS
+  );
+  const retryDelayMs = Math.max(
+    0,
+    options.retryDelayMs ?? COACHING_MONITOR_STALE_RECOVERY_RETRY_MS
+  );
+  const now = options.now ?? new Date();
+  let lastError = 'unknown stale coaching monitor recovery failure';
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      return {
+        runs: await failStaleCoachingMonitorRuns(supabaseAdmin, now),
+        attempts: attempt,
+        error: null,
+      };
+    } catch (error) {
+      lastError = getErrorMessage(error);
+      if (attempt < maxAttempts && retryDelayMs > 0) {
+        await wait(retryDelayMs);
+      }
+    }
+  }
+
+  return {
+    runs: [],
+    attempts: maxAttempts,
+    error: lastError,
+  };
+}
+
 export async function updateCoachingMonitorAlertDelivery(
   supabaseAdmin: SupabaseClient,
   monitorRunIds: string[],
@@ -234,4 +283,8 @@ export async function updateCoachingMonitorAlertDelivery(
 
 function getErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
+}
+
+function wait(ms: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, ms));
 }
