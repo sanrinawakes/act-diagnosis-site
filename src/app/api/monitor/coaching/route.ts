@@ -6,8 +6,8 @@ import { sendCoachingAlert } from '@/lib/coaching-alerts';
 import {
   buildCoachingMonitorRunRecord,
   COACHING_MONITOR_PATH,
-  failStaleCoachingMonitorRuns,
   persistCoachingMonitorRun,
+  recoverStaleCoachingMonitorRuns,
   type StaleCoachingMonitorRun,
   updateCoachingMonitorAlertDelivery,
 } from '@/lib/coaching-monitor-runs';
@@ -78,6 +78,8 @@ export async function GET(request: NextRequest) {
   const checkedAt = new Date().toISOString();
   let monitorResult: MonitorResult | null = null;
   let staleMonitorRuns: StaleCoachingMonitorRun[] = [];
+  let staleRecoveryAttempts = 0;
+  let staleRecoveryError: string | null = null;
   const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
@@ -88,7 +90,6 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: authError }, { status: 401 });
     }
 
-    staleMonitorRuns = await failStaleCoachingMonitorRuns(supabaseAdmin);
     await persistCoachingMonitorRun(
       supabaseAdmin,
       buildCoachingMonitorRunRecord({
@@ -123,6 +124,11 @@ export async function GET(request: NextRequest) {
       })
     );
 
+    const staleRecovery = await recoverStaleCoachingMonitorRuns(supabaseAdmin);
+    staleMonitorRuns = staleRecovery.runs;
+    staleRecoveryAttempts = staleRecovery.attempts;
+    staleRecoveryError = staleRecovery.error;
+
     console.info(
       JSON.stringify({
         event: 'coaching_monitor_succeeded',
@@ -130,11 +136,22 @@ export async function GET(request: NextRequest) {
         monitorPath: COACHING_MONITOR_PATH,
         monitorRunId,
         checkedAt,
+        staleRecoveryAttempts,
+        staleRecoveryStatus: staleRecoveryError ? 'failed' : 'complete',
+        staleRecoveryError,
         ...monitorResult,
       })
     );
 
-    if (staleMonitorRuns.length > 0) {
+    if (staleRecoveryError) {
+      await notifyStaleRecoveryFailure({
+        supabaseAdmin,
+        monitorRunId,
+        attempts: staleRecoveryAttempts,
+        error: staleRecoveryError,
+        monitorResult,
+      });
+    } else if (staleMonitorRuns.length > 0) {
       await notifyStaleMonitorRuns({
         supabaseAdmin,
         staleMonitorRuns,
@@ -149,6 +166,11 @@ export async function GET(request: NextRequest) {
         checkedAt,
         elapsedMs,
         result: monitorResult,
+        maintenance: {
+          staleRecoveryAttempts,
+          staleRecoveryStatus: staleRecoveryError ? 'failed' : 'complete',
+          staleRecoveryError,
+        },
       },
       { headers: { 'Cache-Control': 'no-store' } }
     );
@@ -239,6 +261,63 @@ export async function GET(request: NextRequest) {
       { status: 500, headers: { 'Cache-Control': 'no-store' } }
     );
   }
+}
+
+async function notifyStaleRecoveryFailure(params: {
+  supabaseAdmin: SupabaseClient;
+  monitorRunId: string;
+  attempts: number;
+  error: string;
+  monitorResult: MonitorResult;
+}) {
+  const details = {
+    event: 'coaching_monitor_maintenance_failed',
+    route: '/api/monitor/coaching',
+    monitorPath: COACHING_MONITOR_PATH,
+    monitorRunId: params.monitorRunId,
+    attempts: params.attempts,
+    error: params.error,
+    userJourneyStatus: 'success',
+    httpStatus: params.monitorResult.status,
+    hasDone: params.monitorResult.hasDone,
+    completionStatus: params.monitorResult.completionStatus,
+    finalizationStatus: params.monitorResult.finalizationStatus,
+  };
+  console.error(JSON.stringify(details));
+
+  const alertDelivery = await sendCoachingAlert({
+    subject: '[ACTI Bot] 定期監視の記録整理で異常を検知しました',
+    summary:
+      '有料会員と同じAIコーチング経路は正常に完了しましたが、過去の監視記録を整理する補助処理が再試行後も完了しませんでした。利用者の会話エラーを検知した通知ではありません。',
+    details,
+  });
+
+  try {
+    await updateCoachingMonitorAlertDelivery(
+      params.supabaseAdmin,
+      [params.monitorRunId],
+      alertDelivery
+    );
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        event: 'coaching_monitor_maintenance_alert_persistence_failed',
+        monitorRunId: params.monitorRunId,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    );
+  }
+
+  console.info(
+    JSON.stringify({
+      event: 'coaching_monitor_maintenance_alert_delivery',
+      monitorRunId: params.monitorRunId,
+      accepted: alertDelivery.accepted,
+      status: alertDelivery.status || null,
+      resendId: alertDelivery.id || null,
+      reason: alertDelivery.reason || null,
+    })
+  );
 }
 
 async function notifyStaleMonitorRuns(params: {
