@@ -115,6 +115,18 @@ try {
     invalidOutputs.length === 0,
     JSON.stringify(invalidOutputs)
   );
+  const outputsWithMultipleQuestions = generatedCoachingOutputs
+    .map(({ label, content }) => ({
+      label,
+      content,
+      questions: countSemanticQuestions(content),
+    }))
+    .filter(({ questions }) => questions > 1);
+  addCheck(
+    'AI回答: 利用者へ返す質問は最大1つ',
+    outputsWithMultipleQuestions.length === 0,
+    JSON.stringify(outputsWithMultipleQuestions)
+  );
 
   const failed = checks.filter((check) => !check.passed);
   console.log(
@@ -854,6 +866,25 @@ function crc32(buffer) {
 
 function addCheck(name, passed, detail = '') {
   checks.push({ name, passed: Boolean(passed), detail });
+}
+
+function countSemanticQuestions(text) {
+  const unquoted = text.replace(/「[^」]*」|『[^』]*』/g, '');
+  const segments = unquoted.match(/[^。！？?\n]+[。！？?]?|\n+/g) || [];
+  return segments.reduce((total, segment) => {
+    const trimmed = segment.trim();
+    if (!trimmed) return total;
+    const questionMarks = (trimmed.match(/[？?]/g) || []).length;
+    const isQuestion =
+      questionMarks > 0 ||
+      /(?:です|ます|でした|ました|でしょう|ません|ではない|だろう|なの|の|だった|べき)か[。]?$/.test(
+        trimmed
+      ) ||
+      /(?:教えて|聞かせて|答えて|話して)(?:ください|もらえますか)[。]?$/.test(
+        trimmed
+      );
+    return total + (isQuestion ? Math.max(1, questionMarks) : 0);
+  }, 0);
 }
 
 async function cleanup() {

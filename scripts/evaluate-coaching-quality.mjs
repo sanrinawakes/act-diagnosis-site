@@ -1898,7 +1898,9 @@ function asksForMultipleAnswerDimensions(text) {
     const trimmed = segment.trim();
     const isQuestion =
       /[？?]/.test(trimmed) ||
-      /(?:です|ます|でしょう|ません)か[。]?$/.test(trimmed) ||
+      /(?:です|ます|でした|ました|でしょう|ません|ではない|だろう|なの|の|だった|べき)か[。]?$/.test(
+        trimmed
+      ) ||
       /(?:教えて|聞かせて|答えて|話して)(?:ください|もらえますか)[。]?$/.test(
         trimmed
       );
@@ -1974,7 +1976,9 @@ function countSemanticQuestions(text) {
     if (
       !questionIsQuoted &&
       (/[？?]/.test(trimmed) ||
-        /(?:です|ます|でしょう|ません)か[。]?$/.test(trimmed) ||
+        /(?:です|ます|でした|ました|でしょう|ません|ではない|だろう|なの|の|だった|べき)か[。]?$/.test(
+          trimmed
+        ) ||
         /(?:教えて|聞かせて|答えて|話して)(?:ください|もらえますか)[。]?$/.test(
           trimmed
         ))
@@ -2000,7 +2004,9 @@ function countCoachingMoves(text) {
     if (!trimmed) return total;
     const isQuestion =
       /[？?]/.test(trimmed) ||
-      /(?:です|ます|でしょう|ません)か[。]?$/.test(trimmed) ||
+      /(?:です|ます|でした|ました|でしょう|ません|ではない|だろう|なの|の|だった|べき)か[。]?$/.test(
+        trimmed
+      ) ||
       /(?:教えて|聞かせて|答えて|話して)(?:ください|もらえますか)[。]?$/.test(
         trimmed
       );

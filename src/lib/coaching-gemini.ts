@@ -1653,11 +1653,8 @@ export function normalizeCoachingOutput(
   const segments = paragraphs
     .join('\n\n')
     .match(/[^。！？?\n]+[。！？?]?|\n+/g) || [];
-  let questions = 0;
   let quoteDepth = 0;
-  const keptSegments: string[] = [];
-
-  segments.forEach((segment) => {
+  const segmentMetadata = segments.map((segment) => {
     const opens = countMatches(segment, /[「『]/g);
     const closes = countMatches(segment, /[」』]/g);
     const questionIsQuoted =
@@ -1667,17 +1664,42 @@ export function normalizeCoachingOutput(
       isQuestionSegment(segment) && !questionIsQuoted
         ? Math.max(1, countMatches(segment, /[？?]/g))
         : 0;
-    const withinLimit =
-      questionCount === 0 || questions + questionCount <= questionLimit;
-
-    if (withinLimit) {
-      keptSegments.push(segment);
-      questions += questionCount;
-    }
     quoteDepth = Math.max(0, quoteDepth + opens - closes);
+    return {
+      segment,
+      questionCount,
+      isGenericProgressCheck: isGenericProgressCheckQuestion(segment),
+    };
   });
 
-  const normalized = keptSegments
+  const questionIndexesToKeep = new Set<number>();
+  let keptQuestionCount = 0;
+  const questionCandidateIndexes = segmentMetadata
+    .map(({ questionCount }, index) => (questionCount > 0 ? index : -1))
+    .filter((index) => index >= 0)
+    .sort((left, right) => {
+      const genericDifference =
+        Number(segmentMetadata[left].isGenericProgressCheck) -
+        Number(segmentMetadata[right].isGenericProgressCheck);
+      return genericDifference || left - right;
+    });
+  for (const index of questionCandidateIndexes) {
+    const { questionCount } = segmentMetadata[index];
+    if (
+      questionCount > 0 &&
+      keptQuestionCount + questionCount <= questionLimit
+    ) {
+      questionIndexesToKeep.add(index);
+      keptQuestionCount += questionCount;
+    }
+  }
+
+  const normalized = segmentMetadata
+    .filter(
+      ({ questionCount }, index) =>
+        questionCount === 0 || questionIndexesToKeep.has(index)
+    )
+    .map(({ segment }) => segment)
     .join('')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
@@ -2963,10 +2985,18 @@ function isQuestionSegment(segment: string) {
   const trimmed = segment.trim();
   return (
     /[？?]/.test(trimmed) ||
-    /(?:です|ます|でしょう|ません)か[。]?$/.test(trimmed) ||
+    /(?:です|ます|でした|ました|でしょう|ません|ではない|だろう|なの|の|だった|べき)か[。]?$/.test(
+      trimmed
+    ) ||
     /(?:教えて|聞かせて|答えて|話して)(?:ください|もらえますか)[。]?$/.test(
       trimmed
     )
+  );
+}
+
+function isGenericProgressCheckQuestion(segment: string) {
+  return /(?:何か|少しでも)[^。！？?\n]{0,100}(?:見つかりました|できました|進められました|変わりました|気づきました)か[。]?$/.test(
+    segment.trim()
   );
 }
 
@@ -3121,7 +3151,9 @@ function rewriteCompoundAnswerQuestions(text: string, lastUserText: string) {
           /(?:一つずつ|それぞれ)[^。！？?\n]{0,40}(?:聞かせ|教えて|答えて)/.test(
             part
           )) &&
-        /[？?]|(?:です|ます|でしょう|ません)か[。]?$/.test(part.trim())
+        /[？?]|(?:です|ます|でした|ました|でしょう|ません|ではない|だろう|なの|の|だった|べき)か[。]?$/.test(
+          part.trim()
+        )
       ) {
         replaced = true;
         return buildSingleFocusQuestion(lastUserText);
