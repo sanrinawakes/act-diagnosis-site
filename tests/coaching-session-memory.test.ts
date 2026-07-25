@@ -75,7 +75,7 @@ describe('shouldRefreshSessionMemory', () => {
 });
 
 describe('buildCoachingSessionContext', () => {
-  it('長期履歴の要約作成を返信前に待たず、完了後の処理へ渡す', async () => {
+  it('初回の長期履歴は返信前の文脈へ含め、DB保存だけ完了後へ渡す', async () => {
     const sessionId = '22222222-2222-4222-8222-222222222222';
     const recentMessages = Array.from({ length: 24 }, (_, index) => ({
       role: index % 2 === 0 ? 'user' : 'assistant',
@@ -84,7 +84,10 @@ describe('buildCoachingSessionContext', () => {
     }));
     const sourceMessages = Array.from({ length: 57 }, (_, index) => ({
       role: index % 2 === 0 ? 'user' : 'assistant',
-      content: `要約対象メッセージ${index + 1}`,
+      content:
+        index === 44
+          ? '大切にしている猫の名前はミントです。'
+          : `要約対象メッセージ${index + 1}`,
       created_at: new Date(1_699_000_000_000 + index * 1000).toISOString(),
     }));
     const sessionQuery = createAwaitableQuery({
@@ -136,22 +139,122 @@ describe('buildCoachingSessionContext', () => {
 
     expect(result).toMatchObject({
       totalStoredMessages: 81,
-      memoryUsed: false,
+      memoryUsed: true,
       memoryRefreshed: false,
       memoryRefreshScheduled: true,
-      memoryCoveredMessages: null,
+      memoryCoveredMessages: 57,
     });
+    expect(result.messages[0].content).toContain('ミント');
     expect(scheduleMemoryRefresh).toHaveBeenCalledTimes(1);
-    expect(sourceQuery.range).not.toHaveBeenCalled();
+    expect(recentQuery.limit).toHaveBeenCalledWith(32);
+    expect(sourceQuery.range).toHaveBeenCalledWith(0, 56);
     expect(writeQuery.insert).not.toHaveBeenCalled();
 
     await scheduledTask!();
 
-    expect(sourceQuery.range).toHaveBeenCalledWith(0, 56);
     expect(writeQuery.insert).toHaveBeenCalledWith(
       expect.objectContaining({
         session_id: sessionId,
         role: 'system',
+        content: expect.stringContaining('ACTI_SESSION_MEMORY_V1'),
+      })
+    );
+  });
+
+  it('保存済み要約から押し出された直後の一件を返信前に補完する', async () => {
+    const sessionId = '33333333-3333-4333-8333-333333333333';
+    const loadedMessages = Array.from({ length: 32 }, (_, index) => {
+      const storedIndex = 49 + index;
+      return {
+        role: storedIndex % 2 === 0 ? 'user' : 'assistant',
+        content:
+          storedIndex === 56
+            ? '毎月の支払い日は25日です。'
+            : `保存メッセージ${storedIndex + 1}`,
+        created_at: new Date(
+          1_700_000_000_000 + storedIndex * 1000
+        ).toISOString(),
+      };
+    });
+    const sourceMessages = Array.from({ length: 57 }, (_, index) => ({
+      role: index % 2 === 0 ? 'user' : 'assistant',
+      content:
+        index === 56
+          ? '毎月の支払い日は25日です。'
+          : `要約対象メッセージ${index + 1}`,
+      created_at: new Date(1_699_000_000_000 + index * 1000).toISOString(),
+    }));
+    const memoryContent = `ACTI_SESSION_MEMORY_V1\n${JSON.stringify({
+      version: 1,
+      generatedAt: '2026-07-25T00:00:00.000Z',
+      coveredMessageCount: 56,
+      summary: '以前の会話の要約です。',
+    })}`;
+    const sessionQuery = createAwaitableQuery({
+      data: { id: sessionId },
+      error: null,
+    });
+    const countQuery = createAwaitableQuery({
+      data: null,
+      error: null,
+      count: 81,
+    });
+    const memoryQuery = createAwaitableQuery({
+      data: [{ id: 'memory-row-id', content: memoryContent }],
+      error: null,
+    });
+    const recentQuery = createAwaitableQuery({
+      data: loadedMessages.slice().reverse(),
+      error: null,
+    });
+    const sourceQuery = createAwaitableQuery({
+      data: sourceMessages,
+      error: null,
+    });
+    const writeQuery = createAwaitableQuery({ data: null, error: null });
+    const chatQueries = [
+      countQuery,
+      memoryQuery,
+      recentQuery,
+      sourceQuery,
+      writeQuery,
+    ];
+    const from = vi.fn((table: string) => {
+      if (table === 'chat_sessions') return sessionQuery;
+      if (table === 'chat_messages') {
+        const query = chatQueries.shift();
+        if (query) return query;
+      }
+      throw new Error(`Unexpected table call: ${table}`);
+    });
+    let scheduledTask: (() => Promise<void>) | null = null;
+
+    const result = await buildCoachingSessionContext({
+      supabaseAdmin: { from } as unknown as SupabaseClient,
+      sessionId,
+      userId: '11111111-1111-4111-8111-111111111111',
+      requestMessages: [{ role: 'user', content: '支払い日は何日ですか？' }],
+      scheduleMemoryRefresh: (task) => {
+        scheduledTask = task;
+      },
+    });
+
+    expect(result).toMatchObject({
+      totalStoredMessages: 81,
+      memoryUsed: true,
+      memoryRefreshed: false,
+      memoryRefreshScheduled: true,
+      memoryCoveredMessages: 57,
+    });
+    expect(result.messages[0].content).toContain('25日');
+    expect(sourceQuery.range).not.toHaveBeenCalled();
+    expect(writeQuery.update).not.toHaveBeenCalled();
+
+    await scheduledTask!();
+
+    expect(sourceQuery.range).toHaveBeenCalledWith(0, 56);
+    expect(writeQuery.update).toHaveBeenCalledWith(
+      expect.objectContaining({
         content: expect.stringContaining('ACTI_SESSION_MEMORY_V1'),
       })
     );
