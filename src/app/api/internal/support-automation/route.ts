@@ -21,6 +21,7 @@ import {
   hasSupportReplyIdempotencyKey,
   splitSupportMessage,
 } from '@/lib/support-reply-log';
+import { extractSupportInboundCustomerMessages } from '@/lib/support-inbound';
 import { deliverSupportDecisionRequest } from '@/lib/server/support-decision-email';
 import { deliverSupportReply } from '@/lib/server/support-email';
 
@@ -80,8 +81,8 @@ export async function GET(request: NextRequest) {
       .from('support_tickets')
       .select('*')
       .in('status', ['open', 'in_progress'])
-      .gte('created_at', createdAfter)
-      .order('created_at', { ascending: true })
+      .gte('updated_at', createdAfter)
+      .order('updated_at', { ascending: true })
       .limit(100);
 
     if (error) throw error;
@@ -522,7 +523,7 @@ async function replyToTicket(
   const policy = evaluateSupportAutomationPolicy({
     category: ticket.category,
     subject: ticket.subject,
-    message: parsedMessage.customerMessage,
+    message: buildSupportCustomerPolicyMessage(parsedMessage),
   });
   const decisionState = getSupportDecisionState(
     ticket.message || '',
@@ -666,7 +667,7 @@ async function enrichTicketContext(
   const policy = evaluateSupportAutomationPolicy({
     category: ticket.category,
     subject: ticket.subject,
-    message: parsed.customerMessage,
+    message: buildSupportCustomerPolicyMessage(parsed),
   });
   const decision = getSupportDecisionState(ticket.message || '', ticket.id);
 
@@ -775,6 +776,17 @@ function isUuid(value: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
     value
   );
+}
+
+function buildSupportCustomerPolicyMessage(
+  parsed: ReturnType<typeof splitSupportMessage>
+) {
+  return [
+    parsed.customerMessage,
+    ...extractSupportInboundCustomerMessages(parsed.replyLog),
+  ]
+    .filter(Boolean)
+    .join('\n\n');
 }
 
 function validateClaimOwnership(ticket: SupportTicket, runId: string) {

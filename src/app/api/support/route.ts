@@ -15,6 +15,7 @@ import {
   buildSupportEmailIdempotencyKey,
   deliverSupportReply,
 } from '@/lib/server/support-email';
+import { buildSupportReceiptMessage } from '@/lib/support-receipt';
 
 export const runtime = 'nodejs';
 
@@ -264,17 +265,10 @@ ${attachmentText}
         adminClient: supabase,
         ticketId: ticket.id,
         subject: `【ACTI】お問い合わせを受け付けました`,
-        message: [
-          `${name} 様`,
-          '',
-          'ACTIへお問い合わせいただき、ありがとうございます。',
-          `受付番号は ${ticket.id} です。`,
-          '',
-          '内容と利用状況を確認し、必要な場合はシステムの調査・修正・本番確認まで行ったうえで、このメールアドレスへご連絡します。',
-          '追加情報が必要な場合は、こちらからご連絡します。',
-          '',
-          'ACTI サポート',
-        ].join('\n'),
+        message: buildSupportReceiptMessage({
+          name,
+          ticketId: ticket.id,
+        }),
         senderLabel: 'ACTI自動受付',
         idempotencyKey: buildSupportEmailIdempotencyKey({
           ticketId: ticket.id,

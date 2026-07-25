@@ -61,6 +61,9 @@ export default function AdminSupportPage() {
   const selectedCustomerMessage =
     selectedMessage?.customerMessage || selectedTicket?.message || '';
   const parsedCustomerMessage = parseAttachmentMarkdown(selectedCustomerMessage);
+  const parsedReplyHistory = parseAttachmentMarkdown(
+    selectedMessage?.replyLog || ''
+  );
 
   useEffect(() => {
     fetchTickets();
@@ -360,8 +363,30 @@ export default function AdminSupportPage() {
                           </h3>
                           <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                             <pre className="text-xs text-gray-900 whitespace-pre-wrap font-sans">
-                              {selectedMessage.replyLog}
+                              {parsedReplyHistory.text}
                             </pre>
+                            {parsedReplyHistory.attachments.length > 0 && (
+                              <div className="mt-4 grid grid-cols-2 gap-3">
+                                {parsedReplyHistory.attachments.map((attachment) => (
+                                  <a
+                                    key={attachment.url}
+                                    href={attachment.url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="block overflow-hidden rounded-lg border border-blue-200 bg-white"
+                                  >
+                                    <img
+                                      src={attachment.url}
+                                      alt={attachment.label || '返信の添付画像'}
+                                      className="h-36 w-full object-cover"
+                                    />
+                                    <span className="block truncate px-2 py-1 text-xs text-gray-600">
+                                      {attachment.label || '返信の添付画像'}
+                                    </span>
+                                  </a>
+                                ))}
+                              </div>
+                            )}
                           </div>
                         </div>
                       )}
