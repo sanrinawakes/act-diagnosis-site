@@ -2105,11 +2105,48 @@ function hasVagueCoachingMetaphor(text: string) {
   );
 }
 
+function hasIncompleteEnumeratedChoiceList(text: string) {
+  const numberedChoices = [
+    ...text.matchAll(/(?:^|\n)\s*([1-9]\d*)[.．、)](?!\d)\s*\S/g),
+  ].map((match) => Number(match[1]));
+
+  if (
+    numberedChoices.length > 0 &&
+    (numberedChoices[0] !== 1 ||
+      numberedChoices.some(
+        (value, index) =>
+          index > 0 && value !== numberedChoices[index - 1] + 1
+      ))
+  ) {
+    return true;
+  }
+
+  const asksToChooseFromList =
+    /(?:以下|下記|次)(?:の)?(?:中)?(?:から|より)[^。！？?\n]{0,60}(?:一つ|ひとつ|1つ|選ん|選び|近い|当てはま)/.test(
+      text
+    );
+  if (!asksToChooseFromList) return false;
+
+  const bulletChoices = (
+    text.match(/(?:^|\n)\s*(?:[-・●▪︎◦]|[①-⑳])\s*\S/g) || []
+  ).length;
+  const hasInlinePair =
+    /[「『][^」』\n]{1,50}[」』]\s*(?:と|か|または|もしくは)\s*[「『][^」』\n]{1,50}[」』]/.test(
+      text
+    );
+
+  return (
+    numberedChoices.length < 2 && bulletChoices < 2 && !hasInlinePair
+  );
+}
+
 function hasDanglingChoiceReference(
   text: string,
   lastUserText = '',
   historyMessages: CoachingChatMessage[] = []
 ) {
+  if (hasIncompleteEnumeratedChoiceList(text)) return true;
+
   const referencesChoice =
     /(?:この|その)どちら|どちらに(?:分類|当てはま|近い)|どちらを(?:選|優先|取)|どちらが(?:近い|よい|良い)/.test(
       text
@@ -2604,6 +2641,14 @@ export function normalizeCoachingOutput(
   );
   const singleAnswerSafe = balanced;
 
+  if (hasIncompleteEnumeratedChoiceList(singleAnswerSafe)) {
+    const substantiveFallback = buildSubstantiveShortFallback(lastUserText);
+    return (
+      substantiveFallback ||
+      buildClosingCoachingQuestion(lastUserText, historyMessages)
+    );
+  }
+
   if (requestsOnePhraseAnswer(lastUserText)) {
     const shortAnswer = requestsDirectWording(lastUserText)
       ? selectSingleAnswerBlock(
@@ -2836,6 +2881,7 @@ async function generateGeminiQualityRepair(params: {
       '次の質問または提案は一つだけにしてください。番号付きで複数案を並べないでください。',
       '「絡まった糸を解きほぐす」「心の霧」のような比喩を使わず、誰が何をどうするのかを具体的に書いてください。',
       '本文で二つの選択肢を明示していない時に、「どちら」「この二つ」と参照しないでください。',
+      '「以下から一つ選ぶ」と案内しながら選択肢を一件だけ出したり、番号を2から始めたりしないでください。選択式にせず、必要なことを一問だけ直接尋ねてください。',
       '利用者が挙げていない原因を「環境要因」「個人要因」などに分類しないでください。情報が足りない時は、実際に起きた出来事を一つだけ具体的に尋ねてください。',
       '「今の状況」「まだ解決していないこと」「最初の一歩」のように、利用者が対象を決め直さないと実行できない提案をしないでください。',
       '支払い・契約の相談では、契約上可能か確認していない手続きを断定せず、生活費を一方的に止める提案もしないでください。',

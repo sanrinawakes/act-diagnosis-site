@@ -536,6 +536,53 @@ describe('assessCoachingResponseQuality', () => {
     expect(result.issues).toContain('dangling_choice_reference');
   });
 
+  it('選択肢が2番だけ表示された不完全な選択式回答を不合格にする', () => {
+    const result = assessCoachingResponseQuality({
+      text:
+        '仕事のことで落ち込んでいるんですね。\n\n頭の中を少しずつ整理するために、今一番気になっている出来事を、以下の中から一つだけ聞かせてもらえますか。\n\n2. 周囲の人との人間関係やコミュニケーション',
+      lastUserText:
+        '仕事のことで少し落ち込んでいます。短く整理を手伝ってください。',
+      historyMessages: [],
+    });
+
+    expect(result.issues).toContain('dangling_choice_reference');
+  });
+
+  it('不完全な選択式回答を利用者へ出さず具体的な一問へ置き換える', () => {
+    const normalized = normalizeCoachingOutput(
+      '仕事のことで落ち込んでいるんですね。\n\n頭の中を少しずつ整理するために、今一番気になっている出来事を、以下の中から一つだけ聞かせてもらえますか。\n\n2. 周囲の人との人間関係やコミュニケーション',
+      '仕事のことで少し落ち込んでいます。短く整理を手伝ってください。',
+      []
+    );
+
+    expect(normalized).toBe(
+      '仕事のことで少し落ち込んでいるのですね。原因を決めつけず、まず落ち込むきっかけになった出来事を一つ確認します。\n\n仕事で、今いちばん気になっている出来事は何ですか？'
+    );
+    expect(normalized).not.toMatch(/以下の中から|(?:^|\n)\s*2[.．、)]/);
+  });
+
+  it('番号が途中で飛んだ選択式回答を不合格にする', () => {
+    const result = assessCoachingResponseQuality({
+      text:
+        '今一番気になるものを選んでください。\n\n1. 仕事内容\n3. 周囲との人間関係',
+      lastUserText: '仕事のことで悩んでいます。',
+      historyMessages: [],
+    });
+
+    expect(result.issues).toContain('dangling_choice_reference');
+  });
+
+  it('1番から連続する二つの選択肢は番号欠落と判定しない', () => {
+    const result = assessCoachingResponseQuality({
+      text:
+        '以下の中から一つ選んでください。\n\n1. 仕事内容\n2. 周囲との人間関係',
+      lastUserText: '二つの選択肢を示してください。',
+      historyMessages: [],
+    });
+
+    expect(result.issues).not.toContain('dangling_choice_reference');
+  });
+
   it('利用者が挙げていない環境要因と個人要因の分類を不合格にする', () => {
     const result = assessCoachingResponseQuality({
       text:
