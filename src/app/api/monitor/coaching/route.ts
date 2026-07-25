@@ -6,6 +6,7 @@ import { sendCoachingAlert } from '@/lib/coaching-alerts';
 import {
   buildCoachingMonitorRunRecord,
   COACHING_MONITOR_PATH,
+  findRecentAcceptedMonitorFailureAlert,
   persistCoachingMonitorRun,
   recoverStaleCoachingMonitorRuns,
   type StaleCoachingMonitorRun,
@@ -215,12 +216,57 @@ export async function GET(request: NextRequest) {
     };
 
     console.error(JSON.stringify(details));
-    const alertDelivery = await sendCoachingAlert({
-      subject: '[ACTI Bot] 定期監視で異常を検知しました',
-      summary:
-        '有料会員と同じログインCookie・履歴保存・AI送信・返信保存の定期監視で異常を検知しました。',
-      details,
-    });
+    const deploymentCommit =
+      process.env.VERCEL_GIT_COMMIT_SHA?.trim() || null;
+    let duplicateAlert = null;
+    if (monitorPersisted && deploymentCommit) {
+      try {
+        duplicateAlert = await findRecentAcceptedMonitorFailureAlert(
+          supabaseAdmin,
+          {
+            error: rootError,
+            checkedAt,
+            excludeRunId: monitorRunId,
+            deploymentCommit,
+          }
+        );
+      } catch (dedupeError) {
+        console.error(
+          JSON.stringify({
+            event: 'coaching_monitor_alert_dedupe_failed',
+            monitorRunId,
+            error:
+              dedupeError instanceof Error
+                ? dedupeError.message
+                : String(dedupeError),
+          })
+        );
+      }
+    }
+
+    const alertDelivery = duplicateAlert
+      ? {
+          accepted: false,
+          reason: `duplicate suppressed; previous monitor run ${duplicateAlert.id}`,
+        }
+      : await sendCoachingAlert({
+          subject: '[ACTI Bot] 定期監視で異常を検知しました',
+          summary:
+            '有料会員と同じログインCookie・履歴保存・AI送信・返信保存の定期監視で異常を検知しました。',
+          details,
+        });
+    if (duplicateAlert) {
+      console.warn(
+        JSON.stringify({
+          event: 'coaching_monitor_alert_suppressed',
+          monitorRunId,
+          previousMonitorRunId: duplicateAlert.id,
+          previousCheckedAt: duplicateAlert.checkedAt,
+          previousResendId: duplicateAlert.resendId,
+          error: rootError,
+        })
+      );
+    }
     if (monitorPersisted) {
       try {
         await updateCoachingMonitorAlertDelivery(supabaseAdmin, [
@@ -258,6 +304,8 @@ export async function GET(request: NextRequest) {
         elapsedMs: Date.now() - startedAt,
         error: details.error,
         alertAccepted: alertDelivery.accepted,
+        alertSuppressed: Boolean(duplicateAlert),
+        previousAlertMonitorRunId: duplicateAlert?.id || null,
       },
       { status: 500, headers: { 'Cache-Control': 'no-store' } }
     );

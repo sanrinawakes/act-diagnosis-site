@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   createSsrClient: vi.fn(),
   persistMonitorRun: vi.fn(),
   recoverStaleRuns: vi.fn(),
+  findRecentAcceptedFailureAlert: vi.fn(),
   updateAlertDelivery: vi.fn(),
   sendAlert: vi.fn(),
   assertHealthy: vi.fn(),
@@ -27,6 +28,8 @@ vi.mock('../src/lib/coaching-monitor-runs', async (importOriginal) => {
     ...actual,
     persistCoachingMonitorRun: mocks.persistMonitorRun,
     recoverStaleCoachingMonitorRuns: mocks.recoverStaleRuns,
+    findRecentAcceptedMonitorFailureAlert:
+      mocks.findRecentAcceptedFailureAlert,
     updateCoachingMonitorAlertDelivery: mocks.updateAlertDelivery,
   };
 });
@@ -55,6 +58,7 @@ describe('GET /api/monitor/coaching maintenance isolation', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.stubEnv('CRON_SECRET', 'monitor-test-secret');
+    vi.stubEnv('VERCEL_GIT_COMMIT_SHA', 'current-deployment-sha');
 
     const adminClient = createAdminClient();
     const userClient = createUserClient();
@@ -95,6 +99,7 @@ describe('GET /api/monitor/coaching maintenance isolation', () => {
       }
     );
     mocks.persistMonitorRun.mockResolvedValue('monitor-run-id');
+    mocks.findRecentAcceptedFailureAlert.mockResolvedValue(null);
     mocks.recoverStaleRuns.mockResolvedValue({
       runs: [],
       attempts: 2,
@@ -235,6 +240,71 @@ describe('GET /api/monitor/coaching maintenance isolation', () => {
       status: 'failure',
       error: expect.stringContaining('paid coaching monitor failed 503'),
     });
+  });
+
+  it('suppresses the same accepted failure alert for one deployment during the cooldown', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response('provider unavailable', { status: 503 })
+      )
+    );
+    mocks.findRecentAcceptedFailureAlert.mockResolvedValue({
+      id: 'previous-monitor-run-id',
+      checkedAt: '2026-07-25T09:01:12.003Z',
+      resendId: 'previous-resend-id',
+    });
+
+    const response = await GET(createMonitorRequest());
+    const body = await response.json();
+
+    expect(response.status).toBe(500);
+    expect(body).toMatchObject({
+      ok: false,
+      alertAccepted: false,
+      alertSuppressed: true,
+      previousAlertMonitorRunId: 'previous-monitor-run-id',
+    });
+    expect(mocks.findRecentAcceptedFailureAlert).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        error: expect.stringContaining('paid coaching monitor failed 503'),
+        deploymentCommit: 'current-deployment-sha',
+      })
+    );
+    expect(mocks.sendAlert).not.toHaveBeenCalled();
+    expect(mocks.updateAlertDelivery).toHaveBeenCalledWith(
+      expect.anything(),
+      [expect.any(String)],
+      expect.objectContaining({
+        accepted: false,
+        reason: expect.stringContaining('previous-monitor-run-id'),
+      })
+    );
+  });
+
+  it('still sends the failure alert when duplicate detection is unavailable', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response('provider unavailable', { status: 503 })
+      )
+    );
+    mocks.findRecentAcceptedFailureAlert.mockRejectedValue(
+      new Error('monitor database temporarily unavailable')
+    );
+
+    const response = await GET(createMonitorRequest());
+    const body = await response.json();
+
+    expect(response.status).toBe(500);
+    expect(body).toMatchObject({
+      ok: false,
+      alertAccepted: true,
+      alertSuppressed: false,
+      previousAlertMonitorRunId: null,
+    });
+    expect(mocks.sendAlert).toHaveBeenCalledTimes(1);
   });
 });
 
