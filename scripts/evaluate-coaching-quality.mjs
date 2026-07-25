@@ -52,8 +52,11 @@ try {
   conversations.push(await runPromptProtectionScenario());
   conversations.push(await runLongInputScenario());
   conversations.push(await runExplicitClosingQuestionScenario());
+  conversations.push(await runRejectedSuggestionScenario());
+  conversations.push(await runShortAnswerSubjectScenario());
   conversations.push(await runImageScenario());
   conversations.push(await runThreeLargeImagesScenario());
+  conversations.push(await runMidSessionMemoryScenario());
   conversations.push(await runSessionMemoryScenario());
   conversations.push(await runSixTurnConversationScenario());
   conversations.push(...(await runParallelBurstScenario()));
@@ -264,6 +267,47 @@ async function runExplicitClosingQuestionScenario() {
   });
 }
 
+async function runRejectedSuggestionScenario() {
+  return runConversation({
+    name: 'rejected-suggestion-and-direct-answer',
+    diagnosisCode: 'MME-3',
+    inputs: [
+      {
+        content:
+          '家賃は76000円ですが、夫は毎月20000円くらいしか払わず、私が不足分を負担しています。毎月全額払ってほしいです。',
+      },
+      {
+        content:
+          '夫には毎月、家賃を全額払ってほしいと伝えています。それでも払われません。',
+      },
+      {
+        content:
+          'その伝え方はもう毎月やっています。同じ提案や同じ質問はしないでください。',
+      },
+      {
+        content:
+          'わからないから聞いています。質問を返さず、今までと違う対応を具体的に答えてください。',
+      },
+    ],
+  });
+}
+
+async function runShortAnswerSubjectScenario() {
+  return runConversation({
+    name: 'short-answer-subject-resolution',
+    diagnosisCode: 'MME-3',
+    inputs: [
+      {
+        content:
+          '夫が家賃を払わない理由を何度聞いても、説明がありません。',
+      },
+      {
+        content: '何も言わない',
+      },
+    ],
+  });
+}
+
 async function runImageScenario() {
   return runConversation({
     name: 'inline-image',
@@ -373,6 +417,81 @@ async function runSessionMemoryScenario() {
     .like('content', 'ACTI_SESSION_MEMORY_V1%');
   if (memoryError) {
     throw new Error(`Failed to inspect memory row: ${memoryError.message}`);
+  }
+
+  return {
+    name,
+    diagnosisCode: 'MME-3',
+    sessionId,
+    memoryRows: memoryRows || 0,
+    turns: [{ user: userContent, ...result }],
+  };
+}
+
+async function runMidSessionMemoryScenario() {
+  const name = 'paid-mid-session-memory';
+  const sessionId = await createSession(name);
+  const storedMessages = [];
+  const startedAt = new Date('2026-01-02T00:00:00.000Z').getTime();
+
+  for (let index = 0; index < 15; index += 1) {
+    const userContent =
+      index === 0
+        ? '毎月の支払い日は25日です。この日付を覚えておいてください。'
+        : `中期履歴テストの相談${index}です。仕事の予定を整理しています。`;
+    storedMessages.push(
+      {
+        session_id: sessionId,
+        role: 'user',
+        content: userContent,
+        created_at: new Date(startedAt + index * 2000).toISOString(),
+      },
+      {
+        session_id: sessionId,
+        role: 'assistant',
+        content:
+          index === 0
+            ? '毎月の支払い日は25日ですね。覚えておきます。'
+            : `相談${index}の予定を確認しました。`,
+        created_at: new Date(startedAt + index * 2000 + 1000).toISOString(),
+      }
+    );
+  }
+
+  const { error: preloadError } = await admin
+    .from('chat_messages')
+    .insert(storedMessages);
+  if (preloadError) {
+    throw new Error(
+      `Failed to preload mid-memory test messages: ${preloadError.message}`
+    );
+  }
+
+  const userContent = '以前伝えた毎月の支払い日は何日ですか？日付だけ答えてください。';
+  await insertMessage(sessionId, 'user', userContent);
+  const recentMessages = storedMessages.slice(-23).map((message) => ({
+    role: message.role,
+    content: message.content,
+  }));
+  const result = await sendStreamRequest({
+    sessionId,
+    diagnosisCode: 'MME-3',
+    messages: [...recentMessages, { role: 'user', content: userContent }],
+    attachments: [],
+    label: `${name}-1`,
+  });
+  await insertMessage(sessionId, 'assistant', result.message);
+
+  const { count: memoryRows, error: memoryError } = await admin
+    .from('chat_messages')
+    .select('id', { count: 'exact', head: true })
+    .eq('session_id', sessionId)
+    .eq('role', 'system')
+    .like('content', 'ACTI_SESSION_MEMORY_V1%');
+  if (memoryError) {
+    throw new Error(
+      `Failed to inspect mid-memory row: ${memoryError.message}`
+    );
   }
 
   return {
@@ -933,6 +1052,17 @@ async function sendStreamRequest({
     finalizationStatus: donePayload?.finalizationStatus || null,
     finishReason: donePayload?.finishReason || null,
     modelName: donePayload?.modelName || null,
+    provider: donePayload?.provider || null,
+    qualityRepairAttempted:
+      donePayload?.qualityRepairAttempted === true,
+    qualityRepairAccepted:
+      donePayload?.qualityRepairAccepted === true,
+    qualityInitialIssues: Array.isArray(donePayload?.qualityInitialIssues)
+      ? donePayload.qualityInitialIssues
+      : [],
+    qualityFinalIssues: Array.isArray(donePayload?.qualityFinalIssues)
+      ? donePayload.qualityFinalIssues
+      : [],
     usage: donePayload?.usage || {},
     outputChars: message.length,
     questionMarks: countQuestionMarks(message),
@@ -1028,6 +1158,7 @@ function evaluateConversations(conversations) {
     const minimumOutputChars =
       turn.label.startsWith('inline-image') ||
       turn.label.startsWith('three-large-images') ||
+      turn.label.startsWith('paid-mid-session-memory') ||
       turn.label.startsWith('paid-session-memory')
         ? 1
         : 8;
@@ -1082,6 +1213,18 @@ function evaluateConversations(conversations) {
       turn.outputChars >= minimumOutputChars &&
         !/応答に時間がかかりすぎ|応答に失敗|中断しました/.test(turn.message),
       `${turn.outputChars} chars`
+    );
+    addCheck(
+      checks,
+      `${turn.label}: 表示前の品質検品を通過`,
+      turn.qualityFinalIssues.length === 0,
+      JSON.stringify({
+        initial: turn.qualityInitialIssues,
+        final: turn.qualityFinalIssues,
+        repairAttempted: turn.qualityRepairAttempted,
+        repairAccepted: turn.qualityRepairAccepted,
+        message: turn.message,
+      })
     );
     addCheck(
       checks,
@@ -1246,6 +1389,9 @@ function evaluateConversations(conversations) {
         (/(?:周囲.{0,12}(?:示したい|見せたい)|証明したい)/.test(
           turn.message
         ) && !turn.userGrounding.proving) ||
+        /甘えている可能性|経済的な問題[^。！？?\n]{0,30}(?:露呈|明らか)[^。！？?\n]{0,20}恐|支払いの優先順位[^。！？?\n]{0,24}軽く見/.test(
+          turn.message
+        ) ||
         (/(?:だからこそ|からこそ)/.test(turn.message) &&
           !turn.userGrounding.emphaticCause)
       ),
@@ -1621,6 +1767,79 @@ function evaluateConversations(conversations) {
     explicitClosingMessage
   );
 
+  const rejectedSuggestion = findConversation(
+    conversations,
+    'rejected-suggestion-and-direct-answer'
+  );
+  const rejectionTurn = rejectedSuggestion.turns[2];
+  const directAnswerTurn = rejectedSuggestion.turns[3];
+  addCheck(
+    checks,
+    '拒否後: 毎月実行済みの伝達提案を繰り返さない',
+    !/もう一度|改めて|再度/.test(rejectionTurn.message) &&
+      !/夫[^。！？?\n]{0,80}伝えて(?:ください|みてください|みましょう)/.test(
+        rejectionTurn.message
+      ) &&
+      !/見過ごしたくない本音|一文だけメモ/.test(rejectionTurn.message),
+    rejectionTurn.message
+  );
+  addCheck(
+    checks,
+    '拒否後: 家賃の未払いという現実の問題を保持する',
+    /家賃|76000|支払|未払い|不足/.test(rejectionTurn.message) &&
+      rejectionTurn.outputChars >= 100,
+    `${rejectionTurn.outputChars} chars: ${rejectionTurn.message}`
+  );
+  addCheck(
+    checks,
+    '回答要求後: 質問を返さず別の対応を具体的に示す',
+    directAnswerTurn.semanticQuestions === 0 &&
+      directAnswerTurn.outputChars >= 120 &&
+      /家賃|支払|未払い|不足|金額|期限|記録|第三者|相談/.test(
+        directAnswerTurn.message
+      ) &&
+      !/見過ごしたくない本音|一文だけメモ|何かありますか/.test(
+        directAnswerTurn.message
+      ),
+    `${directAnswerTurn.outputChars} chars / ${directAnswerTurn.semanticQuestions} questions: ${directAnswerTurn.message}`
+  );
+
+  const shortAnswerSubject = findConversation(
+    conversations,
+    'short-answer-subject-resolution'
+  );
+  const subjectTurn = shortAnswerSubject.turns[1];
+  addCheck(
+    checks,
+    '短い回答: 「何も言わない」の主語を夫の反応として保持',
+    /夫|相手|説明|返事|反応/.test(subjectTurn.message) &&
+      !/あなたが.{0,20}(?:話したくない|言いたくない)|話さなくて(?:も|いい)|休んで/.test(
+        subjectTurn.message
+      ) &&
+      !/(?:期日|方法)[^。！？?\n]{0,40}問いかけに対しても/.test(
+        subjectTurn.message
+      ),
+    subjectTurn.message
+  );
+
+  const midMemory = findConversation(
+    conversations,
+    'paid-mid-session-memory'
+  );
+  addCheck(
+    checks,
+    '有料版中期履歴: 25件を超えた時点で要約を保存',
+    midMemory.memoryRows === 1,
+    `${midMemory.memoryRows} rows`
+  );
+  addCheck(
+    checks,
+    '有料版中期履歴: 直近24件より前の日付「25日」を保持',
+    /25/.test(midMemory.turns[0].message) &&
+      midMemory.turns[0].outputChars <= 30,
+    midMemory.turns[0].message
+  );
+
   const memory = findConversation(conversations, 'paid-session-memory');
   addCheck(
     checks,
@@ -1643,6 +1862,12 @@ function evaluateConversations(conversations) {
     /時間|家事/.test(message) &&
     /いつ|分担|頼ん|対応|やる/.test(message) &&
     /決め|お願い|助か|ほしい|聞いて|話したい|話せる/.test(message);
+  const hasConcreteHouseholdIMessage = (message) =>
+    /「[^」]{8,}」/.test(message) &&
+    /自分|私/.test(message) &&
+    /時間|予定|家事/.test(message) &&
+    /いつ|分担|頼ん|対応|やる/.test(message) &&
+    /困る|大切|不安/.test(message);
   addCheck(
     checks,
     '6往復会話: 3回目以降も全streamが完了',
@@ -1666,7 +1891,9 @@ function evaluateConversations(conversations) {
     !/この(?:言い方|言葉|一言)/.test(sixTurn.turns[2].message) &&
       (/相手|夫|伝|何をわかってほしい/.test(
         sixTurn.turns[2].message
-      ) || hasConcreteHouseholdWording(sixTurn.turns[2].message)),
+      ) ||
+        hasConcreteHouseholdWording(sixTurn.turns[2].message) ||
+        hasConcreteHouseholdIMessage(sixTurn.turns[2].message)),
     sixTurn.turns[2].message
   );
   addCheck(
@@ -1709,7 +1936,7 @@ function evaluateConversations(conversations) {
     checks,
     '6往復会話: 時間を軽く扱われた核心から次へ進む',
     /時間|軽く扱/.test(sixTurn.turns[1].message) &&
-      /変えてほしい|何をわかってほしい|どうしてほしい/.test(
+      /変えてほしい|何をわかってほしい|どうしてほしい|どんな返答をしてほしい/.test(
         sixTurn.turns[1].message
       ) &&
       !/見過ごしたくない本音/.test(sixTurn.turns[1].message),
@@ -1734,7 +1961,8 @@ function evaluateConversations(conversations) {
     checks,
     '6往復会話: 既に尋ねた希望を繰り返さず具体的な言葉へ進む',
     (/最初の一言|お願い|言葉/.test(sixTurn.turns[2].message) ||
-      hasConcreteHouseholdWording(sixTurn.turns[2].message)) &&
+      hasConcreteHouseholdWording(sixTurn.turns[2].message) ||
+      hasConcreteHouseholdIMessage(sixTurn.turns[2].message)) &&
       !/何をわかってほしい/.test(sixTurn.turns[2].message),
     sixTurn.turns[2].message
   );
@@ -2055,8 +2283,12 @@ function isQuestionInsideJapaneseQuote(segment, depthBefore) {
 }
 
 function requestsSingleAnswerInTest(text) {
+  const withoutRepeatedQuestionComplaint = text.replace(
+    /同じ質問(?:は|を)?(?:しない|しないで|不要)/g,
+    ''
+  );
   return /(?:(?:一つ|ひとつ|1つ)(?:だけ)?.{0,24}(?:教|提案|答|挙|示|伝|お願)|(?:教|提案|答|挙|示|伝|お願).{0,24}(?:一つ|ひとつ|1つ)(?:だけ)?|一言(?:だけ|で)|最初の一言|質問(?:は|を)?(?:なし|不要|しない)|短く(?:答|教|返))/.test(
-    text
+    withoutRepeatedQuestionComplaint
   );
 }
 

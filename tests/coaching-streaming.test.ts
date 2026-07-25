@@ -10,6 +10,7 @@ const state = vi.hoisted(() => ({
   externalTimeouts: [] as number[],
   externalImageCounts: [] as number[],
   openAIAborted: false,
+  qualityRepairCalls: 0,
   alerts: [] as Array<{ subject: string; summary: string }>,
 }));
 
@@ -17,6 +18,21 @@ vi.mock('@/lib/openai', () => ({
   getGenAI: () => ({
     getGenerativeModel: () => ({
       startChat: () => ({
+        sendMessage: async () => {
+          state.qualityRepairCalls += 1;
+          return {
+            response: {
+              text: () =>
+                '仕事について迷っている状況を、短い相づちだけで終わらせずに整理します。まず、今決めなければならないことと、まだ保留にできることを分けると、次の判断が見えやすくなります。今日決める必要がある項目を一つだけ確認してください。',
+              candidates: [{ finishReason: 'STOP' }],
+              usageMetadata: {
+                promptTokenCount: 20,
+                candidatesTokenCount: 30,
+                totalTokenCount: 50,
+              },
+            },
+          };
+        },
         sendMessageStream: async () => {
           if (state.mode === 'error') throw new Error('fetch failed');
           return {
@@ -107,6 +123,7 @@ beforeEach(() => {
   state.externalTimeouts = [];
   state.externalImageCounts = [];
   state.openAIAborted = false;
+  state.qualityRepairCalls = 0;
   state.alerts = [];
   state.secondChunkGate = new Promise<void>((resolve) => {
     state.releaseSecondChunk = resolve;
@@ -140,9 +157,9 @@ describe('createJsonLineStream', () => {
     });
     expect(onDone).toHaveBeenCalledWith(
       expect.objectContaining({
-        prompt_tokens: 10,
-        completion_tokens: 8,
-        total_tokens: 18,
+        prompt_tokens: 30,
+        completion_tokens: 38,
+        total_tokens: 68,
       }),
       expect.objectContaining({
         message: expect.any(String),
@@ -183,8 +200,12 @@ describe('createJsonLineStream', () => {
     expect(events.find((event) => event.type === 'done')).toMatchObject({
       completionStatus: 'complete',
       finalizationStatus: 'complete',
+      qualityRepairAttempted: true,
+      qualityRepairAccepted: true,
+      qualityFinalIssues: [],
       remaining: 49,
     });
+    expect(state.qualityRepairCalls).toBe(1);
   });
 
   it('Geminiが文章生成の途中で切れても未検査文を見せず予備AIへ切り替える', async () => {

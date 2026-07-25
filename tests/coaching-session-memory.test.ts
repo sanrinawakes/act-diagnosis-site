@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { mergeRecentCoachingMessages } from '../src/lib/coaching-session-memory';
+import {
+  mergeRecentCoachingMessages,
+  shouldRefreshSessionMemory,
+} from '../src/lib/coaching-session-memory';
 
 describe('mergeRecentCoachingMessages', () => {
   it('DB側が直前のAI回答を欠いている時はリクエスト側の最新履歴を使う', () => {
@@ -49,5 +52,22 @@ describe('mergeRecentCoachingMessages', () => {
     ];
 
     expect(mergeRecentCoachingMessages(history, history)).toEqual(history);
+  });
+});
+
+describe('shouldRefreshSessionMemory', () => {
+  it('直近24件を超えた最初の時点から要約を作る', () => {
+    expect(shouldRefreshSessionMemory(24, null)).toBe(false);
+    expect(shouldRefreshSessionMemory(25, null)).toBe(true);
+  });
+
+  it('25〜119件の会話でも古い発言との空白を残さない', () => {
+    expect(shouldRefreshSessionMemory(40, 15)).toBe(true);
+    expect(shouldRefreshSessionMemory(80, 55)).toBe(true);
+    expect(shouldRefreshSessionMemory(119, 94)).toBe(true);
+  });
+
+  it('直近24件より前をすべてカバー済みなら書き直さない', () => {
+    expect(shouldRefreshSessionMemory(80, 56)).toBe(false);
   });
 });
