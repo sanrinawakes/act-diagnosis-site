@@ -599,6 +599,7 @@ async function runPaidCoachingMonitor(params: {
           .from('chat_messages')
           .select('role, content', { count: 'exact' })
           .eq('session_id', sessionId)
+          .in('role', ['user', 'assistant'])
           .order('created_at', { ascending: false })
           .limit(2),
         MONITOR_STAGE_TIMEOUT_MS,

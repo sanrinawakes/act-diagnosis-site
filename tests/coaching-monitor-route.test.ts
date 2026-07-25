@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   updateAlertDelivery: vi.fn(),
   sendAlert: vi.fn(),
   assertHealthy: vi.fn(),
+  reloadRoleFilter: vi.fn(),
 }));
 
 vi.mock('@supabase/supabase-js', () => ({
@@ -179,6 +180,10 @@ describe('GET /api/monitor/coaching maintenance isolation', () => {
       [expect.any(String)],
       expect.objectContaining({ accepted: true })
     );
+    expect(mocks.reloadRoleFilter).toHaveBeenCalledWith('role', [
+      'user',
+      'assistant',
+    ]);
   });
 
   it('suppresses a transient maintenance timeout after the retry succeeds', async () => {
@@ -375,16 +380,21 @@ function createChatMessagesQuery() {
         return {
           eq() {
             return {
-              order() {
+              in(column: string, values: string[]) {
+                mocks.reloadRoleFilter(column, values);
                 return {
-                  limit: async () => ({
-                    data: [
-                      { role: 'assistant', content: ANSWER },
-                      { role: 'user', content: '定期監視です。' },
-                    ],
-                    count: 82,
-                    error: null,
-                  }),
+                  order() {
+                    return {
+                      limit: async () => ({
+                        data: [
+                          { role: 'assistant', content: ANSWER },
+                          { role: 'user', content: '定期監視です。' },
+                        ],
+                        count: 82,
+                        error: null,
+                      }),
+                    };
+                  },
                 };
               },
             };
