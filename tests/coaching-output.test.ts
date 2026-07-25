@@ -3908,6 +3908,31 @@ describe('normalizeCoachingOutput', () => {
     expect(fallback).not.toMatch(/不安の奥|守りたいもの/);
   });
 
+  it('能力評価の不安を仕事の構成メモへすり替えない', () => {
+    const lastUserText = '失敗より、能力がないと思われるのが怖いです。';
+    const rawText =
+      '能力がないと思われることへの恐怖から、完璧を求めて動けなくなっているのですね。\n\nこの状況を抜けるために、まずは「能力の証明」ではなく「仕事の共有」に目的を切り替えてみます。\n\n明日、その仕事の「全体の構成案」や「大まかな流れ」だけを、10分でメモに書き出してみてください。';
+    const historyMessages = [
+      {
+        role: 'user' as const,
+        content: '仕事を完璧にしようとして着手できません。',
+      },
+    ];
+    const assessment = assessCoachingResponseQuality({
+      text: rawText,
+      lastUserText,
+      historyMessages,
+    });
+    const fallback = buildFinalVerifiedQualityFallback(
+      lastUserText,
+      historyMessages
+    );
+
+    expect(assessment.issues).toContain('dissatisfaction_unanswered');
+    expect(fallback).toMatch(/評価基準/);
+    expect(fallback).not.toMatch(/構成案|大まかな流れ|メモに書き出/);
+  });
+
   it('仕事内容が不明な相談へ極小作業とPC起動を作らない', () => {
     const assessment = assessCoachingResponseQuality({
       text: '完璧に仕上げる必要はありません。\n\nまずは1分でできる極小の作業だけで、明日の着手は成功です。その最初の1歩として、明日の何時頃にパソコンを開くかだけ、今決めてみませんか。',
