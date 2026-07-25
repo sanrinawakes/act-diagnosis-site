@@ -2,8 +2,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   buildCoachingMonitorRunRecord,
+  COACHING_MONITOR_ALERT_COOLDOWN_MS,
   COACHING_MONITOR_STALE_AFTER_MS,
   failStaleCoachingMonitorRuns,
+  findRecentAcceptedMonitorFailureAlert,
   persistCoachingMonitorRun,
   recoverStaleCoachingMonitorRuns,
   updateCoachingMonitorAlertDelivery,
@@ -228,6 +230,74 @@ describe('monitor run persistence', () => {
     expect(inFilter).toHaveBeenCalledWith(
       'id',
       ['580e9d31-8462-4e68-a144-c1d75e1df297']
+    );
+  });
+
+  it('finds an accepted identical failure alert from the last hour', async () => {
+    const query = {
+      select: vi.fn(),
+      eq: vi.fn(),
+      gte: vi.fn(),
+      lt: vi.fn(),
+      neq: vi.fn(),
+      order: vi.fn(),
+      limit: vi.fn(),
+      abortSignal: vi.fn(),
+      maybeSingle: vi.fn().mockResolvedValue({
+        data: {
+          id: 'previous-monitor-run-id',
+          checked_at: '2026-07-25T09:01:12.003Z',
+          alert_resend_id: 'previous-resend-id',
+        },
+        error: null,
+      }),
+    };
+    Object.values(query)
+      .filter((mock) => mock !== query.maybeSingle)
+      .forEach((mock) => mock.mockReturnValue(query));
+    const from = vi.fn(() => query);
+
+    const result = await findRecentAcceptedMonitorFailureAlert(
+      { from } as unknown as SupabaseClient,
+      {
+        error: 'paid monitor persistence mismatch: expected 82 rows, received 83',
+        checkedAt: '2026-07-25T10:01:09.060Z',
+        excludeRunId: 'current-monitor-run-id',
+        deploymentCommit: 'current-deployment-sha',
+      }
+    );
+
+    expect(result).toEqual({
+      id: 'previous-monitor-run-id',
+      checkedAt: '2026-07-25T09:01:12.003Z',
+      resendId: 'previous-resend-id',
+    });
+    expect(query.eq.mock.calls).toEqual(
+      expect.arrayContaining([
+        ['monitor_path', 'paid-cookie-auth-and-persistence'],
+        ['status', 'failure'],
+        [
+          'error',
+          'paid monitor persistence mismatch: expected 82 rows, received 83',
+        ],
+        ['alert_accepted', true],
+        ['deployment_commit', 'current-deployment-sha'],
+      ])
+    );
+    expect(query.gte).toHaveBeenCalledWith(
+      'checked_at',
+      new Date(
+        new Date('2026-07-25T10:01:09.060Z').getTime() -
+          COACHING_MONITOR_ALERT_COOLDOWN_MS
+      ).toISOString()
+    );
+    expect(query.lt).toHaveBeenCalledWith(
+      'checked_at',
+      '2026-07-25T10:01:09.060Z'
+    );
+    expect(query.neq).toHaveBeenCalledWith(
+      'id',
+      'current-monitor-run-id'
     );
   });
 

@@ -4,6 +4,7 @@ export const COACHING_MONITOR_PATH = 'paid-cookie-auth-and-persistence';
 export const COACHING_MONITOR_STALE_AFTER_MS = 2 * 60 * 1000;
 export const COACHING_MONITOR_STALE_RECOVERY_ATTEMPTS = 2;
 export const COACHING_MONITOR_STALE_RECOVERY_RETRY_MS = 250;
+export const COACHING_MONITOR_ALERT_COOLDOWN_MS = 60 * 60 * 1000;
 const MONITOR_PERSISTENCE_TIMEOUT_MS = 5000;
 
 export type CoachingMonitorMetrics = {
@@ -45,6 +46,12 @@ export type StaleCoachingMonitorRecovery = {
   runs: StaleCoachingMonitorRun[];
   attempts: number;
   error: string | null;
+};
+
+export type RecentAcceptedMonitorFailureAlert = {
+  id: string;
+  checkedAt: string;
+  resendId: string | null;
 };
 
 export type CoachingMonitorRunRecord = {
@@ -279,6 +286,71 @@ export async function updateCoachingMonitorAlertDelivery(
       `coaching monitor alert persistence failed: ${error.message}`
     );
   }
+}
+
+export async function findRecentAcceptedMonitorFailureAlert(
+  supabaseAdmin: SupabaseClient,
+  params: {
+    error: string;
+    checkedAt: string;
+    excludeRunId: string;
+    deploymentCommit?: string | null;
+    cooldownMs?: number;
+  }
+): Promise<RecentAcceptedMonitorFailureAlert | null> {
+  const checkedAtMs = new Date(params.checkedAt).getTime();
+  if (!Number.isFinite(checkedAtMs)) {
+    throw new Error('coaching monitor alert dedupe failed: invalid checkedAt');
+  }
+
+  const cooldownMs = Math.max(
+    0,
+    params.cooldownMs ?? COACHING_MONITOR_ALERT_COOLDOWN_MS
+  );
+  const cutoff = new Date(checkedAtMs - cooldownMs).toISOString();
+
+  let query = supabaseAdmin
+    .from('coaching_monitor_runs')
+    .select('id, checked_at, alert_resend_id')
+    .eq('monitor_path', COACHING_MONITOR_PATH)
+    .eq('status', 'failure')
+    .eq('error', params.error)
+    .eq('alert_accepted', true)
+    .gte('checked_at', cutoff)
+    .lt('checked_at', params.checkedAt)
+    .neq('id', params.excludeRunId);
+
+  if (params.deploymentCommit) {
+    query = query.eq('deployment_commit', params.deploymentCommit);
+  }
+
+  let response;
+  try {
+    response = await query
+      .order('checked_at', { ascending: false })
+      .limit(1)
+      .abortSignal(AbortSignal.timeout(MONITOR_PERSISTENCE_TIMEOUT_MS))
+      .maybeSingle();
+  } catch (error) {
+    throw new Error(
+      `coaching monitor alert dedupe failed: ${getErrorMessage(error)}`
+    );
+  }
+
+  if (response.error) {
+    throw new Error(
+      `coaching monitor alert dedupe failed: ${response.error.message}`
+    );
+  }
+  if (!response.data) return null;
+
+  return {
+    id: String(response.data.id),
+    checkedAt: String(response.data.checked_at),
+    resendId: response.data.alert_resend_id
+      ? String(response.data.alert_resend_id)
+      : null,
+  };
 }
 
 function getErrorMessage(error: unknown) {
