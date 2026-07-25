@@ -27,7 +27,12 @@ export type SupportAutomationNoteEntry = {
   recordedAt: string;
   automationRunId: string;
   idempotencyKey: string;
-  status: 'claimed' | 'investigating' | 'decision_required' | 'retry';
+  status:
+    | 'claimed'
+    | 'investigating'
+    | 'decision_required'
+    | 'decision_provided'
+    | 'retry';
   note: string;
 };
 
@@ -136,6 +141,23 @@ export function hasSupportReplyIdempotencyKey(message: string, key: string) {
 
 export function hasSupportLogIdempotencyKey(message: string, key: string) {
   return message.includes(`重複防止キー: ${key}`);
+}
+
+export function getSupportDecisionState(message: string, ticketId: string) {
+  const requested = hasSupportLogIdempotencyKey(
+    message,
+    `decision-${ticketId}`
+  );
+  const provided = hasSupportLogIdempotencyKey(
+    message,
+    `decision-response-${ticketId}`
+  );
+
+  return {
+    requested,
+    provided,
+    pending: requested && !provided,
+  };
 }
 
 export function getLatestSupportAutomationClaimRunId(message: string) {

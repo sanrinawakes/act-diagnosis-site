@@ -15,6 +15,7 @@ import {
 import {
   appendSupportReplyLog,
   buildSupportAutomationNoteEntry,
+  getSupportDecisionState,
   getLatestSupportAutomationClaimRunId,
   hasSupportLogIdempotencyKey,
   hasSupportReplyIdempotencyKey,
@@ -86,16 +87,18 @@ export async function GET(request: NextRequest) {
     if (error) throw error;
 
     const queue = ((data || []) as SupportTicket[])
-      .filter(
-        (ticket) =>
-          !hasSupportLogIdempotencyKey(
-            ticket.message || '',
-            `decision-${ticket.id}`
-          ) &&
+      .filter((ticket) => {
+        const decisionState = getSupportDecisionState(
+          ticket.message || '',
+          ticket.id
+        );
+        return (
+          !decisionState.pending &&
           (ticket.status === 'open' ||
             (ticket.status === 'in_progress' &&
               ticket.updated_at < staleBefore))
-      )
+        );
+      })
       .slice(0, limit);
     const { data: monitors, error: monitorError } = await client
       .from('coaching_monitor_runs')
@@ -168,6 +171,9 @@ export async function POST(request: NextRequest) {
     }
     if (action === 'hold') {
       return holdTicket(client, ticketId, runId, body);
+    }
+    if (action === 'decision') {
+      return recordBusinessDecision(client, ticketId, runId, body);
     }
     if (action === 'reply') {
       return replyToTicket(client, ticketId, runId, body);
@@ -345,6 +351,13 @@ async function holdTicket(
 
   const noteKey = `decision-${ticketId}`;
   let nextMessage = ticket.message || '';
+  const decisionState = getSupportDecisionState(nextMessage, ticketId);
+  if (decisionState.provided) {
+    return NextResponse.json(
+      { error: 'A business decision has already been provided for this ticket' },
+      { status: 409 }
+    );
+  }
   let decisionNotification:
     | Awaited<ReturnType<typeof deliverSupportDecisionRequest>>
     | null = null;
@@ -402,6 +415,82 @@ async function holdTicket(
           sent: true,
           already_sent: true,
         },
+    ticket: data,
+  });
+}
+
+async function recordBusinessDecision(
+  client: SupabaseClient,
+  ticketId: string,
+  runId: string,
+  body: Record<string, unknown>
+) {
+  const ticket = await getTicket(client, ticketId);
+  if (ticket.status === 'resolved' || ticket.status === 'closed') {
+    return NextResponse.json(
+      { error: `Ticket is already ${ticket.status}` },
+      { status: 409 }
+    );
+  }
+  const decision = toSafeText(body.decision, 2000);
+  if (!decision) {
+    return NextResponse.json(
+      { error: 'decision is required' },
+      { status: 400 }
+    );
+  }
+
+  const decisionState = getSupportDecisionState(
+    ticket.message || '',
+    ticketId
+  );
+  if (!decisionState.requested) {
+    return NextResponse.json(
+      { error: 'This ticket is not waiting for a business decision' },
+      { status: 409 }
+    );
+  }
+  if (decisionState.provided) {
+    return NextResponse.json({
+      success: true,
+      decision_recorded: true,
+      already_recorded: true,
+      ticket,
+    });
+  }
+
+  const nextMessage = appendSupportReplyLog(
+    ticket.message || '',
+    buildSupportAutomationNoteEntry({
+      recordedAt: new Date().toISOString(),
+      automationRunId: runId,
+      idempotencyKey: `decision-response-${ticketId}`,
+      status: 'decision_provided',
+      note: decision,
+    })
+  );
+  const { data, error } = await client
+    .from('support_tickets')
+    .update({
+      message: nextMessage,
+      status: 'open',
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', ticketId)
+    .eq('updated_at', ticket.updated_at)
+    .select()
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) {
+    return NextResponse.json(
+      { error: 'Ticket changed while recording the business decision' },
+      { status: 409 }
+    );
+  }
+
+  return NextResponse.json({
+    success: true,
+    decision_recorded: true,
     ticket: data,
   });
 }

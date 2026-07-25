@@ -46,6 +46,18 @@ if (command === 'list') {
     run_id: runId,
     reason,
   });
+} else if (command === 'decision') {
+  const [ticketId, runId, decisionFile] = args;
+  requireValue(ticketId, 'ticket id');
+  requireValue(runId, 'run id');
+  requireValue(decisionFile, 'decision file');
+  const decision = await fs.readFile(decisionFile, 'utf8');
+  await request('/api/internal/support-automation', {
+    action: 'decision',
+    ticket_id: ticketId,
+    run_id: runId,
+    decision,
+  });
 } else if (command === 'reply') {
   const [ticketId, runId, payloadFile] = args;
   requireValue(ticketId, 'ticket id');
@@ -60,7 +72,7 @@ if (command === 'list') {
   });
 } else {
   throw new Error(
-    'Usage: support-automation-client.mjs list|claim|heartbeat|release|hold|reply'
+    'Usage: support-automation-client.mjs list|claim|heartbeat|release|hold|decision|reply'
   );
 }
 

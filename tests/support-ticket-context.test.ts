@@ -7,6 +7,7 @@ import {
   appendSupportReplyLog,
   buildSupportAutomationNoteEntry,
   buildSupportReplyLogEntry,
+  getSupportDecisionState,
   getLatestSupportAutomationClaimRunId,
   hasSupportLogIdempotencyKey,
   hasSupportReplyIdempotencyKey,
@@ -124,5 +125,38 @@ describe('support ticket technical context', () => {
     expect(getLatestSupportAutomationClaimRunId(message)).toBe(
       'automation_run_002'
     );
+  });
+
+  it('keeps a decision ticket paused until a decision response is recorded', () => {
+    const ticketId = 'ad7c4e6a-8f28-4594-9676-a7a1e20b25ba';
+    const request = buildSupportAutomationNoteEntry({
+      recordedAt: '2026-07-25T12:00:00.000Z',
+      automationRunId: 'automation_run_003',
+      idempotencyKey: `decision-${ticketId}`,
+      status: 'decision_required',
+      note: '追加料金を決めてください。',
+    });
+    const waiting = appendSupportReplyLog('問い合わせ本文', request);
+
+    expect(getSupportDecisionState(waiting, ticketId)).toEqual({
+      requested: true,
+      provided: false,
+      pending: true,
+    });
+
+    const response = buildSupportAutomationNoteEntry({
+      recordedAt: '2026-07-25T13:00:00.000Z',
+      automationRunId: 'owner_decision_001',
+      idempotencyKey: `decision-response-${ticketId}`,
+      status: 'decision_provided',
+      note: '追加100回を1,000円で提供します。',
+    });
+    const resumed = appendSupportReplyLog(waiting, response);
+
+    expect(getSupportDecisionState(resumed, ticketId)).toEqual({
+      requested: true,
+      provided: true,
+      pending: false,
+    });
   });
 });
