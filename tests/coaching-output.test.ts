@@ -3714,6 +3714,24 @@ describe('normalizeCoachingOutput', () => {
     expect(assessment.issues).toContain('ungrounded_task_assumption');
   });
 
+  it('仕事内容が不明なのに「形にして手を動かす」とだけ返す回答は不合格にする', () => {
+    const lastUserText = '仕事を完璧にしようとして着手できません。';
+    const assessment = assessCoachingResponseQuality({
+      text: '完璧に仕上げる必要はありません。\n\nまずは形にすることを最優先にして、後から修正すればいいという前提で、5分だけ手を動かしてみましょう。',
+      lastUserText,
+    });
+    const fallback = buildFinalVerifiedQualityFallback(lastUserText, []);
+    const fallbackAssessment = assessCoachingResponseQuality({
+      text: fallback,
+      lastUserText,
+    });
+
+    expect(assessment.issues).toContain('vague_action_target');
+    expect(fallbackAssessment.issues).toEqual([]);
+    expect(fallback).toMatch(/完璧|完成条件|条件/);
+    expect(fallback).not.toMatch(/形にする|手を動か|後から修正/);
+  });
+
   it('仕事内容が不明なのにたたき台作成を決めつける回答は不合格にする', () => {
     const lastUserText = '仕事を完璧にしようとして着手できません。';
     const rawText =

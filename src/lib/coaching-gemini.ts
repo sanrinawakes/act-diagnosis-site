@@ -1875,6 +1875,16 @@ export function assessCoachingResponseQuality(params: {
   ) {
     issues.push('vague_action_target');
   }
+  if (
+    /仕事を完璧に(?:しよう|仕上げよう)/.test(lastUserText) &&
+    /着手でき|始められ|手をつけられ|手が止ま/.test(lastUserText) &&
+    !/完成条件|ここまでできなければ失敗|最初に手をつける必要がある(?:作業|こと)|どの(?:仕事|作業)[^。！？?\n]{0,30}(?:始め|着手)/.test(
+      text
+    ) &&
+    !issues.includes('vague_action_target')
+  ) {
+    issues.push('vague_action_target');
+  }
 
   const canonicalUserText = canonicalizeAssistantParagraph(lastUserText);
   const canonicalResponseText = canonicalizeAssistantParagraph(

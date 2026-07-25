@@ -719,12 +719,16 @@ async function testLongHistoryPaging(page) {
   });
   await waitForChatReady(page);
   const initialLoadMs = Date.now() - startedAt;
-  const body = page.locator('body');
+  const messagesArea = page.locator(
+    '[data-testid="coaching-messages-scroll"]'
+  );
+  const initialMessagesText = await messagesArea.innerText();
+  const newestLoaded = initialMessagesText.includes(newestMarker);
+  const oldestLoaded = initialMessagesText.includes(oldestMarker);
   addCheck(
     '長履歴: 初回は最新100件を読み込む',
-    (await body.innerText()).includes(newestMarker) &&
-      !(await body.innerText()).includes(oldestMarker),
-    `initialLoadMs=${initialLoadMs}`
+    newestLoaded && !oldestLoaded,
+    `initialLoadMs=${initialLoadMs}, newestLoaded=${newestLoaded}, oldestLoaded=${oldestLoaded}`
   );
 
   const loadOlderButton = page.locator('button', {
@@ -743,13 +747,17 @@ async function testLongHistoryPaging(page) {
   );
   await loadOlderButton.click();
   await page.waitForFunction(
-    (marker) => document.body.innerText.includes(marker),
+    (marker) =>
+      document
+        .querySelector('[data-testid="coaching-messages-scroll"]')
+        ?.textContent?.includes(marker),
     oldestMarker,
     { timeout: 15000 }
   );
+  const allMessagesText = await messagesArea.innerText();
   addCheck(
     '長履歴: 追加読込で最古のメッセージまで表示',
-    (await body.innerText()).includes(oldestMarker) &&
+    allMessagesText.includes(oldestMarker) &&
       (await loadOlderButton.count()) === 0,
     `session=${longHistorySessionId}`
   );
