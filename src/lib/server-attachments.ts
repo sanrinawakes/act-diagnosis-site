@@ -91,7 +91,7 @@ export async function uploadImageAttachments({
   return uploaded;
 }
 
-async function ensureAttachmentBucket(supabase: any) {
+export async function ensureAttachmentBucket(supabase: any) {
   const { error: getError } = await supabase.storage.getBucket(ATTACHMENT_BUCKET);
 
   if (!getError) {

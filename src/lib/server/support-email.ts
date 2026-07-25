@@ -7,6 +7,7 @@ import {
   buildSupportReplyLogEntry,
   hasSupportReplyIdempotencyKey,
 } from '@/lib/support-reply-log';
+import { buildSupportInboundReplyAddress } from '@/lib/support-inbound';
 
 const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
 const SUPPORT_FROM_EMAIL = process.env.FROM_EMAIL || 'noreply@silversense.cc';
@@ -14,6 +15,8 @@ const SUPPORT_REPLY_TO_EMAIL =
   process.env.SUPPORT_REPLY_TO_EMAIL ||
   process.env.SUPPORT_NOTIFICATION_EMAIL ||
   'silversense.fzco@gmail.com';
+const SUPPORT_INBOUND_DOMAIN = process.env.SUPPORT_INBOUND_DOMAIN || '';
+const SUPPORT_INBOUND_SECRET = process.env.SUPPORT_INBOUND_SECRET || '';
 const RESEND_TIMEOUT_MS = 10_000;
 
 type SupportTicketRecord = {
@@ -88,7 +91,7 @@ export async function deliverSupportReply(params: {
       body: JSON.stringify({
         from: `ACTI サポート <${SUPPORT_FROM_EMAIL}>`,
         to: [ticket.email],
-        reply_to: SUPPORT_REPLY_TO_EMAIL,
+        reply_to: getSupportReplyToAddress(ticket.id),
         subject: params.subject,
         text: params.message,
       }),
@@ -160,4 +163,16 @@ export async function deliverSupportReply(params: {
       body: emailResponse.ok ? undefined : responseBody,
     },
   };
+}
+
+export function getSupportReplyToAddress(ticketId: string) {
+  if (SUPPORT_INBOUND_DOMAIN && SUPPORT_INBOUND_SECRET) {
+    return buildSupportInboundReplyAddress({
+      ticketId,
+      domain: SUPPORT_INBOUND_DOMAIN,
+      secret: SUPPORT_INBOUND_SECRET,
+    });
+  }
+
+  return SUPPORT_REPLY_TO_EMAIL;
 }
