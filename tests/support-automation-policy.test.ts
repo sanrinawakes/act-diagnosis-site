@@ -55,6 +55,24 @@ describe('support automation policy', () => {
     ).toBe(false);
   });
 
+  it('allows a blocked classification only after the requested decision is recorded', () => {
+    expect(
+      canAutomationSendCustomerReply({
+        classification: 'billing',
+        policyDecisionRequired: true,
+        decisionProvided: false,
+      })
+    ).toBe(false);
+
+    expect(
+      canAutomationSendCustomerReply({
+        classification: 'billing',
+        policyDecisionRequired: true,
+        decisionProvided: true,
+      })
+    ).toBe(true);
+  });
+
   it('requires full production evidence before a technical fix reply', () => {
     expect(
       validateSupportResolutionEvidence({

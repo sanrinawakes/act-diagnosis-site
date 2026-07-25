@@ -84,7 +84,12 @@ export function evaluateSupportAutomationPolicy(ticket: {
 export function canAutomationSendCustomerReply(params: {
   classification: SupportAutomationClassification;
   policyDecisionRequired: boolean;
+  decisionProvided?: boolean;
 }) {
+  if (params.decisionProvided) {
+    return true;
+  }
+
   return (
     !params.policyDecisionRequired &&
     !BLOCKED_CLASSIFICATIONS.has(params.classification)
