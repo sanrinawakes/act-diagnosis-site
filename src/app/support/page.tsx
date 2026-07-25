@@ -211,9 +211,11 @@ export default function SupportPage() {
       <div className="min-h-screen bg-gray-50 py-8 px-4">
         <div className="max-w-2xl mx-auto">
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 sm:p-8">
-            <h1 className="text-2xl font-bold text-gray-900 mb-2">お問い合わせ</h1>
+            <h1 className="text-2xl font-bold text-gray-900 mb-2">
+              AIサポートにメッセージ
+            </h1>
             <p className="text-gray-600 mb-6">
-              ご質問・ご要望がありましたら、以下のフォームからお気軽にお問い合わせください。
+              エラー、困っていること、改善してほしいことをご記入ください。
             </p>
 
             <form onSubmit={handleSubmit} className="space-y-5">

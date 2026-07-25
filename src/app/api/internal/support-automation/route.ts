@@ -20,6 +20,7 @@ import {
   hasSupportReplyIdempotencyKey,
   splitSupportMessage,
 } from '@/lib/support-reply-log';
+import { deliverSupportDecisionRequest } from '@/lib/server/support-decision-email';
 import { deliverSupportReply } from '@/lib/server/support-email';
 
 export const runtime = 'nodejs';
@@ -326,10 +327,32 @@ async function holdTicket(
   if (!reason) {
     return NextResponse.json({ error: 'reason is required' }, { status: 400 });
   }
+  const parsed = splitSupportMessage(ticket.message || '');
+  const policy = evaluateSupportAutomationPolicy({
+    category: ticket.category,
+    subject: ticket.subject,
+    message: parsed.customerMessage,
+  });
+  if (!policy.decisionRequired) {
+    return NextResponse.json(
+      {
+        error:
+          'This ticket does not require a business, financial, contractual, or legal decision',
+      },
+      { status: 409 }
+    );
+  }
 
   const noteKey = `decision-${ticketId}`;
   let nextMessage = ticket.message || '';
+  let decisionNotification:
+    | Awaited<ReturnType<typeof deliverSupportDecisionRequest>>
+    | null = null;
   if (!hasSupportLogIdempotencyKey(nextMessage, noteKey)) {
+    decisionNotification = await deliverSupportDecisionRequest({
+      ticket,
+      reason,
+    });
     nextMessage = appendSupportReplyLog(
       nextMessage,
       buildSupportAutomationNoteEntry({
@@ -337,7 +360,12 @@ async function holdTicket(
         automationRunId: runId,
         idempotencyKey: noteKey,
         status: 'decision_required',
-        note: reason,
+        note: [
+          reason,
+          '',
+          `経営判断通知: sent${decisionNotification.resendId ? ` / Resend ID: ${decisionNotification.resendId}` : ''}`,
+          `通知先: ${decisionNotification.recipients.join(', ')}`,
+        ].join('\n'),
       })
     );
   }
@@ -364,6 +392,16 @@ async function holdTicket(
   return NextResponse.json({
     success: true,
     decision_required: true,
+    decision_notification: decisionNotification
+      ? {
+          sent: true,
+          resend_id: decisionNotification.resendId,
+          recipients: decisionNotification.recipients,
+        }
+      : {
+          sent: true,
+          already_sent: true,
+        },
     ticket: data,
   });
 }

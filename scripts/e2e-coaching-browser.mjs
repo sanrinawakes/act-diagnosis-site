@@ -79,7 +79,7 @@ try {
   addCheck(
     'PC: コーチング画面内に問い合わせ導線を表示',
     await desktopPage
-      .getByRole('link', { name: '不具合・お問い合わせ' })
+      .getByRole('link', { name: 'AIサポートにメッセージ' })
       .isVisible()
   );
   await testSupportEntry(desktop, 'PC', sessionId);
@@ -108,7 +108,7 @@ try {
   addCheck(
     'スマートフォン: コーチング画面内に問い合わせ導線を表示',
     await mobilePage
-      .getByRole('link', { name: '不具合・お問い合わせ' })
+      .getByRole('link', { name: 'AIサポートにメッセージ' })
       .isVisible()
   );
   await testSupportEntry(mobile, 'スマートフォン', sessionId);
@@ -238,6 +238,12 @@ async function testSupportEntry(context, label, currentSessionId) {
       () => document.querySelector('#email')?.value.length > 0
     );
 
+    addCheck(
+      `${label}: AIサポート画面を表示`,
+      await page
+        .getByRole('heading', { name: 'AIサポートにメッセージ' })
+        .isVisible()
+    );
     addCheck(
       `${label}: コーチング内問い合わせは不具合カテゴリ`,
       (await page.locator('#category').inputValue()) === 'bug',
