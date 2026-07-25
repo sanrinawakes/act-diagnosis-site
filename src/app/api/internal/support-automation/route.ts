@@ -524,6 +524,10 @@ async function replyToTicket(
     subject: ticket.subject,
     message: parsedMessage.customerMessage,
   });
+  const decisionState = getSupportDecisionState(
+    ticket.message || '',
+    ticket.id
+  );
   const classification = toSafeText(
     body.classification,
     40
@@ -547,6 +551,7 @@ async function replyToTicket(
     !canAutomationSendCustomerReply({
       classification,
       policyDecisionRequired: policy.decisionRequired,
+      decisionProvided: decisionState.provided,
     })
   ) {
     return NextResponse.json(
@@ -663,6 +668,7 @@ async function enrichTicketContext(
     subject: ticket.subject,
     message: parsed.customerMessage,
   });
+  const decision = getSupportDecisionState(ticket.message || '', ticket.id);
 
   let profileQuery = client
     .from('profiles')
@@ -721,6 +727,7 @@ async function enrichTicketContext(
     created_at: ticket.created_at,
     updated_at: ticket.updated_at,
     policy,
+    decision,
     profile,
     recent_sessions: sessions,
     reported_session_messages: reportedSessionMessages,
