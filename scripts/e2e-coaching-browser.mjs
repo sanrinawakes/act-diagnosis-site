@@ -76,6 +76,13 @@ try {
   await testDesktopLayout(desktopPage);
   await testSidebarHistory(desktopPage);
   await testLongHistoryPaging(desktopPage);
+  addCheck(
+    'PC: コーチング画面内に問い合わせ導線を表示',
+    await desktopPage
+      .getByRole('link', { name: '不具合・お問い合わせ' })
+      .isVisible()
+  );
+  await testSupportEntry(desktop, 'PC', sessionId);
   await desktopPage
     .locator('[data-testid="sidebar-loading"]')
     .waitFor({ state: 'hidden', timeout: 10000 });
@@ -98,6 +105,13 @@ try {
   await loginToExistingChat(mobilePage, sessionId);
   await testMobileEnterAndButton(mobilePage);
   await testMobileLayout(mobilePage);
+  addCheck(
+    'スマートフォン: コーチング画面内に問い合わせ導線を表示',
+    await mobilePage
+      .getByRole('link', { name: '不具合・お問い合わせ' })
+      .isVisible()
+  );
+  await testSupportEntry(mobile, 'スマートフォン', sessionId);
 
   const mobileScreenshot = join(tmpdir(), `acti-coaching-mobile-${runId}.png`);
   await mobilePage.screenshot({ path: mobileScreenshot, fullPage: false });
@@ -206,6 +220,67 @@ async function configureVercelProtectionBypass(context) {
       },
     });
   });
+}
+
+async function testSupportEntry(context, label, currentSessionId) {
+  const page = await context.newPage();
+  collectBrowserErrors(page, `${label}-support`);
+
+  try {
+    await page.goto(
+      `${baseUrl}/support?source=coaching&session=${encodeURIComponent(
+        currentSessionId
+      )}`,
+      { waitUntil: 'domcontentloaded' }
+    );
+    await page.locator('#email').waitFor({ state: 'visible', timeout: 15000 });
+    await page.waitForFunction(
+      () => document.querySelector('#email')?.value.length > 0
+    );
+
+    addCheck(
+      `${label}: コーチング内問い合わせは不具合カテゴリ`,
+      (await page.locator('#category').inputValue()) === 'bug',
+      await page.locator('#category').inputValue()
+    );
+    addCheck(
+      `${label}: コーチング内問い合わせの件名を自動入力`,
+      (await page.locator('#subject').inputValue()) === 'AIコーチングについて',
+      await page.locator('#subject').inputValue()
+    );
+    addCheck(
+      `${label}: 問い合わせ先メールはログイン本人で固定`,
+      (await page.locator('#email').inputValue()) === email &&
+        (await page.locator('#email').getAttribute('readonly')) !== null,
+      await page.locator('#email').inputValue()
+    );
+    addCheck(
+      `${label}: 問い合わせURLへ会話IDを引き継ぐ`,
+      new URL(page.url()).searchParams.get('session') === currentSessionId,
+      page.url()
+    );
+
+    const layout = await page.evaluate(() => ({
+      viewportWidth: window.innerWidth,
+      documentWidth: document.documentElement.scrollWidth,
+      submitVisible: Boolean(
+        document.querySelector('button[type="submit"]')?.getBoundingClientRect()
+          .width
+      ),
+    }));
+    addCheck(
+      `${label}: 問い合わせ画面に横はみ出しなし`,
+      layout.documentWidth <= layout.viewportWidth + 1,
+      JSON.stringify(layout)
+    );
+    addCheck(
+      `${label}: 問い合わせ送信ボタンを表示`,
+      layout.submitVisible,
+      JSON.stringify(layout)
+    );
+  } finally {
+    await page.close();
+  }
 }
 
 async function loginAndOpenNewChat(page) {

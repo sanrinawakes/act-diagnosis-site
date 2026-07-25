@@ -1,0 +1,4 @@
+export const SUPPORT_TECHNICAL_CONTEXT_HEADER =
+  '\n\n----- ACTI SUPPORT TECHNICAL CONTEXT -----\n';
+export const SUPPORT_REPLY_LOG_HEADER =
+  '\n\n----- ACTI SUPPORT REPLY LOG -----\n';

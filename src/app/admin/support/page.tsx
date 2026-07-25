@@ -356,13 +356,41 @@ export default function AdminSupportPage() {
                       {selectedMessage?.replyLog && (
                         <div>
                           <h3 className="text-sm font-semibold text-gray-700 mb-2">
-                            返信履歴
+                            対応履歴
                           </h3>
                           <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                             <pre className="text-xs text-gray-900 whitespace-pre-wrap font-sans">
                               {selectedMessage.replyLog}
                             </pre>
                           </div>
+                        </div>
+                      )}
+
+                      {selectedMessage?.technicalContext && (
+                        <div>
+                          <h3 className="text-sm font-semibold text-gray-700 mb-2">
+                            技術情報
+                          </h3>
+                          <dl className="grid grid-cols-[7rem_1fr] gap-x-3 gap-y-2 rounded-lg border border-gray-200 bg-gray-50 p-4 text-xs">
+                            <dt className="text-gray-500">受付元</dt>
+                            <dd className="break-all text-gray-900">
+                              {selectedMessage.technicalContext.source}
+                            </dd>
+                            <dt className="text-gray-500">会話ID</dt>
+                            <dd className="break-all font-mono text-gray-900">
+                              {selectedMessage.technicalContext.sessionId || 'なし'}
+                            </dd>
+                            <dt className="text-gray-500">本番コミット</dt>
+                            <dd className="break-all font-mono text-gray-900">
+                              {selectedMessage.technicalContext.deploymentCommit || '不明'}
+                            </dd>
+                            <dt className="text-gray-500">受付日時</dt>
+                            <dd className="text-gray-900">
+                              {new Date(
+                                selectedMessage.technicalContext.reportedAt
+                              ).toLocaleString('ja-JP')}
+                            </dd>
+                          </dl>
                         </div>
                       )}
                     </div>
