@@ -43,6 +43,7 @@ vi.mock('../src/lib/coaching-session-memory', () => ({
     totalStoredMessages: requestMessages.length,
     memoryUsed: false,
     memoryRefreshed: false,
+    memoryRefreshScheduled: false,
     memoryCoveredMessages: null,
   }),
 }));

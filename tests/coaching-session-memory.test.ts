@@ -1,5 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import {
+  buildCoachingSessionContext,
   mergeRecentCoachingMessages,
   shouldRefreshSessionMemory,
 } from '../src/lib/coaching-session-memory';
@@ -71,3 +73,111 @@ describe('shouldRefreshSessionMemory', () => {
     expect(shouldRefreshSessionMemory(80, 56)).toBe(false);
   });
 });
+
+describe('buildCoachingSessionContext', () => {
+  it('長期履歴の要約作成を返信前に待たず、完了後の処理へ渡す', async () => {
+    const sessionId = '22222222-2222-4222-8222-222222222222';
+    const recentMessages = Array.from({ length: 24 }, (_, index) => ({
+      role: index % 2 === 0 ? 'user' : 'assistant',
+      content: `直近メッセージ${index + 1}`,
+      created_at: new Date(1_700_000_000_000 + index * 1000).toISOString(),
+    }));
+    const sourceMessages = Array.from({ length: 57 }, (_, index) => ({
+      role: index % 2 === 0 ? 'user' : 'assistant',
+      content: `要約対象メッセージ${index + 1}`,
+      created_at: new Date(1_699_000_000_000 + index * 1000).toISOString(),
+    }));
+    const sessionQuery = createAwaitableQuery({
+      data: { id: sessionId },
+      error: null,
+    });
+    const countQuery = createAwaitableQuery({
+      data: null,
+      error: null,
+      count: 81,
+    });
+    const memoryQuery = createAwaitableQuery({ data: [], error: null });
+    const recentQuery = createAwaitableQuery({
+      data: recentMessages.slice().reverse(),
+      error: null,
+    });
+    const sourceQuery = createAwaitableQuery({
+      data: sourceMessages,
+      error: null,
+    });
+    const writeQuery = createAwaitableQuery({ data: null, error: null });
+    const chatQueries = [
+      countQuery,
+      memoryQuery,
+      recentQuery,
+      sourceQuery,
+      writeQuery,
+    ];
+    const from = vi.fn((table: string) => {
+      if (table === 'chat_sessions') return sessionQuery;
+      if (table === 'chat_messages') {
+        const query = chatQueries.shift();
+        if (query) return query;
+      }
+      throw new Error(`Unexpected table call: ${table}`);
+    });
+    let scheduledTask: (() => Promise<void>) | null = null;
+    const scheduleMemoryRefresh = vi.fn((task: () => Promise<void>) => {
+      scheduledTask = task;
+    });
+
+    const result = await buildCoachingSessionContext({
+      supabaseAdmin: { from } as unknown as SupabaseClient,
+      sessionId,
+      userId: '11111111-1111-4111-8111-111111111111',
+      requestMessages: [{ role: 'user', content: '最新の相談です。' }],
+      scheduleMemoryRefresh,
+    });
+
+    expect(result).toMatchObject({
+      totalStoredMessages: 81,
+      memoryUsed: false,
+      memoryRefreshed: false,
+      memoryRefreshScheduled: true,
+      memoryCoveredMessages: null,
+    });
+    expect(scheduleMemoryRefresh).toHaveBeenCalledTimes(1);
+    expect(sourceQuery.range).not.toHaveBeenCalled();
+    expect(writeQuery.insert).not.toHaveBeenCalled();
+
+    await scheduledTask!();
+
+    expect(sourceQuery.range).toHaveBeenCalledWith(0, 56);
+    expect(writeQuery.insert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        session_id: sessionId,
+        role: 'system',
+        content: expect.stringContaining('ACTI_SESSION_MEMORY_V1'),
+      })
+    );
+  });
+});
+
+function createAwaitableQuery(result: Record<string, unknown>) {
+  const query: Record<string, ReturnType<typeof vi.fn>> & {
+    then?: PromiseLike<Record<string, unknown>>['then'];
+  } = {};
+  [
+    'select',
+    'eq',
+    'in',
+    'like',
+    'order',
+    'limit',
+    'range',
+    'insert',
+    'update',
+    'abortSignal',
+  ].forEach((method) => {
+    query[method] = vi.fn(() => query);
+  });
+  query.maybeSingle = vi.fn().mockResolvedValue(result);
+  query.then = (onFulfilled, onRejected) =>
+    Promise.resolve(result).then(onFulfilled, onRejected);
+  return query;
+}

@@ -105,6 +105,7 @@ describe('POST /api/chat scope guard', () => {
       totalStoredMessages: requestMessages.length,
       memoryUsed: false,
       memoryRefreshed: false,
+      memoryRefreshScheduled: false,
       memoryCoveredMessages: null,
     }));
     mocks.createJsonLineStream.mockImplementation(() => {

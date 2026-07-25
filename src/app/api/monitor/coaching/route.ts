@@ -13,6 +13,10 @@ import {
   updateCoachingMonitorAlertDelivery,
 } from '@/lib/coaching-monitor-runs';
 import { assertHealthyCoachingMonitorResult } from '@/lib/coaching-monitor-health';
+import {
+  COACHING_RECENT_MESSAGE_LIMIT,
+  COACHING_SESSION_MEMORY_PREFIX,
+} from '@/lib/coaching-session-memory';
 import { getJapanDateKey } from '@/lib/japan-date';
 
 export const runtime = 'nodejs';
@@ -27,6 +31,8 @@ const maxFirstChunkMs = Number(
   process.env.COACHING_MONITOR_MAX_FIRST_CHUNK_MS || 10000
 );
 const MONITOR_STAGE_TIMEOUT_MS = 10000;
+const MONITOR_MEMORY_REFRESH_TIMEOUT_MS = 12000;
+const MONITOR_MEMORY_POLL_MS = 500;
 const MONITOR_HISTORY_PAIRS = 40;
 const MONITOR_CHAT_TIMEOUT_MS = Math.max(
   5000,
@@ -50,6 +56,8 @@ type MonitorResult = {
   journeyTotalMs: number;
   assistantSaveMs: number;
   reloadMs: number;
+  memoryRefreshMs: number;
+  memoryRefreshVerified: boolean;
   hasDone: boolean;
   outputChars: number;
   returnedFallback: boolean;
@@ -670,6 +678,17 @@ async function runPaidCoachingMonitor(params: {
     }
     const reloadMs = Date.now() - reloadStartedAt;
 
+    const memoryRefreshStartedAt = Date.now();
+    await waitForMonitorSessionMemory({
+      supabaseAdmin: params.supabaseAdmin,
+      sessionId: createdSession.id,
+      targetCoveredCount: Math.max(
+        0,
+        allMessages.length - COACHING_RECENT_MESSAGE_LIMIT
+      ),
+    });
+    const memoryRefreshMs = Date.now() - memoryRefreshStartedAt;
+
     return {
       status: response.status,
       inputMessages: apiMessages.length,
@@ -687,6 +706,8 @@ async function runPaidCoachingMonitor(params: {
       journeyTotalMs: Date.now() - startedAt,
       assistantSaveMs,
       reloadMs,
+      memoryRefreshMs,
+      memoryRefreshVerified: true,
       hasDone: streamResult.hasDone,
       outputChars: streamResult.message.length,
       returnedFallback: streamResult.returnedFallback,
@@ -710,6 +731,65 @@ async function runPaidCoachingMonitor(params: {
       }
     }
   }
+}
+
+async function waitForMonitorSessionMemory(params: {
+  supabaseAdmin: SupabaseClient;
+  sessionId: string;
+  targetCoveredCount: number;
+}) {
+  const deadline = Date.now() + MONITOR_MEMORY_REFRESH_TIMEOUT_MS;
+
+  while (Date.now() < deadline) {
+    const { data, error } = await withMonitorTimeout(
+      params.supabaseAdmin
+        .from('chat_messages')
+        .select('content')
+        .eq('session_id', params.sessionId)
+        .eq('role', 'system')
+        .like('content', `${COACHING_SESSION_MEMORY_PREFIX}%`)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      Math.min(MONITOR_STAGE_TIMEOUT_MS, Math.max(1, deadline - Date.now())),
+      'session-memory-refresh'
+    );
+
+    if (error) {
+      throw new Error(`paid monitor session memory failed: ${error.message}`);
+    }
+
+    if (
+      getCoveredMessageCount(data?.content) >= params.targetCoveredCount
+    ) {
+      return;
+    }
+
+    await delay(MONITOR_MEMORY_POLL_MS);
+  }
+
+  throw new Error(
+    `paid monitor session memory timed out before covering ${params.targetCoveredCount} messages`
+  );
+}
+
+function getCoveredMessageCount(content?: string | null) {
+  if (!content?.startsWith(COACHING_SESSION_MEMORY_PREFIX)) return -1;
+
+  try {
+    const payload = JSON.parse(
+      content.slice(COACHING_SESSION_MEMORY_PREFIX.length).trim()
+    ) as { coveredMessageCount?: unknown };
+    return typeof payload.coveredMessageCount === 'number'
+      ? payload.coveredMessageCount
+      : -1;
+  } catch {
+    return -1;
+  }
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function readMonitorStream(response: Response, startedAt: number) {

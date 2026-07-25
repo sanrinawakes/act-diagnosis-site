@@ -5,12 +5,13 @@ import {
 } from '@/lib/coaching-gemini';
 import { stripAttachmentMarkdown } from '@/lib/attachments';
 
-const SESSION_MEMORY_PREFIX = 'ACTI_SESSION_MEMORY_V1';
-const RECENT_MESSAGE_LIMIT = 24;
-const SUMMARY_TRIGGER_MESSAGE_COUNT = RECENT_MESSAGE_LIMIT + 1;
+export const COACHING_SESSION_MEMORY_PREFIX = 'ACTI_SESSION_MEMORY_V1';
+export const COACHING_RECENT_MESSAGE_LIMIT = 24;
+const SUMMARY_TRIGGER_MESSAGE_COUNT = COACHING_RECENT_MESSAGE_LIMIT + 1;
 const SUMMARY_REFRESH_DELTA = 1;
 const MAX_SUMMARY_SOURCE_MESSAGES = 220;
 const SUMMARY_CHAR_LIMIT = 2400;
+const SESSION_MEMORY_REFRESH_TIMEOUT_MS = 10000;
 
 type MemoryPayload = {
   version: 1;
@@ -31,6 +32,7 @@ export type SessionContextResult = {
   totalStoredMessages: number | null;
   memoryUsed: boolean;
   memoryRefreshed: boolean;
+  memoryRefreshScheduled: boolean;
   memoryCoveredMessages: number | null;
 };
 
@@ -39,6 +41,7 @@ export async function buildCoachingSessionContext(params: {
   sessionId?: string | null;
   userId: string;
   requestMessages: CoachingChatMessage[];
+  scheduleMemoryRefresh?: (task: () => Promise<void>) => void;
 }): Promise<SessionContextResult> {
   const fallback = compactCoachingMessages(params.requestMessages);
 
@@ -48,6 +51,7 @@ export async function buildCoachingSessionContext(params: {
       totalStoredMessages: null,
       memoryUsed: false,
       memoryRefreshed: false,
+      memoryRefreshScheduled: false,
       memoryCoveredMessages: null,
     };
   }
@@ -66,6 +70,7 @@ export async function buildCoachingSessionContext(params: {
         totalStoredMessages: null,
         memoryUsed: false,
         memoryRefreshed: false,
+        memoryRefreshScheduled: false,
         memoryCoveredMessages: null,
       };
     }
@@ -81,7 +86,7 @@ export async function buildCoachingSessionContext(params: {
         .select('id, content, created_at')
         .eq('session_id', params.sessionId)
         .eq('role', 'system')
-        .like('content', `${SESSION_MEMORY_PREFIX}%`)
+        .like('content', `${COACHING_SESSION_MEMORY_PREFIX}%`)
         .order('created_at', { ascending: false })
         .limit(1),
       params.supabaseAdmin
@@ -90,7 +95,7 @@ export async function buildCoachingSessionContext(params: {
         .eq('session_id', params.sessionId)
         .in('role', ['user', 'assistant'])
         .order('created_at', { ascending: false })
-        .limit(RECENT_MESSAGE_LIMIT),
+        .limit(COACHING_RECENT_MESSAGE_LIMIT),
     ]);
 
     if (countResult.error || recentResult.error) {
@@ -99,6 +104,7 @@ export async function buildCoachingSessionContext(params: {
         totalStoredMessages: null,
         memoryUsed: false,
         memoryRefreshed: false,
+        memoryRefreshScheduled: false,
         memoryCoveredMessages: null,
       };
     }
@@ -110,25 +116,52 @@ export async function buildCoachingSessionContext(params: {
     const latestMemory = parseMemoryPayload(memoryResult.data?.[0]?.content);
     let activeMemory = latestMemory;
     let memoryRefreshed = false;
+    let memoryRefreshScheduled = false;
 
-    const targetCoveredCount = Math.max(0, totalStoredMessages - RECENT_MESSAGE_LIMIT);
+    const targetCoveredCount = Math.max(
+      0,
+      totalStoredMessages - COACHING_RECENT_MESSAGE_LIMIT
+    );
     const shouldRefreshMemory = shouldRefreshSessionMemory(
       totalStoredMessages,
       latestMemory?.coveredMessageCount ?? null
     );
 
     if (shouldRefreshMemory) {
-      const nextMemory = await createAndStoreMemory({
-        supabaseAdmin: params.supabaseAdmin,
-        sessionId: params.sessionId,
-        memoryRowId: memoryResult.data?.[0]?.id || null,
-        previousMemory: latestMemory,
-        targetCoveredCount,
-      });
+      const refreshMemory = async () => {
+        try {
+          await createAndStoreMemory({
+            supabaseAdmin: params.supabaseAdmin,
+            sessionId: params.sessionId!,
+            memoryRowId: memoryResult.data?.[0]?.id || null,
+            previousMemory: latestMemory,
+            targetCoveredCount,
+          });
+        } catch (error) {
+          console.error('Failed to refresh coaching session memory:', error);
+        }
+      };
 
-      if (nextMemory) {
-        activeMemory = nextMemory;
-        memoryRefreshed = true;
+      if (params.scheduleMemoryRefresh) {
+        try {
+          params.scheduleMemoryRefresh(refreshMemory);
+          memoryRefreshScheduled = true;
+        } catch (error) {
+          console.error('Failed to schedule coaching session memory:', error);
+        }
+      } else {
+        const nextMemory = await createAndStoreMemory({
+          supabaseAdmin: params.supabaseAdmin,
+          sessionId: params.sessionId,
+          memoryRowId: memoryResult.data?.[0]?.id || null,
+          previousMemory: latestMemory,
+          targetCoveredCount,
+        });
+
+        if (nextMemory) {
+          activeMemory = nextMemory;
+          memoryRefreshed = true;
+        }
       }
     }
 
@@ -143,6 +176,7 @@ export async function buildCoachingSessionContext(params: {
         totalStoredMessages,
         memoryUsed: false,
         memoryRefreshed,
+        memoryRefreshScheduled,
         memoryCoveredMessages: null,
       };
     }
@@ -167,6 +201,7 @@ export async function buildCoachingSessionContext(params: {
       totalStoredMessages,
       memoryUsed: true,
       memoryRefreshed,
+      memoryRefreshScheduled,
       memoryCoveredMessages: activeMemory.coveredMessageCount,
     };
   } catch (error) {
@@ -176,6 +211,7 @@ export async function buildCoachingSessionContext(params: {
       totalStoredMessages: null,
       memoryUsed: false,
       memoryRefreshed: false,
+      memoryRefreshScheduled: false,
       memoryCoveredMessages: null,
     };
   }
@@ -187,7 +223,7 @@ export function shouldRefreshSessionMemory(
 ) {
   const targetCoveredCount = Math.max(
     0,
-    totalStoredMessages - RECENT_MESSAGE_LIMIT
+    totalStoredMessages - COACHING_RECENT_MESSAGE_LIMIT
   );
 
   return (
@@ -262,6 +298,7 @@ async function createAndStoreMemory(params: {
   previousMemory: MemoryPayload | null;
   targetCoveredCount: number;
 }) {
+  const refreshSignal = AbortSignal.timeout(SESSION_MEMORY_REFRESH_TIMEOUT_MS);
   const startIndex = Math.max(
     0,
     params.targetCoveredCount - MAX_SUMMARY_SOURCE_MESSAGES
@@ -274,7 +311,8 @@ async function createAndStoreMemory(params: {
     .eq('session_id', params.sessionId)
     .in('role', ['user', 'assistant'])
     .order('created_at', { ascending: true })
-    .range(startIndex, endIndex);
+    .range(startIndex, endIndex)
+    .abortSignal(refreshSignal);
 
   if (error) {
     console.error('Failed to load messages for session memory:', error);
@@ -304,11 +342,12 @@ async function createAndStoreMemory(params: {
         })
         .eq('id', params.memoryRowId)
         .eq('session_id', params.sessionId)
+        .abortSignal(refreshSignal)
     : await memoryQuery.insert({
         session_id: params.sessionId,
         role: 'system',
         content: serializeMemoryPayload(memory),
-      });
+      }).abortSignal(refreshSignal);
 
   if (storeError) {
     console.error('Failed to store coaching session memory:', storeError);
@@ -361,14 +400,14 @@ function buildDeterministicSummary(params: {
 }
 
 function serializeMemoryPayload(memory: MemoryPayload) {
-  return `${SESSION_MEMORY_PREFIX}\n${JSON.stringify(memory)}`;
+  return `${COACHING_SESSION_MEMORY_PREFIX}\n${JSON.stringify(memory)}`;
 }
 
 function parseMemoryPayload(content?: string | null): MemoryPayload | null {
-  if (!content?.startsWith(SESSION_MEMORY_PREFIX)) return null;
+  if (!content?.startsWith(COACHING_SESSION_MEMORY_PREFIX)) return null;
 
   try {
-    const json = content.slice(SESSION_MEMORY_PREFIX.length).trim();
+    const json = content.slice(COACHING_SESSION_MEMORY_PREFIX.length).trim();
     const payload = JSON.parse(json) as Partial<MemoryPayload>;
     if (
       payload.version !== 1 ||

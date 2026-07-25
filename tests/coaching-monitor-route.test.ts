@@ -155,6 +155,7 @@ describe('GET /api/monitor/coaching maintenance isolation', () => {
         hasDone: true,
         completionStatus: 'complete',
         finalizationStatus: 'complete',
+        memoryRefreshVerified: true,
         cookieAuthUsed: true,
       },
       maintenance: {
@@ -350,6 +351,41 @@ function createAdminClient() {
           delete() {
             return {
               eq: async () => ({ error: null }),
+            };
+          },
+        };
+      }
+      if (table === 'chat_messages') {
+        return {
+          select() {
+            return {
+              eq() {
+                return {
+                  eq() {
+                    return {
+                      like() {
+                        return {
+                          order() {
+                            return {
+                              limit() {
+                                return {
+                                  maybeSingle: async () => ({
+                                    data: {
+                                      content:
+                                        'ACTI_SESSION_MEMORY_V1\n{"coveredMessageCount":57}',
+                                    },
+                                    error: null,
+                                  }),
+                                };
+                              },
+                            };
+                          },
+                        };
+                      },
+                    };
+                  },
+                };
+              },
             };
           },
         };

@@ -29,6 +29,8 @@ const metrics: CoachingMonitorMetrics = {
   journeyTotalMs: 2600,
   assistantSaveMs: 90,
   reloadMs: 100,
+  memoryRefreshMs: 400,
+  memoryRefreshVerified: true,
   outputChars: 63,
   returnedFallback: false,
   provider: 'gemini',
@@ -81,6 +83,8 @@ describe('buildCoachingMonitorRunRecord', () => {
       doneMs: 1700,
       assistantSaveMs: 90,
       reloadMs: 100,
+      memoryRefreshMs: 400,
+      memoryRefreshVerified: 1,
     });
     expect(JSON.stringify(record)).not.toContain('相談本文');
   });

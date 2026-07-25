@@ -24,6 +24,8 @@ export type CoachingMonitorMetrics = {
   journeyTotalMs: number;
   assistantSaveMs: number;
   reloadMs: number;
+  memoryRefreshMs: number;
+  memoryRefreshVerified: boolean;
   outputChars: number;
   returnedFallback: boolean;
   provider: string;
@@ -133,6 +135,8 @@ export function buildCoachingMonitorRunRecord(params: {
           doneMs: result.doneMs,
           assistantSaveMs: result.assistantSaveMs,
           reloadMs: result.reloadMs,
+          memoryRefreshMs: result.memoryRefreshMs,
+          memoryRefreshVerified: result.memoryRefreshVerified ? 1 : 0,
         }
       : {},
     error: params.status === 'failure' ? params.error || 'unknown error' : null,
