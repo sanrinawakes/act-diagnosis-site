@@ -17,6 +17,7 @@ import {
   stripInternalResponseStyleHint,
 } from '../src/lib/coaching-gemini';
 import {
+  coachingConversationPriorityPrompt,
   getCoachingSystemPrompt,
   getContextualizedPrompt,
 } from '../src/data/coaching-system-prompt';
@@ -2869,6 +2870,18 @@ describe('normalizeCoachingOutput', () => {
     expect(result).toContain('手元で確認できる支払記録');
     expect(result).not.toMatch(
       /直近3か月|記録にまとめてください|これまでの支払履歴を添えて|[？?]/
+    );
+  });
+
+  it('通常相談は短すぎる一言回答へ寄せない指示を含む', () => {
+    expect(coachingConversationPriorityPrompt).toContain(
+      '通常の悩み相談は220〜420字程度'
+    );
+    expect(coachingConversationPriorityPrompt).toContain(
+      '短い一言だけで終わらせない'
+    );
+    expect(coachingConversationPriorityPrompt).toContain(
+      '受け止め」「一つの見立て」「次の質問または具体的な一歩'
     );
   });
 });
