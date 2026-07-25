@@ -1823,6 +1823,7 @@ export function assessCoachingResponseQuality(params: {
   if (
     /能力がないと思われる.{0,20}(?:怖|不安)/.test(lastUserText) &&
     (!/能力がないと思われる|能力を低く評価され/.test(text) ||
+      !/評価基準|評価される基準|評価の基準/.test(text) ||
       /誰にも見せない|自分だけの(?:下書き|メモ)|非公開の(?:下書き|メモ)/.test(
         text
       ) ||
