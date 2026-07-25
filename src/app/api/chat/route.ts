@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { after, NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { randomUUID } from 'crypto';
@@ -502,6 +502,7 @@ export async function POST(request: NextRequest) {
           sessionId: activeSessionId,
           userId: user.id,
           requestMessages: messages,
+          scheduleMemoryRefresh: (task) => after(task),
         }),
         SESSION_CONTEXT_TIMEOUT_MS,
         'SESSION_CONTEXT_TIMEOUT'
@@ -513,6 +514,7 @@ export async function POST(request: NextRequest) {
         totalStoredMessages: null,
         memoryUsed: false,
         memoryRefreshed: false,
+        memoryRefreshScheduled: false,
         memoryCoveredMessages: null,
       };
     }
@@ -538,6 +540,7 @@ export async function POST(request: NextRequest) {
       totalStoredMessages: sessionContext.totalStoredMessages,
       memoryUsed: sessionContext.memoryUsed,
       memoryRefreshed: sessionContext.memoryRefreshed,
+      memoryRefreshScheduled: sessionContext.memoryRefreshScheduled,
       memoryCoveredMessages: sessionContext.memoryCoveredMessages,
       scopeCategory: scopeResult.category,
       isLongMessage: scopeResult.isLongMessage,
