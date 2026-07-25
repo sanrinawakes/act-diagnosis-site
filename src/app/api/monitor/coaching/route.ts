@@ -1,6 +1,6 @@
 import { createServerClient } from '@supabase/ssr';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { sendCoachingAlert } from '@/lib/coaching-alerts';
 import {
@@ -887,18 +887,33 @@ async function readMonitorStream(response: Response, startedAt: number) {
 }
 
 function validateMonitorAuthorization(request: NextRequest) {
-  const expectedSecret =
-    process.env.MONITORING_CRON_SECRET ||
-    process.env.CRON_SECRET ||
-    process.env.SUPPORT_AUTOMATION_SECRET ||
-    '';
-  if (!expectedSecret) return 'Monitoring secret is not configured';
+  const expectedSecrets = Array.from(
+    new Set(
+      [
+        process.env.MONITORING_CRON_SECRET,
+        process.env.CRON_SECRET,
+        process.env.SUPPORT_AUTOMATION_SECRET,
+      ].filter((secret): secret is string => Boolean(secret))
+    )
+  );
+  if (expectedSecrets.length === 0) {
+    return 'Monitoring secret is not configured';
+  }
 
   const authHeader = request.headers.get('authorization') || '';
-  if (authHeader === `Bearer ${expectedSecret}`) {
-    return '';
-  }
-  return 'Unauthorized';
+  const providedSecret = authHeader.startsWith('Bearer ')
+    ? authHeader.slice('Bearer '.length)
+    : '';
+  const provided = Buffer.from(providedSecret);
+  const authorized = expectedSecrets.some((secret) => {
+    const expected = Buffer.from(secret);
+    return (
+      expected.length === provided.length &&
+      timingSafeEqual(expected, provided)
+    );
+  });
+
+  return authorized ? '' : 'Unauthorized';
 }
 
 function getBaseUrl(request: NextRequest) {

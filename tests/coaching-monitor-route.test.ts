@@ -243,6 +243,16 @@ describe('GET /api/monitor/coaching maintenance isolation', () => {
     });
   });
 
+  it('accepts the support automation secret alongside the Vercel cron secret', async () => {
+    vi.stubEnv('SUPPORT_AUTOMATION_SECRET', 'support-automation-test-secret');
+
+    const response = await GET(
+      createMonitorRequest('support-automation-test-secret')
+    );
+
+    expect(response.status).toBe(200);
+  });
+
   it('suppresses the same accepted failure alert for one deployment during the cooldown', async () => {
     vi.stubGlobal(
       'fetch',
@@ -309,11 +319,11 @@ describe('GET /api/monitor/coaching maintenance isolation', () => {
   });
 });
 
-function createMonitorRequest() {
+function createMonitorRequest(secret = 'monitor-test-secret') {
   return new NextRequest(
     'https://act-diagnosis-site.vercel.app/api/monitor/coaching',
     {
-      headers: { Authorization: 'Bearer monitor-test-secret' },
+      headers: { Authorization: `Bearer ${secret}` },
     }
   );
 }
