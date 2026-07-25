@@ -1981,6 +1981,18 @@ export function assessCoachingResponseQuality(params: {
   ) {
     issues.push('vague_action_target');
   }
+  if (
+    requestsConcreteSuggestion(lastUserText) &&
+    requestsSingleAnswerFormat(lastUserText) &&
+    !requestsExplicitClosingQuestion(lastUserText) &&
+    !requestsDirectWording(lastUserText) &&
+    !/(?:(?:て|で)ください|してください|してみてください|しましょう|してみましょう|始めてみて|書き出してみて|伝えてみて|休んでください|休みましょう|置いてみてください|考えてください)(?:ね)?[。！]?$/.test(
+      text.trim()
+    ) &&
+    !issues.includes('vague_action_target')
+  ) {
+    issues.push('vague_action_target');
+  }
 
   if (
     /明日/.test(lastUserText) &&

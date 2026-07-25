@@ -822,6 +822,27 @@ describe('normalizeCoachingOutput', () => {
     expect(result).not.toMatch(/今夜|今日|今のうち/);
   });
 
+  it('一行動を求められた時に回りくどい推薦文を直接実行できる文へ直す', () => {
+    const lastUserText = '明日の一歩を一つ教えてください。';
+    const rawText =
+      '明日の具体的な一歩として、まずは「明日、自分が自由に使える時間が何分あるか」をスケジュール帳やスマホのカレンダーで確認し、そのうちの15分だけを自分のためだけに確保することをお勧めします。';
+    const assessment = assessCoachingResponseQuality({
+      text: rawText,
+      lastUserText,
+    });
+    const fallback = buildFinalVerifiedQualityFallback(lastUserText, []);
+    const fallbackAssessment = assessCoachingResponseQuality({
+      text: fallback,
+      lastUserText,
+    });
+
+    expect(assessment.issues).toContain('vague_action_target');
+    expect(fallbackAssessment.issues).toEqual([]);
+    expect(fallback).toMatch(/明日/);
+    expect(fallback).toMatch(/ください。$/);
+    expect(fallback).not.toContain('お勧めします');
+  });
+
   it('重複語と句点直後の疑問表現を自然な日本語へ直す', () => {
     const result = normalizeCoachingOutput(
       '最初のタタスクを選び、「どう進めるのがよさそうです。か？」と聞いてみてください。',
