@@ -5,6 +5,7 @@ import {
   COACHING_TEXT_MODEL,
   COACHING_TEXT_THINKING_LEVEL,
   assessCoachingResponseQuality,
+  buildFinalVerifiedQualityFallback,
   buildGeminiParts,
   buildIncompleteGenerationRecoveryResponse,
   buildUrgentSafetyResponse,
@@ -14,6 +15,7 @@ import {
   getCoachingGeminiModelName,
   normalizeCoachingOutput,
   prepareGeminiHistory,
+  prepareGeminiRequestHistory,
   stripInternalResponseStyleHint,
 } from '../src/lib/coaching-gemini';
 import {
@@ -35,8 +37,8 @@ describe('getCoachingGeminiModelName', () => {
     expect(COACHING_TEXT_THINKING_LEVEL).toBe('minimal');
   });
 
-  it('画像添付時は低遅延の3.1 Flash-Liteを使う', () => {
-    expect(COACHING_IMAGE_MODEL).toBe('gemini-3.1-flash-lite');
+  it('画像添付時も品質を優先した3.5 Flashを使う', () => {
+    expect(COACHING_IMAGE_MODEL).toBe('gemini-3.5-flash');
     expect(
       getCoachingGeminiModelName(
         buildGeminiParts('この画像を見てください。', [
@@ -67,6 +69,175 @@ describe('coaching runtime prompt', () => {
     expect(prompt).toContain('非表示の参考情報');
     expect(prompt).toContain('安心や安全');
     expect(prompt.length).toBeLessThan(6500);
+  });
+});
+
+describe('final verified quality fallback', () => {
+  const householdHistory = [
+    {
+      role: 'user' as const,
+      content:
+        '夫に家事を頼んでも後回しにされます。私ばかり負担している気がして腹が立ちます。',
+    },
+    {
+      role: 'assistant' as const,
+      content:
+        '家事を頼んでも後回しにされ、自分ばかり負担しているように感じて腹が立つんですね。',
+    },
+    {
+      role: 'user' as const,
+      content:
+        '家事そのものより、私の時間を軽く扱われているように感じることが嫌なんです。',
+    },
+    {
+      role: 'assistant' as const,
+      content:
+        '夫に、家事を頼んだ時どんな返答をしてほしいですか？',
+    },
+  ];
+
+  it('家事の会話でAI修復が尽きても利用者の文を引用するだけで終わらない', () => {
+    const lastUserText =
+      '責める言い方をすると喧嘩になるので、落ち着いて伝えたいです。';
+    const result = buildFinalVerifiedQualityFallback(
+      lastUserText,
+      householdHistory
+    );
+
+    expect(result).toBe(
+      '「私の時間も大切にしたいので、家事を頼んだ時に、いつ対応するかを一緒に決めたいです。」'
+    );
+    expect(result).not.toContain(lastUserText.replace(/。$/, ''));
+    expect(
+      assessCoachingResponseQuality({
+        text: result,
+        lastUserText,
+        historyMessages: householdHistory,
+      }).issues
+    ).toEqual([]);
+  });
+
+  it('利用者の最新発言を引用符で包んだだけの返答を不合格にする', () => {
+    const lastUserText =
+      '責める言い方をすると喧嘩になるので、落ち着いて伝えたいです。';
+    const assessment = assessCoachingResponseQuality({
+      text: '「責める言い方をすると喧嘩になるので、落ち着いて伝えたいです」',
+      lastUserText,
+      historyMessages: householdHistory,
+    });
+
+    expect(assessment.issues).toContain('latest_user_echo');
+  });
+
+  it('質問なしの一行動では相談の言い換えより具体的な行動を優先する', () => {
+    const lastUserText =
+      '話す直前にできることを、質問なしで一つだけ教えてください。';
+    const history = [
+      ...householdHistory,
+      {
+        role: 'user' as const,
+        content:
+          '責める言い方をすると喧嘩になるので、落ち着いて伝えたいです。',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          '「私の時間も大切にしたいので、家事を頼んだ時に、いつ対応するかを一緒に決めたいです。」',
+      },
+    ];
+    const result = buildFinalVerifiedQualityFallback(lastUserText, history);
+
+    expect(result).toBe(
+      '話し始める直前に、最初に伝えたい一文をメモで一度だけ確認してください。'
+    );
+    expect(result).not.toContain('という相談ですね');
+  });
+
+  it('相談文を「という相談ですね」と包んだだけの返答も不合格にする', () => {
+    const lastUserText =
+      '話す直前にできることを、質問なしで一つだけ教えてください。';
+    const assessment = assessCoachingResponseQuality({
+      text: `「${lastUserText}」という相談ですね。`,
+      lastUserText,
+      historyMessages: householdHistory,
+    });
+
+    expect(assessment.issues).toContain('latest_user_echo');
+  });
+
+  it.each([
+    ['仕事がうまくいくか不安です。', []],
+    ['夫との関係で困っています。', []],
+    ['最近、自信がなくなりました。', []],
+    [
+      '前の返答ではわかりません。質問を返さず具体的に答えてください。',
+      [
+        {
+          role: 'user' as const,
+          content: '上司との話し合いがうまくいかず困っています。',
+        },
+        {
+          role: 'assistant' as const,
+          content: '今いちばん気になっていることは何ですか？',
+        },
+      ],
+    ],
+    [
+      '明日の朝にすることを、質問なしで一つだけ教えてください。',
+      [
+        {
+          role: 'user' as const,
+          content: '企画書に手をつけられず困っています。',
+        },
+      ],
+    ],
+  ])(
+    '最終ローカル回答は一般的な相談でも未解決の品質違反を残さない: %s',
+    (lastUserText, historyMessages) => {
+      const result = buildFinalVerifiedQualityFallback(
+        lastUserText,
+        historyMessages
+      );
+      const assessment = assessCoachingResponseQuality({
+        text: result,
+        lastUserText,
+        historyMessages,
+      });
+
+      expect(result.trim()).not.toBe('');
+      expect(assessment.issues).toEqual([]);
+    }
+  );
+});
+
+describe('single-action grounding', () => {
+  const lastUserText =
+    '明日の朝に始める行動を一つだけ、質問なしで答えてください。';
+  const overpackedAnswer =
+    '明日の朝一番に、今日やり残したタスクの中から「5分以内に終わる簡単な作業」を一つだけ選び、机に座ってすぐに手を付けて完了させてください。';
+
+  it('履歴にない未完了タスクと複数行動を品質違反にする', () => {
+    const assessment = assessCoachingResponseQuality({
+      text: overpackedAnswer,
+      lastUserText,
+      historyMessages: [],
+    });
+
+    expect(assessment.issues).toContain('ungrounded_task_assumption');
+    expect(assessment.issues).toContain('multiple_coaching_moves');
+  });
+
+  it('一つだけの依頼では根拠のある一行動へ置き換える', () => {
+    const result = normalizeCoachingOutput(
+      overpackedAnswer,
+      lastUserText,
+      []
+    );
+
+    expect(result).toBe(
+      '明日の朝、終わらせたい用事を一つだけ紙に書いてください。'
+    );
+    expect(result).not.toMatch(/やり残|未完了|座って|手を付け|完了させ/);
   });
 });
 
@@ -167,6 +338,53 @@ describe('prepareGeminiHistory', () => {
     expect(text).toContain('家賃は76000円');
     expect(text).toContain('夫は毎月20000円程度');
     expect(text).toContain('直近の会話20');
+  });
+
+  it('現在の画像の色・枚数・文字を尋ねる時は無関係な会話履歴を渡さない', () => {
+    const history = prepareGeminiRequestHistory(
+      [
+        {
+          role: 'user',
+          content: '仕事を完璧にしようとして着手できません。',
+        },
+        {
+          role: 'assistant',
+          content: 'その仕事で外せない条件は何ですか？',
+        },
+      ],
+      buildGeminiParts('この画像の色を一言で答えてください。', [
+        {
+          name: 'test.png',
+          mimeType: 'image/png',
+          data: 'aGVsbG8=',
+        },
+      ])
+    );
+
+    expect(history).toEqual([]);
+  });
+
+  it('画像を使う通常相談では会話履歴を維持する', () => {
+    const history = prepareGeminiRequestHistory(
+      [
+        {
+          role: 'user',
+          content: '職場で言われた言葉が気になっています。',
+        },
+      ],
+      buildGeminiParts('このスクリーンショットも踏まえて相談したいです。', [
+        {
+          name: 'test.png',
+          mimeType: 'image/png',
+          data: 'aGVsbG8=',
+        },
+      ])
+    );
+
+    expect(history.length).toBeGreaterThan(0);
+    expect(
+      history.flatMap((item) => item.parts.map((part) => part.text)).join('\n')
+    ).toContain('職場で言われた言葉');
   });
 });
 
@@ -292,6 +510,67 @@ describe('assessCoachingResponseQuality', () => {
 
     expect(result.issues).toContain('generic_canned_close');
   });
+
+  it('曖昧な比喩と「していきましょう」を含む二重の働きかけを不合格にする', () => {
+    const result = assessCoachingResponseQuality({
+      text:
+        '仕事のことで落ち込んでいる時は、頭の中も複雑に絡まりやすくなりますよね。\n\nまずは絡まった糸を少しずつ解きほぐしていきましょう。\n\n明日ひとつだけ状況を動かすなら、何から始めますか？',
+      lastUserText:
+        '仕事のことで少し落ち込んでいます。短く整理を手伝ってください。',
+      historyMessages: [],
+    });
+
+    expect(result.issues).toContain('vague_metaphor');
+    expect(result.issues).toContain('multiple_coaching_moves');
+  });
+
+  it('本文にも履歴にも二択がない「このどちら」を不合格にする', () => {
+    const result = assessCoachingResponseQuality({
+      text:
+        '落ち込んでいる原因がどちらに分類されるかを見極めると、次の行動が見えやすくなります。\n\n今一番あなたを悩ませている出来事は、このどちらに当てはまりそうでしょうか。',
+      lastUserText:
+        '仕事のことで少し落ち込んでいます。短く整理を手伝ってください。',
+      historyMessages: [],
+    });
+
+    expect(result.issues).toContain('dangling_choice_reference');
+  });
+
+  it('利用者が挙げていない環境要因と個人要因の分類を不合格にする', () => {
+    const result = assessCoachingResponseQuality({
+      text:
+        '仕事の悩みは、業務量や人間関係などの「環境の要因」と、自分のスキルや判断などの「個人の要因」が混ざると複雑に見えがちです。これらを分けて捉え直すことで、次の行動が見えてきます。\n\n仕事のことで、今いちばん気になっている出来事は何ですか？',
+      lastUserText:
+        '仕事のことで少し落ち込んでいます。短く整理を手伝ってください。',
+      historyMessages: [],
+    });
+
+    expect(result.issues).toContain('ungrounded_categorization');
+  });
+
+  it('利用者が比較を求めていない時にAIが作った二択を不合格にする', () => {
+    const result = assessCoachingResponseQuality({
+      text:
+        '落ち込んでいる時は「業務内容や成果」に対する不満なのか、それとも「職場の人間関係や評価」に対する問題なのかによって、整理の仕方が変わります。\n\nまずはこの二つのうち、どちらの要素が強いか聞かせてもらえますか。',
+      lastUserText:
+        '仕事のことで少し落ち込んでいます。短く整理を手伝ってください。',
+      historyMessages: [],
+    });
+
+    expect(result.issues).toContain('ungrounded_categorization');
+  });
+
+  it('利用者が対象を決め直さないと実行できない提案を不合格にする', () => {
+    const result = assessCoachingResponseQuality({
+      text:
+        '明日の朝、今の状況で、まだ解決していないことを一つだけ書いてください。',
+      lastUserText:
+        '明日の朝に始める行動を一つだけ、質問なしで答えてください。',
+      historyMessages: [],
+    });
+
+    expect(result.issues).toContain('vague_action_target');
+  });
 });
 
 describe('buildIncompleteGenerationRecoveryResponse', () => {
@@ -396,6 +675,153 @@ describe('buildUrgentSafetyResponse', () => {
 });
 
 describe('normalizeCoachingOutput', () => {
+  it('朝に実行する行動を翌日のタスクとして案内しない', () => {
+    const result = normalizeCoachingOutput(
+      '明日の朝一番に始める行動として、まずは「明日やるべきタスクを紙に1つだけ書き出すこと」をお勧めします。',
+      '明日の朝に始める行動を一つだけ、質問なしで答えてください。'
+    );
+
+    expect(result).toBe(
+      '明日の朝、終わらせたい用事を一つだけ紙に書いてください。'
+    );
+    expect(result).not.toContain('明日やるべき');
+  });
+
+  it('会議で遮られた側の責任に読める言い回しを自然に直す', () => {
+    const result = normalizeCoachingOutput(
+      '「前回の会議で準備した提案を最後までお伝えしきれなかったため、今回はまず内容を最後までお聞きいただいた上で、ご意見をいただけますか」',
+      '次の会議の冒頭で、そのことを責めずに伝える最初の一言を一つだけ、質問なしで提案してください。'
+    );
+
+    expect(result).toContain(
+      '前回の会議では、準備した提案の説明が途中で終わったため'
+    );
+    expect(result).not.toContain('お伝えしきれなかった');
+    expect(result).not.toContain('お伝えする時間がなかった');
+  });
+
+  it('私の時間を大切に扱ってほしいと感じるという不自然な表現を直す', () => {
+    const result = normalizeCoachingOutput(
+      '「家事を頼んだときに、私の時間も大切に扱ってほしいと感じているから、いつやるか決めるルールについて落ち着いて話したいな。」',
+      '今夜話すなら、最初の一言はどうすればいいですか？'
+    );
+
+    expect(result).toContain('私の時間も大切にしてほしいから');
+    expect(result).not.toContain('扱ってほしいと感じている');
+  });
+
+  it('私の時間が大切にされていると感じられるという回りくどい表現を直す', () => {
+    const result = normalizeCoachingOutput(
+      '「家事を頼んだ時に、私の時間も大切にされていると感じられるように、いつやるかのルールを一緒に決めたいんだけど、今夜少し話せる？」',
+      '今夜話すなら、最初の一言はどうすればいいですか？'
+    );
+
+    expect(result).toContain('私の時間も大切にしてほしいから');
+    expect(result).not.toContain('されていると感じられるように');
+  });
+
+  it('私の時間が大切に扱われていると感じたいという不自然な表現を直す', () => {
+    const result = normalizeCoachingOutput(
+      '「家事を頼んだ時に、私の時間も大切に扱われていると感じたいから、いつやるかのルールを落ち着いて決めたいんだけど、今夜少し話せる？」',
+      '今夜話すなら、最初の一言はどうすればいいですか？'
+    );
+
+    expect(result).toContain('私の時間も大切にしてほしいから');
+    expect(result).not.toContain('扱われていると感じたい');
+  });
+
+  it('利用者が挙げていない口座変更や生活費停止を突然持ち出さない', () => {
+    const history = [
+      {
+        role: 'user' as const,
+        content:
+          '家賃は76000円ですが、夫は毎月20000円くらいしか払わず、私が不足分を負担しています。',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          'ご主人が支払うと明確に了承した毎月の金額はいくらですか？',
+      },
+    ];
+    const result = normalizeCoachingOutput(
+      '毎月伝えても支払い不足が続くなら、言い方だけでは解決しません。契約名義や現在の分担を確認せずに、口座変更や他の生活費の停止を勧めることはできません。\n\nまず、直近3か月の家賃額、相手の支払額、不足額を記録にまとめてください。',
+      'その伝え方はもう毎月やっています。同じ提案や同じ質問はしないでください。',
+      history
+    );
+
+    expect(result).not.toMatch(/口座変更|生活費の停止/);
+    expect(result).toContain('直近3か月の家賃額');
+    expect(result).toContain('書面で合意を求める');
+    expect(
+      assessCoachingResponseQuality({
+        text: result,
+        lastUserText:
+          'その伝え方はもう毎月やっています。同じ提案や同じ質問はしないでください。',
+        historyMessages: history,
+      }).issues
+    ).toEqual([]);
+  });
+
+  it('一つだけ指定でカーテンを開けて朝日を浴びる二動作を残さない', () => {
+    const result = normalizeCoachingOutput(
+      '明日の朝一番に始める行動は、スマートフォンのアラームが鳴ったらすぐに、カーテンを開けて朝日を浴びることです。',
+      '明日の朝に始める行動を一つだけ、質問なしで答えてください。'
+    );
+
+    expect(result).not.toMatch(/カーテン|朝日を浴び/);
+    expect(result).toBe(
+      '明日の朝、終わらせたい用事を一つだけ紙に書いてください。'
+    );
+  });
+
+  it('一つだけ指定で白湯か水という二択を残さない', () => {
+    const result = normalizeCoachingOutput(
+      '明日の朝、布団から出たらすぐに、コップ一杯の白湯かお水をゆっくりと飲んでください。',
+      '明日の朝に始める行動を一つだけ、質問なしで答えてください。'
+    );
+
+    expect(result).not.toContain('白湯かお水');
+    expect(result).toBe(
+      '明日の朝、終わらせたい用事を一つだけ紙に書いてください。'
+    );
+  });
+
+  it('内容のない「この1つの行動から始める」を具体策として通さない', () => {
+    const lastUserText =
+      '明日の朝に始める行動を一つだけ、質問なしで答えてください。';
+    const rawText =
+      '明日の朝、まずはこの1つの行動から始めてみてください。';
+    const assessment = assessCoachingResponseQuality({
+      text: rawText,
+      lastUserText,
+      historyMessages: [],
+    });
+    const result = normalizeCoachingOutput(rawText, lastUserText);
+
+    expect(assessment.issues).toContain('vague_action_target');
+    expect(result).toBe(
+      '明日の朝、終わらせたい用事を一つだけ紙に書いてください。'
+    );
+    expect(result).not.toContain('この1つの行動');
+  });
+
+  it('明日の行動を聞かれた時に今夜の準備へ時点を変えない', () => {
+    const lastUserText = '明日の一歩を一つ教えてください。';
+    const rawText =
+      '明日の一歩として、明日最初に取り組むタスクを、今夜のうちに紙へ書き出しておくことをお勧めします。';
+    const assessment = assessCoachingResponseQuality({
+      text: rawText,
+      lastUserText,
+    });
+    const result = normalizeCoachingOutput(rawText, lastUserText);
+
+    expect(assessment.issues).toContain('requested_time_mismatch');
+    expect(result).toBe(
+      '明日、終わらせたい用事を一つだけ紙に書いてください。'
+    );
+    expect(result).not.toMatch(/今夜|今日|今のうち/);
+  });
+
   it('重複語と句点直後の疑問表現を自然な日本語へ直す', () => {
     const result = normalizeCoachingOutput(
       '最初のタタスクを選び、「どう進めるのがよさそうです。か？」と聞いてみてください。',
@@ -697,6 +1123,16 @@ describe('normalizeCoachingOutput', () => {
 
     expect(result).not.toContain('お気持ちを受け止めます');
     expect(result).toContain('どの部分');
+  });
+
+  it('AI側の「状況をそのまま受け止めます」という姿勢宣言を残さない', () => {
+    const result = normalizeCoachingOutput(
+      '仕事のことで落ち込んでいるんですね。まずはその状況をそのまま受け止めます。\n\n頭の中を整理するために、一番気になっている出来事を一つだけ聞かせてもらえますか。',
+      '仕事のことで少し落ち込んでいます。短く整理を手伝ってください。'
+    );
+
+    expect(result).not.toContain('状況をそのまま受け止めます');
+    expect(result).toContain('一番気になっている出来事');
   });
 
   it('「怖い」を本人が使っていない「緊張」へ変えない', () => {
@@ -1362,6 +1798,18 @@ describe('normalizeCoachingOutput', () => {
     expect(result).not.toContain('明日でもよいですか');
   });
 
+  it('断る一言を一つ求められた時は括弧内の候補を残さない', () => {
+    const result = normalizeCoachingOutput(
+      '「せっかく声をかけていただきありがたいのですが、あいにく本日中（または明日中）は手一杯で対応が難しいため、今回は見送らせてください」',
+      '明日また急な依頼をされた時に、角を立てずに断る一言を一つだけ提案してください。'
+    );
+
+    expect(result).toBe(
+      '「ありがとうございます。ただ、今は手一杯のため、今回はお引き受けできません。」'
+    );
+    expect(result).not.toMatch(/または|本日中/);
+  });
+
   it('既知の動詞一覧にない具体的な単回答も一般論へ置き換えない', () => {
     const result = normalizeCoachingOutput(
       '明日の朝、上司に伝えたい要点を付箋にまとめるところからです。',
@@ -1392,7 +1840,7 @@ describe('normalizeCoachingOutput', () => {
     );
 
     expect(result).toBe(
-      '明日、今の状況で、まだ解決していないことを一つだけ書いてください。'
+      '明日、終わらせたい用事を一つだけ紙に書いてください。'
     );
   });
 
@@ -1423,6 +1871,21 @@ describe('normalizeCoachingOutput', () => {
       '「ありがとうございます。ただ、今は手一杯のため、今回はお引き受けできません。」'
     );
     expect(result).not.toContain('5分だけ取り組んで');
+  });
+
+  it('500文字を超える長文でも末尾の断る一言を一般的な仕事提案へ置き換えない', () => {
+    const lastUserText = `長くなりますが聞いてください。${'仕事では周囲の期待を優先してしまい、頼まれると断れない状態が続いています。'.repeat(
+      100
+    )}本当に相談したいのは、明日また急な依頼をされた時に、角を立てずに断る一言です。一つだけ提案してください。`;
+    const result = normalizeCoachingOutput(
+      '明日は、最初に取り組む仕事の開始時刻を予定表に記入してください。',
+      lastUserText
+    );
+
+    expect(result).toBe(
+      '「ありがとうございます。ただ、今は手一杯のため、今回はお引き受けできません。」'
+    );
+    expect(result).not.toMatch(/開始時刻|予定表/);
   });
 
   it('断る一言を延期の打診で済ませず、今回は引き受けないと伝える', () => {
@@ -1959,6 +2422,16 @@ describe('normalizeCoachingOutput', () => {
     expect(result).not.toMatch(/頑張られ|よく頑張/);
   });
 
+  it('通常会話で「お見受けします」という硬い観察表現を使わない', () => {
+    const result = normalizeCoachingOutput(
+      '評価が脅かされるように感じて動けなくなっている状態とお見受けします。',
+      '能力がないと思われるのが怖いです。'
+    );
+
+    expect(result).toContain('状態です');
+    expect(result).not.toContain('お見受けします');
+  });
+
   it('内部の回答形式指定を利用者本文から分離する', () => {
     const result = stripInternalResponseStyleHint(
       'この画像の色を一言で答えてください。\n\n【内部応答形式】答えまたは提案を一つだけ簡潔に返してください。'
@@ -2176,7 +2649,7 @@ describe('normalizeCoachingOutput', () => {
 
     expect(result).not.toMatch(/淹れ|スマホ|香り/);
     expect(result).toBe(
-      '明日の朝、今の状況で、まだ解決していないことを一つだけ書いてください。'
+      '明日の朝、終わらせたい用事を一つだけ紙に書いてください。'
     );
   });
 
@@ -2188,7 +2661,61 @@ describe('normalizeCoachingOutput', () => {
 
     expect(result).not.toMatch(/思い浮かべ|深呼吸|淹れ/);
     expect(result).toBe(
-      '明日の朝、今の状況で、まだ解決していないことを一つだけ書いてください。'
+      '明日の朝、終わらせたい用事を一つだけ紙に書いてください。'
+    );
+  });
+
+  it('一つだけ指定で息を吐いて肩の力を抜く二動作を残さない', () => {
+    const result = normalizeCoachingOutput(
+      '話す直前に、ゆっくりと深く息を吐ききり、自分の両肩の力を意識して抜いてください。',
+      '話す直前にできることを、質問なしで一つだけ教えてください。',
+      [
+        {
+          role: 'user',
+          content: '夫と家事分担について話したいです。',
+        },
+      ]
+    );
+
+    expect(result).not.toMatch(/息を吐|両肩/);
+    expect(result).toBe(
+      '話し始める直前に、最初に伝えたい一文をメモで一度だけ確認してください。'
+    );
+  });
+
+  it('一つだけ指定で深呼吸と言葉を唱える二動作を残さない', () => {
+    const result = normalizeCoachingOutput(
+      '話す直前に、深呼吸をしながら「私は自分の時間を大切にするために、落ち着いて話し合う」と心の中で一言唱えてください。',
+      '話す直前にできることを、質問なしで一つだけ教えてください。',
+      [
+        {
+          role: 'user',
+          content: '夫と家事分担について話したいです。',
+        },
+      ]
+    );
+
+    expect(result).not.toMatch(/深呼吸|唱え/);
+    expect(result).toBe(
+      '話し始める直前に、最初に伝えたい一文をメモで一度だけ確認してください。'
+    );
+  });
+
+  it('一つだけ指定で深呼吸と言葉をつぶやく二動作を残さない', () => {
+    const result = normalizeCoachingOutput(
+      '話す直前に、深呼吸をしながら「私は自分の時間を大切にするために話すのだ」と心の中で一言つぶやいてみてください。',
+      '話す直前にできることを、質問なしで一つだけ教えてください。',
+      [
+        {
+          role: 'user',
+          content: '夫と家事分担について話したいです。',
+        },
+      ]
+    );
+
+    expect(result).not.toMatch(/深呼吸|つぶや/);
+    expect(result).toBe(
+      '話し始める直前に、最初に伝えたい一文をメモで一度だけ確認してください。'
     );
   });
 
@@ -2432,6 +2959,59 @@ describe('normalizeCoachingOutput', () => {
     );
   });
 
+  it('会議で提案を却下された事実を具体策の依頼と誤判定しない', () => {
+    const assessment = assessCoachingResponseQuality({
+      text: '準備に使った時間を軽く扱われたことに腹が立っているのですね。問題は提案が却下されたことだけではなく、準備した内容を最後まで検討されなかった点です。\n\n次の会議で、意見を出す前に相手へ守ってほしい進め方は何ですか？',
+      lastUserText:
+        '会議で提案を最後まで聞かず却下されて、悲しいというより腹が立ちました。私の準備時間を軽く扱われたことが嫌です。',
+    });
+
+    expect(assessment.issues).not.toContain('vague_action_target');
+  });
+
+  it.each([
+    {
+      text: '「前回は提案の説明が途中で終わったため、今回は内容を最後までお伝えしてから、ご意見をいただけると助かります。」',
+      lastUserText:
+        '次の会議の冒頭で、そのことを責めずに伝える最初の一言を一つだけ、質問なしで提案してください。',
+      historyMessages: [
+        {
+          role: 'user' as const,
+          content:
+            '会議で提案を最後まで聞かず却下されて、悲しいというより腹が立ちました。私の準備時間を軽く扱われたことが嫌です。',
+        },
+      ],
+    },
+    {
+      text: '「私の時間も大切にしたいから、家事を頼んだ時にいつやるかを一緒に決めたいんだけど、今夜少し話せる？」',
+      lastUserText: '今夜話すなら、最初の一言はどうすればいいですか？',
+      historyMessages: [
+        {
+          role: 'user' as const,
+          content:
+            '家事そのものより、私の時間を軽く扱われているように感じることが嫌なんです。',
+        },
+        {
+          role: 'user' as const,
+          content:
+            '責める言い方をすると喧嘩になるので、落ち着いて伝えたいです。',
+        },
+      ],
+    },
+  ])('会話事実に沿ったそのまま読める一言を具体的回答として認める', ({
+    text,
+    lastUserText,
+    historyMessages,
+  }) => {
+    const assessment = assessCoachingResponseQuality({
+      text,
+      lastUserText,
+      historyMessages,
+    });
+
+    expect(assessment.issues).not.toContain('vague_action_target');
+  });
+
   it('相手に悪気がないと仮定せず、時間や労力が削られると強めない', () => {
     const result = normalizeCoachingOutput(
       '家事を頼んでも後回しにされると腹が立ちますよね。そのイライラする気持ちが伝わります。\n\n相手に悪気はなくても、目の前の家事が進まないと、自分の時間や労力だけが削られていくように感じてしまうものです。\n\n夫に家事を頼む時は、期限を一つだけ決めて伝えてください。',
@@ -2512,7 +3092,7 @@ describe('normalizeCoachingOutput', () => {
     );
 
     expect(result).toBe(
-      '「前回は提案を最後までお伝えできなかったので、今回は結論まで聞いてからご意見をいただけると助かります。」'
+      '「前回は提案の説明が途中で終わったため、今回は内容を最後までお伝えしてから、ご意見をいただけると助かります。」'
     );
     expect(result).not.toMatch(/嫌|腹が立/);
   });
@@ -2531,9 +3111,28 @@ describe('normalizeCoachingOutput', () => {
     );
 
     expect(result).toBe(
-      '「前回は提案を最後までお伝えできなかったので、今回は結論まで聞いてからご意見をいただけると助かります。」'
+      '「前回は提案の説明が途中で終わったため、今回は内容を最後までお伝えしてから、ご意見をいただけると助かります。」'
     );
     expect(result).not.toContain('最後まで意見を聞いた上で');
+  });
+
+  it('「悲しいというより腹が立った」を悲しみの根拠にせず、心残りを会議の依頼文へ直す', () => {
+    const result = normalizeCoachingOutput(
+      '「前回の会議で準備した提案を最後までお伝えできなかったことが心残りですので、今回はまず最後までお聞きいただいた上で、ご意見をいただけますか」',
+      '次の会議の冒頭で、そのことを責めずに伝える最初の一言を一つだけ、質問なしで提案してください。',
+      [
+        {
+          role: 'user',
+          content:
+            '会議で提案を最後まで聞かず却下されて、悲しいというより腹が立ちました。私の準備時間を軽く扱われたことが嫌です。',
+        },
+      ]
+    );
+
+    expect(result).toBe(
+      '「前回は提案の説明が途中で終わったため、今回は内容を最後までお伝えしてから、ご意見をいただけると助かります。」'
+    );
+    expect(result).not.toContain('心残り');
   });
 
   it('責めずに伝える家事の一言を具体的なお願いにする', () => {
@@ -2670,6 +3269,43 @@ describe('normalizeCoachingOutput', () => {
       '明日の朝、その仕事で最初に終わらせる作業を一つだけメモに書いてください。'
     );
     expect(result).not.toMatch(/ステップ|だけ[^\n]{0,30}だけ/);
+  });
+
+  it('上司への確認文を決めた後の翌朝行動を、曖昧な相手の一文へ戻さない', () => {
+    const result = normalizeCoachingOutput(
+      '明日の朝、相手に最初に伝える一文だけをメモに書いてください。',
+      'では、明日まず何をすればいいか一つだけ教えてください。',
+      [
+        {
+          role: 'user',
+          content:
+            '上司に否定されたように感じて、次の一言が怖いです。',
+        },
+        {
+          role: 'assistant',
+          content:
+            '次に話す時は、「前回のご指摘について、最初に見直す点を一つだけ挙げてもらえますか」と伝えてください。',
+        },
+      ]
+    );
+
+    expect(result).toBe(
+      '明日の朝、上司に「前回のご指摘について、最初に見直す点を一つだけ挙げてもらえますか」と確認してください。'
+    );
+    expect(result).not.toContain('相手に最初に伝える');
+  });
+
+  it('仕事のタスクという重複語を自然な日本語へ直す', () => {
+    const result = normalizeCoachingOutput(
+      '明日の朝、最初に行う仕事のタスクを一つだけメモ帳に書き出してください。',
+      '明日まず何をすればいいか、一つだけ短く教えてください。',
+      []
+    );
+
+    expect(result).toBe(
+      '明日の朝、最初に行う仕事を一つだけメモ帳に書き出してください。'
+    );
+    expect(result).not.toContain('仕事のタスク');
   });
 
   it('長い相談という語だけで相手への伝言へ脱線しない', () => {
@@ -2815,6 +3451,550 @@ describe('normalizeCoachingOutput', () => {
     expect(result).not.toMatch(
       /見過ごしたくない本音|メモ|伝えて(?:ください|みてください)|[？?]/
     );
+  });
+
+  it('未払いになると再説明された時に無関係なメモ課題へ逸らさない', () => {
+    const history = [
+      {
+        role: 'user' as const,
+        content:
+          '家賃は76000円なのに、夫は毎月20000円くらいしか払わず腹が立ちます。',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          '夫に「今月の家賃として、〇日までに〇万円を振り込んでください」と送ることはできそうですか。',
+      },
+      {
+        role: 'user' as const,
+        content: '毎回言っています。もうやりたくないです。',
+      },
+    ];
+    const result = normalizeCoachingOutput(
+      '今いちばん気になっていることを一文だけメモに書いてください。',
+      'できてない。そのままにすると未払いになる',
+      history
+    );
+
+    expect(result).toMatch(/家賃|未払い|不足額|支払日|書面|第三者/);
+    expect(result.length).toBeGreaterThanOrEqual(100);
+    expect(result).not.toMatch(
+      /見過ごしたくない本音|一文だけメモ|もう一度.{0,40}伝え|[？?]/
+    );
+  });
+
+  it('疲労を含んでも明日の具体策を求めている時は休息だけにしない', () => {
+    const result = normalizeCoachingOutput(
+      '明日、最初に取り組む仕事を一つだけ紙に書いてください。',
+      '仕事で少し疲れています。明日にできることを一つだけ教えてください。'
+    );
+
+    expect(result).toContain('明日');
+    expect(result).toContain('仕事');
+    expect(result).not.toContain('今日はゆっくり休んでください');
+  });
+
+  it('利用者が言っていない価値証明・周囲の反応・悪循環を足さない', () => {
+    const result = normalizeCoachingOutput(
+      [
+        '能力がないと思われるのが怖いと感じる時、私たちは完璧な成果を出して自分の価値を証明しようとしがちです。',
+        'しかし、そのプレッシャーが行動を止め、周囲を待たせる悪循環に陥ることがあります。',
+        '周囲が本当に求めているのは、完璧さよりも進捗が見えることです。',
+        '明日は、仕事の現在の進捗率を上司に伝えてください。',
+      ].join('\n\n'),
+      '失敗より、能力がないと思われるのが怖いです。',
+      [
+        {
+          role: 'user',
+          content: '仕事を完璧にしようとして着手できません。',
+        },
+      ]
+    );
+
+    expect(result).toContain('進捗率');
+    expect(result).not.toMatch(
+      /価値を証明|周囲を待たせ|悪循環|周囲が本当に求めている/
+    );
+  });
+
+  it('能力がないと思われる怖さを無視して非公開の下書きへ逸らさない', () => {
+    const assessment = assessCoachingResponseQuality({
+      text: '明日取り組む仕事について、誰にも見せない自分だけの下書きのメモを15分間だけ書いてください。',
+      lastUserText: '失敗より、能力がないと思われるのが怖いです。',
+      historyMessages: [
+        {
+          role: 'user',
+          content: '仕事を完璧にしようとして着手できません。',
+        },
+      ],
+    });
+    const fallback = buildFinalVerifiedQualityFallback(
+      '失敗より、能力がないと思われるのが怖いです。',
+      [
+        {
+          role: 'user',
+          content: '仕事を完璧にしようとして着手できません。',
+        },
+      ]
+    );
+
+    expect(assessment.issues).toContain('dissatisfaction_unanswered');
+    expect(fallback).toMatch(/能力がない|評価基準/);
+    expect(fallback).not.toMatch(/誰にも見せない|下書きのメモ/);
+  });
+
+  it('能力評価を復唱しても根拠のない心理説明と非公開メモへ逸らす回答は不合格にする', () => {
+    const assessment = assessCoachingResponseQuality({
+      text: [
+        '能力がないと思われるのが怖いと感じる時、仕事に手をつけられないのは、自分を守るための自然な反応です。着手しなければ、失敗して評価が下がるリスクを避けられるからです。',
+        '明日は、誰にも見せない「自分だけのメモ」に、その仕事の最初の手順を1つだけ書き出してみてください。',
+      ].join('\n\n'),
+      lastUserText: '失敗より、能力がないと思われるのが怖いです。',
+      historyMessages: [
+        {
+          role: 'user',
+          content: '仕事を完璧にしようとして着手できません。',
+        },
+      ],
+    });
+
+    expect(assessment.issues).toContain('dissatisfaction_unanswered');
+  });
+
+  it('能力評価の相談へ価値証明と将来の信頼を足す回答は不合格にする', () => {
+    const assessment = assessCoachingResponseQuality({
+      text: [
+        '能力がないと思われるのが怖いと感じる時、完璧な成果を出さなければ自分の価値が証明できないように思えて、余計に動けなくなりますよね。',
+        '仕事の進捗が1割か2割の段階で、上司や同僚に方向性を確認してください。早い相談は、能力不足ではなく仕事が丁寧で確実な人という信頼につながります。',
+      ].join('\n\n'),
+      lastUserText: '失敗より、能力がないと思われるのが怖いです。',
+      historyMessages: [
+        {
+          role: 'user',
+          content: '仕事を完璧にしようとして着手できません。',
+        },
+      ],
+    });
+
+    expect(assessment.issues).toContain('dissatisfaction_unanswered');
+  });
+
+  it('能力評価の相談へ周囲の安心と評価低下を決めつける回答は不合格にする', () => {
+    const assessment = assessCoachingResponseQuality({
+      text: [
+        '能力がないと思われるのが怖いと感じる時、完璧に仕上げてから見せようとすると、かえって着手が遅れて評価を下げてしまうことがあります。',
+        '周囲は仕事を進める姿勢や相談の早さを見て安心します。明日、誰にこの声をかけるか、一人だけ決めてみませんか。',
+      ].join('\n\n'),
+      lastUserText: '失敗より、能力がないと思われるのが怖いです。',
+      historyMessages: [
+        {
+          role: 'user',
+          content: '仕事を完璧にしようとして着手できません。',
+        },
+      ],
+    });
+
+    expect(assessment.issues).toContain('dissatisfaction_unanswered');
+  });
+
+  it('能力評価の相談へ本人未申告の心理状態を断定する回答は不合格にする', () => {
+    const assessment = assessCoachingResponseQuality({
+      text: [
+        '能力がないと思われるのが怖いと感じる時、仕事のハードルを自ら高くしてしまい、動けなくなるのは自然なことです。周囲の評価を意識するあまり、自分を追い詰めているのかもしれません。',
+        '評価への恐怖を和らげるために、明日は全体の1割だけできた段階で上司に見せてください。',
+      ].join('\n\n'),
+      lastUserText: '失敗より、能力がないと思われるのが怖いです。',
+      historyMessages: [
+        {
+          role: 'user',
+          content: '仕事を完璧にしようとして着手できません。',
+        },
+      ],
+    });
+
+    expect(assessment.issues).toContain('dissatisfaction_unanswered');
+  });
+
+  it('明日の行動を求められた回答から明日が消えたら不合格にする', () => {
+    const assessment = assessCoachingResponseQuality({
+      text: 'その日に終わらせたい用事を一つだけ紙に書いてください。',
+      lastUserText: '明日の一歩を一つ教えてください。',
+    });
+
+    expect(assessment.issues).toContain('requested_time_mismatch');
+  });
+
+  it('明日の行動を求められたのに今の準備を指示する回答は不合格にする', () => {
+    const assessment = assessCoachingResponseQuality({
+      text: '明日の一歩として、最初の作業を一つだけ、今、紙かスマートフォンのメモに書き出してください。',
+      lastUserText: '明日の一歩を一つ教えてください。',
+    });
+
+    expect(assessment.issues).toContain('requested_time_mismatch');
+    expect(assessment.issues).toContain('multiple_coaching_moves');
+  });
+
+  it('明日の朝の行動に今日一番という時制矛盾を残さない', () => {
+    const lastUserText =
+      '明日まず何をすればいいか、一つだけ短く教えてください。';
+    const original =
+      '明日の朝、仕事を始める前に、今日一番に終わらせたい作業を一つだけメモ帳に書いてください。';
+    const assessment = assessCoachingResponseQuality({
+      text: original,
+      lastUserText,
+    });
+
+    expect(assessment.issues).toContain('requested_time_mismatch');
+    const normalized = normalizeCoachingOutput(original, lastUserText);
+    expect(normalized).toContain('明日');
+    expect(normalized).not.toContain('今日');
+  });
+
+  it('明日の朝を指定された回答から朝が消えたら不合格にする', () => {
+    const lastUserText =
+      '明日の朝に始める行動を一つだけ、質問なしで答えてください。';
+    const assessment = assessCoachingResponseQuality({
+      text: '明日、終わらせたい用事を一つだけ紙に書いてください。',
+      lastUserText,
+    });
+    const fallback = buildFinalVerifiedQualityFallback(lastUserText, []);
+
+    expect(assessment.issues).toContain('requested_time_mismatch');
+    expect(fallback).toContain('明日の朝');
+  });
+
+  it('明日に使う断り文の中へ明日という語を強制しない', () => {
+    const lastUserText =
+      '本当に相談したいのは、明日また急な依頼をされた時に、角を立てずに断る一言です。一つだけ提案してください。';
+    const text =
+      '「ありがとうございます。ただ、今は手一杯のため、今回はお引き受けできません。」';
+    const assessment = assessCoachingResponseQuality({
+      text,
+      lastUserText,
+    });
+
+    expect(assessment.issues).not.toContain('requested_time_mismatch');
+  });
+
+  it('明日の行動を求められたのに就寝前の複数準備を引用内で指示する回答は不合格にする', () => {
+    const assessment = assessCoachingResponseQuality({
+      text: '明日の一歩として、「最初のタスクを紙に書き、キーボードの上に置いてから眠る」ことを提案します。',
+      lastUserText: '明日の一歩を一つ教えてください。',
+    });
+
+    expect(assessment.issues).toContain('requested_time_mismatch');
+    expect(assessment.issues).toContain('multiple_coaching_moves');
+  });
+
+  it('相談文を引用して言い換えただけの回答は文字数に関係なく不合格にする', () => {
+    const assessment = assessCoachingResponseQuality({
+      text: '「仕事で少し疲れています。明日にできることを一つだけ教えてください」という相談ですね。',
+      lastUserText:
+        '仕事で少し疲れています。明日にできることを一つだけ教えてください。',
+    });
+
+    expect(assessment.issues).toContain('latest_user_echo');
+  });
+
+  it('一行動の依頼に作業と報告をまとめた回答は不合格にする', () => {
+    const assessment = assessCoachingResponseQuality({
+      text: '明日の朝、10分だけ作業して、進捗を同僚に報告すると決めて実行してください。',
+      lastUserText: '最後に、明日の行動を一つだけ教えてください。',
+    });
+
+    expect(assessment.issues).toContain('multiple_coaching_moves');
+  });
+
+  it('仕事内容が不明なのに一行や一コマの作成を指示する回答は不合格にする', () => {
+    const assessment = assessCoachingResponseQuality({
+      text: '完璧に仕上げる必要はありません。最初の1行や1コマだけを書き出してください。',
+      lastUserText: '仕事を完璧にしようとして着手できません。',
+    });
+
+    expect(assessment.issues).toContain('ungrounded_task_assumption');
+  });
+
+  it('仕事内容が不明なのにたたき台作成を決めつける回答は不合格にする', () => {
+    const lastUserText = '仕事を完璧にしようとして着手できません。';
+    const rawText =
+      '完璧に仕上げる必要はありません。まずは、全体の流れが分かる「1割の出来のたたき台」を15分で作る、ということだけを明日の最初の目標にしてみてください。';
+    const assessment = assessCoachingResponseQuality({
+      text: rawText,
+      lastUserText,
+    });
+    const fallback = buildFinalVerifiedQualityFallback(lastUserText, []);
+
+    expect(assessment.issues).toContain('ungrounded_task_assumption');
+    expect(fallback).toMatch(/完璧|完成条件|条件/);
+    expect(fallback).not.toContain('たたき台');
+  });
+
+  it('仕事内容が不明な相談へ下書き一行とPC操作を作らず核心を確認する', () => {
+    const lastUserText = '仕事を完璧にしようとして着手できません。';
+    const rawText =
+      '完璧に仕上げる必要はありません。明日は「下書きを1行だけ書く」ことだけを目指して、パソコンを開いてみてください。';
+    const assessment = assessCoachingResponseQuality({
+      text: rawText,
+      lastUserText,
+    });
+    const fallback = buildFinalVerifiedQualityFallback(lastUserText, []);
+    const fallbackAssessment = assessCoachingResponseQuality({
+      text: fallback,
+      lastUserText,
+    });
+
+    expect(assessment.issues).toContain('ungrounded_task_assumption');
+    expect(fallbackAssessment.issues).toEqual([]);
+    expect(fallback).toMatch(/完璧|完成条件|条件/);
+    expect(fallback).not.toMatch(/下書き|1行|パソコン/);
+  });
+
+  it('仕事内容が不明な能力評価の不安へ関係者への共有を指示しない', () => {
+    const assessment = assessCoachingResponseQuality({
+      text: '失敗そのものより、周囲に能力がないと思われることが怖いのですね。明日は、着手して15分後に、関係者へ途中の内容を見せて確認してください。',
+      lastUserText: '失敗より、能力がないと思われるのが怖いです。',
+      historyMessages: [
+        {
+          role: 'user',
+          content: '仕事を完璧にしようとして着手できません。',
+        },
+      ],
+    });
+
+    expect(assessment.issues).toContain('dissatisfaction_unanswered');
+  });
+
+  it('能力評価の不安へ周囲の評価を断定して中間報告を指示しない', () => {
+    const lastUserText = '失敗より、能力がないと思われるのが怖いです。';
+    const rawText =
+      '能力がないと思われるのが怖いと感じる時、私たちは完璧な成果を出して自分を守ろうとしがちです。しかし、周囲が本当に評価するのは、最初から完璧な成果を出すことよりも、早い段階で進捗を共有し、軌道修正しながら進める姿勢です。\n\n明日は、作業を始める前に「ここまでできたら一度相談します」と、周囲に中間報告のタイミングを予告してみてください。';
+    const assessment = assessCoachingResponseQuality({
+      text: rawText,
+      lastUserText,
+      historyMessages: [
+        {
+          role: 'user',
+          content: '仕事を完璧にしようとして着手できません。',
+        },
+      ],
+    });
+    const fallback = buildFinalVerifiedQualityFallback(lastUserText, []);
+
+    expect(assessment.issues).toContain('dissatisfaction_unanswered');
+    expect(fallback).toMatch(/能力がない|評価基準/);
+    expect(fallback).not.toMatch(/周囲|中間報告|進捗共有|軌道修正/);
+  });
+
+  it('能力評価の不安へ「周囲から能力があると認められたい」という目的を補わない', () => {
+    const lastUserText = '失敗より、能力がないと思われるのが怖いです。';
+    const assessment = assessCoachingResponseQuality({
+      text: '能力がないと思われることへの恐怖から、完璧を求めて手が止まってしまうのですね。\n\n周囲から「能力がある」と認められるために、その仕事で絶対に外せない最低限のアウトプットは何でしょうか。',
+      lastUserText,
+      historyMessages: [
+        {
+          role: 'user',
+          content: '仕事を完璧にしようとして着手できません。',
+        },
+      ],
+    });
+    const fallback = buildFinalVerifiedQualityFallback(lastUserText, []);
+
+    expect(assessment.issues).toContain('dissatisfaction_unanswered');
+    expect(fallback).toMatch(/能力がない|評価基準/);
+    expect(fallback).not.toMatch(/周囲|認められ|アウトプット/);
+  });
+
+  it('能力評価の不安を「不安の奥で守りたいもの」へ逸らさない', () => {
+    const lastUserText = '失敗より、能力がないと思われるのが怖いです。';
+    const assessment = assessCoachingResponseQuality({
+      text: '能力がないと思われるのが怖いのですね。\n\nその不安の奥で、いちばん守りたいものは何ですか？',
+      lastUserText,
+    });
+    const fallback = buildFinalVerifiedQualityFallback(lastUserText, []);
+    const fallbackAssessment = assessCoachingResponseQuality({
+      text: fallback,
+      lastUserText,
+    });
+
+    expect(assessment.issues).toContain('dissatisfaction_unanswered');
+    expect(fallbackAssessment.issues).toEqual([]);
+    expect(fallback).toMatch(/能力がないと思われる|評価基準/);
+    expect(fallback).not.toMatch(/不安の奥|守りたいもの/);
+  });
+
+  it('仕事内容が不明な相談へ極小作業とPC起動を作らない', () => {
+    const assessment = assessCoachingResponseQuality({
+      text: '完璧に仕上げる必要はありません。\n\nまずは1分でできる極小の作業だけで、明日の着手は成功です。その最初の1歩として、明日の何時頃にパソコンを開くかだけ、今決めてみませんか。',
+      lastUserText: '仕事を完璧にしようとして着手できません。',
+    });
+
+    expect(assessment.issues).toContain('vague_action_target');
+    expect(assessment.issues).toContain('ungrounded_task_assumption');
+  });
+
+  it('仕事内容が不明な相談へ枠組み作成を作らない', () => {
+    const assessment = assessCoachingResponseQuality({
+      text: '完璧に仕上げる必要はありません。\n\nまずは中身の質を気にせず、ただ「枠組みを作る」という1分でできる作業から手をつけてみましょう。',
+      lastUserText: '仕事を完璧にしようとして着手できません。',
+      historyMessages: [
+        {
+          role: 'user',
+          content: '明日の行動を一つだけ教えてください。',
+        },
+      ],
+    });
+
+    expect(assessment.issues).toContain('ungrounded_task_assumption');
+  });
+
+  it('長い相談でも本人が触れていないPC作業を作らない', () => {
+    const assessment = assessCoachingResponseQuality({
+      text: '明日の朝一番に、今抱えている仕事の「タイトル」だけをパソコンの画面に入力してください。',
+      lastUserText: `${'長い相談でも止まらないことを確認します。'.repeat(35)}最後に、明日の行動を一つだけ教えてください。`,
+    });
+
+    expect(assessment.issues).toContain('ungrounded_task_assumption');
+  });
+
+  it('考え方を変えるだけで具体的な行動がない回答は不合格にする', () => {
+    const assessment = assessCoachingResponseQuality({
+      text: '明日は、仕事の成果を出すことではなく、自分のエネルギーを回復させることを最優先のタスクと捉え直してみてください。',
+      lastUserText:
+        '仕事で少し疲れています。明日にできることを一つだけ教えてください。',
+    });
+
+    expect(assessment.issues).toContain('vague_action_target');
+  });
+
+  it('同じ会話内で過去の提案と重なっても疲労相談へ未解決の品質問題を残さない', () => {
+    const lastUserText =
+      '仕事で少し疲れています。明日にできることを一つだけ教えてください。';
+    const historyMessages = [
+      {
+        role: 'assistant' as const,
+        content:
+          '明日の朝、今いちばん気になる仕事に5分だけ取り組んでください。',
+      },
+    ];
+    const fallback = buildFinalVerifiedQualityFallback(
+      lastUserText,
+      historyMessages
+    );
+    const assessment = assessCoachingResponseQuality({
+      text: fallback,
+      lastUserText,
+      historyMessages,
+    });
+
+    expect(assessment.issues).toEqual([]);
+    expect(fallback).toContain('明日');
+    expect(fallback).toContain('5分間だけ休んでください');
+  });
+
+  it('長文で一行動を求められた時も過去の提案を繰り返さず品質問題を残さない', () => {
+    const lastUserText = `${'長い相談でも止まらないことを確認します。'.repeat(
+      35
+    )}最後に、明日の行動を一つだけ教えてください。`;
+    const historyMessages = [
+      {
+        role: 'assistant' as const,
+        content:
+          '明日の朝、今いちばん気になる仕事に5分だけ取り組んでください。',
+      },
+    ];
+    const fallback = buildFinalVerifiedQualityFallback(
+      lastUserText,
+      historyMessages
+    );
+    const assessment = assessCoachingResponseQuality({
+      text: fallback,
+      lastUserText,
+      historyMessages,
+    });
+
+    expect(assessment.issues).toEqual([]);
+    expect(fallback).toContain('開始時刻');
+    expect(fallback).not.toContain('5分だけ取り組んで');
+  });
+
+  it('能力評価の相談へ未申告の願いや期待を補わない', () => {
+    const result = normalizeCoachingOutput(
+      [
+        '仕事を完璧に仕上げたいというお気持ちの裏には、周囲から自分の能力を正当に評価されたい、期待を裏切りたくないという強い願いがあるのですね。',
+        '明日は、仕事の途中で関係者へ方向が合っているか確認してください。',
+      ].join('\n\n'),
+      '失敗より、能力がないと思われるのが怖いです。'
+    );
+
+    expect(result).toContain('確認してください');
+    expect(result).not.toMatch(
+      /お気持ちの裏|正当に評価されたい|期待を裏切りたくない|強い願い/
+    );
+  });
+
+  it('内容を利用者に決め直させる「次に必要な最初の手順」を不合格にする', () => {
+    const assessment = assessCoachingResponseQuality({
+      text: '明日の朝一番に、迷っている仕事の「次に必要な最初の手順」だけをメモに書き出してください。',
+      lastUserText:
+        '仕事のことで少し迷っています。明日の行動を一つだけ教えてください。',
+    });
+
+    expect(assessment.issues).toContain('vague_action_target');
+  });
+
+  it('明日の具体策を求められたのに稼働説明だけを返す回答を不合格にする', () => {
+    const assessment = assessCoachingResponseQuality({
+      text: '長い文章でも途切れることなく、しっかりと受け止めています。',
+      lastUserText:
+        '長い相談でも止まらないことを確認します。最後に、明日の行動を一つだけ教えてください。',
+      historyMessages: [
+        {
+          role: 'user',
+          content: '仕事を完璧にしようとして着手できません。',
+        },
+      ],
+    });
+
+    expect(assessment.issues).toContain('vague_action_target');
+  });
+
+  it('スマホをしまって景色を見る二つの行動を一つ扱いにしない', () => {
+    const assessment = assessCoachingResponseQuality({
+      text: '明日は、仕事が終わったらスマートフォンをカバンにしまい、5分間だけ外の景色を眺めてください。',
+      lastUserText:
+        '仕事で少し疲れています。明日にできることを一つだけ教えてください。',
+    });
+
+    expect(assessment.issues).toContain('multiple_coaching_moves');
+  });
+
+  it('前の話を踏まえているか聞かれた時は直前の内容を具体的に返す', async () => {
+    const result = await generateCoachingText({
+      systemPrompt: 'test',
+      historyMessages: [
+        {
+          role: 'user',
+          content: '仕事を完璧にしようとして着手できません。',
+        },
+        {
+          role: 'assistant',
+          content: 'まず着手する作業を一つ決めてください。',
+        },
+        {
+          role: 'user',
+          content: '失敗より、能力がないと思われるのが怖いです。',
+        },
+      ],
+      lastUserParts: [
+        {
+          text: '今も前の話を踏まえられていますか？',
+        },
+      ],
+    });
+
+    expect(result.modelName).toBe('local-continuity');
+    expect(result.text).toMatch(/完璧|能力がないと思われる/);
+    expect(result.text).not.toMatch(/[？?]|どうぞ/);
   });
 
   it('支払わない事実を「払えない」に変えず、未申告の感情も足さない', () => {

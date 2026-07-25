@@ -12,6 +12,7 @@ import {
   updateCoachingMonitorAlertDelivery,
 } from '@/lib/coaching-monitor-runs';
 import { assertHealthyCoachingMonitorResult } from '@/lib/coaching-monitor-health';
+import { getJapanDateKey } from '@/lib/japan-date';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -447,7 +448,7 @@ async function runPaidCoachingMonitor(params: {
       throw new Error('paid monitor profile is not an active paid member');
     }
 
-    const today = new Date().toISOString().split('T')[0];
+    const today = getJapanDateKey();
     const { error: resetError } = await params.supabaseAdmin
       .from('profiles')
       .update({ chat_count_today: 0, last_chat_date: today })

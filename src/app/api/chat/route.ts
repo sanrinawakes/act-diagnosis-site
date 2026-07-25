@@ -39,6 +39,7 @@ import {
   createScopeBlockedStream,
   type CoachingScopeResult,
 } from '@/lib/coaching-scope';
+import { getJapanDateKey } from '@/lib/japan-date';
 
 export const runtime = 'nodejs';
 // Vercel関数のデフォルト打ち切り(Hobby 10s)を延長し、Gemini生成の途中切断を防ぐ
@@ -164,7 +165,7 @@ export async function POST(request: NextRequest) {
         : null;
 
     // Check daily chat limit
-    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+    const today = getJapanDateKey();
     let profile;
     let profileError;
     try {

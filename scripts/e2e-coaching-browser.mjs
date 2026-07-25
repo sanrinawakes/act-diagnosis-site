@@ -76,6 +76,9 @@ try {
   await testDesktopLayout(desktopPage);
   await testSidebarHistory(desktopPage);
   await testLongHistoryPaging(desktopPage);
+  await desktopPage
+    .locator('[data-testid="sidebar-loading"]')
+    .waitFor({ state: 'hidden', timeout: 10000 });
 
   const desktopScreenshot = join(tmpdir(), `acti-coaching-desktop-${runId}.png`);
   await desktopPage.screenshot({ path: desktopScreenshot, fullPage: false });
@@ -106,7 +109,10 @@ try {
     browserErrors.join(' | ')
   );
   const invalidOutputs = generatedCoachingOutputs.filter(({ content }) =>
-    /お察し(?:いた)?します|承知(?:いた)?しました|ご安心ください|頑張られ|素晴らしい一歩|させていただけますでしょうか|(?:教えて|お話しして|話して)くださ(?:り|って)ありがとうございます|(?:お気持ち|気持ち).{0,8}よく(?:分|わ)かります|何か(?:具体的に|続けて)?(?:お話し|話して)(?:みたい|したい)?ことはありますか|何か[、,]?(?:今)?(?:感じていることや[、,]?)?(?:話したい|話してみたい)ことはありますか|今[、,]?(?:この瞬間に)?(?:最も|一番)?(?:話したい|話してみたい)ことは何ですか|あなたの言葉一つ一つを大切に受け止めています|見捨てられ|承認欲求|トラウマ|幼少期|愛着障害|共依存|我慢.{0,12}証拠|という喧嘩|下書きの(?:さらに)?下書き|(?:感情|気持ち|怖さ|不安|怒り|悲しさ|悩み|問題|課題).{0,16}(?:横|脇)[にへ]置|(?:感情|気持ち|怖さ|不安|怒り|悲しさ|悩み|問題|課題).{0,12}切り離|(?:て|で)から[^。\n]{0,60}(?:て|で)から|タタスク|タースク|タムスケジュール|(?:です|ます)[。．]\s*か[？?]|途中で止まることはありません|必ず(?:回答|返答)します/.test(
+    /お察し(?:いた)?します|承知(?:いた)?しました|お見受けします|ご安心ください|頑張られ|素晴らしい一歩|させていただけますでしょうか|(?:教えて|お話しして|話して)くださ(?:り|って)ありがとうございます|(?:お気持ち|気持ち).{0,8}よく(?:分|わ)かります|何か(?:具体的に|続けて)?(?:お話し|話して)(?:みたい|したい)?ことはありますか|何か[、,]?(?:今)?(?:感じていることや[、,]?)?(?:話したい|話してみたい)ことはありますか|今[、,]?(?:この瞬間に)?(?:最も|一番)?(?:話したい|話してみたい)ことは何ですか|あなたの言葉一つ一つを大切に受け止めています|見捨てられ|承認欲求|トラウマ|幼少期|愛着障害|共依存|我慢.{0,12}証拠|という喧嘩|下書きの(?:さらに)?下書き|(?:感情|気持ち|怖さ|不安|怒り|悲しさ|悩み|問題|課題).{0,16}(?:横|脇)[にへ]置|(?:感情|気持ち|怖さ|不安|怒り|悲しさ|悩み|問題|課題).{0,12}切り離|(?:て|で)から[^。\n]{0,60}(?:て|で)から|タタスク|タースク|タムスケジュール|(?:です|ます)[。．]\s*か[？?]|途中で止まることはありません|必ず(?:回答|返答)します/.test(
+      content
+    ) ||
+    /迷われている|価値を証明|正当に評価されたい|期待を裏切りたくない|強い願い|周囲[^。！？?\n]{0,100}(?:待たせ|求めている|安心する|安心します|信頼)|評価を下げてしまう|この声をかけ|(?:自ら|自分で)[^。！？?\n]{0,40}ハードル|動けなくなるのは自然|自分を追い詰め|評価への恐怖|悪循環|踏まえていますので[、,]?どうぞ|次に必要な最初の手順|その(?:一枚|紙|メモ|ファイル|資料)|焦る気持ち|コントロール感|途切れることなく|受け止めております|お話ししてくださいました/.test(
       content
     )
   );
@@ -142,6 +148,7 @@ try {
         },
         checks,
         timings,
+        generatedCoachingOutputs,
         screenshots: {
           desktop: desktopScreenshot,
           mobile: mobileScreenshot,
@@ -295,7 +302,7 @@ async function testShiftEnter(page) {
 }
 
 async function testDesktopEnterSend(page) {
-  const marker = `PC-Enter送信-${runId}`;
+  const marker = `E2E-${runId}-a1`;
   const startedAt = Date.now();
   await page.locator('textarea').fill(`${marker}。明日の一歩を一つ教えてください。`);
   await page.locator('textarea').press('Enter');
@@ -306,6 +313,19 @@ async function testDesktopEnterSend(page) {
     'PC: Enterで一度だけ送信して回答を保存',
     result.userRows === 1 && result.assistantContent.length >= 8,
     JSON.stringify(result)
+  );
+  addCheck(
+    'PC: 明日の一歩を今日・今夜の準備へ変えない',
+    /明日/.test(result.assistantContent) &&
+      /ください/.test(result.assistantContent) &&
+      !/今[、,][^。！？\n]{0,80}(?:書|決め|選|始め|開|伝え|確認|取り組|着手|送|連絡|報告)/.test(
+        result.assistantContent
+      ) &&
+      !/(?:眠る|寝る|就寝する)/.test(result.assistantContent) &&
+      !/(?:今夜|今のうち|今日中|今日のうち)/.test(
+        result.assistantContent
+      ),
+    result.assistantContent
   );
   const requestPayload = chatRequestPayloads.find((payload) =>
     payload.messages?.some((message) => message.content?.includes(marker))
@@ -319,13 +339,14 @@ async function testDesktopEnterSend(page) {
 }
 
 async function testSynchronousDoubleSendGuard(page) {
-  const marker = `二重送信防止-${runId}`;
+  const marker = `E2E-${runId}-a2`;
   await page.locator('textarea').fill(`${marker}。短く答えてください。`);
   await page.locator('button', { hasText: /^送信$/ }).evaluate((button) => {
     button.click();
     button.click();
   });
   const result = await waitForCompletedTurn(marker);
+  await waitForChatIdle(page);
   recordGeneratedOutput('double-send', result.assistantContent);
   addCheck(
     'PC: 同期的な二重クリックでもユーザー行は1件',
@@ -335,7 +356,8 @@ async function testSynchronousDoubleSendGuard(page) {
 }
 
 async function testConnectionDropRecovery(page) {
-  const marker = `通信切断自動復旧-${runId}`;
+  const marker = `E2E-${runId}-a3`;
+  await waitForChatIdle(page);
   const profileCountBefore = await getProfileChatCount();
   const telemetryBefore = clientErrorTelemetryRequests;
   expectedChatConnectionFailures += 1;
@@ -352,9 +374,10 @@ async function testConnectionDropRecovery(page) {
 
   await page
     .locator('textarea')
-    .fill(`${marker}。通信が一度切れても回答を一度だけ保存してください。`);
+    .fill(`${marker}。仕事のことで少し迷っています。明日の行動を一つだけ教えてください。`);
   await page.locator('button', { hasText: /^送信$/ }).click();
   const result = await waitForCompletedTurn(marker, 70000);
+  await waitForChatIdle(page);
   await page.waitForFunction(
     (text) => document.body.innerText.includes(text),
     result.assistantContent.slice(0, 20),
@@ -415,7 +438,7 @@ async function testRepeatedConversation(page) {
   ];
 
   for (let index = 0; index < prompts.length; index += 1) {
-    const marker = `連続送信${index + 1}-${runId}`;
+    const marker = `E2E-${runId}-b${index + 1}`;
     const startedAt = Date.now();
     await page.locator('textarea').fill(`${marker} ${prompts[index]}`);
     await page.locator('button', { hasText: /^送信$/ }).click();
@@ -430,6 +453,56 @@ async function testRepeatedConversation(page) {
       result.userRows === 1 && result.assistantContent.length >= 8,
       JSON.stringify(result)
     );
+    if (index === 0) {
+      addCheck(
+        'PC: 仕事内容が不明な時に下書き・一行・PC操作を作らない',
+        /完璧|着手/.test(result.assistantContent) &&
+          /完成条件|条件/.test(result.assistantContent) &&
+          !/下書き|1行|一行|パソコン/.test(result.assistantContent),
+        result.assistantContent
+      );
+    }
+    if (index === 1) {
+      addCheck(
+        'PC: 能力評価への不安には核心を保持した具体策を返す',
+        /能力がない/.test(result.assistantContent) &&
+          /評価基準/.test(result.assistantContent) &&
+          !/誰にも見せない|下書きのメモ|関係者|15分後|見せて/.test(
+            result.assistantContent
+          ),
+        result.assistantContent
+      );
+    }
+    if (index === 2) {
+      addCheck(
+        'PC: 履歴確認には直前の相談内容を具体的に答える',
+        /完璧/.test(result.assistantContent) &&
+          /能力がないと思われる/.test(result.assistantContent) &&
+          !/[？?]|どうぞ|進捗.{0,24}(?:共有|相談)/.test(
+            result.assistantContent
+          ),
+        result.assistantContent
+      );
+    }
+    if (index === 3) {
+      const recentRows = await latestConversationRows(sessionId, 30);
+      const identicalAssistantRows = recentRows.filter(
+        (row) =>
+          row.role === 'assistant' &&
+          row.content.trim() === result.assistantContent.trim()
+      ).length;
+      addCheck(
+        'PC: 長文でも指定された明日の一行動を返す',
+        /明日/.test(result.assistantContent) &&
+          /ください/.test(result.assistantContent) &&
+          identicalAssistantRows === 1 &&
+          !/途切れることなく|受け止めております|お話ししてくださいました|作業[^。！？?\n]{0,80}報告|決めて実行/.test(
+            result.assistantContent
+          ) &&
+          !/パソコン|PC|仕事の「タイトル」/.test(result.assistantContent),
+        `${result.assistantContent} / identical=${identicalAssistantRows}`
+      );
+    }
   }
 }
 
@@ -451,7 +524,7 @@ async function testReloadPersistence(page) {
 }
 
 async function testIncompleteStreamRecovery(page) {
-  const marker = `途中切断復旧-${runId}`;
+  const marker = `E2E-${runId}-c1`;
   await page.route(
     '**/api/monitor/coaching/client-error',
     (route) =>
@@ -516,7 +589,7 @@ async function testImageAttachment(page) {
     `before=${before}, after=${afterSelect}`
   );
 
-  const marker = `画像添付-${runId}`;
+  const marker = `E2E-${runId}-d1`;
   await page.locator('textarea').fill(`${marker}。この画像の色を一言で答えてください。`);
   await page.locator('button', { hasText: /^送信$/ }).click();
   const result = await waitForCompletedTurn(marker, 70000);
@@ -547,10 +620,48 @@ async function testImageAttachment(page) {
 async function testDesktopLayout(page) {
   const textareaBox = await page.locator('textarea').boundingBox();
   const sendBox = await page.locator('button', { hasText: /^送信$/ }).boundingBox();
+  const messagesBox = await page
+    .locator('[data-testid="coaching-messages-scroll"]')
+    .boundingBox();
+  const latestAssistantVisibility = await page
+    .locator('[data-testid="coaching-messages-scroll"]')
+    .evaluate((container) => {
+      const assistantMessages = Array.from(
+        container.querySelectorAll('[data-message-role="assistant"]')
+      );
+      const latestAssistant = assistantMessages.at(-1);
+      if (!(latestAssistant instanceof HTMLElement)) {
+        return { fullyVisible: false, reason: 'latest assistant not found' };
+      }
+
+      const containerBox = container.getBoundingClientRect();
+      const assistantBox = latestAssistant.getBoundingClientRect();
+      return {
+        fullyVisible:
+          assistantBox.top >= containerBox.top - 1 &&
+          assistantBox.bottom <= containerBox.bottom + 1,
+        containerTop: containerBox.top,
+        containerBottom: containerBox.bottom,
+        assistantTop: assistantBox.top,
+        assistantBottom: assistantBox.bottom,
+        scrollTop: container.scrollTop,
+        maxScrollTop: container.scrollHeight - container.clientHeight,
+      };
+    });
   addCheck(
     'PC表示: 入力欄が十分な幅で送信ボタンと重ならない',
     boxesDoNotOverlap(textareaBox, sendBox) && Boolean(textareaBox?.width >= 500),
     JSON.stringify({ textareaBox, sendBox })
+  );
+  addCheck(
+    'PC表示: お知らせがあっても会話領域を十分に確保',
+    Boolean(messagesBox && messagesBox.height >= 500),
+    JSON.stringify({ messagesBox })
+  );
+  addCheck(
+    'PC表示: 最新のAI回答全体が入力欄の上に表示される',
+    latestAssistantVisibility.fullyVisible,
+    JSON.stringify(latestAssistantVisibility)
   );
 }
 
@@ -649,20 +760,53 @@ async function testLongHistoryPaging(page) {
     timeout: 30000,
   });
   await waitForChatReady(page);
+  const reloadedLatestAssistantVisibility = await page
+    .locator('[data-testid="coaching-messages-scroll"]')
+    .evaluate((container) => {
+      const assistantMessages = Array.from(
+        container.querySelectorAll('[data-message-role="assistant"]')
+      );
+      const latestAssistant = assistantMessages.at(-1);
+      if (!(latestAssistant instanceof HTMLElement)) {
+        return { fullyVisible: false, reason: 'latest assistant not found' };
+      }
+
+      const containerBox = container.getBoundingClientRect();
+      const assistantBox = latestAssistant.getBoundingClientRect();
+      return {
+        fullyVisible:
+          assistantBox.top >= containerBox.top - 1 &&
+          assistantBox.bottom <= containerBox.bottom + 1,
+        containerTop: containerBox.top,
+        containerBottom: containerBox.bottom,
+        assistantTop: assistantBox.top,
+        assistantBottom: assistantBox.bottom,
+        scrollTop: container.scrollTop,
+        maxScrollTop: container.scrollHeight - container.clientHeight,
+      };
+    });
+  addCheck(
+    'PC再読込: 最新のAI回答全体が入力欄の上に表示される',
+    reloadedLatestAssistantVisibility.fullyVisible,
+    JSON.stringify(reloadedLatestAssistantVisibility)
+  );
 }
 
 async function testMobileEnterAndButton(page) {
   const textarea = page.locator('textarea');
-  const marker = `スマホ改行-${runId}`;
+  const marker = `E2E-${runId}-e1`;
   const before = await countMessages(sessionId);
-  await textarea.fill(marker);
+  await textarea.fill(`${marker}。仕事で少し疲れています。`);
   await textarea.press('Enter');
-  await textarea.type('二行目');
+  await textarea.type('明日にできることを一つだけ教えてください。');
   await page.waitForTimeout(500);
   const afterEnter = await countMessages(sessionId);
   addCheck(
     'スマホ: Enterは改行し勝手に送信しない',
-    before === afterEnter && (await textarea.inputValue()).includes('\n二行目'),
+    before === afterEnter &&
+      (await textarea.inputValue()).includes(
+        '\n明日にできることを一つだけ教えてください。'
+      ),
     `before=${before}, after=${afterEnter}, value=${JSON.stringify(
       await textarea.inputValue()
     )}`
@@ -676,11 +820,30 @@ async function testMobileEnterAndButton(page) {
     result.userRows === 1 && result.assistantContent.length >= 8,
     JSON.stringify(result)
   );
+  addCheck(
+    'スマホ: 明日の一行動を今日・今夜の準備へ変えない',
+    /明日/.test(result.assistantContent) &&
+      /ください/.test(result.assistantContent) &&
+      !/という相談ですね/.test(result.assistantContent) &&
+      !/(?:しまい|しまって|しまう)[、,][^。！？?\n]{0,80}(?:眺め|歩い|休ん|深呼吸|書い|確認|送っ)/.test(
+        result.assistantContent
+      ) &&
+      !/今[、,][^。！？\n]{0,80}(?:書|決め|選|始め|開|伝え|確認|取り組|着手|送|連絡|報告)/.test(
+        result.assistantContent
+      ) &&
+      !/(?:今夜|今のうち|今日中|今日のうち)/.test(
+        result.assistantContent
+      ),
+    result.assistantContent
+  );
 }
 
 async function testMobileLayout(page) {
   const textareaBox = await page.locator('textarea').boundingBox();
   const sendBox = await page.locator('button', { hasText: /^送信$/ }).boundingBox();
+  const messagesBox = await page
+    .locator('[data-testid="coaching-messages-scroll"]')
+    .boundingBox();
   const viewport = page.viewportSize();
   addCheck(
     'スマホ表示: 入力欄が十分な幅で送信ボタンと重ならない',
@@ -688,6 +851,11 @@ async function testMobileLayout(page) {
       Boolean(textareaBox && viewport && textareaBox.width >= viewport.width - 40) &&
       Boolean(sendBox && viewport && sendBox.x + sendBox.width <= viewport.width + 1),
     JSON.stringify({ textareaBox, sendBox, viewport })
+  );
+  addCheck(
+    'スマホ表示: お知らせがあっても会話領域を十分に確保',
+    Boolean(messagesBox && messagesBox.height >= 400),
+    JSON.stringify({ messagesBox, viewport })
   );
 }
 
@@ -722,6 +890,19 @@ async function waitForCompletedTurn(marker, timeoutMs = 60000) {
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
   throw new Error(`Timed out waiting for completed turn: ${marker}`);
+}
+
+async function waitForChatIdle(page, timeoutMs = 30000) {
+  await page.waitForFunction(
+    () =>
+      Array.from(document.querySelectorAll('button')).some(
+        (button) =>
+          button.textContent?.trim() === '送信' &&
+          button instanceof HTMLButtonElement
+      ),
+    null,
+    { timeout: timeoutMs }
+  );
 }
 
 function recordGeneratedOutput(label, content) {

@@ -94,6 +94,7 @@ try {
       result.firstChunkMs > maxFirstChunkMs ||
       result.totalMs > maxTotalMs ||
       result.outputChars < 1 ||
+      !result.correctColor ||
       result.hasFallback
   );
   const firstChunks = results
@@ -214,7 +215,9 @@ async function sendImage(accessToken, attachment, index) {
     completionStatus: donePayload?.completionStatus || null,
     finishReason: donePayload?.finishReason || null,
     usage: donePayload?.usage || {},
+    message,
     outputChars: message.length,
+    correctColor: /^(?:赤|赤色|レッド)(?:です[。.]?)?$/.test(message.trim()),
     hasFallback: /応答に時間がかかりすぎ|応答に失敗|中断しました/.test(
       message
     ),

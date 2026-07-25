@@ -263,6 +263,17 @@ async function sendStreamRequest({
     finalizationStatus: donePayload?.finalizationStatus ?? null,
     finishReason: donePayload?.finishReason ?? null,
     modelName: donePayload?.modelName ?? null,
+    provider: donePayload?.provider ?? null,
+    qualityRepairAttempted:
+      donePayload?.qualityRepairAttempted === true,
+    qualityRepairAccepted:
+      donePayload?.qualityRepairAccepted === true,
+    qualityInitialIssues: Array.isArray(donePayload?.qualityInitialIssues)
+      ? donePayload.qualityInitialIssues
+      : [],
+    qualityFinalIssues: Array.isArray(donePayload?.qualityFinalIssues)
+      ? donePayload.qualityFinalIssues
+      : [],
     expectedModelName,
     expectedFinishReason,
     requiredResponseFragments,
@@ -463,6 +474,11 @@ function assertResults(results) {
         `${result.label} did not finalize chat metadata: ${result.finalizationStatus || 'missing status'}`
       );
     }
+    if (result.qualityFinalIssues.length > 0) {
+      throw new Error(
+        `${result.label} returned unresolved quality issues ${result.qualityFinalIssues.join(', ')}: ${result.message}`
+      );
+    }
     if (result.firstChunkMs === null || result.firstChunkMs > maxFirstChunkMs) {
       throw new Error(
         `${result.label} first chunk too slow: ${result.firstChunkMs}ms`
@@ -519,12 +535,27 @@ function assertResults(results) {
       );
     }
     if (
-      /お察し(?:いた)?します|承知(?:いた)?しました|いらっしゃる|差し支えなければ|よろしければ|(?:お聞かせ|聞かせて|教えて|お話し|話して)いただけますか|お聞かせいただけますでしょうか|させていただけますでしょうか|となっております|お伺いいたします|お気軽に(?:ご質問|お尋ね|ご相談)|頑張られ|(?:素晴らしい|大切な)一歩|大切な視点|大切な本音|本音が隠れて|気づかれたのですね|(?:提案|方法|行動)があります|それだけ[^。！？?\n]{0,80}(?:大切|重要)[^。！？?\n]{0,12}(?:から|ため)|サポートさせていただきます|ご無理なさらず|ご安心ください|お過ごしください|(?:教えて|伝えて|書いて|声をかけて|相談して|お話しして|話して)くださ(?:り|って)[、,]?ありがとうございます|(?:気持ち|状況|悩み)を言葉にしていただけて(?:よかった|うれしい)です|(?:お気持ち|気持ち).{0,8}よく(?:分|わ)かります|何か(?:具体的に|続けて)?(?:お話し|話して)(?:みたい|したい)?ことはありますか|何か[、,]?(?:今)?(?:感じていることや[、,]?)?(?:話したい|話してみたい)ことはありますか|今[、,]?(?:この瞬間に)?(?:最も|一番)?(?:話したい|話してみたい)ことは何ですか|この(?:提案|方法|考え)(?:について)?[、,]?(?:どのように|どう)(?:感じ|思い)ますか|この[^。！？?\n]{0,80}(?:いかがでしょうか|いかがですか|試せそうでしょうか|試せそうですか|できそうでしょうか|できそうですか|どう思いますか)|最後に[、,]?自分で判断を深めるための質問です|その[^。！？?\n]{0,80}気持ちが伝わります|姿勢は(?:とても)?素敵です|あなたの言葉一つ一つを大切に受け止めています|受け止めさせてください|受け止めたいと思います|細かく分析する前に|見捨てられ|承認欲求|トラウマ|幼少期|愛着障害|共依存|我慢.{0,12}証拠|という喧嘩|タタスク|タースク|タムスケジュール/.test(
+      /お察し(?:いた)?します|承知(?:いた)?しました|お見受けします|いらっしゃる|差し支えなければ|よろしければ|(?:お聞かせ|聞かせて|教えて|お話し|話して)いただけますか|お聞かせいただけますでしょうか|させていただけますでしょうか|となっております|お伺いいたします|お気軽に(?:ご質問|お尋ね|ご相談)|頑張られ|(?:素晴らしい|大切な)一歩|大切な視点|大切な本音|本音が隠れて|気づかれたのですね|(?:提案|方法|行動)があります|それだけ[^。！？?\n]{0,80}(?:大切|重要)[^。！？?\n]{0,12}(?:から|ため)|サポートさせていただきます|ご無理なさらず|ご安心ください|お過ごしください|(?:教えて|伝えて|書いて|声をかけて|相談して|お話しして|話して)くださ(?:り|って)[、,]?ありがとうございます|(?:気持ち|状況|悩み)を言葉にしていただけて(?:よかった|うれしい)です|(?:お気持ち|気持ち).{0,8}よく(?:分|わ)かります|何か(?:具体的に|続けて)?(?:お話し|話して)(?:みたい|したい)?ことはありますか|何か[、,]?(?:今)?(?:感じていることや[、,]?)?(?:話したい|話してみたい)ことはありますか|今[、,]?(?:この瞬間に)?(?:最も|一番)?(?:話したい|話してみたい)ことは何ですか|この(?:提案|方法|考え)(?:について)?[、,]?(?:どのように|どう)(?:感じ|思い)ますか|この[^。！？?\n]{0,80}(?:いかがでしょうか|いかがですか|試せそうでしょうか|試せそうですか|できそうでしょうか|できそうですか|どう思いますか)|最後に[、,]?自分で判断を深めるための質問です|その[^。！？?\n]{0,80}気持ちが伝わります|姿勢は(?:とても)?素敵です|あなたの言葉一つ一つを大切に受け止めています|受け止めさせてください|受け止めたいと思います|細かく分析する前に|見捨てられ|承認欲求|トラウマ|幼少期|愛着障害|共依存|我慢.{0,12}証拠|という喧嘩|タタスク|タースク|タムスケジュール/.test(
         result.message
       )
     ) {
       throw new Error(
         `${result.label} returned overly formal coaching text: ${result.message}`
+      );
+    }
+    if (
+      (/価値を証明|正当に評価されたい|期待を裏切りたくない|強い願い|周囲.{0,24}(?:待たせ|求めている|安心する)|悪循環/.test(
+        result.message
+      ) &&
+        !/価値を証明|正当に評価されたい|期待を裏切りたくない|強い願い|待たせ|求めて|安心|悪循環|遅れ/.test(
+          result.lastUserText
+        )) ||
+      /踏まえていますので[、,]?どうぞ|途切れることなく|受け止めております|お話ししてくださいました|私の時間も大切に扱われていると感じたい/.test(
+        result.message
+      )
+    ) {
+      throw new Error(
+        `${result.label} added an unsupported motive or unnatural continuity response: ${result.message}`
       );
     }
     if (
@@ -537,12 +568,42 @@ function assertResults(results) {
       );
     }
     if (
-      /悔しさを力に変|怒りを原動力|下書きの(?:さらに)?下書き|それ以外は一旦目をつぶ|ルールを自分の中|気持ちの真ん中|心の中心|(?:^|\n)(?:一つ|ひとつ|1つ)だけ(?:聞かせて|教えて)(?:ください|もらえますか)|頭の中だけで整理[^。！？?\n]{0,60}余計に疲|落ち込(?:んでいる|む)(?:時|とき)は[^。！？?\n]{0,140}ことも(?:あります|あると思います)|最初の(?:1|一)?ステップだけ[^。！？?\n]{0,50}(?:\d+|一|二|三|四|五|六|七|八|九|十)分間?だけ/.test(
+      /悔しさを力に変|怒りを原動力|下書きの(?:さらに)?下書き|それ以外は一旦目をつぶ|ルールを自分の中|気持ちの真ん中|心の中心|絡まった糸|糸を[^。！？?\n]{0,24}解きほぐ|頭の中(?:が|も)[^。！？?\n]{0,30}(?:複雑|絡ま)|(?:^|\n)(?:一つ|ひとつ|1つ)だけ(?:聞かせて|教えて)(?:ください|もらえますか)|頭の中だけで整理[^。！？?\n]{0,60}余計に疲|落ち込(?:んでいる|む)(?:時|とき)は[^。！？?\n]{0,140}ことも(?:あります|あると思います)|最初の(?:1|一)?ステップだけ[^。！？?\n]{0,50}(?:\d+|一|二|三|四|五|六|七|八|九|十)分間?だけ|次に必要な最初の手順/.test(
         result.message
       )
     ) {
       throw new Error(
         `${result.label} used a manually rejected coaching pattern: ${result.message}`
+      );
+    }
+    if (
+      /(?:この|その)どちら|どちらに(?:分類|当てはま|近い)/.test(
+        result.message
+      ) &&
+      !/[「『][^」』\n]{1,50}[」』](?:と|か)[「『][^」』\n]{1,50}[」』](?:の)?どちら/.test(
+        result.message
+      )
+    ) {
+      throw new Error(
+        `${result.label} referenced choices that were never stated: ${result.message}`
+      );
+    }
+    if (
+      (!/どっち|どちら|選|比較|迷|二つ|2つ|二択|2択/.test(
+        result.lastUserText
+      ) &&
+        /それとも|(?:この|その)(?:二つ|2つ)|(?:二つ|2つ)のうち/.test(
+          result.message
+        )) ||
+      (/(?:環境|個人|内的|外的)の要因|原因[^。！？?\n]{0,16}分類|原因[^。！？?\n]{0,28}(?:二つ|2つ|種類|要因)[^。！？?\n]{0,16}(?:分け|分類)|業務量や人間関係[^。！？?\n]{0,100}スキルや判断/.test(
+        result.message
+      ) &&
+        !/分類|カテゴリ|環境要因|個人要因|内的要因|外的要因/.test(
+          result.lastUserText
+        ))
+    ) {
+      throw new Error(
+        `${result.label} invented an unsupported cause framework: ${result.message}`
       );
     }
     if (
@@ -561,6 +622,20 @@ function assertResults(results) {
     ) {
       throw new Error(
         `${result.label} returned an AI posture declaration or vague standard: ${result.message}`
+      );
+    }
+    if (
+      /(?:今の状況で[、,]?)?まだ解決していないこと|今できる(?:最小の)?行動|最初の一歩を一文だけ確認|この(?:1|一)つの行動(?:から)?始め/.test(
+        result.message
+      )
+    ) {
+      throw new Error(
+        `${result.label} returned a vague action target: ${result.message}`
+      );
+    }
+    if (/仕事のタスク/.test(result.message)) {
+      throw new Error(
+        `${result.label} returned redundant Japanese wording: ${result.message}`
       );
     }
     if (
@@ -653,6 +728,18 @@ function assertResults(results) {
     ) {
       throw new Error(
         `${result.label} dropped the requested time reference: ${result.message}`
+      );
+    }
+    if (
+      /明日/.test(result.lastUserText) &&
+      requestsSingleAnswerInSmoke(result.lastUserText) &&
+      !/(?:今夜|今のうち|今日中|今日のうち)/.test(
+        result.lastUserText
+      ) &&
+      /(?:今夜|今のうち|今日中|今日のうち)/.test(result.message)
+    ) {
+      throw new Error(
+        `${result.label} shifted tomorrow's action to today: ${result.message}`
       );
     }
     if (

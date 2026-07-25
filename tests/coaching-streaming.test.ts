@@ -1,7 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const state = vi.hoisted(() => ({
-  mode: 'success' as 'success' | 'error' | 'partial-error',
+  mode: 'success' as
+    | 'success'
+    | 'error'
+    | 'partial-error'
+    | 'non-stop'
+    | 'timeout',
   releaseSecondChunk: (() => undefined) as () => void,
   secondChunkGate: Promise.resolve(),
   externalCalls: 0,
@@ -11,6 +16,11 @@ const state = vi.hoisted(() => ({
   externalImageCounts: [] as number[],
   openAIAborted: false,
   qualityRepairCalls: 0,
+  qualityRepairMode: 'long' as
+    | 'long'
+    | 'short'
+    | 'vague'
+    | 'categorization',
   alerts: [] as Array<{ subject: string; summary: string }>,
 }));
 
@@ -23,8 +33,19 @@ vi.mock('@/lib/openai', () => ({
           return {
             response: {
               text: () =>
-                '仕事について迷っている状況を、短い相づちだけで終わらせずに整理します。まず、今決めなければならないことと、まだ保留にできることを分けると、次の判断が見えやすくなります。今日決める必要がある項目を一つだけ確認してください。',
-              candidates: [{ finishReason: 'STOP' }],
+                state.qualityRepairMode === 'short'
+                  ? '上司に否定されたように感じて、次の一言が怖いんですね。次に何を避けたいですか？'
+                  : state.qualityRepairMode === 'vague'
+                    ? '仕事のことで落ち込んでいる時は、頭の中も複雑に絡まりやすくなりますよね。\n\nまずは絡まった糸を少しずつ解きほぐしていきましょう。\n\n明日ひとつだけ状況を動かすなら、何から始めますか？'
+                    : state.qualityRepairMode === 'categorization'
+                      ? '仕事の悩みは、業務量や人間関係などの「環境の要因」と、自分のスキルや判断などの「個人の要因」が混ざると複雑に見えがちです。これらを分けて捉え直すことで、次の行動が見えてきます。\n\n仕事のことで、今いちばん気になっている出来事は何ですか？'
+                  : '仕事について迷っている状況を、短い相づちだけで終わらせずに整理します。まず、今決めなければならないことと、まだ保留にできることを分けると、次の判断が見えやすくなります。今日決める必要がある項目を一つだけ確認してください。',
+              candidates: [
+                {
+                  finishReason:
+                    state.mode === 'non-stop' ? 'MAX_TOKENS' : 'STOP',
+                },
+              ],
               usageMetadata: {
                 promptTokenCount: 20,
                 candidatesTokenCount: 30,
@@ -42,10 +63,18 @@ vi.mock('@/lib/openai', () => ({
               if (state.mode === 'partial-error') {
                 throw new Error('connection reset');
               }
+              if (state.mode === 'timeout') {
+                throw new Error('GEMINI_TIMEOUT');
+              }
               yield { text: () => '次に進む質問ですか？' };
             })(),
             response: Promise.resolve({
-              candidates: [{ finishReason: 'STOP' }],
+              candidates: [
+                {
+                  finishReason:
+                    state.mode === 'non-stop' ? 'MAX_TOKENS' : 'STOP',
+                },
+              ],
               usageMetadata: {
                 promptTokenCount: 10,
                 candidatesTokenCount: 8,
@@ -83,7 +112,8 @@ vi.mock('@/lib/coaching-provider-candidates', () => ({
     }
     if (state.externalMode === 'race') {
       return {
-        rawText: '悔しさを踏まえました。明日まず何から始めますか？',
+        rawText:
+          '仕事のことで迷っているのですね。今は仕事全体の結論を急ぐより、今日決める必要があることと、まだ確認できていないことを分ける方が判断しやすくなります。\n\nいま判断するために、まだ確認できていない事実は何ですか？',
         firstChunkMs: 4,
         totalMs: 15,
         complete: true,
@@ -109,7 +139,11 @@ vi.mock('@/lib/coaching-alerts', () => ({
   },
 }));
 
-import { createJsonLineStream } from '../src/lib/coaching-gemini';
+import {
+  assessCoachingResponseQuality,
+  createJsonLineStream,
+  generateCoachingText,
+} from '../src/lib/coaching-gemini';
 
 const decoder = new TextDecoder();
 let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
@@ -124,6 +158,7 @@ beforeEach(() => {
   state.externalImageCounts = [];
   state.openAIAborted = false;
   state.qualityRepairCalls = 0;
+  state.qualityRepairMode = 'long';
   state.alerts = [];
   state.secondChunkGate = new Promise<void>((resolve) => {
     state.releaseSecondChunk = resolve;
@@ -157,9 +192,9 @@ describe('createJsonLineStream', () => {
     });
     expect(onDone).toHaveBeenCalledWith(
       expect.objectContaining({
-        prompt_tokens: 30,
-        completion_tokens: 38,
-        total_tokens: 68,
+        prompt_tokens: 10,
+        completion_tokens: 8,
+        total_tokens: 18,
       }),
       expect.objectContaining({
         message: expect.any(String),
@@ -205,7 +240,108 @@ describe('createJsonLineStream', () => {
       qualityFinalIssues: [],
       remaining: 49,
     });
-    expect(state.qualityRepairCalls).toBe(1);
+    expect(state.qualityRepairCalls).toBe(0);
+  });
+
+  it('非ストリーム経路が非STOPで終わっても検証済みのローカル救済文を返す', async () => {
+    state.mode = 'non-stop';
+
+    const result = await generateCoachingText({
+      systemPrompt: 'テスト用指示',
+      historyMessages: [],
+      lastUserParts: [
+        {
+          text:
+            '仕事のことで少し落ち込んでいます。短く整理を手伝ってください。',
+        },
+      ],
+    });
+
+    expect(result).toMatchObject({
+      modelName: 'local-incomplete-recovery',
+      provider: 'local',
+      completionStatus: 'partial',
+      finishReason: 'MAX_TOKENS',
+      qualityFinalIssues: [],
+    });
+    expect(
+      assessCoachingResponseQuality({
+        text: result.text,
+        lastUserText:
+          '仕事のことで少し落ち込んでいます。短く整理を手伝ってください。',
+      }).issues
+    ).toEqual([]);
+  });
+
+  it('ストリーム経路が非STOPで終わっても品質判定済みの本文だけを返す', async () => {
+    state.mode = 'non-stop';
+    const lastUserText =
+      '仕事のことで少し落ち込んでいます。短く整理を手伝ってください。';
+    const stream = createJsonLineStream({
+      systemPrompt: 'テスト用指示',
+      historyMessages: [],
+      lastUserParts: [{ text: lastUserText }],
+      onDone: async () => ({ remaining: 48 }),
+    });
+    state.releaseSecondChunk();
+
+    const events = (await new Response(stream).text())
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+    const chunks = events.filter((event) => event.type === 'chunk');
+    const done = events.find((event) => event.type === 'done');
+
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0]).toMatchObject({ verified: true });
+    expect(done).toMatchObject({
+      modelName: 'local-incomplete-recovery',
+      provider: 'local',
+      completionStatus: 'partial',
+      finishReason: 'MAX_TOKENS',
+      qualityFinalIssues: [],
+      finalizationStatus: 'complete',
+      remaining: 48,
+    });
+    expect(
+      assessCoachingResponseQuality({
+        text: done.message,
+        lastUserText,
+      }).issues
+    ).toEqual([]);
+  });
+
+  it('タイムアウト案内を加えた後の最終本文も品質判定へ通す', async () => {
+    state.mode = 'timeout';
+    const lastUserText = '仕事のことで迷っています。';
+    const stream = createJsonLineStream({
+      systemPrompt: 'テスト用指示',
+      historyMessages: [],
+      lastUserParts: [{ text: lastUserText }],
+      onDone: async () => ({ remaining: 48 }),
+    });
+    state.releaseSecondChunk();
+
+    const events = (await new Response(stream).text())
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+    const done = events.find((event) => event.type === 'done');
+
+    expect(done).toMatchObject({
+      completionStatus: 'partial',
+      qualityFinalIssues: [],
+      finalizationStatus: 'complete',
+      remaining: 48,
+    });
+    expect(done.message).toContain('「続き」と入力すると');
+    expect(done.message).not.toContain('送ってください');
+    expect(
+      assessCoachingResponseQuality({
+        text: done.message,
+        lastUserText,
+      }).issues
+    ).toEqual([]);
   });
 
   it('Geminiが文章生成の途中で切れても未検査文を見せず予備AIへ切り替える', async () => {
@@ -243,6 +379,7 @@ describe('createJsonLineStream', () => {
       modelName: 'gpt-5.6-luna',
       provider: 'openai',
       fallbackFrom: 'gemini-3.5-flash',
+      qualityFinalIssues: [],
       completionStatus: 'complete',
       finalizationStatus: 'complete',
       remaining: 48,
@@ -277,6 +414,7 @@ describe('createJsonLineStream', () => {
       modelName: 'gpt-5.6-luna',
       provider: 'openai',
       fallbackFrom: 'gemini-3.5-flash',
+      qualityFinalIssues: [],
       completionStatus: 'complete',
       finalizationStatus: 'complete',
       remaining: 48,
@@ -306,6 +444,7 @@ describe('createJsonLineStream', () => {
     expect(state.externalImageCounts).toEqual([1]);
     expect(events.find((event) => event.type === 'done')).toMatchObject({
       provider: 'openai',
+      qualityFinalIssues: [],
       completionStatus: 'complete',
       finalizationStatus: 'complete',
     });
@@ -338,10 +477,216 @@ describe('createJsonLineStream', () => {
       modelName: 'claude-sonnet-5',
       provider: 'anthropic',
       fallbackFrom: 'gemini-3.5-flash',
+      qualityFinalIssues: [],
       completionStatus: 'complete',
       finalizationStatus: 'complete',
       remaining: 47,
     });
+  });
+
+  it('再編集後も短い回答なら、検証済みの具体文へ置き換えて品質フラグを残さない', async () => {
+    state.qualityRepairMode = 'short';
+    state.externalMode = 'all-error';
+    process.env.OPENAI_API_KEY = 'test-openai-key';
+    process.env.ANTHROPIC_API_KEY = 'test-anthropic-key';
+
+    const stream = createJsonLineStream({
+      systemPrompt: 'テスト用指示',
+      historyMessages: [
+        {
+          role: 'user',
+          content:
+            '仕事のことで少し落ち込んでいます。短く整理を手伝ってください。',
+        },
+        {
+          role: 'assistant',
+          content:
+            '仕事で落ち込んでいるんですね。今一番気になっている出来事は何ですか？',
+        },
+      ],
+      lastUserParts: [
+        {
+          text: '上司に否定されたように感じて、次の一言が怖いです。',
+        },
+      ],
+      onDone: async () => ({ remaining: 48 }),
+    });
+    state.releaseSecondChunk();
+
+    const events = (await new Response(stream).text())
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+    const done = events.find((event) => event.type === 'done');
+
+    expect(done).toMatchObject({
+      qualityRepairAttempted: true,
+      qualityRepairAccepted: true,
+      qualityFinalIssues: [],
+      completionStatus: 'complete',
+      finalizationStatus: 'complete',
+    });
+    expect(done.message).toContain('最初に見直す点を一つ');
+    expect(done.message.length).toBeGreaterThanOrEqual(90);
+  });
+
+  it('再編集が曖昧な比喩と二重の働きかけを返しても最終表示へ通さない', async () => {
+    state.qualityRepairMode = 'vague';
+    state.externalMode = 'all-error';
+    process.env.OPENAI_API_KEY = 'test-openai-key';
+    process.env.ANTHROPIC_API_KEY = 'test-anthropic-key';
+
+    const stream = createJsonLineStream({
+      systemPrompt: 'テスト用指示',
+      historyMessages: [],
+      lastUserParts: [
+        {
+          text:
+            '仕事のことで少し落ち込んでいます。短く整理を手伝ってください。',
+        },
+      ],
+      onDone: async () => ({ remaining: 48 }),
+    });
+    state.releaseSecondChunk();
+
+    const events = (await new Response(stream).text())
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+    const done = events.find((event) => event.type === 'done');
+
+    expect(done).toMatchObject({
+      qualityRepairAttempted: true,
+      qualityRepairAccepted: true,
+      qualityFinalIssues: [],
+      completionStatus: 'complete',
+      finalizationStatus: 'complete',
+    });
+    expect(done.message).not.toMatch(/絡まった糸|解きほぐ|頭の中.*複雑/);
+    expect(done.message.length).toBeGreaterThanOrEqual(80);
+  });
+
+  it('品質フォールバックでも上司への具体的な確認文を一般化しない', async () => {
+    const stream = createJsonLineStream({
+      systemPrompt: 'テスト用指示',
+      historyMessages: [
+        {
+          role: 'user',
+          content:
+            '上司に否定されたように感じて、次の一言が怖いです。',
+        },
+        {
+          role: 'assistant',
+          content:
+            '次に話す時は、「前回のご指摘について、最初に見直す点を一つだけ挙げてもらえますか」と伝えてください。',
+        },
+      ],
+      lastUserParts: [
+        {
+          text:
+            'では、明日まず何をすればいいか一つだけ教えてください。',
+        },
+      ],
+      onDone: async () => ({ remaining: 48 }),
+    });
+    state.releaseSecondChunk();
+
+    const events = (await new Response(stream).text())
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+    const done = events.find((event) => event.type === 'done');
+
+    expect(done.qualityFinalIssues).toEqual([]);
+    expect(done.message).toBe(
+      '明日の朝、上司に「前回のご指摘について、最初に見直す点を一つだけ挙げてもらえますか」と確認してください。'
+    );
+    expect(done.message).not.toContain('相手に最初に伝える');
+  });
+
+  it('再編集が利用者未提示の原因分類を足しても最終表示へ通さない', async () => {
+    state.qualityRepairMode = 'categorization';
+    state.externalMode = 'all-error';
+    process.env.OPENAI_API_KEY = 'test-openai-key';
+    process.env.ANTHROPIC_API_KEY = 'test-anthropic-key';
+
+    const stream = createJsonLineStream({
+      systemPrompt: 'テスト用指示',
+      historyMessages: [],
+      lastUserParts: [
+        {
+          text:
+            '仕事のことで少し落ち込んでいます。短く整理を手伝ってください。',
+        },
+      ],
+      onDone: async () => ({ remaining: 48 }),
+    });
+    state.releaseSecondChunk();
+
+    const events = (await new Response(stream).text())
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+    const done = events.find((event) => event.type === 'done');
+
+    expect(done).toMatchObject({
+      qualityRepairAttempted: true,
+      qualityRepairAccepted: true,
+      qualityFinalIssues: [],
+      completionStatus: 'complete',
+      finalizationStatus: 'complete',
+    });
+    expect(done.message).toContain('落ち込むきっかけになった出来事');
+    expect(done.message).not.toMatch(/環境の要因|個人の要因|分類/);
+  });
+
+  it('不良段落をすべて除去した後も、不満へ短い空疎な文を返さず最終ゲート内で完結させる', async () => {
+    state.qualityRepairMode = 'categorization';
+    state.externalMode = 'all-error';
+    process.env.OPENAI_API_KEY = 'test-openai-key';
+    process.env.ANTHROPIC_API_KEY = 'test-anthropic-key';
+
+    const stream = createJsonLineStream({
+      systemPrompt: 'テスト用指示',
+      historyMessages: [
+        {
+          role: 'user',
+          content: '仕事のことで悩んでいます。',
+        },
+        {
+          role: 'assistant',
+          content: '今いちばん気になっていることは何ですか？',
+        },
+      ],
+      lastUserParts: [
+        {
+          text:
+            '前より回答が短くて何を言いたいのかわかりません。ちゃんと答えてください。',
+        },
+      ],
+      onDone: async () => ({ remaining: 48 }),
+    });
+    state.releaseSecondChunk();
+
+    const events = (await new Response(stream).text())
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+    const done = events.find((event) => event.type === 'done');
+
+    expect(done).toMatchObject({
+      modelName: 'local-quality-fallback',
+      provider: 'local',
+      qualityRepairAttempted: true,
+      qualityRepairAccepted: true,
+      qualityFinalIssues: [],
+      completionStatus: 'complete',
+      finalizationStatus: 'complete',
+    });
+    expect(state.externalCalls).toBe(0);
+    expect(done.message.length).toBeGreaterThanOrEqual(80);
+    expect(done.message).toContain('前より回答が短くて何を言いたいのかわかりません');
+    expect(done.message).not.toMatch(/環境の要因|個人の要因|分類/);
   });
 
   it('3社とも失敗しても入力を失わずローカル応答を完了する', async () => {
@@ -380,9 +725,11 @@ describe('createJsonLineStream', () => {
       fallbackFrom: 'gemini-3.5-flash',
       completionStatus: 'fallback',
       finalizationStatus: 'complete',
+      qualityFinalIssues: [],
       remaining: 46,
     });
     expect(done.message).toContain('不安');
+    expect(done.message.length).toBeGreaterThanOrEqual(80);
     expect(state.alerts).toHaveLength(1);
     expect(state.alerts[0].subject).toContain('応答失敗/中断');
     expect(consoleErrorSpy).toHaveBeenCalledWith(

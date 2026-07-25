@@ -3,6 +3,7 @@ import { createServerClient as createCookieClient } from '@supabase/ssr';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import type { ChatImageAttachment } from '@/lib/attachments';
+import { getJapanDateKey } from '@/lib/japan-date';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -230,7 +231,7 @@ async function createTestSession(
     subscription_status: 'active',
     subscribed_at: new Date().toISOString(),
     chat_count_today: 0,
-    last_chat_date: new Date().toISOString().split('T')[0],
+    last_chat_date: getJapanDateKey(),
   });
   if (profileError) {
     throw new Error(`test profile creation failed: ${profileError.message}`);

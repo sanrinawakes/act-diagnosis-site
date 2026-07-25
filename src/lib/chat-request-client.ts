@@ -61,6 +61,15 @@ export async function connectChatWithRecovery(
         continue;
       }
 
+      if (
+        [500, 502, 503, 504].includes(response.status) &&
+        attempt < retryDelaysMs.length
+      ) {
+        await response.body?.cancel().catch(() => {});
+        await delayFn(retryDelaysMs[attempt]);
+        continue;
+      }
+
       return {
         response,
         controller,

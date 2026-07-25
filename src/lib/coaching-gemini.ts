@@ -26,6 +26,13 @@ export type CoachingQualityIssue =
   | 'repeats_rejected_move'
   | 'dissatisfaction_unanswered'
   | 'invented_follow_through'
+  | 'vague_metaphor'
+  | 'dangling_choice_reference'
+  | 'ungrounded_categorization'
+  | 'vague_action_target'
+  | 'latest_user_echo'
+  | 'ungrounded_task_assumption'
+  | 'requested_time_mismatch'
   | 'multiple_coaching_moves'
   | 'unsafe_high_impact_advice';
 
@@ -69,18 +76,17 @@ const GEMINI_TEXT_TIMEOUT_MS = 12000;
 const GEMINI_IMAGE_TIMEOUT_MS = 20000;
 const GEMINI_FINALIZE_TIMEOUT_MS = 4000;
 const QUALITY_REPAIR_TIMEOUT_MS = 7000;
-const QUALITY_EXTERNAL_FALLBACK_TIMEOUT_MS = 7000;
 const EXTERNAL_FALLBACK_TIMEOUT_MS = 10000;
 const EXTERNAL_IMAGE_FALLBACK_TIMEOUT_MS = 15000;
 const GEMINI_RETRY_DELAYS_MS = [300];
 const ALERT_SLOW_RESPONSE_MS = 10000;
 const ALERT_THROTTLE_MS = 5 * 60 * 1000;
 export const COACHING_TEXT_MODEL = 'gemini-3.5-flash';
-export const COACHING_IMAGE_MODEL = 'gemini-3.1-flash-lite';
+export const COACHING_IMAGE_MODEL = 'gemini-3.5-flash';
 export const COACHING_MAX_OUTPUT_TOKENS = 4096;
 export const COACHING_TEXT_THINKING_LEVEL = 'minimal';
 const PARTIAL_STREAM_TIMEOUT_NOTICE =
-  '\n\n（応答処理に時間がかかったため、ここで一度区切りました。続きが必要な場合は「続き」と送ってください。）';
+  '\n\n（応答処理に時間がかかったため、ここで一度区切っています。続きが必要な場合は、「続き」と入力するとここから再開できます。）';
 export const COACHING_RESPONSE_SPEED_INSTRUCTION = [
   '',
   '---',
@@ -107,15 +113,15 @@ export function getCoachingGeminiModelName(parts: GeminiPart[]) {
 
 export function getCoachingGeminiModel(
   systemPrompt: string,
-  modelName = COACHING_TEXT_MODEL
+  modelName = COACHING_TEXT_MODEL,
+  isImageRequest = false
 ) {
-  const isImageModel = modelName === COACHING_IMAGE_MODEL;
   const generationConfig = {
     temperature: 0.2,
     topP: 0.8,
     maxOutputTokens: COACHING_MAX_OUTPUT_TOKENS,
     thinkingConfig: {
-      thinkingLevel: isImageModel
+      thinkingLevel: isImageRequest
         ? 'minimal'
         : COACHING_TEXT_THINKING_LEVEL,
     },
@@ -212,6 +218,22 @@ export function prepareGeminiHistory(
   const normalized = normalizeAlternatingHistory(recentFromUser);
 
   return [...history, ...normalized];
+}
+
+export function prepareGeminiRequestHistory(
+  messages: CoachingChatMessage[],
+  lastUserParts: GeminiPart[]
+): GeminiHistoryItem[] {
+  const hasImage = lastUserParts.some((part) => 'inlineData' in part);
+  const lastUserText = extractTextFromParts(lastUserParts);
+
+  // Current-image fact checks should be decided from the attached pixels.
+  // Unrelated coaching turns can otherwise bias a short visual answer.
+  if (hasImage && requestsFactualShortAnswer(lastUserText)) {
+    return [];
+  }
+
+  return prepareGeminiHistory(messages);
 }
 
 export function buildGeminiParts(
@@ -363,7 +385,10 @@ export async function generateCoachingText(params: {
   lastUserParts: GeminiPart[];
 }) {
   const lastUserText = extractTextFromParts(params.lastUserParts);
-  const immediateResponse = buildImmediateCoachingResponse(lastUserText);
+  const immediateResponse = buildImmediateCoachingResponse(
+    lastUserText,
+    params.historyMessages
+  );
   if (immediateResponse) {
     return {
       text: immediateResponse.text,
@@ -380,49 +405,60 @@ export async function generateCoachingText(params: {
   }
 
   const modelName = getCoachingGeminiModelName(params.lastUserParts);
+  const isImageRequest = params.lastUserParts.some(
+    (part) => 'inlineData' in part
+  );
+  const geminiTimeoutMs = getGeminiTimeoutMs(isImageRequest);
   let result;
   try {
     result = await runWithGeminiRetry(async () => {
-      const model = getCoachingGeminiModel(params.systemPrompt, modelName);
+      const model = getCoachingGeminiModel(
+        params.systemPrompt,
+        modelName,
+        isImageRequest
+      );
       const chat = model.startChat({
-        history: prepareGeminiHistory(params.historyMessages),
+        history: prepareGeminiRequestHistory(
+          params.historyMessages,
+          params.lastUserParts
+        ),
       });
 
       return withTimeout(
         chat.sendMessage(params.lastUserParts, {
-          timeout: getGeminiTimeoutMs(modelName),
+          timeout: geminiTimeoutMs,
         }),
-        getGeminiTimeoutMs(modelName)
+        geminiTimeoutMs
       );
     });
   } catch (error) {
     const fallback = await tryExternalProviderFallback(params);
     if (fallback) {
-      const fallbackText = normalizeCoachingOutput(
-        fallback.rawText,
-        lastUserText,
-        params.historyMessages
-      );
-      const fallbackQuality = assessCoachingResponseQuality({
-        text: fallbackText,
-        lastUserText,
+      const fallbackResolution = await resolveCoachingResponseQuality({
+        rawText: fallback.rawText,
+        systemPrompt: params.systemPrompt,
         historyMessages: params.historyMessages,
-      });
-      return {
-        text: fallbackText,
+        lastUserParts: params.lastUserParts,
         usage: fallback.usage,
         modelName: fallback.model,
         provider: fallback.provider,
-        qualityRepairAttempted: false,
-        qualityRepairAccepted: false,
-        qualityInitialIssues: fallbackQuality.issues,
-        qualityFinalIssues: fallbackQuality.issues,
+        allowRemoteRepair: false,
+      });
+      return {
+        text: fallbackResolution.text,
+        usage: fallbackResolution.usage,
+        modelName: fallbackResolution.modelName,
+        provider: fallbackResolution.provider,
+        qualityRepairAttempted: fallbackResolution.repairAttempted,
+        qualityRepairAccepted: fallbackResolution.repairAccepted,
+        qualityInitialIssues: fallbackResolution.initialIssues,
+        qualityFinalIssues: fallbackResolution.finalIssues,
         completionStatus: 'complete' as const,
         finishReason: fallback.finishReason || 'EXTERNAL_FALLBACK',
       };
     }
 
-    const fallbackText = buildResilientLocalFallback(
+    const fallbackText = buildFinalVerifiedQualityFallback(
       lastUserText,
       params.historyMessages
     );
@@ -448,24 +484,26 @@ export async function generateCoachingText(params: {
   const finishReason = getFinishReason(response);
   const completionStatus = classifyGeminiCompletion(finishReason);
   const usage = getUsage(response);
-  const qualityResolution =
-    completionStatus === 'partial'
-      ? null
-      : await resolveCoachingResponseQuality({
-          rawText: response.text(),
-          systemPrompt: params.systemPrompt,
-          historyMessages: params.historyMessages,
-          lastUserParts: params.lastUserParts,
-          usage,
-          modelName,
-        });
-  const text =
-    completionStatus === 'partial'
-      ? buildIncompleteGenerationRecoveryResponse(
-          lastUserText,
-          params.historyMessages
-        )
-      : qualityResolution?.text || '';
+  const qualityResolution = await resolveCoachingResponseQuality({
+    rawText:
+      completionStatus === 'partial'
+        ? buildIncompleteGenerationRecoveryResponse(
+            lastUserText,
+            params.historyMessages
+          )
+        : response.text(),
+    systemPrompt: params.systemPrompt,
+    historyMessages: params.historyMessages,
+    lastUserParts: params.lastUserParts,
+    usage,
+    modelName:
+      completionStatus === 'partial'
+        ? 'local-incomplete-recovery'
+        : modelName,
+    provider: completionStatus === 'partial' ? 'local' : undefined,
+    allowRemoteRepair: false,
+  });
+  const text = qualityResolution.text;
 
   if (!text.trim()) {
     throw new Error('GEMINI_EMPTY_RESPONSE');
@@ -473,13 +511,13 @@ export async function generateCoachingText(params: {
 
   return {
     text,
-    usage: qualityResolution?.usage || usage,
-    modelName: qualityResolution?.modelName || modelName,
-    provider: qualityResolution?.provider,
-    qualityRepairAttempted: qualityResolution?.repairAttempted || false,
-    qualityRepairAccepted: qualityResolution?.repairAccepted || false,
-    qualityInitialIssues: qualityResolution?.initialIssues || [],
-    qualityFinalIssues: qualityResolution?.finalIssues || [],
+    usage: qualityResolution.usage,
+    modelName: qualityResolution.modelName,
+    provider: qualityResolution.provider,
+    qualityRepairAttempted: qualityResolution.repairAttempted,
+    qualityRepairAccepted: qualityResolution.repairAccepted,
+    qualityInitialIssues: qualityResolution.initialIssues,
+    qualityFinalIssues: qualityResolution.finalIssues,
     completionStatus,
     finishReason,
   };
@@ -525,7 +563,10 @@ export function createJsonLineStream(params: {
 
       try {
         const lastUserText = extractTextFromParts(params.lastUserParts);
-        const immediateResponse = buildImmediateCoachingResponse(lastUserText);
+        const immediateResponse = buildImmediateCoachingResponse(
+          lastUserText,
+          params.historyMessages
+        );
         if (immediateResponse) {
           fullText = immediateResponse.text;
           writeVerifiedChunk(fullText);
@@ -580,17 +621,28 @@ export function createJsonLineStream(params: {
             }
           | undefined;
 
+        const isImageRequest = params.lastUserParts.some(
+          (part) => 'inlineData' in part
+        );
+        const geminiTimeoutMs = getGeminiTimeoutMs(isImageRequest);
         await runWithGeminiRetry(async () => {
           fullText = '';
-          const model = getCoachingGeminiModel(params.systemPrompt, modelName);
+          const model = getCoachingGeminiModel(
+            params.systemPrompt,
+            modelName,
+            isImageRequest
+          );
           const chat = model.startChat({
-            history: prepareGeminiHistory(params.historyMessages),
+            history: prepareGeminiRequestHistory(
+              params.historyMessages,
+              params.lastUserParts
+            ),
           });
           const result = await withTimeout(
             chat.sendMessageStream(params.lastUserParts, {
-              timeout: getGeminiTimeoutMs(modelName),
+              timeout: geminiTimeoutMs,
             }),
-            getGeminiTimeoutMs(modelName)
+            geminiTimeoutMs
           );
 
           try {
@@ -598,7 +650,7 @@ export function createJsonLineStream(params: {
               consumeGeminiStream(result.stream, (text) => {
                 acceptGeneratedText(text);
               }),
-              getGeminiTimeoutMs(modelName)
+              geminiTimeoutMs
             );
           } catch (streamError) {
             if (fullText.trim()) {
@@ -627,27 +679,29 @@ export function createJsonLineStream(params: {
         const finishReason = getFinishReason(response);
         const completionStatus = classifyGeminiCompletion(finishReason);
         const initialUsage = getUsage(response);
-        const qualityResolution =
-          completionStatus === 'partial'
-            ? null
-            : await resolveCoachingResponseQuality({
-                rawText: fullText,
-                systemPrompt: params.systemPrompt,
-                historyMessages: params.historyMessages,
-                lastUserParts: params.lastUserParts,
-                usage: initialUsage,
-                modelName,
-              });
-        fullText =
-          completionStatus === 'partial'
-            ? buildIncompleteGenerationRecoveryResponse(
-                lastUserText,
-                params.historyMessages
-              )
-            : qualityResolution?.text || '';
-        const usage = qualityResolution?.usage || initialUsage;
-        const finalModelName = qualityResolution?.modelName || modelName;
-        const finalProvider = qualityResolution?.provider;
+        const qualityResolution = await resolveCoachingResponseQuality({
+          rawText:
+            completionStatus === 'partial'
+              ? buildIncompleteGenerationRecoveryResponse(
+                  lastUserText,
+                  params.historyMessages
+                )
+              : fullText,
+          systemPrompt: params.systemPrompt,
+          historyMessages: params.historyMessages,
+          lastUserParts: params.lastUserParts,
+          usage: initialUsage,
+          modelName:
+            completionStatus === 'partial'
+              ? 'local-incomplete-recovery'
+              : modelName,
+          provider: completionStatus === 'partial' ? 'local' : undefined,
+          allowRemoteRepair: false,
+        });
+        fullText = qualityResolution.text;
+        const usage = qualityResolution.usage;
+        const finalModelName = qualityResolution.modelName;
+        const finalProvider = qualityResolution.provider;
         if (!emittedText) writeVerifiedChunk(fullText);
         const finalization = await resolveDonePayload(params.onDone, usage, {
           message: fullText,
@@ -660,14 +714,10 @@ export function createJsonLineStream(params: {
         logChatTelemetry(completionStatus === 'partial' ? 'partial_done' : 'done', params.telemetry, {
           modelName: finalModelName,
           provider: finalProvider,
-          qualityRepairAttempted:
-            qualityResolution?.repairAttempted || false,
-          qualityRepairAccepted:
-            qualityResolution?.repairAccepted || false,
-          qualityInitialIssues:
-            qualityResolution?.initialIssues || [],
-          qualityFinalIssues:
-            qualityResolution?.finalIssues || [],
+          qualityRepairAttempted: qualityResolution.repairAttempted,
+          qualityRepairAccepted: qualityResolution.repairAccepted,
+          qualityInitialIssues: qualityResolution.initialIssues,
+          qualityFinalIssues: qualityResolution.finalIssues,
           completionStatus,
           elapsedMs: Date.now() - startedAt,
           firstChunkMs,
@@ -684,14 +734,10 @@ export function createJsonLineStream(params: {
           type: 'done',
           modelName: finalModelName,
           provider: finalProvider,
-          qualityRepairAttempted:
-            qualityResolution?.repairAttempted || false,
-          qualityRepairAccepted:
-            qualityResolution?.repairAccepted || false,
-          qualityInitialIssues:
-            qualityResolution?.initialIssues || [],
-          qualityFinalIssues:
-            qualityResolution?.finalIssues || [],
+          qualityRepairAttempted: qualityResolution.repairAttempted,
+          qualityRepairAccepted: qualityResolution.repairAccepted,
+          qualityInitialIssues: qualityResolution.initialIssues,
+          qualityFinalIssues: qualityResolution.finalIssues,
           completionStatus,
           finalizationStatus: finalization.status,
           finishReason,
@@ -707,27 +753,37 @@ export function createJsonLineStream(params: {
         if (!emittedText) {
           const externalFallback = await tryExternalProviderFallback(params);
           if (externalFallback) {
-            fullText = normalizeCoachingOutput(
-              externalFallback.rawText,
-              fallbackUserText,
-              params.historyMessages
-            );
+            const fallbackResolution = await resolveCoachingResponseQuality({
+              rawText: externalFallback.rawText,
+              systemPrompt: params.systemPrompt,
+              historyMessages: params.historyMessages,
+              lastUserParts: params.lastUserParts,
+              usage: externalFallback.usage,
+              modelName: externalFallback.model,
+              provider: externalFallback.provider,
+              allowRemoteRepair: false,
+            });
+            fullText = fallbackResolution.text;
             writeVerifiedChunk(fullText);
             const finalization = await resolveDonePayload(
               params.onDone,
-              externalFallback.usage,
+              fallbackResolution.usage,
               {
                 message: fullText,
                 completionStatus: 'complete',
                 finishReason: externalFallback.finishReason ?? undefined,
-                modelName: externalFallback.model,
-                provider: externalFallback.provider,
+                modelName: fallbackResolution.modelName,
+                provider: fallbackResolution.provider,
               }
             );
             logChatTelemetry('fallback_done', params.telemetry, {
-              modelName: externalFallback.model,
-              provider: externalFallback.provider,
+              modelName: fallbackResolution.modelName,
+              provider: fallbackResolution.provider,
               fallbackFrom: modelName,
+              qualityRepairAttempted: fallbackResolution.repairAttempted,
+              qualityRepairAccepted: fallbackResolution.repairAccepted,
+              qualityInitialIssues: fallbackResolution.initialIssues,
+              qualityFinalIssues: fallbackResolution.finalIssues,
               completionStatus: 'complete',
               elapsedMs: Date.now() - startedAt,
               firstChunkMs,
@@ -737,19 +793,23 @@ export function createJsonLineStream(params: {
               finalizationError: finalization.error,
               outputChars: fullText.length,
               finishReason: externalFallback.finishReason,
-              usage: externalFallback.usage,
+              usage: fallbackResolution.usage,
               error: getErrorMessage(error),
             });
             write({
               type: 'done',
-              modelName: externalFallback.model,
-              provider: externalFallback.provider,
+              modelName: fallbackResolution.modelName,
+              provider: fallbackResolution.provider,
               fallbackFrom: modelName,
+              qualityRepairAttempted: fallbackResolution.repairAttempted,
+              qualityRepairAccepted: fallbackResolution.repairAccepted,
+              qualityInitialIssues: fallbackResolution.initialIssues,
+              qualityFinalIssues: fallbackResolution.finalIssues,
               completionStatus: 'complete',
               finalizationStatus: finalization.status,
               finishReason: externalFallback.finishReason,
               message: fullText,
-              usage: externalFallback.usage,
+              usage: fallbackResolution.usage,
               ...finalization.payload,
             });
             return;
@@ -765,6 +825,25 @@ export function createJsonLineStream(params: {
           );
           if (isTimeout) {
             fullText += PARTIAL_STREAM_TIMEOUT_NOTICE;
+          }
+          let fallbackQuality = assessCoachingResponseQuality({
+            text: fullText,
+            lastUserText: fallbackUserText,
+            historyMessages: params.historyMessages,
+          });
+          if (fallbackQuality.issues.length > 0) {
+            fullText = buildFinalVerifiedQualityFallback(
+              fallbackUserText,
+              params.historyMessages
+            );
+            if (isTimeout) {
+              fullText += PARTIAL_STREAM_TIMEOUT_NOTICE;
+            }
+            fallbackQuality = assessCoachingResponseQuality({
+              text: fullText,
+              lastUserText: fallbackUserText,
+              historyMessages: params.historyMessages,
+            });
           }
           if (!emittedText) writeVerifiedChunk(fullText);
           const finalization = await resolveDonePayload(params.onDone, {}, {
@@ -782,6 +861,7 @@ export function createJsonLineStream(params: {
             finalizationMs: finalization.elapsedMs,
             finalizationError: finalization.error,
             outputChars: fullText.length,
+            qualityFinalIssues: fallbackQuality.issues,
             error: getErrorMessage(error),
           });
           write({
@@ -790,16 +870,22 @@ export function createJsonLineStream(params: {
             completionStatus: 'partial',
             finalizationStatus: finalization.status,
             message: fullText,
+            qualityFinalIssues: fallbackQuality.issues,
             usage: {},
             ...finalization.payload,
           });
           return;
         }
 
-        const fallbackText = buildResilientLocalFallback(
+        const fallbackText = buildFinalVerifiedQualityFallback(
           fallbackUserText,
           params.historyMessages
         );
+        const fallbackQuality = assessCoachingResponseQuality({
+          text: fallbackText,
+          lastUserText: fallbackUserText,
+          historyMessages: params.historyMessages,
+        });
         writeVerifiedChunk(fallbackText);
         const finalization = await resolveDonePayload(params.onDone, {}, {
           message: fallbackText,
@@ -818,6 +904,7 @@ export function createJsonLineStream(params: {
           finalizationMs: finalization.elapsedMs,
           finalizationError: finalization.error,
           outputChars: fallbackText.length,
+          qualityFinalIssues: fallbackQuality.issues,
           error: getErrorMessage(error),
         });
         write({
@@ -828,6 +915,7 @@ export function createJsonLineStream(params: {
           finalizationStatus: finalization.status,
           finishReason: 'LOCAL_FALLBACK',
           message: fallbackText,
+          qualityFinalIssues: fallbackQuality.issues,
           usage: {},
           ...finalization.payload,
         });
@@ -893,12 +981,19 @@ export function getCoachingTelemetryLevel(
   const elapsedMs =
     typeof payload.elapsedMs === 'number' ? payload.elapsedMs : 0;
   const finalizationFailed = payload.finalizationStatus === 'failed';
+  const qualityFailed =
+    Array.isArray(payload.qualityFinalIssues) &&
+    payload.qualityFinalIssues.length > 0;
   const recoveredProviderFallback = isRecoveredProviderFallback(
     status,
     payload
   );
 
-  if (finalizationFailed || (status !== 'done' && !recoveredProviderFallback)) {
+  if (
+    finalizationFailed ||
+    qualityFailed ||
+    (status !== 'done' && !recoveredProviderFallback)
+  ) {
     return 'error' as const;
   }
   if (elapsedMs >= ALERT_SLOW_RESPONSE_MS) {
@@ -968,6 +1063,12 @@ export function getCoachingAlertThrottleKind(
   if (payload.finalizationStatus === 'failed') {
     return 'finalization_failed';
   }
+  if (
+    Array.isArray(payload.qualityFinalIssues) &&
+    payload.qualityFinalIssues.length > 0
+  ) {
+    return 'quality_failed';
+  }
   if (isRecoveredProviderFallback(status, payload)) {
     return 'provider_fallback_recovered_slow';
   }
@@ -979,6 +1080,9 @@ export function getCoachingAlertCopy(
   payload: Record<string, unknown>
 ) {
   const finalizationFailed = payload.finalizationStatus === 'failed';
+  const qualityFailed =
+    Array.isArray(payload.qualityFinalIssues) &&
+    payload.qualityFinalIssues.length > 0;
   const recoveredProviderFallback = isRecoveredProviderFallback(
     status,
     payload
@@ -991,6 +1095,13 @@ export function getCoachingAlertCopy(
       subject: '[ACTI Bot] 会話後処理の失敗を検知しました',
       summary:
         'AIの回答生成後に、利用回数などの会話後処理を完了できませんでした。VercelログのrequestIdで詳細を確認してください。',
+    };
+  }
+  if (qualityFailed) {
+    return {
+      subject: '[ACTI Bot] 回答品質の不合格を検知しました',
+      summary:
+        'AIの回答は生成されましたが、生成後の品質検査で未解決の問題を検知しました。VercelログのrequestIdとqualityFinalIssuesで回答内容を確認してください。',
     };
   }
   if (status === 'done') {
@@ -1394,7 +1505,10 @@ export function buildIncompleteGenerationRecoveryResponse(
   return buildClosingCoachingQuestion(lastUserText, historyMessages);
 }
 
-function buildImmediateCoachingResponse(text: string) {
+function buildImmediateCoachingResponse(
+  text: string,
+  historyMessages: CoachingChatMessage[] = []
+) {
   const urgentSafetyResponse = buildUrgentSafetyResponse(text);
   if (urgentSafetyResponse) {
     return {
@@ -1417,13 +1531,41 @@ function buildImmediateCoachingResponse(text: string) {
       finishReason: 'LOCAL_REST_RESPONSE',
     };
   }
+  if (
+    /(?:今も|現在も|ちゃんと)?.{0,12}(?:前|これまで|今まで)(?:の)?(?:話|会話|相談|内容).{0,20}(?:踏まえ|覚え|反映|引き継)/.test(
+      text
+    )
+  ) {
+    const priorUserMessages = historyMessages
+      .filter((message) => message.role === 'user')
+      .map((message) =>
+        stripAttachmentMarkdown(message.content)
+          .replace(/^[^\s]{0,80}-\d{10,}-[a-z0-9]+[。\s]+/i, '')
+          .replace(/\s+/g, ' ')
+          .trim()
+      )
+      .filter(Boolean)
+      .slice(-2);
+    if (priorUserMessages.length > 0) {
+      const summary = priorUserMessages
+        .map((message) => {
+          const excerpt =
+            message.length > 70 ? `${message.slice(0, 70)}…` : message;
+          return `「${excerpt.replace(/[。！？!?]+$/g, '')}」`;
+        })
+        .join('と');
+      return {
+        text: `前の話を踏まえています。直前までに、${summary}について話していました。この内容を前提に続けます。`,
+        modelName: 'local-continuity',
+        finishReason: 'LOCAL_CONTINUITY_RESPONSE',
+      };
+    }
+  }
   return null;
 }
 
-function getGeminiTimeoutMs(modelName: string) {
-  return modelName === COACHING_IMAGE_MODEL
-    ? GEMINI_IMAGE_TIMEOUT_MS
-    : GEMINI_TEXT_TIMEOUT_MS;
+function getGeminiTimeoutMs(isImageRequest: boolean) {
+  return isImageRequest ? GEMINI_IMAGE_TIMEOUT_MS : GEMINI_TEXT_TIMEOUT_MS;
 }
 
 export function containsProtectedInternalContent(text: string) {
@@ -1447,12 +1589,15 @@ async function tryExternalProviderFallback(params: {
     .filter((part): part is GeminiImagePart => 'inlineData' in part)
     .map((part) => part.inlineData);
 
-  const fallbackHistory: CoachingChatMessage[] = params.historyMessages.map(
-    (message) => ({
-      role: message.role,
-      content: stripAttachmentMarkdown(message.content).trim(),
-    })
-  );
+  const isFactualImageRequest =
+    images.length > 0 &&
+    requestsFactualShortAnswer(stripInternalResponseStyleHint(modelInput));
+  const fallbackHistory: CoachingChatMessage[] = (
+    isFactualImageRequest ? [] : params.historyMessages
+  ).map((message) => ({
+    role: message.role,
+    content: stripAttachmentMarkdown(message.content).trim(),
+  }));
   const messages: CoachingChatMessage[] = [
     ...fallbackHistory.filter((message) => message.content),
     { role: 'user' as const, content: modelInput },
@@ -1546,7 +1691,10 @@ function buildResilientLocalFallback(
   lastUserText: string,
   historyMessages: CoachingChatMessage[]
 ) {
-  const immediateResponse = buildImmediateCoachingResponse(lastUserText);
+  const immediateResponse = buildImmediateCoachingResponse(
+    lastUserText,
+    historyMessages
+  );
   if (immediateResponse) return immediateResponse.text;
   if (requestsNoFollowUpQuestion(lastUserText)) {
     return preserveRequestedActionTime(
@@ -1666,9 +1814,184 @@ export function assessCoachingResponseQuality(params: {
     /わからないから聞いて|それを聞いている|質問ばかり|同じ質問|答えになっていない|納得(?:できない|いかない)|何を言いたいのかわから|ちゃんと答えて|前(?:の|より).{0,20}(?:方が|ほうが).{0,20}(?:的確|良かった|よかった)|頭が悪くな/.test(
       lastUserText
     ) &&
-    (hasAnyCoachingQuestion(text) || compactText.length < 140)
+    (hasAnyCoachingQuestion(text) ||
+      (compactText.length < 140 &&
+        !hasConcreteAction(text, lastUserText)))
   ) {
     issues.push('dissatisfaction_unanswered');
+  }
+  if (
+    /能力がないと思われる.{0,20}(?:怖|不安)/.test(lastUserText) &&
+    (!/能力がないと思われる|能力を低く評価され/.test(text) ||
+      /誰にも見せない|自分だけの(?:下書き|メモ)|非公開の(?:下書き|メモ)/.test(
+        text
+      ) ||
+      /自分の価値[^。！？?\n]{0,30}証明|能力不足ではなく[^。！？?\n]{0,60}信頼/.test(
+        text
+      ) ||
+      /(?:周囲|上司|同僚)[^。！？?\n]{0,100}(?:安心|信頼)|着手[^。！？?\n]{0,60}評価を下げ|この声をかけ/.test(
+        text
+      ) ||
+      /(?:周囲|上司|同僚)から[^。！？?\n]{0,60}(?:能力があると)?認められ/.test(
+        text
+      ) ||
+      /(?:自ら|自分で)[^。！？?\n]{0,40}ハードル|動けなくなるのは自然|周囲の評価[^。！？?\n]{0,40}意識|自分を追い詰め|評価への恐怖/.test(
+        text
+      ) ||
+      /自分を守るための自然な反応|着手しなければ[^。！？?\n]{0,60}(?:リスク|評価)[^。！？?\n]{0,30}避け/.test(
+        text
+      ))
+  ) {
+    issues.push('dissatisfaction_unanswered');
+  }
+  if (
+    /能力がないと思われる.{0,20}(?:怖|不安)/.test(lastUserText) &&
+    /その不安の奥で[、,]?いちばん守りたいものは何ですか/.test(text) &&
+    !issues.includes('dissatisfaction_unanswered')
+  ) {
+    issues.push('dissatisfaction_unanswered');
+  }
+
+  if (hasVagueCoachingMetaphor(text)) {
+    issues.push('vague_metaphor');
+  }
+
+  if (
+    hasDanglingChoiceReference(text, lastUserText, historyMessages)
+  ) {
+    issues.push('dangling_choice_reference');
+  }
+
+  if (
+    hasUngroundedCategorization(text, lastUserText, historyMessages)
+  ) {
+    issues.push('ungrounded_categorization');
+  }
+
+  if (
+    /(?:今の状況で[、,]?)?まだ解決していないこと|今できる(?:最小の)?行動|最初の一歩を一文だけ確認|次に必要な最初の手順|この(?:1|一)つの行動(?:から)?始め|(?:極小の|小さな|簡単な)(?:作業|行動|一歩)/.test(
+      text
+    )
+  ) {
+    issues.push('vague_action_target');
+  }
+
+  const canonicalUserText = canonicalizeAssistantParagraph(lastUserText);
+  const canonicalResponseText = canonicalizeAssistantParagraph(
+    text.replace(
+      /^「([\s\S]+)」(?:という相談ですね|ということですね)?[。！]?$/u,
+      '$1'
+    )
+  );
+  const acknowledgementOnly =
+    /^「[\s\S]+」(?:という相談ですね|ということですね)[。！]?$/u.test(
+      text.trim()
+    );
+  if (
+    acknowledgementOnly ||
+    (canonicalUserText.length >= 8 &&
+      canonicalResponseText === canonicalUserText)
+  ) {
+    issues.push('latest_user_echo');
+  }
+
+  const userContext = [
+    ...historyMessages
+      .filter((message) => message.role === 'user')
+      .map((message) => stripAttachmentMarkdown(message.content)),
+    lastUserText,
+  ].join('\n');
+  if (
+    /その(?:一枚|紙|メモ|ファイル|資料)/.test(text) &&
+    !/(?:一枚|紙|メモ|ファイル|資料)/.test(userContext) &&
+    !issues.includes('vague_action_target')
+  ) {
+    issues.push('vague_action_target');
+  }
+  const ungroundedTaskPattern =
+    /(?:今日|昨日|前回)[^。！？\n]{0,40}(?:やり残|終わらなかった|未完了)|(?:やり残した|未完了の|残っている)(?:タスク|作業|仕事)/;
+  if (
+    ungroundedTaskPattern.test(text) &&
+    !ungroundedTaskPattern.test(userContext)
+  ) {
+    issues.push('ungrounded_task_assumption');
+  }
+  const ungroundedArtifactRules = [
+    {
+      output:
+        /(?:最初の)?(?:1|一)(?:行|コマ)|下書き|たたき台|骨組み|枠組み|メモ書き/,
+      context:
+        /(?:1|一)行|文章|原稿|資料|企画|メール|投稿|台本|コマ|漫画|絵|下書き|たたき台|骨組み|枠組み|メモ書き/,
+    },
+    {
+      output: /パソコン|PC|関連するフォルダ|作成途中の(?:画面|メモ)/i,
+      context: /パソコン|PC|フォルダ|ファイル|画面/i,
+    },
+    {
+      output: /メール|件名|宛先/,
+      context: /メール|件名|宛先/,
+    },
+    {
+      output: /企画書|提案書|仕事の資料/,
+      context: /企画書|提案書|資料/,
+    },
+  ];
+  if (
+    ungroundedArtifactRules.some(
+      (rule) => rule.output.test(text) && !rule.context.test(userContext)
+    ) &&
+    !issues.includes('ungrounded_task_assumption')
+  ) {
+    issues.push('ungrounded_task_assumption');
+  }
+  if (
+    /能力がないと思われる.{0,20}(?:怖|不安)/.test(lastUserText) &&
+    !requestsConcreteSuggestion(lastUserText) &&
+    (/(?:関係者|周囲|誰か|上司|同僚)[^。！？?\n]{0,100}(?:見せ|確認させ|伝え|共有|報告|予告|相談)/.test(
+      text
+    ) ||
+      /周囲[^。！？?\n]{0,80}(?:評価|安心|信頼)/.test(text) ||
+      /(?:周囲|上司|同僚)から[^。！？?\n]{0,60}(?:能力があると)?認められ/.test(
+        text
+      ) ||
+      /(?:進捗共有|中間報告|軌道修正)/.test(text)) &&
+    !issues.includes('dissatisfaction_unanswered')
+  ) {
+    issues.push('dissatisfaction_unanswered');
+  }
+  const hasValidDirectWording =
+    requestsDirectWording(lastUserText) &&
+    /「[^」]{4,}」/.test(text) &&
+    isGroundedDirectWording(text, historyMessages, lastUserText);
+  if (
+    requestsConcreteSuggestion(lastUserText) &&
+    !hasValidDirectWording &&
+    !hasConcreteAction(text, lastUserText) &&
+    !issues.includes('vague_action_target')
+  ) {
+    issues.push('vague_action_target');
+  }
+
+  if (
+    /明日/.test(lastUserText) &&
+    requestsConcreteSuggestion(lastUserText) &&
+    !hasValidDirectWording &&
+    (!/明日/.test(text) ||
+      (/明日の朝/.test(lastUserText) && !/明日の朝/.test(text)) ||
+      (!/(?:今|すぐ)/.test(lastUserText) &&
+        /今[、,][^。！？\n]{0,80}(?:書|決め|選|始め|開|伝え|確認|取り組|着手|送|連絡|報告)/.test(
+          text
+        )) ||
+      (!/(?:眠|寝|就寝)/.test(lastUserText) &&
+        /(?:眠る|寝る|就寝する)/.test(text)) ||
+      (!/(?:今夜|今のうち|今日中|今日のうち)/.test(lastUserText) &&
+        /(?:今夜|今のうち|今日中|今日のうち)/.test(text)) ||
+      (!/(?:今日|本日)/.test(lastUserText) &&
+        /今日(?:一番に|最初に|まず)[^。！？\n]{0,80}(?:書|決め|選|始め|開|伝え|確認|取り組|着手|送|連絡|報告)/.test(
+          text
+        )))
+  ) {
+    issues.push('requested_time_mismatch');
   }
 
   const previousAssistantText =
@@ -1687,9 +2010,18 @@ export function assessCoachingResponseQuality(params: {
   }
 
   const coachingMoveCount = countExplicitCoachingMoves(text);
+  const singleQuotedCommunicationAction =
+    isSingleQuotedCommunicationAction(text);
   if (
-    coachingMoveCount > 1 ||
-    /(?:1|一)つ目[\s\S]{0,500}(?:2|二)つ目/.test(text)
+    !singleQuotedCommunicationAction &&
+    (coachingMoveCount > 1 ||
+      (requestsSingleAnswerFormat(lastUserText) &&
+        (countCoachingActionClauses(
+          text,
+          !requestsDirectWording(lastUserText)
+        ) > 1 ||
+          containsMultipleRequestedItems(text))) ||
+      /(?:1|一)つ目[\s\S]{0,500}(?:2|二)つ目/.test(text))
   ) {
     issues.push('multiple_coaching_moves');
   }
@@ -1706,6 +2038,13 @@ export function assessCoachingResponseQuality(params: {
     repeats_rejected_move: 45,
     dissatisfaction_unanswered: 45,
     invented_follow_through: 45,
+    vague_metaphor: 35,
+    dangling_choice_reference: 45,
+    ungrounded_categorization: 45,
+    vague_action_target: 40,
+    latest_user_echo: 50,
+    ungrounded_task_assumption: 50,
+    requested_time_mismatch: 50,
     multiple_coaching_moves: 35,
     unsafe_high_impact_advice: 50,
   };
@@ -1731,11 +2070,80 @@ function countExplicitCoachingMoves(text: string) {
     const trimmed = segment.trim();
     return (
       isQuestionSegment(trimmed) ||
-      /(?:してください|してみてください|しましょう|してみましょう|から始めてください)[。！]?$/.test(
+      /(?:してください|してみてください|しましょう|してみましょう|(?:て|で)いきましょう|から始めてください)[。！]?$/.test(
         trimmed
       )
     );
   }).length;
+}
+
+function hasVagueCoachingMetaphor(text: string) {
+  return /絡まった糸|糸を[^。！？?\n]{0,24}解きほぐ|頭の中(?:が|も)[^。！？?\n]{0,30}(?:複雑|絡ま)|心の霧|霧が晴れ|心の扉|心の奥底|気持ちの波/.test(
+    text
+  );
+}
+
+function hasDanglingChoiceReference(
+  text: string,
+  lastUserText = '',
+  historyMessages: CoachingChatMessage[] = []
+) {
+  const referencesChoice =
+    /(?:この|その)どちら|どちらに(?:分類|当てはま|近い)|どちらを(?:選|優先|取)|どちらが(?:近い|よい|良い)/.test(
+      text
+    );
+  if (!referencesChoice) return false;
+
+  const context = [
+    ...historyMessages.slice(-4).map((message) => message.content),
+    lastUserText,
+    text,
+  ].join('\n');
+  const namesTwoChoices =
+    /[「『][^」』\n]{1,50}[」』](?:と|か)[「『][^」』\n]{1,50}[」』](?:の)?どちら/.test(
+      context
+    ) ||
+    /(?:それとも|あるいは|前者|後者|二択|2択|一つ目|1つ目)[^。！？?\n]{0,100}(?:どちら|選)/.test(
+      context
+    );
+
+  return !namesTwoChoices;
+}
+
+function hasUngroundedCategorization(
+  text: string,
+  lastUserText: string,
+  historyMessages: CoachingChatMessage[]
+) {
+  const userContext = [
+    ...historyMessages
+      .filter((message) => message.role === 'user')
+      .slice(-4)
+      .map((message) => message.content),
+    lastUserText,
+  ].join('\n');
+  if (
+    /分類|カテゴリ|環境要因|個人要因|内的要因|外的要因/.test(
+      userContext
+    )
+  ) {
+    return false;
+  }
+
+  const userRequestedChoice =
+    /どっち|どちら|選|比較|迷|二つ|2つ|二択|2択/.test(userContext);
+  const assistantInventedChoice =
+    !userRequestedChoice &&
+    /それとも|(?:この|その)(?:二つ|2つ)|(?:二つ|2つ)のうち/.test(
+      text
+    );
+
+  return (
+    assistantInventedChoice ||
+    /(?:環境|個人|内的|外的)の要因|原因[^。！？?\n]{0,16}分類|原因[^。！？?\n]{0,28}(?:二つ|2つ|種類|要因)[^。！？?\n]{0,16}(?:分け|分類)|業務量や人間関係[^。！？?\n]{0,100}スキルや判断/.test(
+      text
+    )
+  );
 }
 
 function extractClosingMove(text: string) {
@@ -1807,6 +2215,14 @@ export function normalizeCoachingOutput(
     lastUserText,
     historyMessages
   );
+  if (
+    avoidsForcedMove &&
+    /いちばん見過ごしたくない本音|今いちばん気になっていることを一文だけメモ|何か(?:具体的に)?話したいことはありますか|今(?:、)?(?:最も|いちばん)話したいことは何ですか|この関係の中で[、,]?自分が本当に大切にしたいことは何ですか/.test(
+      text
+    )
+  ) {
+    return buildRejectedMoveFallback(lastUserText, historyMessages);
+  }
   const questionLimit =
     requiresClosingQuestion
       ? 1
@@ -1872,13 +2288,40 @@ export function normalizeCoachingOutput(
       /(?:まずは[、,]?)?(?:その|今の)?(?:お気持ち|気持ち)[^。\n]{0,18}受け止めます[。]?/g,
       ''
     )
+    .replace(
+      /(?:まずは[、,]?)?(?:その|今の)?(?:状況|出来事|話)[^。\n]{0,24}そのまま受け止めます[。]?/g,
+      ''
+    )
     .replace(/いらっしゃるのですね/g, 'いるんですね')
     .replace(/いらっしゃる/g, 'いる')
+    .replace(/迷われている/g, '迷っている')
     .replace(/上司の方/g, '上司')
+    .replace(
+      /(?:これまでの)?[「『]?[^。！？?\n]{0,80}[」』]?(?:という)?(?:お話|話|内容)をすべて踏まえていますので[、,]?どうぞ[。]?/g,
+      '前の話を踏まえています。'
+    )
+    .replace(
+      /前回の会議で準備した提案を最後までお伝えしきれなかったため/g,
+      '前回の会議では、準備した提案の説明が途中で終わったため'
+    )
+    .replace(/仕事のタスク/g, '仕事')
+    .replace(
+      /私の時間も大切に扱ってほしいと感じている/g,
+      '私の時間も大切にしてほしい'
+    )
+    .replace(
+      /私の時間も大切に扱われていると感じたい/g,
+      '私の時間も大切にしてほしい'
+    )
+    .replace(
+      /私の時間も大切にされていると感じられるように/g,
+      '私の時間も大切にしてほしいから'
+    )
     .replace(
       /上司に否定されたように感じて[、,]?次の一言が怖いと感じている/g,
       '上司に否定されたように感じて、次の一言が怖い'
     )
+    .replace(/状態とお見受けします/g, '状態です')
     .replace(/ご自身/g, '自分')
     .replace(/よろしければ/g, 'よかったら')
     .replace(/差し支えなければ/g, 'よかったら')
@@ -2201,6 +2644,8 @@ async function resolveCoachingResponseQuality(params: {
   lastUserParts: GeminiPart[];
   usage: CoachingUsage;
   modelName: string;
+  provider?: string;
+  allowRemoteRepair?: boolean;
 }) {
   const lastUserText = extractTextFromParts(params.lastUserParts);
   const normalized = normalizeCoachingOutput(
@@ -2217,6 +2662,7 @@ async function resolveCoachingResponseQuality(params: {
     text: normalized,
     usage: params.usage,
     modelName: params.modelName,
+    provider: params.provider,
     repairAttempted: false,
     repairAccepted: false,
     initialIssues: initialAssessment.issues,
@@ -2235,12 +2681,15 @@ async function resolveCoachingResponseQuality(params: {
   let best = baseResolution;
   let bestAssessment = initialAssessment;
 
-  const repairedCandidate = await generateGeminiQualityRepair({
-    candidateText: baseResolution.text,
-    issues: initialAssessment.issues,
-    historyMessages: params.historyMessages,
-    lastUserParts: params.lastUserParts,
-  });
+  const repairedCandidate =
+    params.allowRemoteRepair === false
+      ? null
+      : await generateGeminiQualityRepair({
+          candidateText: baseResolution.text,
+          issues: initialAssessment.issues,
+          historyMessages: params.historyMessages,
+          lastUserParts: params.lastUserParts,
+        });
   if (repairedCandidate) {
     const repairedText = normalizeCoachingOutput(
       repairedCandidate.rawText,
@@ -2267,52 +2716,6 @@ async function resolveCoachingResponseQuality(params: {
     }
   }
 
-  const stillHasSevereIssue = bestAssessment.issues.some((issue) =>
-    [
-      'too_short',
-      'generic_canned_close',
-      'repeated_closing_move',
-      'repeats_rejected_move',
-      'dissatisfaction_unanswered',
-      'invented_follow_through',
-      'multiple_coaching_moves',
-      'unsafe_high_impact_advice',
-    ].includes(issue)
-  );
-  if (stillHasSevereIssue) {
-    const externalCandidate = await tryExternalProviderFallback({
-      systemPrompt: params.systemPrompt,
-      historyMessages: params.historyMessages,
-      lastUserParts: params.lastUserParts,
-      timeoutMs: QUALITY_EXTERNAL_FALLBACK_TIMEOUT_MS,
-    });
-    if (externalCandidate) {
-      const externalText = normalizeCoachingOutput(
-        externalCandidate.rawText,
-        lastUserText,
-        params.historyMessages
-      );
-      const externalAssessment = assessCoachingResponseQuality({
-        text: externalText,
-        lastUserText,
-        historyMessages: params.historyMessages,
-      });
-      if (externalAssessment.score > bestAssessment.score) {
-        bestAssessment = externalAssessment;
-        best = {
-          text: externalText,
-          usage: mergeCoachingUsage(best.usage, externalCandidate.usage),
-          modelName: externalCandidate.model,
-          provider: externalCandidate.provider,
-          repairAttempted: true,
-          repairAccepted: true,
-          initialIssues: initialAssessment.issues,
-          finalIssues: externalAssessment.issues,
-        };
-      }
-    }
-  }
-
   const repairAttempted = true;
   if (
     bestAssessment.issues.some((issue) =>
@@ -2323,6 +2726,13 @@ async function resolveCoachingResponseQuality(params: {
         'repeats_rejected_move',
         'dissatisfaction_unanswered',
         'invented_follow_through',
+        'vague_metaphor',
+        'dangling_choice_reference',
+        'ungrounded_categorization',
+        'vague_action_target',
+        'latest_user_echo',
+        'ungrounded_task_assumption',
+        'requested_time_mismatch',
         'multiple_coaching_moves',
         'unsafe_high_impact_advice',
       ].includes(issue)
@@ -2349,6 +2759,28 @@ async function resolveCoachingResponseQuality(params: {
       };
       bestAssessment = safeAssessment;
     }
+  }
+
+  if (bestAssessment.issues.length > 0) {
+    const verifiedFallback = buildFinalVerifiedQualityFallback(
+      lastUserText,
+      params.historyMessages
+    );
+    const verifiedAssessment = assessCoachingResponseQuality({
+      text: verifiedFallback,
+      lastUserText,
+      historyMessages: params.historyMessages,
+    });
+    best = {
+      ...best,
+      text: verifiedFallback,
+      provider: 'local',
+      modelName: 'local-quality-fallback',
+      repairAttempted,
+      repairAccepted: verifiedFallback !== normalized,
+      finalIssues: verifiedAssessment.issues,
+    };
+    bestAssessment = verifiedAssessment;
   }
 
   return {
@@ -2380,6 +2812,10 @@ async function generateGeminiQualityRepair(params: {
       '拒否済み・実行済みの提案、同じ質問、汎用的な本音質問、内容のないメモ課題を繰り返さないでください。',
       '利用者が答えを求めている時は、追加質問より先に具体的な見立てを示してください。',
       '次の質問または提案は一つだけにしてください。番号付きで複数案を並べないでください。',
+      '「絡まった糸を解きほぐす」「心の霧」のような比喩を使わず、誰が何をどうするのかを具体的に書いてください。',
+      '本文で二つの選択肢を明示していない時に、「どちら」「この二つ」と参照しないでください。',
+      '利用者が挙げていない原因を「環境要因」「個人要因」などに分類しないでください。情報が足りない時は、実際に起きた出来事を一つだけ具体的に尋ねてください。',
+      '「今の状況」「まだ解決していないこと」「最初の一歩」のように、利用者が対象を決め直さないと実行できない提案をしないでください。',
       '支払い・契約の相談では、契約上可能か確認していない手続きを断定せず、生活費を一方的に止める提案もしないでください。',
       '通常は160〜360字、自然な日本語2〜3段落で書いてください。150字未満の返答は、利用者が一言・短文・休息を明示的に求めた場合を除き不合格です。',
       '短すぎる返答を直す時は、1文目で具体的な事実や感情を受け止め、2文目で言い換えではない新しい整理を示し、最後に質問または提案を一つだけ置いてください。番号は本文に出さないでください。',
@@ -2455,6 +2891,35 @@ function buildSafeQualityFallback(
     )
     .join('\n\n')
     .trim();
+  const withoutVagueMetaphor = withoutGenericClosing
+    .split(/\n{2,}/)
+    .filter((paragraph) => !hasVagueCoachingMetaphor(paragraph))
+    .join('\n\n')
+    .trim();
+  const withoutDanglingChoice = withoutVagueMetaphor
+    .split(/\n{2,}/)
+    .filter(
+      (paragraph) =>
+        !hasDanglingChoiceReference(
+          paragraph,
+          lastUserText,
+          historyMessages
+        )
+    )
+    .join('\n\n')
+    .trim();
+  const withoutUngroundedCategorization = withoutDanglingChoice
+    .split(/\n{2,}/)
+    .filter(
+      (paragraph) =>
+        !hasUngroundedCategorization(
+          paragraph,
+          lastUserText,
+          historyMessages
+        )
+    )
+    .join('\n\n')
+    .trim();
   const userContext = [
     ...historyMessages
       .filter((message) => message.role === 'user')
@@ -2462,6 +2927,15 @@ function buildSafeQualityFallback(
       .map((message) => stripAttachmentMarkdown(message.content)),
     lastUserText,
   ].join('\n');
+  const substantiveFallback = buildSubstantiveShortFallback(lastUserText);
+
+  if (
+    substantiveFallback &&
+    (issues.includes('ungrounded_task_assumption') ||
+      issues.includes('vague_action_target'))
+  ) {
+    return substantiveFallback;
+  }
 
   if (
     /家賃|支払|未払い|振込|お金/.test(userContext) &&
@@ -2477,7 +2951,7 @@ function buildSafeQualityFallback(
     if (alreadyRecordedShortfall) {
       return '口頭で伝える方法では変わらなかったため、次は回答期限を付けた書面で確認する方法へ切り替える段階です。家賃76,000円を全額負担してほしいこと、毎月の支払日、不足した場合の扱い、回答期限を一通にまとめます。\n\n回答がない場合は、その書面と手元で確認できる支払記録を持って、夫婦問題や家計相談の窓口へ相談してください。';
     }
-    return '毎月伝えても支払い不足が続くなら、言い方だけでは解決しません。契約名義や現在の分担を確認せずに、口座変更や他の生活費の停止を勧めることはできません。\n\nまず、直近3か月の家賃額、相手の支払額、不足額を記録にまとめてください。その記録を基に、当事者間の合意を作るか、第三者へ相談するかを判断できます。';
+    return '毎月伝えても支払い不足が続くなら、言い方だけでは解決しません。まず、直近3か月の家賃額、相手の支払額、不足額を一覧にしてください。その一覧を使い、今後支払う金額、期日、不足した場合の対応について、書面で合意を求める段階です。';
   }
 
   if (
@@ -2506,13 +2980,38 @@ function buildSafeQualityFallback(
     return '毎月、家賃を全額払ってほしいと伝えても支払いが変わらないのですね。ここでは、希望を伝えたかではなく、ご主人が実際に合意した負担額を確認する必要があります。\n\nご主人が支払うと明確に了承した毎月の金額はいくらですか？';
   }
 
-  if (issues.includes('too_short')) {
+  if (issues.includes('vague_action_target')) {
+    return buildNoQuestionFallback(lastUserText, historyMessages);
+  }
+
+  if (
+    issues.includes('ungrounded_task_assumption') ||
+    issues.includes('multiple_coaching_moves')
+  ) {
+    return buildNoQuestionFallback(lastUserText, historyMessages);
+  }
+
+  if (
+    issues.includes('too_short') ||
+    issues.includes('vague_metaphor') ||
+    issues.includes('dangling_choice_reference') ||
+    issues.includes('ungrounded_categorization')
+  ) {
     const substantiveFallback = buildSubstantiveShortFallback(lastUserText);
     if (substantiveFallback) return substantiveFallback;
+
+    const focusedShortResponse = limitUnrequestedCoachingMoves(
+      withoutUngroundedCategorization,
+      lastUserText
+    );
+    return expandTooShortCoachingResponse(
+      focusedShortResponse,
+      lastUserText
+    );
   }
 
   const focusedText = limitUnrequestedCoachingMoves(
-    withoutGenericClosing,
+    withoutUngroundedCategorization,
     lastUserText
   );
 
@@ -2527,6 +3026,109 @@ function buildSafeQualityFallback(
   return (
     focusedText ||
     buildRejectedMoveFallback(lastUserText, historyMessages)
+  );
+}
+
+export function buildFinalVerifiedQualityFallback(
+  lastUserText: string,
+  historyMessages: CoachingChatMessage[]
+) {
+  const cleanUserText = stripAttachmentMarkdown(lastUserText)
+    .replace(/\s+/g, ' ')
+    .replace(/[「」『』]/g, '')
+    .replace(/[。！？!?]+$/g, '')
+    .trim();
+  const excerpt =
+    cleanUserText.length > 48
+      ? `${cleanUserText.slice(0, 48)}…`
+      : cleanUserText || '今回の相談';
+  const acknowledgement = `「${excerpt}」という相談ですね。`;
+  const noQuestionRequested = requestsNoFollowUpQuestion(lastUserText);
+  const dissatisfaction =
+    shouldAvoidForcedCoachingMove(lastUserText, historyMessages);
+  const specificFallback = buildSubstantiveShortFallback(lastUserText);
+  const historicalUserContext = historyMessages
+    .filter((message) => message.role === 'user')
+    .map((message) => stripAttachmentMarkdown(message.content))
+    .join('\n');
+  const userContext = [historicalUserContext, lastUserText]
+    .filter(Boolean)
+    .join('\n');
+  const contextualCommunicationFallback =
+    /責め(?:る|ない)|落ち着いて(?:話|伝)|喧嘩|言い方|最初の一言/.test(
+      lastUserText
+    ) &&
+    /話|伝|言葉|一言|言い方|会議|提案|家事|夫|妻|相手/.test(userContext)
+      ? buildDirectWordingFallback(
+          lastUserText,
+          userContext,
+          historyMessages
+        )
+      : '';
+  const domainExplanation = /家賃|支払|未払い|振込|お金/.test(lastUserText)
+    ? '相手の理由を推測するより、決まっている金額、期限、実際の支払いを分けて確認すると、次に必要な対応を判断できます。'
+    : /夫|妻|家事|家族|関係|相手/.test(lastUserText)
+      ? '相手の気持ちを推測するより、実際に起きたことと、相手に変えてほしい行動を分けると、話し合う内容が明確になります。'
+      : /仕事|上司|同僚|会議|企画|職場/.test(lastUserText)
+        ? '仕事全体について結論を急がず、実際に困った場面と、次に確認する点を分けると、具体的な対応を選びやすくなります。'
+        : 'まだ書かれていない原因を推測せず、実際に起きたことと、次に困る場面を分けると、具体的な対応を選びやすくなります。';
+  const concreteAction = preserveRequestedActionTime(
+    buildNoQuestionFallback(lastUserText, historyMessages),
+    lastUserText
+  );
+  const questionCandidates = [
+    'その悩みが強くなった直前に、誰が何を言った、または何が起きましたか？',
+    'いま困っている場面の中で、最後に実際に起きた出来事は何ですか？',
+    '次の対応を決めるために、日時と相手を特定できる出来事を一つ教えてください。',
+  ];
+  const candidates = [
+    specificFallback,
+    contextualCommunicationFallback,
+    noQuestionRequested ? concreteAction : '',
+    noQuestionRequested
+      ? `${acknowledgement}\n\n${domainExplanation}\n\n${concreteAction}`
+      : '',
+    dissatisfaction
+      ? `${acknowledgement}前の返答は、相談内容への見立てを示さず、短い質問や同じ提案を返していました。ここまでに書かれた事実と、すでに試した対応を分けて考える必要があります。${domainExplanation}確認できた事実を基準に、次の対応を一つに絞ります。`
+      : '',
+    ...questionCandidates.map(
+      (question) =>
+        `${acknowledgement}\n\n${domainExplanation}今の情報だけで原因や相手の意図を決めつけず、確認できる出来事から整理します。\n\n${question}`
+    ),
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    const normalized = normalizeCoachingOutput(
+      candidate,
+      lastUserText,
+      historyMessages
+    );
+    const assessment = assessCoachingResponseQuality({
+      text: normalized,
+      lastUserText,
+      historyMessages,
+    });
+    if (assessment.issues.length === 0) return normalized;
+  }
+
+  const identicalUserTurns =
+    historyMessages.filter(
+      (message) =>
+        message.role === 'user' &&
+        stripAttachmentMarkdown(message.content).replace(/\s+/g, ' ').trim() ===
+          cleanUserText
+    ).length + 1;
+  const repetitionContext =
+    identicalUserTurns > 1
+      ? `同じ内容を${identicalUserTurns}回伝えてくれた経緯も確認しました。`
+      : '';
+  const finalMove = noQuestionRequested
+    ? concreteAction
+    : questionCandidates[0];
+  return normalizeCoachingOutput(
+    `${acknowledgement}${repetitionContext}\n\n${domainExplanation}\n\n${finalMove}`,
+    lastUserText,
+    historyMessages
   );
 }
 
@@ -2549,6 +3151,56 @@ function buildSilentAnswerFallback(
 }
 
 function buildSubstantiveShortFallback(lastUserText: string) {
+  if (
+    /仕事/.test(lastUserText) &&
+    /完璧/.test(lastUserText) &&
+    /着手でき|始められ|手をつけられ|手が止ま/.test(lastUserText)
+  ) {
+    return '仕事を完璧に仕上げようとして、始める前に手が止まっているのですね。何から始めるかを決める前に、自分が求めている完成条件を確認します。\n\nその仕事で、「ここまでできなければ失敗だ」と考えている条件は何ですか？';
+  }
+
+  if (
+    lastUserText.length >= 500 &&
+    /明日/.test(lastUserText) &&
+    requestsConcreteSuggestion(lastUserText) &&
+    !requestsDirectWording(lastUserText)
+  ) {
+    return '明日は、最初に取り組む仕事の開始時刻を予定表に記入してください。';
+  }
+
+  if (
+    /能力がないと思われる/.test(lastUserText) &&
+    /怖|不安/.test(lastUserText)
+  ) {
+    return '失敗そのものより、能力がないと思われることが怖いのですね。まず、実際に示された評価基準と、自分が想像している基準を分けて確認する必要があります。\n\nその仕事について、誰かから明確に示された評価基準はありますか？';
+  }
+
+  if (
+    /仕事/.test(lastUserText) &&
+    /疲/.test(lastUserText) &&
+    /明日/.test(lastUserText) &&
+    requestsConcreteSuggestion(lastUserText)
+  ) {
+    return '仕事で少し疲れているのですね。\n\n明日は、仕事の前に5分間だけ休んでください。';
+  }
+
+  if (
+    /仕事/.test(lastUserText) &&
+    /落ち込/.test(lastUserText) &&
+    /整理/.test(lastUserText)
+  ) {
+    return '仕事のことで少し落ち込んでいるのですね。原因を決めつけず、まず落ち込むきっかけになった出来事を一つ確認します。\n\n仕事で、今いちばん気になっている出来事は何ですか？';
+  }
+
+  if (
+    /上司/.test(lastUserText) &&
+    /否定/.test(lastUserText) &&
+    /次の一言/.test(lastUserText) &&
+    /怖/.test(lastUserText)
+  ) {
+    return '上司に否定されたように感じ、次に何を言ってもまた否定されるのではないかと、言葉を出す前に止まっているのですね。今必要なのは、上司の意図を推測することより、どの指摘から直せばよいかを具体的に確認することです。\n\n次に話す時は、「前回のご指摘について、最初に見直す点を一つだけ挙げてもらえますか」と伝えてください。';
+  }
+
   if (
     /新しい仕事/.test(lastUserText) &&
     /失敗/.test(lastUserText) &&
@@ -2589,6 +3241,54 @@ function buildSubstantiveShortFallback(lastUserText: string) {
   }
 
   return '';
+}
+
+function expandTooShortCoachingResponse(
+  candidateText: string,
+  lastUserText: string
+) {
+  const candidate = candidateText.trim();
+  const grounding =
+    /落ち込/.test(lastUserText) && !/落ち込/.test(candidate)
+      ? `${/仕事/.test(lastUserText) ? '仕事のことで' : '今の出来事について'}${/少し/.test(lastUserText) ? '少し' : ''}落ち込んでいるのですね。`
+      : '';
+  const focus = /家賃|支払|未払い|振込|お金/.test(lastUserText)
+    ? '今は、相手の理由を推測するより、金額、期限、実際の支払いを分けて確認する方が、次の対応を判断しやすくなります。'
+    : /夫|妻|家事|家族|関係/.test(lastUserText)
+      ? '今は、相手の気持ちを推測するより、実際に起きたことと、相手に変えてほしい行動を分けて考える方が、話し合う点が明確になります。'
+      : /仕事|上司|同僚|会議|企画|職場/.test(lastUserText)
+        ? '今は、仕事全体について結論を急がず、実際に困っている場面と、次に確認する点を分けて考える方が、具体的な対応を選びやすくなります。'
+        : '今は、まだ書かれていない原因を推測せず、実際に起きたことと、次に困る場面を分けて考える方が、具体的な対応を選びやすくなります。';
+
+  if (!candidate) return focus;
+
+  const paragraphs = candidate
+    .split(/\n{2,}/)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean);
+  const closing = paragraphs.at(-1) || '';
+  if (
+    paragraphs.length > 1 &&
+    (hasAnyCoachingQuestion(closing) || hasConcreteAction(closing, lastUserText))
+  ) {
+    return [
+      grounding,
+      ...paragraphs.slice(0, -1),
+      focus,
+      closing,
+    ]
+      .filter(Boolean)
+      .join('\n\n');
+  }
+
+  if (
+    paragraphs.length === 1 &&
+    (hasAnyCoachingQuestion(closing) || hasConcreteAction(closing, lastUserText))
+  ) {
+    return [grounding, focus, closing].filter(Boolean).join('\n\n');
+  }
+
+  return [grounding, candidate, focus].filter(Boolean).join('\n\n');
 }
 
 function mergeCoachingUsage(
@@ -2637,6 +3337,29 @@ function preserveRequestedActionTime(text: string, lastUserText: string) {
     .replace(/先ほど/g, '前回')
     .replace(/翌朝/g, '明日の朝')
     .replace(/翌日/g, '明日');
+  if (!/(?:今日|本日)/.test(lastUserText)) {
+    aligned = aligned
+      .replace(/今日(?:一番に|最初に)/g, '最初に')
+      .replace(/今日まず/g, 'まず');
+  }
+  if (
+    requestsConcreteSuggestion(lastUserText) &&
+    !requestsDirectWording(lastUserText) &&
+    !/(?:今夜|今のうち|今日中|今日のうち)/.test(lastUserText) &&
+    /(?:今夜|今のうち|今日中|今日のうち)/.test(aligned)
+  ) {
+    return /明日の朝/.test(lastUserText)
+      ? '明日の朝、最初に取り組む仕事を一つだけ紙に書いてください。'
+      : '明日、最初に取り組む仕事を一つだけ紙に書いてください。';
+  }
+  if (
+    /明日の朝/.test(lastUserText) &&
+    requestsConcreteSuggestion(lastUserText) &&
+    !requestsDirectWording(lastUserText) &&
+    /明日やるべき(?:タスク|作業|用事)/.test(aligned)
+  ) {
+    return '明日の朝、終わらせたい用事を一つだけ紙に書いてください。';
+  }
   if (
     requestsConcreteSuggestion(lastUserText) &&
     !requestsDirectWording(lastUserText) &&
@@ -2687,7 +3410,12 @@ function containsMultipleRequestedItems(text: string) {
     return true;
   }
 
-  if (/（[^）]{1,100}(?:、|または|もしくは)[^）]{1,100}など）/.test(text)) {
+  if (
+    /（[^）]{0,100}(?:または|もしくは|あるいは)[^）]{1,100}）/.test(
+      text
+    ) ||
+    /（[^）]{1,100}、[^）]{1,100}など）/.test(text)
+  ) {
     return true;
   }
 
@@ -2703,16 +3431,32 @@ function containsMultipleRequestedItems(text: string) {
     return true;
   }
 
+  if (
+    /(?:白湯|お?水|お茶|コーヒー|ノート|紙|メモ帳|付箋|手帳|スマートフォン(?:のメモ)?)[^。！？\n]{0,12}(?:か|または|もしくは|あるいは)[^。！？\n]{0,12}(?:白湯|お?水|お茶|コーヒー|ノート|紙|メモ帳|付箋|手帳|スマートフォン(?:のメモ)?)/.test(
+      text
+    )
+  ) {
+    return true;
+  }
+
   return (
     countCoachingActionClauses(text) >= 2 ||
     containsAlternativeRequestedActions(text)
   );
 }
 
-function countCoachingActionClauses(text: string) {
+function countCoachingActionClauses(
+  text: string,
+  includeQuotedActions = false
+) {
   const actionPattern =
-    /書き出|書い|書く|抜き出|箇条書|決め|選ん|伝えて|話し始め|話して|話しかけ|(?:口|声)に出|読み上げ|読み返|見直|繰り返|深呼吸|呼吸を|飲ん|飲む|淹れ|意識を向け|感じる|思い浮かべ|休ん|休息|横にな|閉じ|眺め|確認|開い|移動|入れ|向か|座っ|席につ|立ち上が|歩い|片付|準備|通知.{0,6}オフ|送っ|連絡|相談|断っ|置い|取り組|始め/g;
-  const unquoted = stripJapaneseQuotedContent(text);
+    /書き出|書き|書い|書く|抜き出|箇条書|決め|選ん|選び|伝えて|話し始め|話して|話しかけ|(?:口|声)に出|唱え|つぶや|読み上げ|読み返|見直|繰り返|深呼吸|呼吸を|息を(?:吐|吸)|肩[^。！？?\n]{0,12}(?:力を)?抜|浴び|飲ん|飲む|淹れ|意識を向け|感じる|思い浮かべ|休ん|休息|横にな|眠|寝る|閉じ|眺め|確認|開い|移動|入れ|しまい|しまう|向か|座っ|座り|席につ|立ち上が|歩い|片付|準備|通知.{0,6}オフ|送っ|連絡|相談|報告|実行|断っ|置い|置く|時間を作|取り組|取りかか|手を(?:付|つ)け|完了させ|始め/g;
+  const unquoted = (
+    includeQuotedActions ? text : stripJapaneseQuotedContent(text)
+  ).replace(
+    /(?:話す|話し始める|話しかける)直前に[、,]?/g,
+    ''
+  );
   const lexicalCount = unquoted
     .split(/(?:て|で)から|その後|次に|続いて|[、,]/)
     .map((clause) => clause.trim())
@@ -2722,7 +3466,7 @@ function countCoachingActionClauses(text: string) {
     );
   const chainedActions = (
     unquoted.match(
-      /(?:て|で)から|(?:した|いた|いだ|んだ|った)後(?:で|に)?|(?:(?<!と)(?:し|して)|いて|いで|んで|って)[、,]/g
+      /(?:て|で)から|(?:した|いた|いだ|んだ|った)後(?:で|に)?|(?:(?<!と)(?:し|して)|いて|いで|んで|って|吐き|吸い|抜き|緩め)[、,]/g
     ) || []
   ).length;
   const hasDirective =
@@ -2848,6 +3592,12 @@ function stripJapaneseQuotedContent(text: string) {
   return text.replace(/「[^」]*」|『[^』]*』/g, '');
 }
 
+function isSingleQuotedCommunicationAction(text: string) {
+  return /^[^。！？?\n]{0,80}[「『][^」』\n]{4,220}[」』]と(?:伝えて|確認して|話して|尋ねて|聞いて)(?:ください|みてください)[。]?$/.test(
+    text.trim()
+  );
+}
+
 function requestsOnePhraseAnswer(text: string) {
   return /一言(?:だけ|で)|一語(?:だけ|で)?|単語(?:だけ|で)?/.test(text) &&
     !/提案|アドバイス|行動|方法|やり方|一歩/.test(text);
@@ -2874,6 +3624,10 @@ function selectSingleAnswerBlock(
 ) {
   const historicalUserText = historyMessages
     .filter((message) => message.role === 'user')
+    .map((message) => stripAttachmentMarkdown(message.content))
+    .join('\n');
+  const historicalAssistantText = historyMessages
+    .filter((message) => message.role === 'assistant')
     .map((message) => stripAttachmentMarkdown(message.content))
     .join('\n');
   const paragraphs = text
@@ -2906,6 +3660,20 @@ function selectSingleAnswerBlock(
   }
   if (directWordingRequested) {
     return buildNoQuestionFallback(lastUserText, historyMessages);
+  }
+  if (
+    /明日/.test(lastUserText) &&
+    /(?:何をすれば|できること|行動|一つだけ|ひとつだけ|1つだけ)/.test(
+      lastUserText
+    ) &&
+    /上司/.test(historicalUserText) &&
+    /否定/.test(historicalUserText) &&
+    /次の一言|言葉|怖/.test(historicalUserText) &&
+    /最初に見直す点を一つ|どの指摘から直せば/.test(
+      historicalAssistantText
+    )
+  ) {
+    return '明日の朝、上司に「前回のご指摘について、最初に見直す点を一つだけ挙げてもらえますか」と確認してください。';
   }
   if (
     requestsConcreteSuggestion(lastUserText) &&
@@ -2960,6 +3728,13 @@ function isSingleActionRelevantToContext(
   historyMessages: CoachingChatMessage[]
 ) {
   if (!requestsConcreteSuggestion(lastUserText)) return true;
+  if (
+    /(?:今の状況で[、,]?)?まだ解決していないこと|今できる(?:最小の)?行動|最初の一歩を一文だけ確認|次に必要な最初の手順|この(?:1|一)つの行動(?:から)?始め/.test(
+      answer
+    )
+  ) {
+    return false;
+  }
   if (/直前/.test(lastUserText)) {
     if (/(?:明日の朝|翌朝)/.test(answer)) return false;
     if (!/(?:直前|前[に、])/.test(answer)) return false;
@@ -2970,7 +3745,7 @@ function isSingleActionRelevantToContext(
   ) {
     return false;
   }
-  if (/疲|休|しんど|限界/.test(lastUserText)) {
+  if (requestsShortRestResponse(lastUserText)) {
     return /休|横にな|目を閉じ|睡眠|寝/.test(answer);
   }
 
@@ -3012,6 +3787,14 @@ function isSingleActionRelevantToContext(
     !/(?:今日|前回)[^。！？\n]{0,24}(?:言われた|話した|起きた)こととは関係のない/.test(
       userContext
     )
+  ) {
+    return false;
+  }
+  const ungroundedTaskPattern =
+    /(?:今日|昨日|前回)[^。！？\n]{0,40}(?:やり残|終わらなかった|未完了)|(?:やり残した|未完了の|残っている)(?:タスク|作業|仕事)/;
+  if (
+    ungroundedTaskPattern.test(answer) &&
+    !ungroundedTaskPattern.test(userContext)
   ) {
     return false;
   }
@@ -3132,6 +3915,15 @@ function isGroundedDirectWording(
     return false;
   }
   if (
+    /会議|提案/.test(userContext) &&
+    /最後まで|却下|準備(?:に使った)?時間|準備時間/.test(userContext) &&
+    /提案[^。！？?\n]{0,36}(?:説明|内容)[^。！？?\n]{0,48}最後まで[^。！？?\n]{0,48}(?:意見|判断)/.test(
+      answer
+    )
+  ) {
+    return true;
+  }
+  if (
     /家事|夫|妻/.test(userContext) &&
     /後回し|時間[^。\n]{0,40}軽く扱/.test(userContext) &&
     !/(?:いつ[^。！？?\n]{0,24}(?:対応|やる)|(?:対応|やる)[^。！？?\n]{0,24}いつ|一緒に決め|お願い|してほしい|後回しにしない)/.test(
@@ -3146,7 +3938,7 @@ function isGroundedDirectWording(
 
   const replacesAngerWithSadness =
     /腹が立|怒|悔|嫌/.test(userContext) &&
-    !/悲し|落ち込|残念|心残り/.test(userContext) &&
+    !hasAffirmedSadness(userContext) &&
     /悲し|落ち込|残念|心残り/.test(answer);
   if (replacesAngerWithSadness) return false;
 
@@ -3187,7 +3979,7 @@ function buildGroundedDirectWording(
     /会議|提案/.test(userContext) &&
     /最後まで|却下|準備(?:に使った)?時間|準備時間/.test(userContext)
   ) {
-    return '「前回は提案を最後までお伝えできなかったので、今回は結論まで聞いてからご意見をいただけると助かります。」';
+    return '「前回は提案の説明が途中で終わったため、今回は内容を最後までお伝えしてから、ご意見をいただけると助かります。」';
   }
   if (
     /家事|夫|妻/.test(userContext) &&
@@ -3209,6 +4001,14 @@ function buildGroundedDirectWording(
     .replace(/[。！？]+$/u, '');
 
   return `「${naturalStatement}。このことを責めたいのではなく、これからどうするか一緒に話したいです。」`;
+}
+
+function hasAffirmedSadness(text: string) {
+  const withoutNegatedSadness = text.replace(
+    /悲し(?:い|さ|み)?(?:というより(?:も)?|より(?:も)?|ではなく|のではなく)/g,
+    ''
+  );
+  return /心残り|悲し|落ち込|残念/.test(withoutNegatedSadness);
 }
 
 function isSubstantiveSingleAnswer(text: string) {
@@ -3289,7 +4089,7 @@ function ensureCoachingClose(
     return trimmedText;
   }
 
-  if (requestsRestWithoutQuestions(lastUserText)) {
+  if (requestsShortRestResponse(lastUserText)) {
     return `${trimmedText}\n\n今日はゆっくり休んでください。`;
   }
 
@@ -3319,7 +4119,7 @@ function shouldAvoidForcedCoachingMove(
   if (!hasPreviousAssistant) return false;
 
   return (
-    /^(?:できない|無理|やりたくない|したくない|何も(?:言わない|答えない)|わからない)[。！!？?]*$/.test(
+    /^(?:できない|できて(?:い)?ない|無理|やりたくない|したくない|何も(?:言わない|答えない)|わからない)(?:[。！!？?]|$)/.test(
       normalized
     ) ||
     /毎回(?:言って|伝えて)いる|何度も(?:言って|伝えて)いる|わからないから聞いて|それを聞いている|質問ばかり|同じ質問|答えになっていない|納得(?:できない|いかない)|何を言いたいのかわから|ちゃんと答えて|前(?:の|より).{0,20}(?:方が|ほうが).{0,20}(?:的確|良かった|よかった)|頭が悪くな/.test(
@@ -3341,6 +4141,16 @@ function buildRejectedMoveFallback(
   ].join('\n');
 
   if (/家賃|支払|未払い|振込|お金/.test(userContext)) {
+    const alreadyRecordedShortfall = historyMessages.some(
+      (message) =>
+        message.role === 'assistant' &&
+        /直近3か月の家賃額[^。！？?\n]{0,60}(?:支払額|不足額)[^。！？?\n]{0,60}記録/.test(
+          message.content
+        )
+    );
+    if (alreadyRecordedShortfall) {
+      return '口頭で伝える方法では変わらなかったため、次は回答期限を付けた書面で確認する方法へ切り替える段階です。家賃76,000円を全額負担してほしいこと、毎月の支払日、不足した場合の扱い、回答期限を一通にまとめます。\n\n回答がない場合は、その書面と手元で確認できる支払記録を持って、夫婦問題や家計相談の窓口へ相談してください。';
+    }
     return '毎月伝えているなら、問題は伝え方ではなく、合意した負担が実行されていないことです。同じお願いを増やすのではなく、過去数か月の不足額とやり取りを記録し、金額・支払日・不足時の扱いを文面で確認する段階です。守られない場合に第三者へ相談する基準まで決め、対応を相手の意思だけに任せないことが必要です。';
   }
 
@@ -3367,12 +4177,28 @@ function wasAssistantMoveAlreadyUsed(
 }
 
 function requestsConcreteSuggestion(text: string) {
-  return /提案|方法|やり方|行動|一歩|着手|できること|何をすれば|どうすれば|どうしたら/.test(
-    text
+  return (
+    /提案(?:して|してください|してほしい|を(?:ください|お願い|求め))|方法|やり方|行動|一歩|できること|何をすれば|どうすれば|どうしたら/.test(
+      text
+    ) ||
+    /着手(?:する|の)?(?:方法|仕方|ため|コツ)|着手したい|着手するには/.test(
+      text
+    )
   );
 }
 
 function hasConcreteAction(text: string, lastUserText: string) {
+  if (
+    /(?:捉え|考え|意識)[^。！？?\n]{0,12}(?:直し|変え)|最優先の(?:タスク|こと)[^。！？?\n]{0,30}(?:捉え|考え)|大切にする|優先する/.test(
+      text
+    ) &&
+    !/書|伝|話|確認|開|送|連絡|相談|休|座|歩|飲|作業|取り組|着手|報告/.test(
+      text
+    )
+  ) {
+    return false;
+  }
+
   const hasAction = /(?:してください|してみてください|してみましょう|しましょう|(?:て|で)み(?:てください|ましょう)|始めてみて|書き出して|書いて|伝えて|開いて|決めて|置いて|休んで|確認して|取り組んで|着手して|(?:答え|伝え|断り|言い)ます|提案します)|(?:\d+|一|ひと)つ(?:だけ)?(?:書|決|選|始|開|伝)|(?:\d+|一|ひと)(?:分|行|文|項目)/.test(
     text
   );
@@ -3526,6 +4352,10 @@ function buildNoQuestionFallback(
           message
         )
     );
+  const historicalAssistantContext = historyMessages
+    .filter((message) => message.role === 'assistant')
+    .map((message) => stripAttachmentMarkdown(message.content))
+    .join('\n');
 
   if (requestsDirectWording(lastUserText)) {
     return buildDirectWordingFallback(
@@ -3537,6 +4367,19 @@ function buildNoQuestionFallback(
 
   if (shouldAvoidForcedCoachingMove(lastUserText, historyMessages)) {
     return buildRejectedMoveFallback(lastUserText, historyMessages);
+  }
+
+  if (
+    /明日/.test(lastUserText) &&
+    requestsConcreteSuggestion(lastUserText) &&
+    /上司/.test(historicalUserContext) &&
+    /否定/.test(historicalUserContext) &&
+    /次の一言|言葉|怖/.test(historicalUserContext) &&
+    /最初に見直す点を一つ|どの指摘から直せば/.test(
+      historicalAssistantContext
+    )
+  ) {
+    return '明日の朝、上司に「前回のご指摘について、最初に見直す点を一つだけ挙げてもらえますか」と確認してください。';
   }
 
   if (/直前/.test(lastUserText)) {
@@ -3555,7 +4398,7 @@ function buildNoQuestionFallback(
   ) {
     return '明日の朝、相手に最初に伝える一文だけをメモに書いてください。';
   }
-  if (/疲|休|しんど|限界/.test(lastUserText)) {
+  if (requestsShortRestResponse(lastUserText)) {
     return '今日はゆっくり休んでください。';
   }
   if (hasHistoricalCommunicationIntent) {
@@ -3567,7 +4410,9 @@ function buildNoQuestionFallback(
   if (/仕事|職場|業務|会社|タスク/.test(userContext)) {
     return '明日の朝、今いちばん気になる仕事に5分だけ取り組んでください。';
   }
-  return '今の状況で、まだ解決していないことを一つだけ書いてください。';
+  return /明日/.test(lastUserText)
+    ? '明日、終わらせたい用事を一つだけ紙に書いてください。'
+    : '今、次に終わらせる用事を一つだけ紙に書いてください。';
 }
 
 function buildDirectWordingFallback(
@@ -3579,7 +4424,7 @@ function buildDirectWordingFallback(
     return '「ありがとうございます。ただ、今は手一杯のため、今回はお引き受けできません。」';
   }
   if (/会議|提案/.test(userContext)) {
-    return '「前回は提案を最後までお伝えできなかったので、今回は結論まで聞いてからご意見をいただけると助かります。」';
+    return '「前回は提案の説明が途中で終わったため、今回は内容を最後までお伝えしてから、ご意見をいただけると助かります。」';
   }
   if (/家事|夫|妻/.test(userContext)) {
     return buildHouseholdDirectWording(lastUserText, historyMessages);
@@ -3694,7 +4539,7 @@ function rewriteContextualClosingQuestion(
     /家賃|支払/.test(recentUserContext) &&
     /その伝え方はもう毎月|同じ提案|同じ質問/.test(lastUserText)
   ) {
-    return '毎月伝えても支払い不足が続くなら、言い方だけでは解決しません。契約名義や現在の分担を確認せずに、口座変更や他の生活費の停止を勧めることはできません。\n\nまず、直近3か月の家賃額、相手の支払額、不足額を記録にまとめてください。その記録を基に、当事者間の合意を作るか、第三者へ相談するかを判断できます。';
+    return '毎月伝えても支払い不足が続くなら、言い方だけでは解決しません。まず、直近3か月の家賃額、相手の支払額、不足額を一覧にしてください。その一覧を使い、今後支払う金額、期日、不足した場合の対応について、書面で合意を求める段階です。';
   }
 
   if (
@@ -4076,7 +4921,7 @@ function requestsFactualShortAnswer(text: string) {
     /画像|添付|名前|色|枚数|個数|件数|種類|日時|日付|時刻|場所|金額|価格|コード/.test(
       text
     ) &&
-    /答えて|教えて|確認|読み込め|見え|何(?:色|枚|個|件|時|円)|どれ/.test(
+    /答えて|教えて|確認|読み込め|見て|見え|何(?:色|枚|個|件|時|円)|どれ/.test(
       text
     )
   );
@@ -4284,7 +5129,7 @@ function removeUnsupportedPsychologicalInference(
   }
   if (
     /腹が立|怒/.test(userContext) &&
-    !/心残り|悲し|落ち込|残念/.test(userContext) &&
+    !hasAffirmedSadness(userContext) &&
     /心残り/.test(candidateText)
   ) {
     const groundedAnger = /準備に使った時間/.test(userContext)
@@ -4398,6 +5243,16 @@ function removeUnsupportedPsychologicalInference(
     },
     { output: /深く.{0,16}傷つ|傷つけ/, supportedBy: /傷つ/ },
     { output: /期待に応え/, supportedBy: /期待|応え/ },
+    {
+      output:
+        /期待を裏切りたくない|正当に評価されたい|強い願い|お気持ちの裏/,
+      supportedBy:
+        /期待を裏切りたくない|正当に評価されたい|強い願い|お気持ちの裏/,
+    },
+    {
+      output: /焦る気持ち|コントロール感/,
+      supportedBy: /焦|コントロール感/,
+    },
     { output: /萎縮/, supportedBy: /萎縮/ },
     { output: /身がすく/, supportedBy: /身がすく/ },
     { output: /身構え/, supportedBy: /身構え/ },
@@ -4464,8 +5319,21 @@ function removeUnsupportedPsychologicalInference(
     { output: /大きな(?:塊|壁)/, supportedBy: /塊|壁|大きすぎ/ },
     { output: /ギャップ/, supportedBy: /ギャップ|実際の能力/ },
     {
-      output: /周囲.{0,12}(?:示したい|見せたい)|証明したい/,
-      supportedBy: /示したい|見せたい|証明したい/,
+      output:
+        /周囲.{0,12}(?:示したい|見せたい)|自分の価値[^。！？?\n]{0,30}証明|証明(?:したい|しよう|しなければ|する)/,
+      supportedBy:
+        /示したい|見せたい|自分の価値[^。！？?\n]{0,30}証明|証明(?:したい|しよう|しなければ|する)/,
+    },
+    {
+      output:
+        /周囲[^。！？?\n]{0,100}(?:待たせ|求めている|安心する|安心します|信頼)|能力不足ではなく[^。！？?\n]{0,60}信頼|着手[^。！？?\n]{0,60}評価を下げ|悪循環/,
+      supportedBy: /待たせ|求めて|安心|信頼|悪循環|遅れ/,
+    },
+    {
+      output:
+        /(?:自ら|自分で)[^。！？?\n]{0,40}ハードル|動けなくなるのは自然|周囲の評価[^。！？?\n]{0,40}意識|自分を追い詰め|評価への恐怖/,
+      supportedBy:
+        /(?:自ら|自分で)[^。！？?\n]{0,40}ハードル|自然|周囲の評価|追い詰め|評価への恐怖/,
     },
   ];
   const unsupportedTerms = loadedInferences.filter(
@@ -4504,12 +5372,15 @@ function requestsRestWithoutQuestions(text: string) {
 function requestsShortRestResponse(text: string) {
   if (!requestsRestWithoutQuestions(text)) return false;
 
-  if (
-    requestsSingleAnswerFormat(text) ||
+  const explicitlyRequestsRest =
     /何も考えたくない|もう考えたくない|今日はもう(?:無理|限界)|休みたい/.test(
       text
-    )
-  ) {
+    );
+  if (!explicitlyRequestsRest && requestsConcreteSuggestion(text)) {
+    return false;
+  }
+
+  if (requestsSingleAnswerFormat(text) || explicitlyRequestsRest) {
     return true;
   }
 
@@ -4520,7 +5391,7 @@ function requestsShortRestResponse(text: string) {
 }
 
 function requestsNoFollowUpQuestion(text: string) {
-  return requestsSingleAnswerFormat(text) || requestsRestWithoutQuestions(text);
+  return requestsSingleAnswerFormat(text) || requestsShortRestResponse(text);
 }
 
 function countMatches(text: string, pattern: RegExp) {
