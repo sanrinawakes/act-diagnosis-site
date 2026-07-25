@@ -1650,8 +1650,8 @@ function CoachingContent() {
                   sessionId ? `&session=${encodeURIComponent(sessionId)}` : ''
                 }`}
                 className="flex items-center gap-2 rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm font-medium text-blue-700 transition-colors hover:bg-blue-50"
-                title="不具合・お問い合わせ"
-                aria-label="不具合・お問い合わせ"
+                title="AIサポートにメッセージ"
+                aria-label="AIサポートにメッセージ"
               >
                 <svg
                   className="h-4 w-4"
@@ -1667,7 +1667,7 @@ function CoachingContent() {
                     d="M8 10h.01M12 10h.01M16 10h.01M9 16l-4 3v-4a8 8 0 1114.32-4.906"
                   />
                 </svg>
-                <span className="hidden sm:inline">問い合わせ</span>
+                <span className="hidden sm:inline">AIサポートにメッセージ</span>
               </Link>
               {!diagnosisCode && (
                 <Link
