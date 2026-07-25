@@ -520,8 +520,12 @@ export async function POST(request: NextRequest) {
       : compactCoachingMessages(messages);
     const lastUserMessage = compactMessages[compactMessages.length - 1];
     const lastUserText = stripAttachmentMarkdown(lastUserMessage.content);
-    const lastUserParts = buildGeminiParts(lastUserText, inlineAttachments);
     const historyMessages = compactMessages.slice(0, -1);
+    const lastUserParts = buildGeminiParts(
+      lastUserText,
+      inlineAttachments,
+      historyMessages
+    );
     const telemetry = {
       route: '/api/chat',
       requestId,
@@ -618,6 +622,11 @@ export async function POST(request: NextRequest) {
           outputChars: assistantMessage.length,
           completionStatus,
           finishReason,
+          provider: result.provider,
+          qualityRepairAttempted: result.qualityRepairAttempted,
+          qualityRepairAccepted: result.qualityRepairAccepted,
+          qualityInitialIssues: result.qualityInitialIssues,
+          qualityFinalIssues: result.qualityFinalIssues,
           usage,
         })
       );

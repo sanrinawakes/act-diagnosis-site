@@ -4,6 +4,7 @@ import {
   COACHING_MAX_OUTPUT_TOKENS,
   COACHING_TEXT_MODEL,
   COACHING_TEXT_THINKING_LEVEL,
+  assessCoachingResponseQuality,
   buildGeminiParts,
   buildIncompleteGenerationRecoveryResponse,
   buildUrgentSafetyResponse,
@@ -12,8 +13,13 @@ import {
   generateCoachingText,
   getCoachingGeminiModelName,
   normalizeCoachingOutput,
+  prepareGeminiHistory,
   stripInternalResponseStyleHint,
 } from '../src/lib/coaching-gemini';
+import {
+  getCoachingSystemPrompt,
+  getContextualizedPrompt,
+} from '../src/data/coaching-system-prompt';
 
 describe('getCoachingGeminiModelName', () => {
   it('通常会話は会話品質を優先した3.5 Flashを使う', () => {
@@ -41,6 +47,249 @@ describe('getCoachingGeminiModelName', () => {
         ])
       )
     ).toBe(COACHING_IMAGE_MODEL);
+  });
+});
+
+describe('coaching runtime prompt', () => {
+  it('重複した長大な旧指示ではなく一貫した運用指示を使う', () => {
+    const prompt = getCoachingSystemPrompt();
+
+    expect(prompt.length).toBeLessThan(6000);
+    expect(prompt).toContain('拒否された提案');
+    expect(prompt).toContain('無理に付けない');
+    expect(prompt).not.toContain('27タイプ');
+  });
+
+  it('診断情報は短い非表示文脈としてだけ追加する', () => {
+    const prompt = getContextualizedPrompt('PGE-1');
+
+    expect(prompt).toContain('非表示の参考情報');
+    expect(prompt).toContain('安心や安全');
+    expect(prompt.length).toBeLessThan(6500);
+  });
+});
+
+describe('conversation continuity hints', () => {
+  const history = [
+    {
+      role: 'assistant' as const,
+      content: 'ご主人は、家賃を払わない理由について何と言っていますか？',
+    },
+  ];
+
+  it('「何も言わない」の主語を直前の質問から引き継ぐ', () => {
+    const parts = buildGeminiParts('何も言わない', [], history);
+    const hint = parts
+      .map((part) => ('text' in part ? part.text : ''))
+      .join('\n');
+
+    expect(hint).toContain('相手が説明や返答をしない');
+    expect(stripInternalResponseStyleHint(hint)).toBe('何も言わない');
+  });
+
+  it('拒否された提案を言い換えて繰り返さない指示を加える', () => {
+    const parts = buildGeminiParts('できない', [], [
+      {
+        role: 'assistant',
+        content: 'もう一度ご主人へ伝えてみてください。',
+      },
+    ]);
+    const hint = parts
+      .map((part) => ('text' in part ? part.text : ''))
+      .join('\n');
+
+    expect(hint).toContain('否定した提案');
+    expect(hint).toContain('疲労や人生全体の無気力へ意味を広げない');
+  });
+
+  it('提案後の「何も言わない」を提案実行済みとは決めつけない', () => {
+    const parts = buildGeminiParts('何も言わない', [], [
+      {
+        role: 'assistant',
+        content: '支払日と方法を事務的に確認してみてください。',
+      },
+    ]);
+    const hint = parts
+      .map((part) => ('text' in part ? part.text : ''))
+      .join('\n');
+
+    expect(hint).toContain('実行したとは仮定しない');
+  });
+
+  it('添付画像の事実確認では用途説明を挟まず直接答えるよう指示する', () => {
+    const parts = buildGeminiParts(
+      'この画像の色を一言で答えてください。',
+      [
+        {
+          name: 'red.png',
+          mimeType: 'image/png',
+          data: 'aGVsbG8=',
+        },
+      ],
+      []
+    );
+    const hint = parts
+      .map((part) => ('text' in part ? part.text : ''))
+      .join('\n');
+
+    expect(hint).toContain('添付画像を実際に確認');
+    expect(hint).toContain('ACTIの利用範囲に関する説明');
+  });
+});
+
+describe('prepareGeminiHistory', () => {
+  it('長い会話でも保存済み要約の初期事実を落とさない', () => {
+    const messages = [
+      {
+        role: 'user' as const,
+        content:
+          '以下は過去の会話の保存済み要約です。\n\n家賃は76000円で、夫は毎月20000円程度しか払っていない。',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          '承知しました。保存済み要約を背景として踏まえ、直近の相談に自然に返答します。',
+      },
+      ...Array.from({ length: 20 }, (_, index) => ({
+        role: (index % 2 === 0 ? 'user' : 'assistant') as
+          | 'user'
+          | 'assistant',
+        content: `直近の会話${index + 1}`,
+      })),
+    ];
+
+    const history = prepareGeminiHistory(messages);
+    const text = history
+      .flatMap((item) => item.parts.map((part) => part.text))
+      .join('\n');
+
+    expect(text).toContain('家賃は76000円');
+    expect(text).toContain('夫は毎月20000円程度');
+    expect(text).toContain('直近の会話20');
+  });
+});
+
+describe('assessCoachingResponseQuality', () => {
+  const rentHistory = [
+    {
+      role: 'user' as const,
+      content:
+        '家賃は76000円なのに、夫は毎月20000円くらいしか払わず腹が立ちます。',
+    },
+    {
+      role: 'assistant' as const,
+      content: '夫に、家賃を全額払ってほしいと伝えてみてください。',
+    },
+    {
+      role: 'user' as const,
+      content: '毎回言っています。',
+    },
+    {
+      role: 'assistant' as const,
+      content: '今の話の中で、いちばん見過ごしたくない本音は何ですか？',
+    },
+  ];
+
+  it('短い定型質問と同じ締めの再利用を不合格にする', () => {
+    const result = assessCoachingResponseQuality({
+      text: '今の話の中で、いちばん見過ごしたくない本音は何ですか？',
+      lastUserText: 'わからないから聞いています。',
+      historyMessages: rentHistory,
+    });
+
+    expect(result.issues).toContain('too_short');
+    expect(result.issues).toContain('generic_canned_close');
+    expect(result.issues).toContain('repeated_closing_move');
+    expect(result.issues).toContain('dissatisfaction_unanswered');
+  });
+
+  it('拒否後に同じ伝達提案を返す回答を不合格にする', () => {
+    const result = assessCoachingResponseQuality({
+      text: 'もう一度、ご主人へ家賃を全額払ってほしいと伝えてください。',
+      lastUserText: 'やりたくない',
+      historyMessages: rentHistory,
+    });
+
+    expect(result.issues).toContain('repeats_rejected_move');
+  });
+
+  it('具体的な事実と別の整理を含む回答は定型不具合にしない', () => {
+    const result = assessCoachingResponseQuality({
+      text:
+        '毎月伝えているのに家賃が不足するなら、言い方の問題ではありません。本人だけが催促を続ける形をやめ、76000円の支払日と不足時の対応を相手側の責任として決める必要があります。まず、口頭のお願いではなく、金額と期限が残る方法で支払い条件を確認する段階です。',
+      lastUserText: 'やりたくない',
+      historyMessages: rentHistory,
+    });
+
+    expect(result.issues).toEqual([]);
+  });
+
+  it('番号付きの複数提案と一方的な生活費停止を不合格にする', () => {
+    const result = assessCoachingResponseQuality({
+      text:
+        '1つ目は管理会社へ連絡して口座変更手続きを進めてください。2つ目は、家賃以外の生活費をすべてストップしてください。',
+      lastUserText: '今までと違う対応を具体的に答えてください。',
+      historyMessages: rentHistory,
+    });
+
+    expect(result.issues).toContain('multiple_coaching_moves');
+    expect(result.issues).toContain('unsafe_high_impact_advice');
+  });
+
+  it('家賃口座を相手名義へ移す提案も高影響の未確認手続きとして止める', () => {
+    const result = assessCoachingResponseQuality({
+      text:
+        '不足分を補填するのをやめ、家賃の引き落とし口座をご主人の名義に変更してください。管理会社へ連絡して手続きを進めましょう。',
+      lastUserText: '今までと違う対応を具体的に答えてください。',
+      historyMessages: rentHistory,
+    });
+
+    expect(result.issues).toContain('unsafe_high_impact_advice');
+  });
+
+  it('直前と同じ長文回答の再掲を不合格にする', () => {
+    const repeated =
+      '毎月伝えても支払い不足が続くなら、言い方だけでは解決しません。直近3か月の家賃額、相手の支払額、不足額を記録にまとめてください。';
+    const result = assessCoachingResponseQuality({
+      text: repeated,
+      lastUserText: '今までと違う対応を具体的に答えてください。',
+      historyMessages: [
+        ...rentHistory,
+        { role: 'assistant', content: repeated },
+      ],
+    });
+
+    expect(result.issues).toContain('repeated_closing_move');
+  });
+
+  it('提案後の短い返答から実行済みの行動を捏造した回答を不合格にする', () => {
+    const result = assessCoachingResponseQuality({
+      text: '夫に期限を確認しても、何も答えてくれなかったのですね。',
+      lastUserText: '何も言わない',
+      historyMessages: [
+        {
+          role: 'user',
+          content: '夫が家賃を払わない理由を説明しません。',
+        },
+        {
+          role: 'assistant',
+          content: '直近3か月の不足額を記録してください。',
+        },
+      ],
+    });
+
+    expect(result.issues).toContain('invented_follow_through');
+  });
+
+  it('相談と無関係な関係性の定型質問を不合格にする', () => {
+    const result = assessCoachingResponseQuality({
+      text:
+        '毎月伝えているのに支払われないのですね。\n\nこの関係の中で、自分が本当に大切にしたいことは何ですか？',
+      lastUserText: '毎月伝えています。',
+      historyMessages: rentHistory,
+    });
+
+    expect(result.issues).toContain('generic_canned_close');
   });
 });
 
@@ -804,7 +1053,7 @@ describe('normalizeCoachingOutput', () => {
     expect(result).not.toMatch(/教えてくださり|ありがとうございます/);
     expect(result.match(/軽く扱われている/g) || []).toHaveLength(1);
     expect(result).toContain(
-      '自分の時間を軽く扱われないために、相手にまず何を変えてほしいですか？'
+      '夫に、家事を頼んだ時どんな返答をしてほしいですか？'
     );
   });
 
@@ -815,7 +1064,9 @@ describe('normalizeCoachingOutput', () => {
     );
 
     expect(result).not.toContain('この提案');
-    expect(result).toContain('夫にまずどの行動を変えてほしいですか？');
+    expect(result).toContain(
+      '夫に、最初に担当を固定してほしい家事はどれですか？'
+    );
   });
 
   it('具体策がないのに「この方法」を試せるか聞かない', () => {
@@ -825,7 +1076,9 @@ describe('normalizeCoachingOutput', () => {
     );
 
     expect(result).not.toMatch(/この方法|試せそう/);
-    expect(result).toContain('夫にまずどの行動を変えてほしいですか？');
+    expect(result).toContain(
+      '夫に、最初に担当を固定してほしい家事はどれですか？'
+    );
   });
 
   it('具体策がない時は汎用的な感想質問を複数残さない', () => {
@@ -836,7 +1089,9 @@ describe('normalizeCoachingOutput', () => {
 
     expect(result).not.toMatch(/この方法|この提案|試せそう|どう思いますか/);
     expect(result.match(/[？?]/g) || []).toHaveLength(1);
-    expect(result).toContain('夫にまずどの行動を変えてほしいですか？');
+    expect(result).toContain(
+      '夫に、最初に担当を固定してほしい家事はどれですか？'
+    );
   });
 
   it('過去形の丁寧疑問文も質問として数え、最後の質問だけを残す', () => {
@@ -875,7 +1130,7 @@ describe('normalizeCoachingOutput', () => {
 
     expect(result).not.toMatch(/一番強い怒り|感じているのでしょうか/);
     expect(result).toContain(
-      '自分の時間を軽く扱われないために、相手にまず何を変えてほしいですか？'
+      '夫に、家事を頼んだ時どんな返答をしてほしいですか？'
     );
   });
 
@@ -1062,7 +1317,9 @@ describe('normalizeCoachingOutput', () => {
     );
 
     expect(result).not.toMatch(/気づけたこと|大切な一歩/);
-    expect(result).toContain('同僚に本当は何をわかってほしいですか？');
+    expect(result).toContain(
+      '今回の仕事で、同僚にどの行動を見てほしいですか？'
+    );
   });
 
   it('訂正後の悔しさへ本音が隠れていると決めつけない', () => {
@@ -1072,7 +1329,9 @@ describe('normalizeCoachingOutput', () => {
     );
 
     expect(result).not.toMatch(/本音が隠れ|大切な本音/);
-    expect(result).toContain('同僚に本当は何をわかってほしいですか？');
+    expect(result).toContain(
+      '今回の仕事で、同僚にどの行動を見てほしいですか？'
+    );
   });
 
   it('一つだけ指定された時は二つ目の提案段落を除く', () => {
@@ -1132,7 +1391,7 @@ describe('normalizeCoachingOutput', () => {
     );
 
     expect(result).toBe(
-      '明日、今いちばん気になっていることを一文だけメモに書いてください。'
+      '明日、今の状況で、まだ解決していないことを一つだけ書いてください。'
     );
   });
 
@@ -1330,7 +1589,9 @@ describe('normalizeCoachingOutput', () => {
     );
 
     expect(result).not.toContain('どんな気持ちになりますか');
-    expect(result).toContain('夫にまずどの行動を変えてほしいですか？');
+    expect(result).toContain(
+      '夫に、最初に担当を固定してほしい家事はどれですか？'
+    );
   });
 
   it('文面要求では履歴の核心を引用文へ入れる内部形式を追加する', () => {
@@ -1468,7 +1729,8 @@ describe('normalizeCoachingOutput', () => {
     );
 
     expect(result).not.toContain('何か具体的に話してみたいこと');
-    expect(result).toContain('いちばん見過ごしたくない本音');
+    expect(result).not.toContain('いちばん見過ごしたくない本音');
+    expect(result).toBe('前の話は踏まえています。');
   });
 
   it('利用者が言っていない深い心理推測を回答から除く', () => {
@@ -1484,7 +1746,17 @@ describe('normalizeCoachingOutput', () => {
 
     expect(result).not.toMatch(/見捨てられ|言葉一つ一つ|最も話したいこと/);
     expect(result).toContain('前の話は踏まえています。');
-    expect(result).toContain('いちばん見過ごしたくない本音');
+    expect(result).not.toContain('いちばん見過ごしたくない本音');
+  });
+
+  it('説明がない事実から対話拒否・逃避・途方に暮れる状態を補わない', () => {
+    const result = normalizeCoachingOutput(
+      '何度問いかけても対話を拒まれ、これ以上どう働きかければよいか途方に暮れてしまいますよね。夫は言葉での追及から逃げている可能性があります。\n\n夫は家賃を払わない理由を何と説明していますか？',
+      '夫が家賃を払わない理由を何度聞いても、説明がありません。'
+    );
+
+    expect(result).not.toMatch(/対話を拒|途方に暮|追及から逃げ/);
+    expect(result).toMatch(/夫|ご主人/);
   });
 
   it('利用者が言っていない期待や萎縮を心理理由として補わない', () => {
@@ -1543,7 +1815,9 @@ describe('normalizeCoachingOutput', () => {
     );
 
     expect(result).not.toMatch(/プライド|意欲|完璧|大きな塊|ギャップ|周囲に示したい/);
-    expect(result).toContain('同僚に本当は何をわかってほしいですか？');
+    expect(result).toContain(
+      '今回の仕事で、同僚にどの行動を見てほしいですか？'
+    );
   });
 
   it('本人が言っていない完璧主義の言い換えも補わない', () => {
@@ -1813,7 +2087,9 @@ describe('normalizeCoachingOutput', () => {
     );
 
     expect(result).not.toMatch(/一生懸命|重く|それとも/);
-    expect(result).toContain('夫にまずどの行動を変えてほしいですか？');
+    expect(result).toContain(
+      '夫に、最初に担当を固定してほしい家事はどれですか？'
+    );
   });
 
   it('時間の軽視を「存在の否定」や「何よりの痛み」へ強めない', () => {
@@ -1899,7 +2175,7 @@ describe('normalizeCoachingOutput', () => {
 
     expect(result).not.toMatch(/淹れ|スマホ|香り/);
     expect(result).toBe(
-      '明日の朝、今いちばん気になっていることを一文だけメモに書いてください。'
+      '明日の朝、今の状況で、まだ解決していないことを一つだけ書いてください。'
     );
   });
 
@@ -1911,7 +2187,7 @@ describe('normalizeCoachingOutput', () => {
 
     expect(result).not.toMatch(/思い浮かべ|深呼吸|淹れ/);
     expect(result).toBe(
-      '明日の朝、今いちばん気になっていることを一文だけメモに書いてください。'
+      '明日の朝、今の状況で、まだ解決していないことを一つだけ書いてください。'
     );
   });
 
@@ -1957,7 +2233,9 @@ describe('normalizeCoachingOutput', () => {
       '夫に家事を頼んでも後回しにされます。私ばかり負担している気がして腹が立ちます。'
     );
 
-    expect(result).toContain('夫にまずどの行動を変えてほしいですか？');
+    expect(result).toContain(
+      '夫に、最初に担当を固定してほしい家事はどれですか？'
+    );
     expect(result).not.toContain('今日、夫に');
     expect((result.match(/「/g) || []).length).toBe(
       (result.match(/」/g) || []).length
@@ -2136,7 +2414,9 @@ describe('normalizeCoachingOutput', () => {
 
     expect(result).not.toMatch(/ノート|スマホ|メモ|書き出/);
     expect(result).toContain('自分の時間を軽く扱われている');
-    expect(result).toContain('相手にまず何を変えてほしいですか？');
+    expect(result).toContain(
+      '夫に、家事を頼んだ時どんな返答をしてほしいですか？'
+    );
   });
 
   it('準備へ込めた思いを本人の発言なしに補わない', () => {
@@ -2146,7 +2426,9 @@ describe('normalizeCoachingOutput', () => {
     );
 
     expect(result).not.toMatch(/大切に考えていた|伝えたかった思い|思いが詰ま/);
-    expect(result).toContain('相手にまず何を変えてほしいですか？');
+    expect(result).toContain(
+      '次の会議で、意見を出す前に相手へ守ってほしい進め方は何ですか？'
+    );
   });
 
   it('相手に悪気がないと仮定せず、時間や労力が削られると強めない', () => {
@@ -2156,7 +2438,9 @@ describe('normalizeCoachingOutput', () => {
     );
 
     expect(result).not.toMatch(/気持ちが伝わります|悪気|削られ/);
-    expect(result).toContain('夫にまずどの行動を変えてほしいですか？');
+    expect(result).toContain(
+      '夫に、最初に担当を固定してほしい家事はどれですか？'
+    );
   });
 
   it('強みとこだわりの二項目を同時に答えさせない', () => {
@@ -2166,7 +2450,9 @@ describe('normalizeCoachingOutput', () => {
     );
 
     expect(result).not.toMatch(/強みやこだわり/);
-    expect(result).toContain('同僚に本当は何をわかってほしいですか？');
+    expect(result).toContain(
+      '今回の仕事で、同僚にどの行動を見てほしいですか？'
+    );
   });
 
   it('提案を示していないのに「提案があります」と予告しない', () => {
@@ -2176,7 +2462,9 @@ describe('normalizeCoachingOutput', () => {
     );
 
     expect(result).not.toMatch(/提案があります|方法があります|行動があります/);
-    expect(result).toContain('夫にまずどの行動を変えてほしいですか？');
+    expect(result).toContain(
+      '夫に、最初に担当を固定してほしい家事はどれですか？'
+    );
   });
 
   it('時間を軽く扱われた訂正を一度だけ受け止めて次へ進む', () => {
@@ -2186,7 +2474,7 @@ describe('normalizeCoachingOutput', () => {
     );
 
     expect(result).toBe(
-      '自分の時間を軽く扱われているように感じることが嫌なんですね。\n\n自分の時間を軽く扱われないために、相手にまず何を変えてほしいですか？'
+      '家事そのものより、自分の時間を軽く扱われているように感じることが嫌なんですね。家事の量ではなく、頼んだ後の返答や対応時期が決まらず、あなたの予定が後回しになる点が問題です。\n\n夫に、家事を頼んだ時どんな返答をしてほしいですか？'
     );
     expect(result).not.toMatch(/気づかれた|大切な本音/);
   });
@@ -2306,7 +2594,7 @@ describe('normalizeCoachingOutput', () => {
     );
 
     expect(result).toBe(
-      '失敗して期待を裏切るのが怖くて、新しい仕事に手をつけられないんですね。\n\nその仕事で、最初に手をつける必要がある作業は何ですか？'
+      '失敗して期待を裏切ることが怖く、新しい仕事に手をつけられないんですね。今は、仕事を始める前から失敗後の評価まで考えてしまい、着手そのものが難しくなっています。\n\nその仕事で、最初に手をつける必要がある作業は何ですか？'
     );
     expect(result).not.toMatch(/例えば|あるいは/);
   });
@@ -2433,7 +2721,7 @@ describe('normalizeCoachingOutput', () => {
     );
 
     expect(result).toBe(
-      '怖さより、同僚に能力がないと思われる悔しさの方が近いんですね。\n\n同僚に本当は何をわかってほしいですか？'
+      '怖さより、同僚に能力がないと思われる悔しさの方が近いんですね。焦点は今回の仕事そのものではなく、同僚から自分の能力をどう評価されるかにあります。仕事の進め方より、評価のされ方が問題になっています。\n\n今回の仕事で、同僚にどの行動を見てほしいですか？'
     );
     expect(result).not.toMatch(/力に変え|原動力|バネ/);
   });
@@ -2445,7 +2733,7 @@ describe('normalizeCoachingOutput', () => {
     );
 
     expect(result).toBe(
-      '家事を頼んでも後回しにされ、自分ばかり負担しているように感じて腹が立つんですね。\n\n夫にまずどの行動を変えてほしいですか？'
+      '家事を頼んでも後回しにされ、自分ばかり負担しているように感じて腹が立つんですね。頼んだ家事を結局自分が引き受ける状態なら、一回の家事ではなく、分担が機能していないことが問題です。\n\n夫に、最初に担当を固定してほしい家事はどれですか？'
     );
     expect(result).not.toMatch(/目をつぶ|休む時間|最優先/);
   });
@@ -2494,5 +2782,93 @@ describe('normalizeCoachingOutput', () => {
       '途中で感情が強くなりそうなのが不安なんですね。\n\n話を続けるのが難しいと感じたら、「5分だけ休憩してから続きを話したい」と伝えてください。'
     );
     expect(result).not.toMatch(/その場を.*離れ|ルールを自分/);
+  });
+
+  it('拒否された直後に定型質問や同じ宿題を再挿入しない', () => {
+    const history = [
+      {
+        role: 'user' as const,
+        content:
+          '家賃は76000円なのに、夫は毎月20000円くらいしか払わず腹が立ちます。',
+      },
+      {
+        role: 'assistant' as const,
+        content: '夫に全額払ってほしいと伝えてみてください。',
+      },
+      {
+        role: 'user' as const,
+        content: '毎回言っています。',
+      },
+      {
+        role: 'assistant' as const,
+        content: '今の話の中で、いちばん見過ごしたくない本音は何ですか？',
+      },
+    ];
+    const result = normalizeCoachingOutput(
+      '今の話の中で、いちばん見過ごしたくない本音は何ですか？',
+      'やりたくない',
+      history
+    );
+
+    expect(result).toMatch(/不足額|合意した負担/);
+    expect(result).not.toMatch(
+      /見過ごしたくない本音|メモ|伝えて(?:ください|みてください)|[？?]/
+    );
+  });
+
+  it('支払わない事実を「払えない」に変えず、未申告の感情も足さない', () => {
+    const result = normalizeCoachingOutput(
+      '全額払ってほしいと伝えても行動に移してもらえないのは、本当にやりきれない気持ちになりますね。言葉が届いていない、あるいは軽く流されている状態です。\n\nご主人は、家賃を全額払えない理由を説明していますか？',
+      '夫は家賃を毎月20000円くらいしか払わず、全額払ってほしいと伝えています。'
+    );
+
+    expect(result).toContain('決めた金額を支払わない理由');
+    expect(result).not.toMatch(/払えない|やりきれない|言葉が届いていない|軽く流され/);
+  });
+
+  it('「わからないから聞いている」へ判断を質問で返さない', () => {
+    const result = normalizeCoachingOutput(
+      '今の話の中で、いちばん見過ごしたくない本音は何ですか？',
+      'わからないから聞いています。',
+      [
+        {
+          role: 'assistant',
+          content:
+            'AWAKESを更新するかどうか、いちばん大切にしたいことは何ですか？',
+        },
+      ]
+    );
+
+    expect(result).toContain('同じ提案や質問は繰り返さず');
+    expect(result).not.toMatch(/[？?]|見過ごしたくない本音/);
+  });
+
+  it('家賃相談で記録を提案した後は、口頭依頼から期限付き書面へ切り替える', () => {
+    const result = normalizeCoachingOutput(
+      '今の話の中で、いちばん見過ごしたくない本音は何ですか？',
+      'わからないから聞いています。質問を返さず、今までと違う対応を具体的に答えてください。',
+      [
+        {
+          role: 'user',
+          content:
+            '家賃は76000円ですが、夫は毎月20000円くらいしか払わず、私が不足分を負担しています。',
+        },
+        {
+          role: 'assistant',
+          content:
+            '直近3か月の家賃額、相手の支払額、不足額を記録にまとめてください。',
+        },
+        {
+          role: 'user',
+          content: '同じ提案や同じ質問はしないでください。',
+        },
+      ]
+    );
+
+    expect(result).toContain('回答期限を付けた書面');
+    expect(result).toContain('手元で確認できる支払記録');
+    expect(result).not.toMatch(
+      /直近3か月|記録にまとめてください|これまでの支払履歴を添えて|[？?]/
+    );
   });
 });

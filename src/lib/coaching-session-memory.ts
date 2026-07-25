@@ -7,8 +7,8 @@ import { stripAttachmentMarkdown } from '@/lib/attachments';
 
 const SESSION_MEMORY_PREFIX = 'ACTI_SESSION_MEMORY_V1';
 const RECENT_MESSAGE_LIMIT = 24;
-const SUMMARY_TRIGGER_MESSAGE_COUNT = 120;
-const SUMMARY_REFRESH_DELTA = 60;
+const SUMMARY_TRIGGER_MESSAGE_COUNT = RECENT_MESSAGE_LIMIT + 1;
+const SUMMARY_REFRESH_DELTA = 1;
 const MAX_SUMMARY_SOURCE_MESSAGES = 220;
 const SUMMARY_CHAR_LIMIT = 2400;
 
@@ -20,6 +20,7 @@ type MemoryPayload = {
 };
 
 type StoredMessage = {
+  id?: string;
   role: 'user' | 'assistant' | 'system';
   content: string | null;
   created_at?: string;
@@ -77,7 +78,7 @@ export async function buildCoachingSessionContext(params: {
         .in('role', ['user', 'assistant']),
       params.supabaseAdmin
         .from('chat_messages')
-        .select('content, created_at')
+        .select('id, content, created_at')
         .eq('session_id', params.sessionId)
         .eq('role', 'system')
         .like('content', `${SESSION_MEMORY_PREFIX}%`)
@@ -111,16 +112,16 @@ export async function buildCoachingSessionContext(params: {
     let memoryRefreshed = false;
 
     const targetCoveredCount = Math.max(0, totalStoredMessages - RECENT_MESSAGE_LIMIT);
-    const shouldRefreshMemory =
-      totalStoredMessages >= SUMMARY_TRIGGER_MESSAGE_COUNT &&
-      targetCoveredCount > 0 &&
-      (!latestMemory ||
-        targetCoveredCount - latestMemory.coveredMessageCount >= SUMMARY_REFRESH_DELTA);
+    const shouldRefreshMemory = shouldRefreshSessionMemory(
+      totalStoredMessages,
+      latestMemory?.coveredMessageCount ?? null
+    );
 
     if (shouldRefreshMemory) {
       const nextMemory = await createAndStoreMemory({
         supabaseAdmin: params.supabaseAdmin,
         sessionId: params.sessionId,
+        memoryRowId: memoryResult.data?.[0]?.id || null,
         previousMemory: latestMemory,
         targetCoveredCount,
       });
@@ -178,6 +179,23 @@ export async function buildCoachingSessionContext(params: {
       memoryCoveredMessages: null,
     };
   }
+}
+
+export function shouldRefreshSessionMemory(
+  totalStoredMessages: number,
+  coveredMessageCount: number | null
+) {
+  const targetCoveredCount = Math.max(
+    0,
+    totalStoredMessages - RECENT_MESSAGE_LIMIT
+  );
+
+  return (
+    totalStoredMessages >= SUMMARY_TRIGGER_MESSAGE_COUNT &&
+    targetCoveredCount > 0 &&
+    (coveredMessageCount === null ||
+      targetCoveredCount - coveredMessageCount >= SUMMARY_REFRESH_DELTA)
+  );
 }
 
 export function mergeRecentCoachingMessages(
@@ -240,6 +258,7 @@ export function mergeRecentCoachingMessages(
 async function createAndStoreMemory(params: {
   supabaseAdmin: SupabaseClient;
   sessionId: string;
+  memoryRowId: string | null;
   previousMemory: MemoryPayload | null;
   targetCoveredCount: number;
 }) {
@@ -276,16 +295,23 @@ async function createAndStoreMemory(params: {
     summary,
   };
 
-  const { error: insertError } = await params.supabaseAdmin
-    .from('chat_messages')
-    .insert({
-      session_id: params.sessionId,
-      role: 'system',
-      content: serializeMemoryPayload(memory),
-    });
+  const memoryQuery = params.supabaseAdmin.from('chat_messages');
+  const { error: storeError } = params.memoryRowId
+    ? await memoryQuery
+        .update({
+          content: serializeMemoryPayload(memory),
+          created_at: memory.generatedAt,
+        })
+        .eq('id', params.memoryRowId)
+        .eq('session_id', params.sessionId)
+    : await memoryQuery.insert({
+        session_id: params.sessionId,
+        role: 'system',
+        content: serializeMemoryPayload(memory),
+      });
 
-  if (insertError) {
-    console.error('Failed to store coaching session memory:', insertError);
+  if (storeError) {
+    console.error('Failed to store coaching session memory:', storeError);
     return params.previousMemory || memory;
   }
 
@@ -306,7 +332,10 @@ function buildDeterministicSummary(params: {
     .map((message) => normalizeText(message.content))
     .filter(Boolean);
 
-  const recentUserTopics = uniqueByValue(userMessages.slice(-18))
+  const durableUserTopics = uniqueByValue([
+    ...userMessages.slice(0, 6),
+    ...userMessages.slice(-18),
+  ])
     .map((text) => `- ${clipText(text, 120)}`)
     .join('\n');
   const recentAssistantDirections = uniqueByValue(assistantMessages.slice(-8))
@@ -314,13 +343,15 @@ function buildDeterministicSummary(params: {
     .join('\n');
 
   const sections = [
-    params.previousSummary
+    params.previousSummary && params.omittedEarlierMessages > 0
       ? `前回までの保存済み要約:\n${clipText(params.previousSummary, 900)}`
       : '',
     params.omittedEarlierMessages > 0
       ? `注記: さらに古い${params.omittedEarlierMessages}件の会話は要約済みまたは安全のため省略。`
       : '',
-    recentUserTopics ? `ユーザーが最近話していた主な内容:\n${recentUserTopics}` : '',
+    durableUserTopics
+      ? `ユーザーが話した事実・希望・未解決点:\n${durableUserTopics}`
+      : '',
     recentAssistantDirections
       ? `直近でコーチが扱っていた方向性:\n${recentAssistantDirections}`
       : '',

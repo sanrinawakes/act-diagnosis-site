@@ -34,7 +34,7 @@ export async function generateCoachingResponse(
   const result = await generateCoachingText({
     systemPrompt,
     historyMessages: history,
-    lastUserParts: buildGeminiParts(userMessage, []),
+    lastUserParts: buildGeminiParts(userMessage, [], history),
   });
 
   return result.text;
