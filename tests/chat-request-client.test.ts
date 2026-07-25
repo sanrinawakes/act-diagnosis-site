@@ -78,6 +78,31 @@ describe('connectChatWithRecovery', () => {
     expect(result.attempts).toBe(2);
   });
 
+  it('retries a transient server error with the same idempotency IDs', async () => {
+    const fetchFn = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        new Response('temporarily unavailable', { status: 503 })
+      )
+      .mockResolvedValueOnce(new Response('ok', { status: 200 }));
+
+    const result = await connectChatWithRecovery({
+      body: requestBody,
+      timeoutMs: 1000,
+      timeoutMessage: 'timeout',
+      retryDelaysMs: [0],
+      fetchFn,
+      delayFn: async () => {},
+    });
+
+    expect(result.response.status).toBe(200);
+    expect(result.attempts).toBe(2);
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+    expect(fetchFn.mock.calls[1][1]?.body).toBe(
+      fetchFn.mock.calls[0][1]?.body
+    );
+  });
+
   it('does not retry an ordinary client error', async () => {
     const fetchFn = vi
       .fn<typeof fetch>()

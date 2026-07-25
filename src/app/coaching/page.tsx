@@ -302,7 +302,12 @@ function CoachingContent() {
   const isReady = !subscriptionLoading && allowed;
 
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const scrollContainer = messagesScrollRef.current;
+    if (scrollContainer) {
+      scrollContainer.scrollTop = scrollContainer.scrollHeight;
+      return;
+    }
+    messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
   };
 
   useEffect(() => {
@@ -1651,19 +1656,19 @@ function CoachingContent() {
             </div>
           </div>
 
-          {coachingNotice && (
-            <CoachingNoticeBanner
-              title={coachingNotice.title}
-              body={coachingNotice.body}
-              className="mx-4 mt-4 flex-shrink-0 sm:mx-6"
-            />
-          )}
-
           {/* Messages Area */}
           <div
             ref={messagesScrollRef}
             className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4"
+            data-testid="coaching-messages-scroll"
           >
+            {coachingNotice && (
+              <CoachingNoticeBanner
+                title={coachingNotice.title}
+                body={coachingNotice.body}
+              />
+            )}
+
             {botDisabled && (
               <div className="bg-yellow-50 border border-yellow-200 text-yellow-900 p-4 rounded-lg text-center">
                 <p className="font-semibold">{t('coaching.botDisabled')}</p>
@@ -1712,6 +1717,7 @@ function CoachingContent() {
             {messages.map((message) => (
               <div
                 key={message.id}
+                data-message-role={message.role}
                 className={`flex ${
                   message.role === 'user' ? 'justify-end' : 'justify-start'
                 }`}

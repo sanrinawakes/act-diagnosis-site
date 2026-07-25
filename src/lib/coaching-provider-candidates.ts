@@ -82,7 +82,11 @@ async function runGemini(
   const startedAt = Date.now();
   const history = prepareGeminiHistory(messages.slice(0, -1));
   const lastUserText = messages[messages.length - 1].content;
-  const model = getCoachingGeminiModel(systemPrompt, modelName);
+  const model = getCoachingGeminiModel(
+    systemPrompt,
+    modelName,
+    images.length > 0
+  );
   const chat = model.startChat({ history });
   const result = await chat.sendMessageStream(
     [

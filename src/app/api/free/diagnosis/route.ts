@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { getJapanDateKey } from '@/lib/japan-date';
 
 export const runtime = 'nodejs';
 
@@ -80,7 +81,7 @@ export async function POST(request: NextRequest) {
           diagnosis_level: level,
           diagnosis_type_code: typeCode || null,
           chat_count_today: 0,
-          last_chat_date: new Date().toISOString().split('T')[0],
+          last_chat_date: getJapanDateKey(),
           created_at: now,
           updated_at: now,
         });

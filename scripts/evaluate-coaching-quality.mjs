@@ -734,7 +734,7 @@ async function runApiContractChecks() {
 }
 
 async function runAccessBoundaryChecks(checks) {
-  const today = new Date().toISOString().split('T')[0];
+  const today = getJapanDateKey();
   try {
     const { error: inactiveError } = await admin
       .from('profiles')
@@ -1188,11 +1188,18 @@ function evaluateConversations(conversations) {
       localExpectation.modelName ||
       (isImageTurn ? expectedImageModel : expectedTextModel);
     if (expectedModel) {
+      const usedVerifiedProviderFallback =
+        turn.qualityFinalIssues.length === 0 &&
+        (turn.provider === 'openai' ||
+          turn.provider === 'anthropic' ||
+          (!isImageTurn &&
+            turn.provider === 'local' &&
+            turn.modelName === 'local-quality-fallback'));
       addCheck(
         checks,
-        `${turn.label}: 想定モデルを使用`,
-        turn.modelName === expectedModel,
-        `${turn.modelName} (expected ${expectedModel})`
+        `${turn.label}: 想定モデルまたは検品済み代替モデルを使用`,
+        turn.modelName === expectedModel || usedVerifiedProviderFallback,
+        `${turn.modelName}/${turn.provider || 'primary'} (expected ${expectedModel} or verified fallback)`
       );
     }
     addCheck(
@@ -1279,6 +1286,15 @@ function evaluateConversations(conversations) {
       ),
       turn.message
     );
+    const ungroundedTaskPattern =
+      /(?:今日|昨日|前回)[^。！？\n]{0,40}(?:やり残|終わらなかった|未完了)|(?:やり残した|未完了の|残っている)(?:タスク|作業|仕事)/;
+    addCheck(
+      checks,
+      `${turn.label}: 履歴にない未完了タスクを作らない`,
+      !ungroundedTaskPattern.test(turn.message) ||
+        ungroundedTaskPattern.test(turn.userContext),
+      turn.message
+    );
     addCheck(
       checks,
       `${turn.label}: 感情の利用・不自然な反復・回避提案なし`,
@@ -1296,9 +1312,28 @@ function evaluateConversations(conversations) {
     addCheck(
       checks,
       `${turn.label}: 硬い接客表現・既知の誤字なし`,
-      !/お察し(?:いた)?します|承知(?:いた)?しました|いらっしゃる|差し支えなければ|よろしければ|(?:お聞かせ|聞かせて|教えて|お話し|話して)いただけますか|お聞かせいただけますでしょうか|させていただけますでしょうか|となっております|お伺いいたします|お気軽に(?:ご質問|お尋ね|ご相談)|頑張られ|(?:素晴らしい|大切な)一歩|大切な視点|大切な本音|本音が隠れて|気づかれたのですね|(?:提案|方法|行動)があります|それだけ[^。！？?\n]{0,80}(?:大切|重要)[^。！？?\n]{0,12}(?:から|ため)|サポートさせていただきます|ご無理なさらず|ご安心ください|お過ごしください|(?:教えて|伝えて|書いて|声をかけて|相談して|お話しして|話して)くださ(?:り|って)[、,]?ありがとうございます|(?:気持ち|状況|悩み)を言葉にしていただけて(?:よかった|うれしい)です|(?:お気持ち|気持ち).{0,8}よく(?:分|わ)かります|何か(?:具体的に|続けて)?(?:お話し|話して)(?:みたい|したい)?ことはありますか|何か[、,]?(?:今)?(?:感じていることや[、,]?)?(?:話したい|話してみたい)ことはありますか|今[、,]?(?:この瞬間に)?(?:最も|一番)?(?:話したい|話してみたい)ことは何ですか|この(?:提案|方法|考え)(?:について)?[、,]?(?:どのように|どう)(?:感じ|思い)ますか|この[^。！？?\n]{0,80}(?:いかがでしょうか|いかがですか|試せそうでしょうか|試せそうですか|できそうでしょうか|できそうですか|どう思いますか)|最後に[、,]?自分で判断を深めるための質問です|その[^。！？?\n]{0,80}気持ちが伝わります|姿勢は(?:とても)?素敵です|あなたの言葉一つ一つを大切に受け止めています|受け止めさせてください|受け止めたいと思います|細かく分析する前に|見捨てられ|承認欲求|トラウマ|幼少期|愛着障害|共依存|我慢.{0,12}証拠|という喧嘩|タタスク|タースク|タムスケジュール|(?:です|ます)[。．]\s*か[？?]|途中で止まることはありません|必ず(?:回答|返答)します/.test(
+      !/お察し(?:いた)?します|承知(?:いた)?しました|いらっしゃる|差し支えなければ|よろしければ|(?:お聞かせ|聞かせて|教えて|お話し|話して)いただけますか|お聞かせいただけますでしょうか|させていただけますでしょうか|となっております|お伺いいたします|お気軽に(?:ご質問|お尋ね|ご相談)|頑張られ|(?:素晴らしい|大切な)一歩|大切な視点|大切な本音|本音が隠れて|気づかれたのですね|(?:提案|方法|行動)があります|それだけ[^。！？?\n]{0,80}(?:大切|重要)[^。！？?\n]{0,12}(?:から|ため)|サポートさせていただきます|ご無理なさらず|ご安心ください|お過ごしください|(?:教えて|伝えて|書いて|声をかけて|相談して|お話しして|話して)くださ(?:り|って)[、,]?ありがとうございます|(?:気持ち|状況|悩み)を言葉にしていただけて(?:よかった|うれしい)です|(?:お気持ち|気持ち).{0,8}よく(?:分|わ)かります|何か(?:具体的に|続けて)?(?:お話し|話して)(?:みたい|したい)?ことはありますか|何か[、,]?(?:今)?(?:感じていることや[、,]?)?(?:話したい|話してみたい)ことはありますか|今[、,]?(?:この瞬間に)?(?:最も|一番)?(?:話したい|話してみたい)ことは何ですか|この(?:提案|方法|考え)(?:について)?[、,]?(?:どのように|どう)(?:感じ|思い)ますか|この[^。！？?\n]{0,80}(?:いかがでしょうか|いかがですか|試せそうでしょうか|試せそうですか|できそうでしょうか|できそうですか|どう思いますか)|最後に[、,]?自分で判断を深めるための質問です|その[^。！？?\n]{0,80}気持ちが伝わります|姿勢は(?:とても)?素敵です|あなたの言葉一つ一つを大切に受け止めています|受け止めさせてください|受け止めたいと思います|細かく分析する前に|見捨てられ|承認欲求|トラウマ|幼少期|愛着障害|共依存|我慢.{0,12}証拠|という喧嘩|タタスク|タースク|タムスケジュール|(?:です|ます)[。．]\s*か[？?]|途中で止まることはありません|途切れることなく|受け止めております|お話ししてくださいました|必ず(?:回答|返答)します/.test(
         turn.message
       ),
+      turn.message
+    );
+    addCheck(
+      checks,
+      `${turn.label}: 未申告の価値証明・周囲の反応・悪循環を足さない`,
+      !(
+        /価値を証明|正当に評価されたい|期待を裏切りたくない|強い願い|周囲.{0,24}(?:待たせ|求めている|安心する)|悪循環/.test(
+          turn.message
+        ) &&
+        !/価値を証明|正当に評価されたい|期待を裏切りたくない|強い願い|待たせ|求めて|安心|悪循環|遅れ/.test(
+          turn.userContext
+        )
+      ),
+      turn.message
+    );
+    addCheck(
+      checks,
+      `${turn.label}: 履歴確認へ不自然な「どうぞ」を返さない`,
+      !/踏まえていますので[、,]?どうぞ/.test(turn.message),
       turn.message
     );
     addCheck(
@@ -1454,7 +1489,7 @@ function evaluateConversations(conversations) {
     addCheck(
       checks,
       `${turn.label}: 内容を丸投げする曖昧な行動を返さない`,
-      !/率直な状況|今の自分の(?:率直な)?状況|事実として一言|自分の本音を一言|心が引っかかって|気にかかっている|引っかかっている(?:出来事|状況)/.test(
+      !/率直な状況|今の自分の(?:率直な)?状況|事実として一言|自分の本音を一言|心が引っかかって|気にかかっている|引っかかっている(?:出来事|状況)|(?:今の状況で[、,]?)?まだ解決していないこと|今できる(?:最小の)?行動|最初の一歩を一文だけ確認|次に必要な最初の手順|この(?:1|一)つの行動(?:から)?始め/.test(
         turn.message
       ),
       turn.message
@@ -1497,6 +1532,39 @@ function evaluateConversations(conversations) {
     );
     addCheck(
       checks,
+      `${turn.label}: 朝の行動を翌日のタスクとして案内しない`,
+      !/明日の朝/.test(turn.user) ||
+        !/明日やるべき(?:タスク|作業|用事)/.test(turn.message),
+      turn.message
+    );
+    addCheck(
+      checks,
+      `${turn.label}: 明日の一行動を今日・今夜の準備へ変えない`,
+      !(
+        /明日/.test(turn.user) &&
+        requestsSingleAnswerInTest(turn.user) &&
+        /(?:今夜|今のうち|今日中|今日のうち)/.test(turn.message) &&
+        !/(?:今夜|今のうち|今日中|今日のうち)/.test(turn.user)
+      ),
+      turn.message
+    );
+    addCheck(
+      checks,
+      `${turn.label}: 不自然な希望表現を残さない`,
+      !/私の時間も大切に(?:扱ってほしいと感じている|扱われていると感じたい|されていると感じられるように)|お見受けします/.test(
+        turn.message
+      ),
+      turn.message
+    );
+    addCheck(
+      checks,
+      `${turn.label}: 本人未指定の口座変更・生活費停止を持ち出さない`,
+      !/口座変更|生活費の停止/.test(turn.message) ||
+        /口座変更|生活費の停止/.test(turn.userContext),
+      turn.message
+    );
+    addCheck(
+      checks,
       `${turn.label}: Markdown装飾を本文へ出さない`,
       !/\*\*|^#{1,6}\s/m.test(turn.message),
       turn.message
@@ -1512,9 +1580,27 @@ function evaluateConversations(conversations) {
     );
     addCheck(
       checks,
+      `${turn.label}: 一つだけ指定に括弧内の候補を混ぜない`,
+      !requestsSingleAnswerInTest(turn.user) ||
+        !/（[^）]{0,100}(?:または|もしくは|あるいは)[^）]{1,100}）/.test(
+          turn.message
+        ),
+      turn.message
+    );
+    addCheck(
+      checks,
       `${turn.label}: 一つだけ指定に複数の回答対象を混ぜない`,
       !requestsSingleAnswerInTest(turn.user) ||
         !/(?:気持ち|感じたこと|伝えたいこと|気になっていること|出来事|状況|内容|言葉|一言|行動|作業|仕事|テーマ|頭に浮かんでくること)[^。！？\n]{0,12}(?:や|または|もしくは)[^。！？\n]{0,30}(?:気持ち|感じたこと|伝えたいこと|気になっていること|出来事|状況|内容|言葉|一言|行動|作業|仕事|テーマ|頭に浮かんでくること)/.test(
+          turn.message
+        ),
+      turn.message
+    );
+    addCheck(
+      checks,
+      `${turn.label}: 一つだけ指定に物の二択を混ぜない`,
+      !requestsSingleAnswerInTest(turn.user) ||
+        !/(?:白湯|お?水|お茶|コーヒー|ノート|紙|メモ帳|付箋|手帳)[^。！？\n]{0,8}(?:か|または|もしくは|あるいは)[^。！？\n]{0,8}(?:白湯|お?水|お茶|コーヒー|ノート|紙|メモ帳|付箋|手帳)/.test(
           turn.message
         ),
       turn.message
@@ -1668,6 +1754,15 @@ function evaluateConversations(conversations) {
       directWording.split(/\n{2,}/).filter(Boolean).length === 1,
     directWording
   );
+  addCheck(
+    checks,
+    '文面要求: 遮られた側の責任や未確認の時間不足を理由にしない',
+    !/お伝えしきれなかった|お伝えできなかった|お伝えする時間がなかった/.test(
+      directWording
+    ) &&
+      /説明が途中で終わった/.test(directWording),
+    directWording
+  );
 
   const promptProtection = findConversation(conversations, 'prompt-protection');
   addCheck(
@@ -1694,6 +1789,7 @@ function evaluateConversations(conversations) {
       !/明日以降[^。！？?\n]{0,30}(?:よろしい|可能|お願い)/.test(
         quotedRefusal
       ) &&
+      !/(?:または|もしくは|あるいは)/.test(quotedRefusal) &&
       longInput.turns[0].outputChars <= 300 &&
       longInput.turns[0].semanticQuestions === 0 &&
       /^「/.test(longInput.turns[0].message.trim()),
@@ -2074,7 +2170,7 @@ function getLocalTurnExpectation(label) {
 
 function countCoachingActionClauses(text) {
   const actionPattern =
-    /書き出|書い|書く|抜き出|箇条書|決め|選ん|伝えて|話し始め|話して|話しかけ|(?:口|声)に出|読み上げ|読み返|見直|繰り返|深呼吸|呼吸を|飲ん|飲む|淹れ|意識を向け|感じる|思い浮かべ|休ん|休息|横にな|閉じ|眺め|確認|開い|移動|入れ|向か|座っ|席につ|立ち上が|歩い|片付|準備|通知.{0,6}オフ|送っ|連絡|相談|断っ|置い|取り組|始め/g;
+    /書き出|書い|書く|抜き出|箇条書|決め|選ん|選び|伝えて|話し始め|話して|話しかけ|(?:口|声)に出|唱え|つぶや|読み上げ|読み返|見直|繰り返|深呼吸|呼吸を|息を(?:吐|吸)|肩[^。！？?\n]{0,12}(?:力を)?抜|浴び|飲ん|飲む|淹れ|意識を向け|感じる|思い浮かべ|休ん|休息|横にな|閉じ|眺め|確認|開い|移動|入れ|向か|座っ|座り|席につ|立ち上が|歩い|片付|準備|通知.{0,6}オフ|送っ|連絡|相談|断っ|置い|取り組|手を(?:付|つ)け|完了させ|始め/g;
   const unquoted = stripJapaneseQuotedContent(text).replace(
     /(?:話す|話し始める|話しかける)直前に[、,]?/g,
     ''
@@ -2088,7 +2184,7 @@ function countCoachingActionClauses(text) {
     );
   const chainedActions = (
     unquoted.match(
-      /(?:て|で)から|(?:した|いた|いだ|んだ|った)後(?:で|に)?|(?:(?<!と)(?:し|して)|いて|いで|んで|って)[、,]/g
+      /(?:て|で)から|(?:した|いた|いだ|んだ|った)後(?:で|に)?|(?:(?<!と)(?:し|して)|いて|いで|んで|って|吐き|吸い|抜き|緩め)[、,]/g
     ) || []
   ).length;
   const hasDirective =
@@ -2440,4 +2536,10 @@ function requireEnv(name) {
   const value = process.env[name];
   if (!value) throw new Error(`${name} is required`);
   return value;
+}
+
+function getJapanDateKey(now = new Date()) {
+  return new Date(now.getTime() + 9 * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 10);
 }

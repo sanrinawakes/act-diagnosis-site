@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { randomUUID } from 'crypto';
+import { getJapanDateKey } from '@/lib/japan-date';
 import {
   coachingConversationPriorityPrompt,
   getCoachingSystemPrompt,
@@ -196,7 +197,7 @@ export async function POST(request: NextRequest) {
       .eq('email', normalizedEmail)
       .single();
 
-    const today = new Date().toISOString().split('T')[0];
+    const today = getJapanDateKey();
     let chatCountToday = 0;
 
     if (selectError && selectError.code !== 'PGRST116') {

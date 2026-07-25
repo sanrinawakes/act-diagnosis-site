@@ -183,7 +183,7 @@ async function createTestMember() {
     subscription_status: 'active',
     subscribed_at: new Date().toISOString(),
     chat_count_today: 0,
-    last_chat_date: new Date().toISOString().slice(0, 10),
+    last_chat_date: getJapanDateKey(),
   });
   if (profileError) {
     throw new Error(`test profile creation failed: ${profileError.message}`);
@@ -474,6 +474,12 @@ function requireEnv(name) {
   const value = process.env[name];
   if (!value) throw new Error(`${name} is required`);
   return value;
+}
+
+function getJapanDateKey(now = new Date()) {
+  return new Date(now.getTime() + 9 * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 10);
 }
 
 function sanitizeError(error) {

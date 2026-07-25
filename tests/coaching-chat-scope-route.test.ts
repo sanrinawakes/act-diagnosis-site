@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import { COACHING_SCOPE_GUIDANCE } from '../src/lib/coaching-scope';
+import { getJapanDateKey } from '../src/lib/japan-date';
 
 const mocks = vi.hoisted(() => ({
   createServiceClient: vi.fn(),
@@ -77,7 +78,7 @@ describe('POST /api/chat scope guard', () => {
                 single: vi.fn().mockResolvedValue({
                   data: {
                     chat_count_today: 9,
-                    last_chat_date: new Date().toISOString().slice(0, 10),
+                    last_chat_date: getJapanDateKey(),
                     role: 'member',
                     subscription_status: 'active',
                     is_active: true,

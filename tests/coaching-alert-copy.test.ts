@@ -103,4 +103,22 @@ describe('getCoachingAlertCopy', () => {
       })
     ).toBe('warning');
   });
+
+  it('alerts when a completed response still has unresolved quality issues', () => {
+    const payload = {
+      completionStatus: 'complete',
+      finalizationStatus: 'complete',
+      elapsedMs: 5000,
+      qualityFinalIssues: ['ungrounded_task_assumption'],
+    };
+    const copy = getCoachingAlertCopy('done', payload);
+
+    expect(copy.subject).toContain('回答品質の不合格');
+    expect(copy.summary).toContain('qualityFinalIssues');
+    expect(shouldAlertForCoachingTelemetry('done', payload)).toBe(true);
+    expect(getCoachingAlertThrottleKind('done', payload)).toBe(
+      'quality_failed'
+    );
+    expect(getCoachingTelemetryLevel('done', payload)).toBe('error');
+  });
 });
