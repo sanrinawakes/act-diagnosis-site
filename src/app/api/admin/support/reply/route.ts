@@ -3,18 +3,11 @@ import { createServerClient as createSSRClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
 import {
-  appendSupportReplyLog,
-  buildSupportReplyLogEntry,
-} from '@/lib/support-reply-log';
+  buildSupportEmailIdempotencyKey,
+  deliverSupportReply,
+} from '@/lib/server/support-email';
 
 export const runtime = 'nodejs';
-
-const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
-const SUPPORT_FROM_EMAIL = process.env.FROM_EMAIL || 'noreply@silversense.cc';
-const SUPPORT_REPLY_TO_EMAIL =
-  process.env.SUPPORT_REPLY_TO_EMAIL ||
-  process.env.SUPPORT_NOTIFICATION_EMAIL ||
-  'silversense.fzco@gmail.com';
 
 function createAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -91,10 +84,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '管理者権限が必要です' }, { status: 403 });
     }
 
-    if (!RESEND_API_KEY) {
-      return NextResponse.json({ error: 'RESEND_API_KEY is not configured' }, { status: 500 });
-    }
-
     const body = await request.json();
     const ticketId = typeof body.ticket_id === 'string' ? body.ticket_id : '';
     const replySubject = typeof body.subject === 'string' ? body.subject.trim() : '';
@@ -108,80 +97,36 @@ export async function POST(request: NextRequest) {
     }
 
     const adminClient = createAdminClient();
-    const { data: ticket, error: ticketError } = await adminClient
-      .from('support_tickets')
-      .select('id, email, subject, message, status')
-      .eq('id', ticketId)
-      .single();
-
-    if (ticketError || !ticket) {
-      return NextResponse.json({ error: 'チケットが見つかりません' }, { status: 404 });
-    }
-
-    const emailResponse = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${RESEND_API_KEY}`,
-      },
-      body: JSON.stringify({
-        from: `ACTI サポート <${SUPPORT_FROM_EMAIL}>`,
-        to: [ticket.email],
-        reply_to: SUPPORT_REPLY_TO_EMAIL,
-        subject: replySubject,
-        text: replyBody,
-      }),
-    });
-
-    const responseText = await emailResponse.text();
-    let responseBody: any = responseText;
-
-    try {
-      responseBody = JSON.parse(responseText);
-    } catch {
-      // Keep raw response body.
-    }
-
-    const sentAt = new Date().toISOString();
-    const deliveryStatus = emailResponse.ok ? 'sent' : 'failed';
-    const replyLogEntry = buildSupportReplyLogEntry({
-      sentAt,
-      senderEmail: adminUser.email,
-      toEmail: ticket.email,
+    const requestedIdempotencyKey =
+      typeof body.idempotency_key === 'string'
+        ? body.idempotency_key.trim()
+        : '';
+    const idempotencyKey = /^[A-Za-z0-9_-]{8,180}$/.test(
+      requestedIdempotencyKey
+    )
+      ? requestedIdempotencyKey
+      : buildSupportEmailIdempotencyKey({
+          ticketId,
+          purpose: 'manual-reply',
+          content: `${replySubject}\n${replyBody}`,
+        });
+    const result = await deliverSupportReply({
+      adminClient,
+      ticketId,
       subject: replySubject,
-      body: replyBody,
-      deliveryStatus,
-      resendId: typeof responseBody?.id === 'string' ? responseBody.id : undefined,
-      error: emailResponse.ok ? undefined : JSON.stringify(responseBody),
+      message: replyBody,
+      senderLabel: adminUser.email,
+      idempotencyKey,
+      statusOnSuccess: 'in_progress',
     });
 
-    const nextMessage = appendSupportReplyLog(ticket.message || '', replyLogEntry);
-    const nextStatus = emailResponse.ok ? 'in_progress' : ticket.status;
-    const { data: updatedTicket, error: updateError } = await adminClient
-      .from('support_tickets')
-      .update({
-        message: nextMessage,
-        status: nextStatus,
-        updated_at: sentAt,
-      })
-      .eq('id', ticket.id)
-      .select()
-      .single();
-
-    if (updateError) {
-      throw updateError;
-    }
-
-    if (!emailResponse.ok) {
+    if (!result.success) {
       return NextResponse.json(
         {
           success: false,
           error: '返信メールの送信に失敗しました。履歴には失敗として記録しました。',
-          resend: {
-            status: emailResponse.status,
-            body: responseBody,
-          },
-          ticket: updatedTicket,
+          resend: result.resend,
+          ticket: result.ticket,
         },
         { status: 502 }
       );
@@ -189,11 +134,9 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      resend: {
-        status: emailResponse.status,
-        id: responseBody?.id || null,
-      },
-      ticket: updatedTicket,
+      already_sent: result.alreadySent,
+      resend: result.resend,
+      ticket: result.ticket,
     });
   } catch (error) {
     console.error('POST /api/admin/support/reply error:', error);

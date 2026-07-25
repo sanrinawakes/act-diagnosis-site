@@ -5,6 +5,7 @@ import {
   getCoachingTelemetryLevel,
   shouldAlertForCoachingTelemetry,
 } from '@/lib/coaching-gemini';
+import { buildCoachingAlertText } from '@/lib/coaching-alerts';
 
 describe('getCoachingAlertCopy', () => {
   it('states that a completed provider fallback reached the user', () => {
@@ -120,5 +121,19 @@ describe('getCoachingAlertCopy', () => {
       'quality_failed'
     );
     expect(getCoachingTelemetryLevel('done', payload)).toBe('error');
+  });
+});
+
+describe('buildCoachingAlertText', () => {
+  it('states that scheduled automation handles the alert without manual pasting', () => {
+    const text = buildCoachingAlertText({
+      summary: '監視テスト',
+      occurredAt: new Date('2026-07-25T12:00:00.000Z'),
+    });
+
+    expect(text).toContain('ACTI自動対応タスク');
+    expect(text).toContain('手作業で貼り付ける必要はありません');
+    expect(text).toContain('経営・金銭判断');
+    expect(text).not.toContain('このメール全文を貼り付けて');
   });
 });

@@ -3,7 +3,6 @@
 import { useState, useEffect, useRef, type ChangeEvent } from 'react';
 import Header from '@/components/Header';
 import { createClient } from '@/lib/supabase';
-import { useI18n } from '@/lib/i18n';
 import {
   validatePendingImageFiles,
   type PendingImageAttachment,
@@ -17,13 +16,17 @@ export default function SupportPage() {
   const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
+  const [ticketId, setTicketId] = useState('');
+  const [receiptSent, setReceiptSent] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [userId, setUserId] = useState<string | null>(null);
+  const [emailLocked, setEmailLocked] = useState(false);
+  const [source, setSource] = useState('support');
+  const [sessionId, setSessionId] = useState('');
+  const [pagePath, setPagePath] = useState('/support');
   const [pendingAttachments, setPendingAttachments] = useState<PendingImageAttachment[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pendingAttachmentsRef = useRef<PendingImageAttachment[]>([]);
   const supabase = createClient();
-  const { t } = useI18n();
 
   useEffect(() => {
     const loadUser = async () => {
@@ -31,8 +34,8 @@ export default function SupportPage() {
         data: { user },
       } = await supabase.auth.getUser();
       if (user) {
-        setUserId(user.id);
         setEmail(user.email || '');
+        setEmailLocked(Boolean(user.email));
         // Try to get display name from profile
         const { data: profile } = await supabase
           .from('profiles')
@@ -46,6 +49,20 @@ export default function SupportPage() {
     };
     loadUser();
   }, [supabase]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const requestedSource = params.get('source');
+    const requestedSessionId = params.get('session');
+
+    setPagePath(`${window.location.pathname}${window.location.search}`);
+    if (requestedSource === 'coaching') {
+      setSource('coaching');
+      setCategory('bug');
+      setSubject((current) => current || 'AIコーチングについて');
+      setSessionId(requestedSessionId || '');
+    }
+  }, []);
 
   useEffect(() => {
     pendingAttachmentsRef.current = pendingAttachments;
@@ -118,9 +135,9 @@ export default function SupportPage() {
       formData.append('category', category);
       formData.append('subject', subject.trim());
       formData.append('message', message.trim());
-      if (userId) {
-        formData.append('user_id', userId);
-      }
+      formData.append('source', source);
+      formData.append('session_id', sessionId);
+      formData.append('page_path', pagePath);
       pendingAttachments.forEach((attachment) => {
         formData.append('attachments', attachment.file);
       });
@@ -137,6 +154,8 @@ export default function SupportPage() {
       }
 
       setSent(true);
+      setTicketId(typeof data.ticket_id === 'string' ? data.ticket_id : '');
+      setReceiptSent(data.receipt_sent === true);
       clearPendingAttachments();
     } catch (err) {
       setError(err instanceof Error ? err.message : '送信に失敗しました');
@@ -154,14 +173,26 @@ export default function SupportPage() {
             <div className="text-5xl mb-4">✅</div>
             <h2 className="text-2xl font-bold text-gray-900 mb-2">送信完了</h2>
             <p className="text-gray-600 mb-6">
-              お問い合わせいただきありがとうございます。内容を確認の上、ご連絡いたします。
+              お問い合わせを受け付けました。内容と利用状況を確認し、必要な対応と検証を行ったうえでご連絡します。
             </p>
+            {ticketId && (
+              <p className="mb-2 text-sm text-gray-600">
+                受付番号: <span className="font-mono text-gray-900">{ticketId}</span>
+              </p>
+            )}
+            {receiptSent && (
+              <p className="mb-6 text-sm text-green-700">
+                受付メールを送信しました。
+              </p>
+            )}
             <button
               onClick={() => {
                 setSent(false);
+                setTicketId('');
+                setReceiptSent(false);
                 setSubject('');
                 setMessage('');
-                setCategory('general');
+                setCategory(source === 'coaching' ? 'bug' : 'general');
                 clearPendingAttachments();
               }}
               className="px-6 py-2.5 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors font-semibold"
@@ -212,7 +243,10 @@ export default function SupportPage() {
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-400/50 transition-all"
+                  readOnly={emailLocked}
+                  className={`w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-400/50 transition-all ${
+                    emailLocked ? 'bg-gray-100 text-gray-600' : ''
+                  }`}
                   placeholder="example@email.com"
                   required
                 />

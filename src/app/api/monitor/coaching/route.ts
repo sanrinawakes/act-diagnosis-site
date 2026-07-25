@@ -888,7 +888,10 @@ async function readMonitorStream(response: Response, startedAt: number) {
 
 function validateMonitorAuthorization(request: NextRequest) {
   const expectedSecret =
-    process.env.MONITORING_CRON_SECRET || process.env.CRON_SECRET || '';
+    process.env.MONITORING_CRON_SECRET ||
+    process.env.CRON_SECRET ||
+    process.env.SUPPORT_AUTOMATION_SECRET ||
+    '';
   if (!expectedSecret) return 'Monitoring secret is not configured';
 
   const authHeader = request.headers.get('authorization') || '';
