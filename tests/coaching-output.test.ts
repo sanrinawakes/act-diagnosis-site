@@ -244,6 +244,32 @@ describe('final verified quality fallback', () => {
       }).issues
     ).toEqual([]);
   });
+
+  it('感情的になりそうな不安には、汎用整理ではなく話を止める基準を返す', () => {
+    const lastUserText =
+      'その言い方ならできそうですが、途中で感情的になりそうで不安です。';
+    const historyMessages = [
+      {
+        role: 'user' as const,
+        content:
+          '夫と家事分担について、責めずに落ち着いて話したいです。',
+      },
+    ];
+    const result = buildFinalVerifiedQualityFallback(
+      lastUserText,
+      historyMessages
+    );
+
+    expect(result).toContain('5分だけ休憩してから続きを話したい');
+    expect(result).not.toContain('まだ書かれていない原因');
+    expect(
+      assessCoachingResponseQuality({
+        text: result,
+        lastUserText,
+        historyMessages,
+      }).issues
+    ).toEqual([]);
+  });
 });
 
 describe('single-action grounding', () => {
@@ -539,6 +565,35 @@ describe('assessCoachingResponseQuality', () => {
     });
 
     expect(agreed.issues).not.toContain('unsafe_high_impact_advice');
+  });
+
+  it('一言の実用文・事実回答と「ご主人」を文脈不一致にしない', () => {
+    const cases = [
+      {
+        text: '「ありがとうございます。ただ、今は手一杯のため、今回はお引き受けできません。」',
+        lastUserText:
+          '明日また急な仕事を頼まれた時に、角を立てずに断る一言を一つだけ提案してください。',
+        historyMessages: [],
+      },
+      {
+        text:
+          '家賃76,000円のうち、ご主人の支払いが約20,000円で、毎月およそ56,000円を自分が負担しているのですね。',
+        lastUserText:
+          '夫が家賃を76000円のうち20000円しか払わず、私が不足分を負担しています。',
+        historyMessages: [],
+      },
+      {
+        text: '25日です。',
+        lastUserText:
+          '以前伝えた毎月の支払い日は何日ですか？日付だけ答えてください。',
+        historyMessages: [],
+      },
+    ];
+
+    for (const testCase of cases) {
+      const result = assessCoachingResponseQuality(testCase);
+      expect(result.issues).not.toContain('context_mismatch');
+    }
   });
 
   it('直前と同じ長文回答の再掲を不合格にする', () => {
@@ -3559,7 +3614,7 @@ describe('normalizeCoachingOutput', () => {
     );
 
     expect(result).toBe(
-      '途中で感情が強くなりそうなのが不安なんですね。\n\n話を続けるのが難しいと感じたら、「5分だけ休憩してから続きを話したい」と伝えてください。'
+      '途中で感情が強くなりそうなのが不安なんですね。\n\n感情が強いまま話し続けると、伝えたい内容より言い方に意識が向きやすくなります。\n\n話を続けるのが難しいと感じたら、「5分だけ休憩してから続きを話したい」と伝えてください。'
     );
     expect(result).not.toMatch(/その場を.*離れ|ルールを自分/);
   });

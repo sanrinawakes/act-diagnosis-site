@@ -75,7 +75,7 @@ const API_HISTORY_LIMIT = 24;
 const API_HISTORY_CHAR_LIMIT = 700;
 const API_LAST_USER_CHAR_LIMIT = 2500;
 const COACHING_DOMAIN_CONTEXT_PATTERN =
-  /家計簿|収支|赤字|黒字|予算|固定費|変動費|食費|生活費|仕事|職場|業務|会社|上司|同僚|会議|企画|顧客|夫|妻|家事|家族|親|子ども|パートナー/;
+  /家計簿|収支|赤字|黒字|予算|固定費|変動費|食費|生活費|仕事|職場|業務|会社|上司|同僚|会議|企画|顧客|夫|妻|主人|家事|家族|親|子ども|パートナー/;
 const GEMINI_TEXT_TIMEOUT_MS = 12000;
 const GEMINI_IMAGE_TIMEOUT_MS = 20000;
 const GEMINI_FINALIZE_TIMEOUT_MS = 4000;
@@ -1959,16 +1959,19 @@ export function assessCoachingResponseQuality(params: {
         ),
     },
     {
-      present: /夫|妻|家事|家族|親|子ども|パートナー/.test(
+      present: /夫|妻|主人|家事|家族|親|子ども|パートナー/.test(
         relevanceContext
       ),
       relevant:
-        /夫|妻|家事|家族|親|子ども|パートナー|相手|分担|関係|話|伝|気持ち|行動/.test(
+        /夫|妻|主人|家事|家族|親|子ども|パートナー|相手|分担|関係|話|伝|気持ち|行動/.test(
           text
         ),
     },
   ].filter((check) => check.present);
   if (
+    !requestsFactualShortAnswer(lastUserText) &&
+    !requestsDirectWording(lastUserText) &&
+    !requestsOnePhraseAnswer(lastUserText) &&
     contextRelevanceChecks.length > 0 &&
     !contextRelevanceChecks.some((check) => check.relevant)
   ) {
@@ -5081,7 +5084,7 @@ function rewriteContextualClosingQuestion(
       !requestsDirectWording(lastUserText) &&
       !requestsSingleAnswerFormat(lastUserText)
     ) {
-      return '途中で感情が強くなりそうなのが不安なんですね。\n\n話を続けるのが難しいと感じたら、「5分だけ休憩してから続きを話したい」と伝えてください。';
+      return '途中で感情が強くなりそうなのが不安なんですね。\n\n感情が強いまま話し続けると、伝えたい内容より言い方に意識が向きやすくなります。\n\n話を続けるのが難しいと感じたら、「5分だけ休憩してから続きを話したい」と伝えてください。';
     }
     return directText.replace(
       /その不安の奥で[、,]?いちばん守りたいものは何ですか[？?]?/g,
