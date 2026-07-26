@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   sendAlert: vi.fn(),
   assertHealthy: vi.fn(),
   reloadRoleFilter: vi.fn(),
+  insertChatMessages: vi.fn(),
 }));
 
 vi.mock('@supabase/supabase-js', () => ({
@@ -190,6 +191,11 @@ describe('GET /api/monitor/coaching maintenance isolation', () => {
       'user',
       'assistant',
     ]);
+    const insertedRows = mocks.insertChatMessages.mock.calls.at(-1)?.[0];
+    expect(Array.isArray(insertedRows)).toBe(true);
+    expect(insertedRows?.at(-1)?.content).toBe(
+      '定期監視です。今も前の相談内容を踏まえているか、短く自然に教えてください。'
+    );
   });
 
   it('suppresses a transient maintenance timeout after the retry succeeds', async () => {
@@ -446,7 +452,10 @@ function createUserClient() {
 
 function createChatMessagesQuery() {
   return {
-    insert: async () => ({ error: null }),
+    insert: async (rows: unknown) => {
+      mocks.insertChatMessages(rows);
+      return { error: null };
+    },
     select(columns: string) {
       if (columns === 'role, content, created_at') {
         return {
