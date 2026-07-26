@@ -4257,6 +4257,18 @@ describe('normalizeCoachingOutput', () => {
     expect(result).not.toMatch(/(?:^|\n)だと思います/);
   });
 
+  it('利用者が述べていない失敗や反省を補わない', () => {
+    const result = normalizeCoachingOutput(
+      '仕事のことで落ち込んでいるとのこと、考えをまとめるのも大変ですよね。\n\n仕事における「思い通りの結果が出なかったこと」と「自分の進め方に対する反省」が混ざり合うと、どこから手をつけていいか分からなくなりがちです。\n\nまずは今一番気になっている具体的な出来事を一つだけ聞かせてもらえますか。',
+      '仕事のことで少し落ち込んでいます。短く整理を手伝ってください。',
+      []
+    );
+
+    expect(result).toContain('仕事のことで落ち込んでいる');
+    expect(result).toContain('具体的な出来事');
+    expect(result).not.toMatch(/思い通りの結果|進め方に対する反省/);
+  });
+
   it('参照先のない「これなら」を不完全な表現として検出する', () => {
     const result = assessCoachingResponseQuality({
       text:

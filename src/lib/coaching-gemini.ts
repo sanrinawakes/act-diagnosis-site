@@ -5726,6 +5726,14 @@ function removeUnsupportedPsychologicalInference(
       output: /完璧(?:主義|に|で|を)|完璧さ/,
       supportedBy: /完璧/,
     },
+    {
+      output: /思い通り(?:の)?結果が出な|望んだ結果が出な/,
+      supportedBy: /思い通り|結果|失敗|うまくいかな|望んだ/,
+    },
+    {
+      output: /(?:自分の)?進め方(?:に対する|を)?反省|反省して/,
+      supportedBy: /進め方|反省/,
+    },
     { output: /大きな(?:塊|壁)/, supportedBy: /塊|壁|大きすぎ/ },
     { output: /ギャップ/, supportedBy: /ギャップ|実際の能力/ },
     {
