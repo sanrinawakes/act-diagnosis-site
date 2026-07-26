@@ -31,6 +31,7 @@ export const maxDuration = 30;
 
 const CLAIM_LEASE_MS = 45 * 60 * 1000;
 const MAX_QUEUE_ITEMS = 20;
+const RECENT_MONITOR_FAILURE_WINDOW_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_AUTOMATION_START_AT = '2026-07-25T00:00:00.000Z';
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -111,6 +112,21 @@ export async function GET(request: NextRequest) {
 
     if (monitorError) throw monitorError;
 
+    const monitorFailureSince = new Date(
+      Date.now() - RECENT_MONITOR_FAILURE_WINDOW_MS
+    ).toISOString();
+    const { data: monitorFailures, error: monitorFailureError } = await client
+      .from('coaching_monitor_runs')
+      .select(
+        'id,status,checked_at,deployment_commit,deployment_id,elapsed_ms,http_status,first_chunk_ms,chat_total_ms,completion_status,finalization_status,error'
+      )
+      .eq('status', 'failure')
+      .gte('checked_at', monitorFailureSince)
+      .order('checked_at', { ascending: false })
+      .limit(20);
+
+    if (monitorFailureError) throw monitorFailureError;
+
     const tickets = await Promise.all(
       queue.map((ticket) => enrichTicketContext(client, ticket))
     );
@@ -122,6 +138,7 @@ export async function GET(request: NextRequest) {
       queue_count: tickets.length,
       tickets,
       latest_coaching_monitors: monitors || [],
+      recent_coaching_failures: monitorFailures || [],
     });
   } catch (error) {
     console.error('GET /api/internal/support-automation error:', error);
