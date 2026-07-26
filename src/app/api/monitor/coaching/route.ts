@@ -959,7 +959,7 @@ function buildMonitorMessages(): MonitorMessage[] {
   messages.push({
     role: 'user',
     content:
-      '定期監視です。明日まず何をすればいいか、一つだけ短く自然に返してください。',
+      '定期監視です。今も前の相談内容を踏まえているか、短く自然に教えてください。',
   });
   return messages;
 }
