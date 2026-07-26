@@ -208,6 +208,42 @@ describe('final verified quality fallback', () => {
       expect(assessment.issues).toEqual([]);
     }
   );
+
+  it('家事分担を何度も頼んだ後は、同じ交渉ではなく本人の負担軽減へ切り替える', () => {
+    const lastUserText =
+      '同じ質問や、もう試した伝え方は繰り返さず、次にどう対応すればいいか答えてください。';
+    const historyMessages = [
+      {
+        role: 'user' as const,
+        content:
+          '夫に家事を頼んでも後回しにされ、結局いつも自分がやることになります。',
+      },
+      {
+        role: 'assistant' as const,
+        content: '担当を決めて伝えてみてください。',
+      },
+      {
+        role: 'user' as const,
+        content:
+          '担当を決めてほしいとは何度も伝えましたが、返事だけで行動は変わりません。',
+      },
+    ];
+    const result = buildFinalVerifiedQualityFallback(
+      lastUserText,
+      historyMessages
+    );
+
+    expect(result).toContain('家事を一つ選び、今週だけ回数を半分');
+    expect(result).toContain('費用負担を二人で合意');
+    expect(result).not.toMatch(/[？?]|もう一度伝|話し合う内容/);
+    expect(
+      assessCoachingResponseQuality({
+        text: result,
+        lastUserText,
+        historyMessages,
+      }).issues
+    ).toEqual([]);
+  });
 });
 
 describe('single-action grounding', () => {
@@ -464,6 +500,45 @@ describe('assessCoachingResponseQuality', () => {
     });
 
     expect(result.issues).toContain('unsafe_high_impact_advice');
+  });
+
+  it('合意なく家族の小遣いや共通口座を使う提案を止める', () => {
+    for (const text of [
+      '夫が家事をしない場合は、家事代行の費用を夫の小遣いや共通口座から支払う形で進めてください。',
+      '家事代行の費用を共通の生活費から支払うルールにしてください。',
+      '家事代行の費用を家計から出してください。',
+    ]) {
+      const result = assessCoachingResponseQuality({
+        text,
+        lastUserText:
+          '同じ質問や伝え方を繰り返さず、次の対応を答えてください。',
+        historyMessages: [
+          {
+            role: 'user',
+            content:
+              '夫に家事を頼んでも後回しにされ、結局いつも私がやることになります。',
+          },
+        ],
+      });
+
+      expect(result.issues).toContain('unsafe_high_impact_advice');
+    }
+
+    const agreed = assessCoachingResponseQuality({
+      text:
+        '家事代行の費用を共通の生活費から支払う場合は、負担額を二人で合意してから利用してください。',
+      lastUserText:
+        '同じ質問や伝え方を繰り返さず、次の対応を答えてください。',
+      historyMessages: [
+        {
+          role: 'user',
+          content:
+            '夫に家事を頼んでも後回しにされ、結局いつも私がやることになります。',
+        },
+      ],
+    });
+
+    expect(agreed.issues).not.toContain('unsafe_high_impact_advice');
   });
 
   it('直前と同じ長文回答の再掲を不合格にする', () => {
@@ -4162,6 +4237,42 @@ describe('normalizeCoachingOutput', () => {
     expect(result).not.toMatch(
       /直近3か月|記録にまとめてください|これまでの支払履歴を添えて|[？?]/
     );
+  });
+
+  it('根拠のない期待推測を除いた後に「だと思います」だけを残さない', () => {
+    const result = normalizeCoachingOutput(
+      '先ほどは言葉が足りず、申し訳ありません。\n\n周りがあなたに期待しているのは、指示に従うことではなく、専門的な意見を共有することです。\n\nだと思います。\n\n期待に応えることと、自分の意見を伝えることは別です。',
+      '質問だけではなく、どう考えればいいのか答えてください。',
+      [
+        {
+          role: 'user',
+          content:
+            '職場で周りの期待に応えようとすると、自分の意見を言えなくなります。',
+        },
+      ]
+    );
+
+    expect(result).toContain('期待に応えることと、自分の意見を伝えることは別です');
+    expect(result).not.toContain('周りがあなたに期待しているのは');
+    expect(result).not.toMatch(/(?:^|\n)だと思います/);
+  });
+
+  it('参照先のない「これなら」を不完全な表現として検出する', () => {
+    const result = assessCoachingResponseQuality({
+      text:
+        '周りの期待に応えようとすると、自分の意見を抑えてしまうのですね。期待に応えることと、自分の意見を言うことが対立している点に難しさがあります。\n\nこれなら、周囲の期待を裏切らずに発言できます。\n\nこのように伝えられそうな仕事の場面を振り返ってみてください。',
+      lastUserText:
+        '前より回答が短くて、質問だけではなく考え方を答えてください。',
+      historyMessages: [
+        {
+          role: 'user',
+          content:
+            '職場で周りの期待に応えようとすると、自分の意見を言えなくなります。',
+        },
+      ],
+    });
+
+    expect(result.issues).toContain('fragmented_expression');
   });
 
   it('通常相談は短すぎる一言回答へ寄せない指示を含む', () => {

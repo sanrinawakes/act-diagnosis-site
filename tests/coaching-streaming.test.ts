@@ -20,7 +20,8 @@ const state = vi.hoisted(() => ({
     | 'long'
     | 'short'
     | 'vague'
-    | 'categorization',
+    | 'categorization'
+    | 'financial',
   alerts: [] as Array<{ subject: string; summary: string }>,
 }));
 
@@ -33,7 +34,9 @@ vi.mock('@/lib/openai', () => ({
           return {
             response: {
               text: () =>
-                state.qualityRepairMode === 'short'
+                state.qualityRepairMode === 'financial'
+                  ? '家計簿を付けているなら、先月と今月の支出を同じ項目ごとに比べると原因を絞れます。赤字8,166円は収入と支出の差なので、固定費、食費、臨時支出のうち、前月との差が大きい項目から見ると確認しやすいです。\n\nまずは今月と先月の固定費、食費、臨時支出を同じ項目で並べ、各項目の差額を合計してください。合計が8,166円に近い項目が、今回の赤字の主な原因です。'
+                  : state.qualityRepairMode === 'short'
                   ? '上司に否定されたように感じて、次の一言が怖いんですね。次に何を避けたいですか？'
                   : state.qualityRepairMode === 'vague'
                     ? '仕事のことで落ち込んでいる時は、頭の中も複雑に絡まりやすくなりますよね。\n\nまずは絡まった糸を少しずつ解きほぐしていきましょう。\n\n明日ひとつだけ状況を動かすなら、何から始めますか？'
@@ -192,9 +195,9 @@ describe('createJsonLineStream', () => {
     });
     expect(onDone).toHaveBeenCalledWith(
       expect.objectContaining({
-        prompt_tokens: 10,
-        completion_tokens: 8,
-        total_tokens: 18,
+        prompt_tokens: 30,
+        completion_tokens: 38,
+        total_tokens: 68,
       }),
       expect.objectContaining({
         message: expect.any(String),
@@ -240,7 +243,7 @@ describe('createJsonLineStream', () => {
       qualityFinalIssues: [],
       remaining: 49,
     });
-    expect(state.qualityRepairCalls).toBe(0);
+    expect(state.qualityRepairCalls).toBe(1);
   });
 
   it('非ストリーム経路が非STOPで終わっても検証済みのローカル救済文を返す', async () => {
@@ -640,6 +643,121 @@ describe('createJsonLineStream', () => {
     expect(done.message).not.toMatch(/環境の要因|個人の要因|分類/);
   });
 
+  it('具体的な家計質問を汎用の短文へ置き換えず、品質不合格時だけ再編集する', async () => {
+    state.qualityRepairMode = 'financial';
+
+    const lastUserText =
+      '8166円赤字だけど原因を探る方法は？家計簿もつけているけど';
+    const stream = createJsonLineStream({
+      systemPrompt: 'テスト用指示',
+      historyMessages: [
+        {
+          role: 'user',
+          content:
+            '先月の収支と今月の収支を比べて、赤字の原因を確認したいです。',
+        },
+        {
+          role: 'assistant',
+          content:
+            '収入と支出を分け、前月との差額を確認すると原因を特定できます。',
+        },
+      ],
+      lastUserParts: [{ text: lastUserText }],
+      onDone: async () => ({ remaining: 48 }),
+    });
+    state.releaseSecondChunk();
+
+    const events = (await new Response(stream).text())
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+    const done = events.find((event) => event.type === 'done');
+
+    expect(state.qualityRepairCalls).toBe(1);
+    expect(done).toMatchObject({
+      provider: 'gemini',
+      qualityRepairAttempted: true,
+      qualityRepairAccepted: true,
+      qualityFinalIssues: [],
+      completionStatus: 'complete',
+      finalizationStatus: 'complete',
+    });
+    expect(done.message).toContain('赤字8,166円');
+    expect(done.message).toContain('固定費、食費、臨時支出');
+    expect(done.message).not.toContain(
+      'まだ書かれていない原因を推測せず'
+    );
+    expect(
+      assessCoachingResponseQuality({
+        text: done.message,
+        lastUserText,
+        historyMessages: [
+          {
+            role: 'user',
+            content:
+              '先月の収支と今月の収支を比べて、赤字の原因を確認したいです。',
+          },
+          {
+            role: 'assistant',
+            content:
+              '収入と支出を分け、前月との差額を確認すると原因を特定できます。',
+          },
+        ],
+      }).issues
+    ).toEqual([]);
+  });
+
+  it('家計の再編集が不合格でも、無関係な用事ではなく家計に沿う救済文を返す', async () => {
+    state.qualityRepairMode = 'short';
+
+    const lastUserText =
+      '8166円赤字だけど原因を探る方法は？家計簿もつけているけど';
+    const historyMessages = [
+      {
+        role: 'user' as const,
+        content:
+          '先月の収支と今月の収支を比べて、赤字の原因を確認したいです。',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          '収入と支出を分け、前月との差額を確認すると原因を特定できます。',
+      },
+    ];
+    const stream = createJsonLineStream({
+      systemPrompt: 'テスト用指示',
+      historyMessages,
+      lastUserParts: [{ text: lastUserText }],
+      onDone: async () => ({ remaining: 48 }),
+    });
+    state.releaseSecondChunk();
+
+    const events = (await new Response(stream).text())
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+    const done = events.find((event) => event.type === 'done');
+
+    expect(state.qualityRepairCalls).toBe(1);
+    expect(done).toMatchObject({
+      qualityRepairAttempted: true,
+      qualityRepairAccepted: true,
+      qualityFinalIssues: [],
+      completionStatus: 'complete',
+      finalizationStatus: 'complete',
+    });
+    expect(done.message).toContain('8,166円の赤字');
+    expect(done.message).toContain('固定費');
+    expect(done.message).not.toMatch(/用事|上司|紙に書/);
+    expect(
+      assessCoachingResponseQuality({
+        text: done.message,
+        lastUserText,
+        historyMessages,
+      }).issues
+    ).toEqual([]);
+  });
+
   it('不良段落をすべて除去した後も、不満へ短い空疎な文を返さず最終ゲート内で完結させる', async () => {
     state.qualityRepairMode = 'categorization';
     state.externalMode = 'all-error';
@@ -675,8 +793,8 @@ describe('createJsonLineStream', () => {
     const done = events.find((event) => event.type === 'done');
 
     expect(done).toMatchObject({
-      modelName: 'local-quality-fallback',
-      provider: 'local',
+      modelName: 'gemini-3.5-flash',
+      provider: 'gemini',
       qualityRepairAttempted: true,
       qualityRepairAccepted: true,
       qualityFinalIssues: [],
@@ -685,7 +803,8 @@ describe('createJsonLineStream', () => {
     });
     expect(state.externalCalls).toBe(0);
     expect(done.message.length).toBeGreaterThanOrEqual(80);
-    expect(done.message).toContain('前より回答が短くて何を言いたいのかわかりません');
+    expect(done.message).toContain('仕事のことで悩んでいます');
+    expect(done.message).toContain('考え方を先に示します');
     expect(done.message).not.toMatch(/環境の要因|個人の要因|分類/);
   });
 
