@@ -31,6 +31,7 @@ export const maxDuration = 30;
 
 const CLAIM_LEASE_MS = 45 * 60 * 1000;
 const MAX_QUEUE_ITEMS = 20;
+const MAX_RECENT_MONITOR_FAILURES = 200;
 const RECENT_MONITOR_FAILURE_WINDOW_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_AUTOMATION_START_AT = '2026-07-25T00:00:00.000Z';
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -123,7 +124,7 @@ export async function GET(request: NextRequest) {
       .eq('status', 'failure')
       .gte('checked_at', monitorFailureSince)
       .order('checked_at', { ascending: false })
-      .limit(20);
+      .limit(MAX_RECENT_MONITOR_FAILURES);
 
     if (monitorFailureError) throw monitorFailureError;
 

@@ -33,20 +33,26 @@ describe('GET /api/internal/support-automation monitor feed', () => {
       checked_at: `2026-07-26T00:${30 - index * 10}:00.000Z`,
       error: null,
     }));
-    const recentFailure = {
-      id: '8e7f6bb8-e1e7-482e-9747-281b2d93011a',
+    const recentFailures = Array.from({ length: 25 }, (_, index) => ({
+      id:
+        index === 0
+          ? '8e7f6bb8-e1e7-482e-9747-281b2d93011a'
+          : `failure-${index}`,
       status: 'failure',
-      checked_at: '2026-07-25T21:50:30.232Z',
+      checked_at: `2026-07-25T${String(21 - Math.floor(index / 6)).padStart(
+        2,
+        '0'
+      )}:${String(50 - (index % 6) * 10).padStart(2, '0')}:30.232Z`,
       http_status: 200,
       first_chunk_ms: 11219,
       chat_total_ms: 11875,
       completion_status: 'complete',
       finalization_status: 'complete',
       error: 'monitor first chunk too slow: 11219ms',
-    };
+    }));
 
     mocks.createClient.mockReturnValue(
-      createQueueClient(latestMonitors, [recentFailure])
+      createQueueClient(latestMonitors, recentFailures)
     );
 
     const response = await GET(
@@ -64,8 +70,8 @@ describe('GET /api/internal/support-automation monitor feed', () => {
     expect(response.status).toBe(200);
     expect(body.queue_count).toBe(0);
     expect(body.latest_coaching_monitors).toHaveLength(6);
-    expect(body.latest_coaching_monitors).not.toContainEqual(recentFailure);
-    expect(body.recent_coaching_failures).toEqual([recentFailure]);
+    expect(body.latest_coaching_monitors).not.toContainEqual(recentFailures[0]);
+    expect(body.recent_coaching_failures).toEqual(recentFailures);
   });
 });
 
@@ -103,8 +109,8 @@ function createQueueClient(
             return {
               order() {
                 return {
-                  limit: async () => ({
-                    data: latestMonitors,
+                  limit: async (limit: number) => ({
+                    data: latestMonitors.slice(0, limit),
                     error: null,
                   }),
                 };
@@ -115,8 +121,8 @@ function createQueueClient(
                     return {
                       order() {
                         return {
-                          limit: async () => ({
-                            data: monitorFailures,
+                          limit: async (limit: number) => ({
+                            data: monitorFailures.slice(0, limit),
                             error: null,
                           }),
                         };
