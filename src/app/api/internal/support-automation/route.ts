@@ -31,6 +31,7 @@ export const maxDuration = 30;
 
 const CLAIM_LEASE_MS = 45 * 60 * 1000;
 const MAX_QUEUE_ITEMS = 20;
+const MAX_SUPPORT_SCAN_ITEMS = 500;
 const MAX_RECENT_MONITOR_FAILURES = 200;
 const RECENT_MONITOR_FAILURE_WINDOW_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_AUTOMATION_START_AT = '2026-07-25T00:00:00.000Z';
@@ -85,11 +86,12 @@ export async function GET(request: NextRequest) {
       .in('status', ['open', 'in_progress'])
       .gte('updated_at', createdAfter)
       .order('updated_at', { ascending: true })
-      .limit(100);
+      .limit(MAX_SUPPORT_SCAN_ITEMS);
 
     if (error) throw error;
 
-    const queue = ((data || []) as SupportTicket[])
+    const scannedTickets = (data || []) as SupportTicket[];
+    const queue = scannedTickets
       .filter((ticket) => {
         const decisionState = getSupportDecisionState(
           ticket.message || '',
@@ -103,6 +105,11 @@ export async function GET(request: NextRequest) {
         );
       })
       .slice(0, limit);
+    const pendingDecisionTickets = scannedTickets.filter(
+      (ticket) =>
+        getSupportDecisionState(ticket.message || '', ticket.id).pending
+    );
+    const pendingDecisionQueue = pendingDecisionTickets.slice(0, limit);
     const { data: monitors, error: monitorError } = await client
       .from('coaching_monitor_runs')
       .select(
@@ -128,9 +135,14 @@ export async function GET(request: NextRequest) {
 
     if (monitorFailureError) throw monitorFailureError;
 
-    const tickets = await Promise.all(
-      queue.map((ticket) => enrichTicketContext(client, ticket))
-    );
+    const [tickets, pendingDecisions] = await Promise.all([
+      Promise.all(queue.map((ticket) => enrichTicketContext(client, ticket))),
+      Promise.all(
+        pendingDecisionQueue.map((ticket) =>
+          enrichTicketContext(client, ticket)
+        )
+      ),
+    ]);
 
     return NextResponse.json({
       generated_at: new Date().toISOString(),
@@ -138,6 +150,8 @@ export async function GET(request: NextRequest) {
       claim_lease_minutes: CLAIM_LEASE_MS / 60_000,
       queue_count: tickets.length,
       tickets,
+      pending_decision_count: pendingDecisionTickets.length,
+      pending_decisions: pendingDecisions,
       latest_coaching_monitors: monitors || [],
       recent_coaching_failures: monitorFailures || [],
     });

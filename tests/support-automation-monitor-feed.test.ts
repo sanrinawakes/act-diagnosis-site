@@ -1,5 +1,9 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
+import {
+  appendSupportReplyLog,
+  buildSupportAutomationNoteEntry,
+} from '../src/lib/support-reply-log';
 
 const mocks = vi.hoisted(() => ({
   createClient: vi.fn(),
@@ -73,11 +77,90 @@ describe('GET /api/internal/support-automation monitor feed', () => {
     expect(body.latest_coaching_monitors).not.toContainEqual(recentFailures[0]);
     expect(body.recent_coaching_failures).toEqual(recentFailures);
   });
+
+  it('returns decision holds separately so Codex can surface them in-app', async () => {
+    const pendingTicketId = 'c37c48af-6c63-4698-98e2-b0f509451a96';
+    const decisionRequest = buildSupportAutomationNoteEntry({
+      recordedAt: '2026-07-26T02:00:00.000Z',
+      automationRunId: 'automation_decision_001',
+      idempotencyKey: `decision-${pendingTicketId}`,
+      status: 'decision_required',
+      note: [
+        '確認済み事実: 1日50回の上限に達しています。',
+        '判断事項: 利用上限を変更するか決めてください。',
+        '推奨案: 現行上限を維持する。',
+      ].join('\n'),
+    });
+    const supportTickets = [
+      {
+        id: pendingTicketId,
+        user_id: null,
+        name: '判断待ち顧客',
+        email: 'decision@example.com',
+        category: 'general',
+        subject: '利用上限について',
+        message: appendSupportReplyLog('上限を増やしてください。', decisionRequest),
+        status: 'in_progress',
+        created_at: '2026-07-26T01:50:00.000Z',
+        updated_at: '2026-07-26T02:00:00.000Z',
+      },
+      {
+        id: 'a7f35f77-04ce-41ff-9aac-b913044d5e88',
+        user_id: null,
+        name: '技術対応顧客',
+        email: 'technical@example.com',
+        category: 'bug',
+        subject: '画面エラー',
+        message: '送信ボタンを押すとエラーになります。',
+        status: 'open',
+        created_at: '2026-07-26T02:01:00.000Z',
+        updated_at: '2026-07-26T02:01:00.000Z',
+      },
+    ];
+
+    mocks.createClient.mockReturnValue(
+      createQueueClient([], [], supportTickets)
+    );
+
+    const response = await GET(
+      new NextRequest(
+        'https://act-diagnosis-site.vercel.app/api/internal/support-automation',
+        {
+          headers: {
+            Authorization: 'Bearer automation-test-secret',
+          },
+        }
+      )
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.queue_count).toBe(1);
+    expect(body.tickets[0]).toMatchObject({
+      id: supportTickets[1].id,
+      decision: { pending: false },
+    });
+    expect(body.pending_decision_count).toBe(1);
+    expect(body.pending_decisions[0]).toMatchObject({
+      id: pendingTicketId,
+      name: '判断待ち顧客',
+      email: 'decision@example.com',
+      decision: {
+        requested: true,
+        provided: false,
+        pending: true,
+      },
+    });
+    expect(body.tickets).not.toContainEqual(
+      expect.objectContaining({ id: pendingTicketId })
+    );
+  });
 });
 
 function createQueueClient(
   latestMonitors: Array<Record<string, unknown>>,
-  monitorFailures: Array<Record<string, unknown>>
+  monitorFailures: Array<Record<string, unknown>>,
+  supportTickets: Array<Record<string, unknown>> = []
 ) {
   return {
     from(table: string) {
@@ -91,7 +174,10 @@ function createQueueClient(
                     return {
                       order() {
                         return {
-                          limit: async () => ({ data: [], error: null }),
+                          limit: async () => ({
+                            data: supportTickets,
+                            error: null,
+                          }),
                         };
                       },
                     };
@@ -129,6 +215,25 @@ function createQueueClient(
                       },
                     };
                   },
+                };
+              },
+            };
+          },
+        };
+      }
+
+      if (table === 'profiles') {
+        const emptyProfileResult = async () => ({
+          data: [],
+          error: null,
+        });
+        return {
+          select() {
+            return {
+              limit() {
+                return {
+                  eq: emptyProfileResult,
+                  ilike: emptyProfileResult,
                 };
               },
             };
