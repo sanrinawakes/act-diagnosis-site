@@ -1186,6 +1186,28 @@ describe('normalizeCoachingOutput', () => {
     expect(result).not.toMatch(/移動させるか|通知をオフ/);
   });
 
+  it('仕事とSNSの長い履歴でもSNSに沿う具体策を文脈不一致にしない', () => {
+    const historyMessages = Array.from({ length: 218 }, (_, index) => ({
+      role: 'user' as const,
+      content:
+        `これは長い履歴テスト用のダミー文です ${index}。仕事の悩み、人間関係、SNSへの抵抗感、明日の一歩について相談しています。`.repeat(
+          10
+        ),
+    }));
+    const lastUserText =
+      '明日まず何をすればいいか、一つだけ短く教えてください。';
+    const text =
+      '明日の朝、SNSで最初に伝えたい内容を一文だけメモに書いてください。';
+
+    expect(
+      assessCoachingResponseQuality({
+        text,
+        lastUserText,
+        historyMessages,
+      }).issues
+    ).toEqual([]);
+  });
+
   it('短い返答指定にも飲む・休むなどの二動作を返さない', () => {
     const result = normalizeCoachingOutput(
       '今日は無理をせず、温かい飲み物を一杯飲んで、早めに休息をとってください。',

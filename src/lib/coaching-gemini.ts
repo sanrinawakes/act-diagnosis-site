@@ -1959,6 +1959,10 @@ export function assessCoachingResponseQuality(params: {
         ),
     },
     {
+      present: /SNS|投稿|発信/.test(relevanceContext),
+      relevant: /SNS|投稿|発信/.test(text),
+    },
+    {
       present: /夫|妻|主人|家事|家族|親|子ども|パートナー/.test(
         relevanceContext
       ),
