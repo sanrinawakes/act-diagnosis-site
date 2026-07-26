@@ -725,6 +725,18 @@ describe('assessCoachingResponseQuality', () => {
     expect(result.issues).toContain('ungrounded_categorization');
   });
 
+  it('利用者が挙げていない自己評価と他者評価の分類を不合格にする', () => {
+    const result = assessCoachingResponseQuality({
+      text:
+        '仕事での落ち込みは、「自分の進め方や成果に納得がいかない」という自己評価によるものと、「周囲との関係性や評価が期待と違った」という他者との関係によるものに整理できます。\n\n仕事のことで、今いちばん気になっている出来事は何ですか？',
+      lastUserText:
+        '仕事のことで少し落ち込んでいます。短く整理を手伝ってください。',
+      historyMessages: [],
+    });
+
+    expect(result.issues).toContain('ungrounded_categorization');
+  });
+
   it('利用者が比較を求めていない時にAIが作った二択を不合格にする', () => {
     const result = assessCoachingResponseQuality({
       text:
@@ -1184,6 +1196,28 @@ describe('normalizeCoachingOutput', () => {
       '明日の朝、SNSで最初に伝えたい内容を一文だけメモに書いてください。'
     );
     expect(result).not.toMatch(/移動させるか|通知をオフ/);
+  });
+
+  it('仕事とSNSの長い履歴でもSNSに沿う具体策を文脈不一致にしない', () => {
+    const historyMessages = Array.from({ length: 218 }, (_, index) => ({
+      role: 'user' as const,
+      content:
+        `これは長い履歴テスト用のダミー文です ${index}。仕事の悩み、人間関係、SNSへの抵抗感、明日の一歩について相談しています。`.repeat(
+          10
+        ),
+    }));
+    const lastUserText =
+      '明日まず何をすればいいか、一つだけ短く教えてください。';
+    const text =
+      '明日の朝、SNSで最初に伝えたい内容を一文だけメモに書いてください。';
+
+    expect(
+      assessCoachingResponseQuality({
+        text,
+        lastUserText,
+        historyMessages,
+      }).issues
+    ).toEqual([]);
   });
 
   it('短い返答指定にも飲む・休むなどの二動作を返さない', () => {

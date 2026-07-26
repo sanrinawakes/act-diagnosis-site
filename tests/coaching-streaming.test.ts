@@ -20,6 +20,7 @@ const state = vi.hoisted(() => ({
     | 'long'
     | 'short'
     | 'vague'
+    | 'ambiguous-action'
     | 'categorization'
     | 'financial',
   alerts: [] as Array<{ subject: string; summary: string }>,
@@ -40,6 +41,8 @@ vi.mock('@/lib/openai', () => ({
                   ? '上司に否定されたように感じて、次の一言が怖いんですね。次に何を避けたいですか？'
                   : state.qualityRepairMode === 'vague'
                     ? '仕事のことで落ち込んでいる時は、頭の中も複雑に絡まりやすくなりますよね。\n\nまずは絡まった糸を少しずつ解きほぐしていきましょう。\n\n明日ひとつだけ状況を動かすなら、何から始めますか？'
+                    : state.qualityRepairMode === 'ambiguous-action'
+                      ? '明日、仕事の人間関係を円滑にし、SNSへの抵抗感がある中でも無理なくできる最初の一歩として、まずは身近な対面でのコミュニケーションを小さく始めることが役立ちます。'
                     : state.qualityRepairMode === 'categorization'
                       ? '仕事の悩みは、業務量や人間関係などの「環境の要因」と、自分のスキルや判断などの「個人の要因」が混ざると複雑に見えがちです。これらを分けて捉え直すことで、次の行動が見えてきます。\n\n仕事のことで、今いちばん気になっている出来事は何ですか？'
                   : '仕事について迷っている状況を、短い相づちだけで終わらせずに整理します。まず、今決めなければならないことと、まだ保留にできることを分けると、次の判断が見えやすくなります。今日決める必要がある項目を一つだけ確認してください。',
@@ -61,7 +64,12 @@ vi.mock('@/lib/openai', () => ({
           if (state.mode === 'error') throw new Error('fetch failed');
           return {
             stream: (async function* () {
-              yield { text: () => '最初の文です。' };
+              yield {
+                text: () =>
+                  state.qualityRepairMode === 'ambiguous-action'
+                    ? '明日ひとつだけ状況を動かすなら、'
+                    : '最初の文です。',
+              };
               await state.secondChunkGate;
               if (state.mode === 'partial-error') {
                 throw new Error('connection reset');
@@ -69,7 +77,12 @@ vi.mock('@/lib/openai', () => ({
               if (state.mode === 'timeout') {
                 throw new Error('GEMINI_TIMEOUT');
               }
-              yield { text: () => '次に進む質問ですか？' };
+              yield {
+                text: () =>
+                  state.qualityRepairMode === 'ambiguous-action'
+                    ? '何から始めますか？'
+                    : '次に進む質問ですか？',
+              };
             })(),
             response: Promise.resolve({
               candidates: [
@@ -567,6 +580,51 @@ describe('createJsonLineStream', () => {
     });
     expect(done.message).not.toMatch(/絡まった糸|解きほぐ|頭の中.*複雑/);
     expect(done.message.length).toBeGreaterThanOrEqual(80);
+  });
+
+  it('仕事とSNSの長い履歴で曖昧な回答を具体的な一動作へ置き換える', async () => {
+    state.qualityRepairMode = 'ambiguous-action';
+    const historyMessages = Array.from({ length: 218 }, (_, index) => ({
+      role: 'user' as const,
+      content:
+        `これは長い履歴テスト用のダミー文です ${index}。仕事の悩み、人間関係、SNSへの抵抗感、明日の一歩について相談しています。`.repeat(
+          10
+        ),
+    }));
+    const lastUserText =
+      '明日まず何をすればいいか、一つだけ短く教えてください。';
+    const stream = createJsonLineStream({
+      systemPrompt: 'テスト用指示',
+      historyMessages,
+      lastUserParts: [{ text: lastUserText }],
+      onDone: async () => ({ remaining: 48 }),
+    });
+    state.releaseSecondChunk();
+
+    const events = (await new Response(stream).text())
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+    const done = events.find((event) => event.type === 'done');
+
+    expect(done).toMatchObject({
+      qualityRepairAttempted: false,
+      qualityRepairAccepted: false,
+      qualityFinalIssues: [],
+      completionStatus: 'complete',
+      finalizationStatus: 'complete',
+    });
+    expect(state.qualityRepairCalls).toBe(0);
+    expect(done.message).toBe(
+      '明日の朝、SNSで最初に伝えたい内容を一文だけメモに書いてください。'
+    );
+    expect(
+      assessCoachingResponseQuality({
+        text: done.message,
+        lastUserText,
+        historyMessages,
+      }).issues
+    ).toEqual([]);
   });
 
   it('品質フォールバックでも上司への具体的な確認文を一般化しない', async () => {

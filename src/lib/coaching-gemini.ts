@@ -1959,6 +1959,10 @@ export function assessCoachingResponseQuality(params: {
         ),
     },
     {
+      present: /SNS|投稿|発信/.test(relevanceContext),
+      relevant: /SNS|投稿|発信/.test(text),
+    },
+    {
       present: /夫|妻|主人|家事|家族|親|子ども|パートナー/.test(
         relevanceContext
       ),
@@ -2306,7 +2310,7 @@ function hasUngroundedCategorization(
 
   return (
     assistantInventedChoice ||
-    /(?:環境|個人|内的|外的)の要因|原因[^。！？?\n]{0,16}分類|原因[^。！？?\n]{0,28}(?:二つ|2つ|種類|要因)[^。！？?\n]{0,16}(?:分け|分類)|業務量や人間関係[^。！？?\n]{0,100}スキルや判断/.test(
+    /(?:環境|個人|内的|外的)の要因|原因[^。！？?\n]{0,16}分類|原因[^。！？?\n]{0,28}(?:二つ|2つ|種類|要因)[^。！？?\n]{0,16}(?:分け|分類)|業務量や人間関係[^。！？?\n]{0,100}スキルや判断|自己評価によるもの[^。！？?\n]{0,120}他者との関係によるもの[^。！？?\n]{0,32}整理/.test(
       text
     )
   );
