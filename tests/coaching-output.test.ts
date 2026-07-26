@@ -725,6 +725,18 @@ describe('assessCoachingResponseQuality', () => {
     expect(result.issues).toContain('ungrounded_categorization');
   });
 
+  it('利用者が挙げていない自己評価と他者評価の分類を不合格にする', () => {
+    const result = assessCoachingResponseQuality({
+      text:
+        '仕事での落ち込みは、「自分の進め方や成果に納得がいかない」という自己評価によるものと、「周囲との関係性や評価が期待と違った」という他者との関係によるものに整理できます。\n\n仕事のことで、今いちばん気になっている出来事は何ですか？',
+      lastUserText:
+        '仕事のことで少し落ち込んでいます。短く整理を手伝ってください。',
+      historyMessages: [],
+    });
+
+    expect(result.issues).toContain('ungrounded_categorization');
+  });
+
   it('利用者が比較を求めていない時にAIが作った二択を不合格にする', () => {
     const result = assessCoachingResponseQuality({
       text:
