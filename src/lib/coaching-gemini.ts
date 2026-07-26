@@ -30,6 +30,8 @@ export type CoachingQualityIssue =
   | 'dangling_choice_reference'
   | 'ungrounded_categorization'
   | 'vague_action_target'
+  | 'context_mismatch'
+  | 'fragmented_expression'
   | 'latest_user_echo'
   | 'ungrounded_task_assumption'
   | 'requested_time_mismatch'
@@ -72,6 +74,8 @@ const HISTORY_MESSAGE_CHAR_LIMIT = 700;
 const API_HISTORY_LIMIT = 24;
 const API_HISTORY_CHAR_LIMIT = 700;
 const API_LAST_USER_CHAR_LIMIT = 2500;
+const COACHING_DOMAIN_CONTEXT_PATTERN =
+  /家計簿|収支|赤字|黒字|予算|固定費|変動費|食費|生活費|仕事|職場|業務|会社|上司|同僚|会議|企画|顧客|夫|妻|主人|家事|家族|親|子ども|パートナー/;
 const GEMINI_TEXT_TIMEOUT_MS = 12000;
 const GEMINI_IMAGE_TIMEOUT_MS = 20000;
 const GEMINI_FINALIZE_TIMEOUT_MS = 4000;
@@ -501,7 +505,7 @@ export async function generateCoachingText(params: {
         ? 'local-incomplete-recovery'
         : modelName,
     provider: completionStatus === 'partial' ? 'local' : undefined,
-    allowRemoteRepair: false,
+    allowRemoteRepair: completionStatus === 'complete',
   });
   const text = qualityResolution.text;
 
@@ -696,7 +700,7 @@ export function createJsonLineStream(params: {
               ? 'local-incomplete-recovery'
               : modelName,
           provider: completionStatus === 'partial' ? 'local' : undefined,
-          allowRemoteRepair: false,
+          allowRemoteRepair: completionStatus === 'complete',
         });
         fullText = qualityResolution.text;
         const usage = qualityResolution.usage;
@@ -1765,15 +1769,22 @@ export function assessCoachingResponseQuality(params: {
     Boolean(buildUrgentSafetyResponse(lastUserText)) ||
     /^「[^」]{24,}」[。！]?$/u.test(text.trim());
   const isConversationTurn = historyMessages.length >= 2;
+  const userReportsDissatisfaction =
+    reportsResponseDissatisfaction(lastUserText);
   const isConcreteCompactResponse =
     compactText.length >= 50 &&
-    hasConcreteAction(text, lastUserText) &&
+    hasExplicitCoachingAction(text) &&
     (requestsConcreteSuggestion(lastUserText) || isConversationTurn);
 
   if (
     !isSpecialShortResponse &&
     !isConcreteCompactResponse &&
-    compactText.length < (isConversationTurn ? 90 : 80)
+    compactText.length <
+      (userReportsDissatisfaction
+        ? 150
+        : isConversationTurn
+          ? 90
+          : 80)
   ) {
     issues.push('too_short');
   }
@@ -1811,12 +1822,10 @@ export function assessCoachingResponseQuality(params: {
   }
 
   if (
-    /わからないから聞いて|それを聞いている|質問ばかり|同じ質問|答えになっていない|納得(?:できない|いかない)|何を言いたいのかわから|ちゃんと答えて|前(?:の|より).{0,20}(?:方が|ほうが).{0,20}(?:的確|良かった|よかった)|頭が悪くな/.test(
-      lastUserText
-    ) &&
+    userReportsDissatisfaction &&
     (hasAnyCoachingQuestion(text) ||
       (compactText.length < 140 &&
-        !hasConcreteAction(text, lastUserText)))
+        !hasExplicitCoachingAction(text)))
   ) {
     issues.push('dissatisfaction_unanswered');
   }
@@ -1906,12 +1915,93 @@ export function assessCoachingResponseQuality(params: {
     issues.push('latest_user_echo');
   }
 
+  const immediatePreviousUserText =
+    [...historyMessages]
+      .reverse()
+      .find((message) => message.role === 'user')?.content || '';
+  const previousTopicalUserText =
+    [...historyMessages]
+      .reverse()
+      .find(
+        (message) =>
+          message.role === 'user' &&
+          COACHING_DOMAIN_CONTEXT_PATTERN.test(message.content)
+      )?.content || '';
+  const previousUserText =
+    previousTopicalUserText || immediatePreviousUserText;
+  const relevanceContext = COACHING_DOMAIN_CONTEXT_PATTERN.test(lastUserText)
+    ? lastUserText
+    : [previousUserText, lastUserText].filter(Boolean).join('\n');
   const userContext = [
     ...historyMessages
       .filter((message) => message.role === 'user')
       .map((message) => stripAttachmentMarkdown(message.content)),
     lastUserText,
   ].join('\n');
+  const contextRelevanceChecks = [
+    {
+      present:
+        /家計簿|収支|赤字|黒字|予算|固定費|変動費|食費|生活費/.test(
+          relevanceContext
+        ),
+      relevant:
+        /家計簿|収支|収入|支出|赤字|黒字|予算|固定費|変動費|食費|生活費|貯金|金額|差額|\d[\d,]*\s*円/.test(
+          text
+        ),
+    },
+    {
+      present: /仕事|職場|業務|会社|上司|同僚|会議|企画|顧客/.test(
+        relevanceContext
+      ),
+      relevant:
+        /仕事|職場|業務|会社|上司|同僚|会議|企画|顧客|働|評価|期待|意見|提案|役割|成果|専門/.test(
+          text
+        ),
+    },
+    {
+      present: /夫|妻|主人|家事|家族|親|子ども|パートナー/.test(
+        relevanceContext
+      ),
+      relevant:
+        /夫|妻|主人|家事|家族|親|子ども|パートナー|相手|分担|関係|話|伝|気持ち|行動/.test(
+          text
+        ),
+    },
+  ].filter((check) => check.present);
+  if (
+    !requestsFactualShortAnswer(lastUserText) &&
+    !requestsDirectWording(lastUserText) &&
+    !requestsOnePhraseAnswer(lastUserText) &&
+    contextRelevanceChecks.length > 0 &&
+    !contextRelevanceChecks.some((check) => check.relevant)
+  ) {
+    issues.push('context_mismatch');
+  }
+  const responseParagraphs = text
+    .split(/\n{2,}/)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean);
+  const danglingDemonstrativeIndex = responseParagraphs.findIndex(
+    (paragraph) => /^(?:これなら|このように|そのように)/.test(paragraph)
+  );
+  const demonstrativeHasConcreteReferent =
+    danglingDemonstrativeIndex > 0 &&
+    responseParagraphs
+      .slice(0, danglingDemonstrativeIndex)
+      .some(
+        (paragraph) =>
+          hasConcreteAction(paragraph, lastUserText) ||
+          /「[^」]{4,}」/.test(paragraph)
+      );
+  if (
+    /(?:^|\n{2,})(?:だ|なの)と思います[。！？]?(?:\n{2,}|$)/.test(
+      text
+    ) ||
+    (danglingDemonstrativeIndex >= 0 &&
+      !demonstrativeHasConcreteReferent)
+  ) {
+    issues.push('fragmented_expression');
+  }
   if (
     /その(?:一枚|紙|メモ|ファイル|資料)/.test(text) &&
     !/(?:一枚|紙|メモ|ファイル|資料)/.test(userContext) &&
@@ -2065,6 +2155,8 @@ export function assessCoachingResponseQuality(params: {
     dangling_choice_reference: 45,
     ungrounded_categorization: 45,
     vague_action_target: 40,
+    context_mismatch: 50,
+    fragmented_expression: 45,
     latest_user_echo: 50,
     ungrounded_task_assumption: 50,
     requested_time_mismatch: 50,
@@ -2083,8 +2175,22 @@ export function assessCoachingResponseQuality(params: {
 }
 
 function hasUnsafeHighImpactAdvice(text: string) {
-  return /強制的|一切(?:やめ|払わ)|すべてストップ|支払いを止め|補填(?:するの)?をやめ|生活費[^。！？?\n]{0,40}(?:全て|すべて)[^。！？?\n]{0,24}(?:止め|やめ|ストップ)|管理会社[^。！？?\n]{0,100}変更手続きを進め|(?:家賃|引き落とし)[^。！？?\n]{0,100}(?:口座|名義)[^。！？?\n]{0,60}(?:変更|移す)|(?:口座|名義)[^。！？?\n]{0,80}(?:夫|妻|相手)[^。！？?\n]{0,40}(?:変更|移す)/.test(
-    text
+  const unilateralHighImpactChange =
+    /強制的|一切(?:やめ|払わ)|一切[^。！？?\n]{0,24}(?:手をつけず|放置)|すべてストップ|支払いを止め|補填(?:するの)?をやめ|生活費[^。！？?\n]{0,40}(?:全て|すべて)[^。！？?\n]{0,24}(?:止め|やめ|ストップ)|管理会社[^。！？?\n]{0,100}変更手続きを進め|(?:家賃|引き落とし)[^。！？?\n]{0,100}(?:口座|名義)[^。！？?\n]{0,60}(?:変更|移す)|(?:口座|名義)[^。！？?\n]{0,80}(?:夫|妻|相手)[^。！？?\n]{0,40}(?:変更|移す)/.test(
+      text
+    );
+  const spendsSharedOrOtherPersonsFunds =
+    /(?:(?:夫|妻|相手)の小遣い|共通(?:の)?(?:口座|生活費|資金|家計)|家計から)[^。！？?\n]{0,80}(?:支払|使|充て|負担|捻出|出)|(?:費用|料金)[^。！？?\n]{0,60}(?:(?:夫|妻|相手)の小遣い|共通(?:の)?(?:口座|生活費|資金|家計)|家計から)[^。！？?\n]{0,32}(?:支払|使|充て|負担|捻出|出)/.test(
+      text
+    );
+  const confirmsAgreement =
+    /合意|同意|了承|話し合って決め|相談して決め|確認してから/.test(
+      text
+    );
+
+  return (
+    unilateralHighImpactChange ||
+    (spendsSharedOrOtherPersonsFunds && !confirmsAgreement)
   );
 }
 
@@ -2553,10 +2659,12 @@ export function normalizeCoachingOutput(
     lastUserText,
     historyMessages
   );
+  const structurallyCompleteText =
+    removeOrphanedResponseFragments(groundedText);
   const diagnosisSafeText = requestsDiagnosisExplanation(lastUserText)
-    ? groundedText
+    ? structurallyCompleteText
     : removeUnrequestedDiagnosisExplanation(
-        groundedText,
+        structurallyCompleteText,
         lastUserText,
         historyMessages
       );
@@ -2769,7 +2877,12 @@ async function resolveCoachingResponseQuality(params: {
       lastUserText,
       historyMessages: params.historyMessages,
     });
-    if (repairedAssessment.score > bestAssessment.score) {
+    if (
+      isQualityCandidateImprovement(
+        bestAssessment,
+        repairedAssessment
+      )
+    ) {
       bestAssessment = repairedAssessment;
       best = {
         text: repairedText,
@@ -2798,6 +2911,8 @@ async function resolveCoachingResponseQuality(params: {
         'dangling_choice_reference',
         'ungrounded_categorization',
         'vague_action_target',
+        'context_mismatch',
+        'fragmented_expression',
         'latest_user_echo',
         'ungrounded_task_assumption',
         'requested_time_mismatch',
@@ -2817,7 +2932,9 @@ async function resolveCoachingResponseQuality(params: {
       lastUserText,
       historyMessages: params.historyMessages,
     });
-    if (safeAssessment.score >= bestAssessment.score) {
+    if (
+      isQualityCandidateImprovement(bestAssessment, safeAssessment)
+    ) {
       best = {
         ...best,
         text: safeText,
@@ -2839,16 +2956,23 @@ async function resolveCoachingResponseQuality(params: {
       lastUserText,
       historyMessages: params.historyMessages,
     });
-    best = {
-      ...best,
-      text: verifiedFallback,
-      provider: 'local',
-      modelName: 'local-quality-fallback',
-      repairAttempted,
-      repairAccepted: verifiedFallback !== normalized,
-      finalIssues: verifiedAssessment.issues,
-    };
-    bestAssessment = verifiedAssessment;
+    if (
+      isQualityCandidateImprovement(
+        bestAssessment,
+        verifiedAssessment
+      )
+    ) {
+      best = {
+        ...best,
+        text: verifiedFallback,
+        provider: 'local',
+        modelName: 'local-quality-fallback',
+        repairAttempted,
+        repairAccepted: verifiedFallback !== normalized,
+        finalIssues: verifiedAssessment.issues,
+      };
+      bestAssessment = verifiedAssessment;
+    }
   }
 
   return {
@@ -2856,6 +2980,35 @@ async function resolveCoachingResponseQuality(params: {
     repairAttempted,
     finalIssues: bestAssessment.issues,
   };
+}
+
+function isQualityCandidateImprovement(
+  current: CoachingQualityAssessment,
+  candidate: CoachingQualityAssessment
+) {
+  const currentUnsafe = current.issues.includes(
+    'unsafe_high_impact_advice'
+  );
+  const candidateUnsafe = candidate.issues.includes(
+    'unsafe_high_impact_advice'
+  );
+  if (currentUnsafe !== candidateUnsafe) {
+    return currentUnsafe && !candidateUnsafe;
+  }
+
+  const currentContextMismatch =
+    current.issues.includes('context_mismatch');
+  const candidateContextMismatch =
+    candidate.issues.includes('context_mismatch');
+  if (currentContextMismatch !== candidateContextMismatch) {
+    return currentContextMismatch && !candidateContextMismatch;
+  }
+
+  return (
+    candidate.score > current.score ||
+    (candidate.score === current.score &&
+      candidate.issues.length < current.issues.length)
+  );
 }
 
 async function generateGeminiQualityRepair(params: {
@@ -2884,8 +3037,11 @@ async function generateGeminiQualityRepair(params: {
       '本文で二つの選択肢を明示していない時に、「どちら」「この二つ」と参照しないでください。',
       '「以下から一つ選ぶ」と案内しながら選択肢を一件だけ出したり、番号を2から始めたりしないでください。選択式にせず、必要なことを一問だけ直接尋ねてください。',
       '利用者が挙げていない原因を「環境要因」「個人要因」などに分類しないでください。情報が足りない時は、実際に起きた出来事を一つだけ具体的に尋ねてください。',
+      '利用者が家計簿、赤字額、仕事、相手など具体的な対象を書いている場合、その対象を返答に残し、無関係な用事やメモへ置き換えないでください。',
+      '「だと思います」だけの文や、参照先のない「これなら」「このように」を残さず、各文を単独で読んでも意味が通る形にしてください。',
       '「今の状況」「まだ解決していないこと」「最初の一歩」のように、利用者が対象を決め直さないと実行できない提案をしないでください。',
       '支払い・契約の相談では、契約上可能か確認していない手続きを断定せず、生活費を一方的に止める提案もしないでください。',
+      '家族の小遣い、共通口座、共通の生活費から、本人同士の合意を確認せず費用を出す提案や、家事を一切放置する提案をしないでください。',
       '通常は160〜360字、自然な日本語2〜3段落で書いてください。150字未満の返答は、利用者が一言・短文・休息を明示的に求めた場合を除き不合格です。',
       '短すぎる返答を直す時は、1文目で具体的な事実や感情を受け止め、2文目で言い換えではない新しい整理を示し、最後に質問または提案を一つだけ置いてください。番号は本文に出さないでください。',
       '質問で閉じる場合、質問以外の文を命令形にしないでください。提案で閉じる場合、別の提案や質問を加えないでください。',
@@ -2998,6 +3154,25 @@ function buildSafeQualityFallback(
   ].join('\n');
   const substantiveFallback = buildSubstantiveShortFallback(lastUserText);
 
+  if (issues.includes('dissatisfaction_unanswered')) {
+    const dissatisfactionFallback = buildContextualDissatisfactionFallback(
+      lastUserText,
+      historyMessages
+    );
+    if (dissatisfactionFallback) return dissatisfactionFallback;
+  }
+
+  if (
+    issues.includes('fragmented_expression') &&
+    shouldAvoidForcedCoachingMove(lastUserText, historyMessages)
+  ) {
+    const dissatisfactionFallback = buildContextualDissatisfactionFallback(
+      lastUserText,
+      historyMessages
+    );
+    if (dissatisfactionFallback) return dissatisfactionFallback;
+  }
+
   if (
     substantiveFallback &&
     (issues.includes('ungrounded_task_assumption') ||
@@ -3021,6 +3196,19 @@ function buildSafeQualityFallback(
       return '口頭で伝える方法では変わらなかったため、次は回答期限を付けた書面で確認する方法へ切り替える段階です。家賃76,000円を全額負担してほしいこと、毎月の支払日、不足した場合の扱い、回答期限を一通にまとめます。\n\n回答がない場合は、その書面と手元で確認できる支払記録を持って、夫婦問題や家計相談の窓口へ相談してください。';
     }
     return '毎月伝えても支払い不足が続くなら、言い方だけでは解決しません。まず、直近3か月の家賃額、相手の支払額、不足額を一覧にしてください。その一覧を使い、今後支払う金額、期日、不足した場合の対応について、書面で合意を求める段階です。';
+  }
+
+  if (
+    /夫|妻|家事|家族|パートナー/.test(userContext) &&
+    hasUnsafeHighImpactAdvice(withoutGenericClosing)
+  ) {
+    const repeatedHouseholdFallback =
+      buildHouseholdRepeatedRequestFallback(
+        lastUserText,
+        historyMessages
+      );
+    if (repeatedHouseholdFallback) return repeatedHouseholdFallback;
+    return '何度伝えても返事だけで家事分担が変わらないなら、問題は言い方ではなく、決めた分担が実行されていないことです。夫の小遣いや共通口座から勝手に費用を出す方法は避け、外注や家電を使う場合は負担額を合意してからにします。\n\nまず一週間、自分が担った家事と所要時間を記録し、減らす家事を一つ選んでください。';
   }
 
   if (
@@ -3115,6 +3303,12 @@ export function buildFinalVerifiedQualityFallback(
   const noQuestionRequested = requestsNoFollowUpQuestion(lastUserText);
   const dissatisfaction =
     shouldAvoidForcedCoachingMove(lastUserText, historyMessages);
+  const contextualDissatisfactionFallback = dissatisfaction
+    ? buildContextualDissatisfactionFallback(
+        lastUserText,
+        historyMessages
+      )
+    : '';
   const specificFallback = buildSubstantiveShortFallback(lastUserText);
   const historicalUserContext = historyMessages
     .filter((message) => message.role === 'user')
@@ -3134,11 +3328,11 @@ export function buildFinalVerifiedQualityFallback(
           historyMessages
         )
       : '';
-  const domainExplanation = /家賃|支払|未払い|振込|お金/.test(lastUserText)
+  const domainExplanation = /家賃|支払|未払い|振込|お金/.test(userContext)
     ? '相手の理由を推測するより、決まっている金額、期限、実際の支払いを分けて確認すると、次に必要な対応を判断できます。'
-    : /夫|妻|家事|家族|関係|相手/.test(lastUserText)
+    : /夫|妻|家事|家族|関係|相手/.test(userContext)
       ? '相手の気持ちを推測するより、実際に起きたことと、相手に変えてほしい行動を分けると、話し合う内容が明確になります。'
-      : /仕事|上司|同僚|会議|企画|職場/.test(lastUserText)
+      : /仕事|上司|同僚|会議|企画|職場/.test(userContext)
         ? '仕事全体について結論を急がず、実際に困った場面と、次に確認する点を分けると、具体的な対応を選びやすくなります。'
         : 'まだ書かれていない原因を推測せず、実際に起きたことと、次に困る場面を分けると、具体的な対応を選びやすくなります。';
   const concreteAction = preserveRequestedActionTime(
@@ -3153,6 +3347,7 @@ export function buildFinalVerifiedQualityFallback(
   const candidates = [
     specificFallback,
     contextualCommunicationFallback,
+    contextualDissatisfactionFallback,
     noQuestionRequested ? concreteAction : '',
     noQuestionRequested
       ? `${acknowledgement}\n\n${domainExplanation}\n\n${concreteAction}`
@@ -3220,6 +3415,21 @@ function buildSilentAnswerFallback(
 }
 
 function buildSubstantiveShortFallback(lastUserText: string) {
+  if (
+    /家計簿|収支|赤字|黒字|予算|固定費|変動費|食費|生活費/.test(
+      lastUserText
+    ) &&
+    requestsConcreteSuggestion(lastUserText)
+  ) {
+    const amountMatch = lastUserText.match(/(\d[\d,]*)\s*円/);
+    const formattedAmount = amountMatch
+      ? `${amountMatch[1]
+          .replace(/,/g, '')
+          .replace(/\B(?=(\d{3})+(?!\d))/g, ',')}円の赤字`
+      : '赤字額';
+    return `家計簿をつけていて、${formattedAmount}まで把握できているなら、原因は前月との差額から絞れます。収入、固定費、食費などの変動費、臨時支出を先月と今月で同じ項目に並べ、各差額を合計してください。増加額の大きい項目から確認すると、赤字の主因と見直す順番が分かります。`;
+  }
+
   if (
     /仕事/.test(lastUserText) &&
     /完璧/.test(lastUserText) &&
@@ -3310,6 +3520,102 @@ function buildSubstantiveShortFallback(lastUserText: string) {
   }
 
   return '';
+}
+
+function buildContextualDissatisfactionFallback(
+  lastUserText: string,
+  historyMessages: CoachingChatMessage[]
+) {
+  const immediatePreviousUserText =
+    [...historyMessages]
+      .reverse()
+      .find((message) => message.role === 'user')?.content || '';
+  const previousTopicalUserText =
+    [...historyMessages]
+      .reverse()
+      .find(
+        (message) =>
+          message.role === 'user' &&
+          COACHING_DOMAIN_CONTEXT_PATTERN.test(message.content)
+      )?.content || '';
+  const previousUserText =
+    previousTopicalUserText || immediatePreviousUserText;
+  if (!previousUserText) return '';
+
+  const cleanPreviousText = stripAttachmentMarkdown(previousUserText)
+    .replace(/\s+/g, ' ')
+    .replace(/[「」『』]/g, '')
+    .replace(/[。！？!?]+$/g, '')
+    .trim();
+  const previousExcerpt =
+    cleanPreviousText.length > 72
+      ? `${cleanPreviousText.slice(0, 72)}…`
+      : cleanPreviousText;
+  const opening = `前の返答は短い質問だけで、何を言いたいのか分からない内容になっていました。申し訳ありません。「${previousExcerpt}」という悩みについて、考え方を先に示します。`;
+
+  if (
+    /仕事|職場|業務|会社|上司|同僚|会議|企画|顧客/.test(
+      previousUserText
+    ) &&
+    /期待/.test(previousUserText) &&
+    /意見/.test(previousUserText)
+  ) {
+    return `${opening}\n\n期待に応えることと、相手の意見に合わせることは別です。自分の役割は、相手の期待をそのまま受け入れることではなく、判断に必要な自分の見解を伝えることです。次に意見が違う場面では、「期待している結論とは違うかもしれませんが、私は〇〇と考えます。理由は〇〇です」と伝えてください。`;
+  }
+
+  if (
+    /家計簿|収支|赤字|黒字|予算|固定費|変動費|食費|生活費/.test(
+      previousUserText
+    )
+  ) {
+    const financialFallback =
+      buildSubstantiveShortFallback(previousUserText);
+    if (financialFallback) {
+      return `${opening}\n\n${financialFallback}`;
+    }
+  }
+
+  if (/仕事|職場|業務|会社|上司|同僚|会議|企画|顧客/.test(previousUserText)) {
+    return `${opening}\n\n仕事の悩みを一度に解決しようとすると、実際に起きた問題と自分の判断が混ざります。まず、最後に困った仕事の場面について、実際に起きたこと、自分が判断したこと、その判断の理由を一文ずつ書き分けてください。この三つを分けると、変えるべき行動と確認すべき事実を区別できます。`;
+  }
+
+  if (/夫|妻|家事|家族|親|子ども|パートナー/.test(previousUserText)) {
+    const repeatedHouseholdFallback =
+      buildHouseholdRepeatedRequestFallback(
+        lastUserText,
+        historyMessages
+      );
+    if (repeatedHouseholdFallback) {
+      return `${opening}\n\n${repeatedHouseholdFallback}`;
+    }
+    return `${opening}\n\n家族の悩みでは、相手の気持ちを推測することと、実際に変えてほしい行動を決めることを分ける必要があります。最後に困った場面について、相手がしたこと、自分への影響、次回から変えてほしい行動を一文ずつ書き分けてください。話し合う内容が具体的になります。`;
+  }
+
+  return '';
+}
+
+function buildHouseholdRepeatedRequestFallback(
+  lastUserText: string,
+  historyMessages: CoachingChatMessage[]
+) {
+  const userContext = [
+    ...historyMessages
+      .filter((message) => message.role === 'user')
+      .map((message) => stripAttachmentMarkdown(message.content)),
+    lastUserText,
+  ].join('\n');
+  if (
+    !/夫|妻|パートナー/.test(userContext) ||
+    !/家事/.test(userContext) ||
+    !/何度も|毎回/.test(userContext) ||
+    !/返事だけ|行動(?:は|が)変わら|結局(?:いつも)?自分/.test(
+      userContext
+    )
+  ) {
+    return '';
+  }
+
+  return '何度伝えても返事だけで家事分担が変わらないなら、問題は言い方ではなく、決めた分担が実行されていないことです。同じ交渉を続けるより、自分の負担を夫の行動とは別に減らす必要があります。\n\nまず、健康や衛生に直結しない家事を一つ選び、今週だけ回数を半分に減らしてください。外注や家電を使う場合は、費用負担を二人で合意してから決めます。';
 }
 
 function expandTooShortCoachingResponse(
@@ -4191,9 +4497,16 @@ function shouldAvoidForcedCoachingMove(
     /^(?:できない|できて(?:い)?ない|無理|やりたくない|したくない|何も(?:言わない|答えない)|わからない)(?:[。！!？?]|$)/.test(
       normalized
     ) ||
-    /毎回(?:言って|伝えて)いる|何度も(?:言って|伝えて)いる|わからないから聞いて|それを聞いている|質問ばかり|同じ質問|答えになっていない|納得(?:できない|いかない)|何を言いたいのかわから|ちゃんと答えて|前(?:の|より).{0,20}(?:方が|ほうが).{0,20}(?:的確|良かった|よかった)|頭が悪くな/.test(
+    /毎回(?:言って|伝えて)いる|何度も(?:言って|伝えて)いる/.test(
       normalized
-    )
+    ) ||
+    reportsResponseDissatisfaction(normalized)
+  );
+}
+
+function reportsResponseDissatisfaction(text: string) {
+  return /わからないから聞いて|それを聞いている|質問ばかり|同じ質問|答えになっていない|納得(?:できない|いかない)|何を言いたいのかわから|ちゃんと答えて|前の返答.{0,20}(?:わか(?:ら|り)|短|意味)|前(?:の|より).{0,20}(?:方が|ほうが).{0,20}(?:的確|良かった|よかった)|頭が悪くな/.test(
+    text
   );
 }
 
@@ -4281,6 +4594,12 @@ function hasConcreteAction(text: string, lastUserText: string) {
   }
 
   return true;
+}
+
+function hasExplicitCoachingAction(text: string) {
+  return /(?:してください|してみてください|してみましょう|しましょう|から始めてください|を提案します|をおすすめします)(?:[。！]|$)/.test(
+    text
+  );
 }
 
 function hasClosingCoachingMove(text: string) {
@@ -4457,8 +4776,15 @@ function buildNoQuestionFallback(
     }
     return '始める直前に、最初の一歩を一文だけ確認してください。';
   }
-  if (/企画|資料|文章|書|作成/.test(lastUserText)) {
-    return '完成を目指さず、まず最初の15分で見出しを一つだけ書いてみてください。';
+  if (/企画書/.test(userContext)) {
+    return /明日/.test(lastUserText)
+      ? '明日の朝、企画書を開き、最初の見出しを一つだけ書いてください。'
+      : '企画書を開き、最初の見出しを一つだけ書いてください。';
+  }
+  if (/企画|資料|文章|原稿|作成/.test(userContext)) {
+    return /明日/.test(lastUserText)
+      ? '明日の朝、対象の資料を開き、最初の見出しを一つだけ書いてください。'
+      : '対象の資料を開き、最初の見出しを一つだけ書いてください。';
   }
   if (
     /話(?:す|したい|せる|そう|し合)|伝|言葉|一言|言い方|文面|会話|連絡|返事/.test(
@@ -4476,7 +4802,7 @@ function buildNoQuestionFallback(
   if (/SNS|投稿|発信/.test(userContext)) {
     return '明日の朝、SNSで最初に伝えたい内容を一文だけメモに書いてください。';
   }
-  if (/仕事|職場|業務|会社|タスク/.test(userContext)) {
+  if (/仕事|職場|業務|会社|タスク|企画|資料/.test(userContext)) {
     return '明日の朝、今いちばん気になる仕事に5分だけ取り組んでください。';
   }
   return /明日/.test(lastUserText)
@@ -4758,7 +5084,7 @@ function rewriteContextualClosingQuestion(
       !requestsDirectWording(lastUserText) &&
       !requestsSingleAnswerFormat(lastUserText)
     ) {
-      return '途中で感情が強くなりそうなのが不安なんですね。\n\n話を続けるのが難しいと感じたら、「5分だけ休憩してから続きを話したい」と伝えてください。';
+      return '途中で感情が強くなりそうなのが不安なんですね。\n\n感情が強いまま話し続けると、伝えたい内容より言い方に意識が向きやすくなります。\n\n話を続けるのが難しいと感じたら、「5分だけ休憩してから続きを話したい」と伝えてください。';
     }
     return directText.replace(
       /その不安の奥で[、,]?いちばん守りたいものは何ですか[？?]?/g,
@@ -4911,6 +5237,16 @@ function balanceJapaneseDelimiters(text: string) {
   }
 
   return balanced;
+}
+
+function removeOrphanedResponseFragments(text: string) {
+  return text
+    .replace(
+      /(^|\n{2,})\s*(?:だ|なの)と思います[。！？]?\s*(?=\n{2,}|$)/g,
+      '$1'
+    )
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 function balanceJapaneseDelimitersByParagraph(text: string) {
@@ -5256,6 +5592,10 @@ function removeUnsupportedPsychologicalInference(
       output: /疲れて(?:しま|いる|くる)|疲れる/,
       supportedBy: /疲れ|消耗/,
     },
+    {
+      output: /疲労感/,
+      supportedBy: /疲れ|疲労|消耗/,
+    },
     { output: /理不尽/, supportedBy: /理不尽/ },
     {
       output: /当然の(?:主張|権利|こと)|当然だと思/,
@@ -5292,6 +5632,10 @@ function removeUnsupportedPsychologicalInference(
       output:
         /(?:妻|夫|相手)[^。！？?\n]{0,24}(?:補填|負担)[^。！？?\n]{0,28}(?:甘え|当てに)|甘えている可能性/,
       supportedBy: /甘え|当てに/,
+    },
+    {
+      output: /甘え|頼り切/,
+      supportedBy: /甘え|頼り切/,
     },
     { output: /悪気/, supportedBy: /悪気/ },
     {
@@ -5385,6 +5729,14 @@ function removeUnsupportedPsychologicalInference(
       output: /完璧(?:主義|に|で|を)|完璧さ/,
       supportedBy: /完璧/,
     },
+    {
+      output: /思い通り(?:の)?結果が出な|望んだ結果が出な/,
+      supportedBy: /思い通り|結果|失敗|うまくいかな|望んだ/,
+    },
+    {
+      output: /(?:自分の)?進め方(?:に対する|を)?反省|反省して/,
+      supportedBy: /進め方|反省/,
+    },
     { output: /大きな(?:塊|壁)/, supportedBy: /塊|壁|大きすぎ/ },
     { output: /ギャップ/, supportedBy: /ギャップ|実際の能力/ },
     {
@@ -5397,6 +5749,12 @@ function removeUnsupportedPsychologicalInference(
       output:
         /周囲[^。！？?\n]{0,100}(?:待たせ|求めている|安心する|安心します|信頼)|能力不足ではなく[^。！？?\n]{0,60}信頼|着手[^。！？?\n]{0,60}評価を下げ|悪循環/,
       supportedBy: /待たせ|求めて|安心|信頼|悪循環|遅れ/,
+    },
+    {
+      output:
+        /周り[^。！？?\n]{0,40}期待しているのは[^。！？?\n]{0,120}/,
+      supportedBy:
+        /周り[^。！？?\n]{0,40}期待しているのは/,
     },
     {
       output:
