@@ -1,11 +1,20 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   getCoachingAlertThrottleKind,
   getCoachingAlertCopy,
   getCoachingTelemetryLevel,
   shouldAlertForCoachingTelemetry,
 } from '@/lib/coaching-gemini';
-import { buildCoachingAlertText } from '@/lib/coaching-alerts';
+import {
+  buildCoachingAlertText,
+  getCoachingAlertDeliveryMode,
+  sendCoachingAlert,
+} from '@/lib/coaching-alerts';
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
+});
 
 describe('getCoachingAlertCopy', () => {
   it('states that a completed provider fallback reached the user', () => {
@@ -135,5 +144,54 @@ describe('buildCoachingAlertText', () => {
     expect(text).toContain('手作業で貼り付ける必要はありません');
     expect(text).toContain('経営・金銭判断');
     expect(text).not.toContain('このメール全文を貼り付けて');
+  });
+});
+
+describe('sendCoachingAlert', () => {
+  it('routes technical alerts to automation without sending operator email by default', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    vi.stubEnv('COACHING_ALERT_DELIVERY_MODE', '');
+
+    const result = await sendCoachingAlert({
+      subject: '[ACTI Bot] test',
+      summary: 'monitor failed',
+      details: { event: 'coaching_monitor_failed' },
+    });
+
+    expect(getCoachingAlertDeliveryMode()).toBe('automation');
+    expect(result).toMatchObject({
+      accepted: true,
+      channel: 'automation',
+      reason: expect.stringContaining('operator email delivery is disabled'),
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('sends email only when email delivery is explicitly enabled', async () => {
+    vi.stubEnv('COACHING_ALERT_DELIVERY_MODE', 'email');
+    vi.stubEnv('RESEND_API_KEY', 'resend-test-key');
+    vi.stubEnv('COACHING_ALERT_EMAILS', 'monitor@example.com');
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ id: 'resend-test-id' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await sendCoachingAlert({
+      subject: '[ACTI Bot] test',
+      summary: 'monitor failed',
+    });
+
+    expect(getCoachingAlertDeliveryMode()).toBe('email');
+    expect(result).toMatchObject({
+      accepted: true,
+      channel: 'email',
+      status: 200,
+      id: 'resend-test-id',
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

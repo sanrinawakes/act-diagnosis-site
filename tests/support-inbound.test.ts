@@ -312,7 +312,8 @@ describe('support inbound processing', () => {
       domain,
       secret,
     });
-    const updateTicket = vi.fn();
+    const updateTicket =
+      vi.fn<SupportInboundDependencies['updateTicket']>();
     const result = await processSupportInboundEmail(
       {
         emailId: receivedEmailId,
@@ -421,9 +422,7 @@ function createReceivedEmail(
 function createDependencies(params: {
   ticket: () => InboundSupportTicket | null;
   email: ReceivedSupportEmail;
-  update:
-    | SupportInboundDependencies['updateTicket']
-    | ReturnType<typeof vi.fn>;
+  update: SupportInboundDependencies['updateTicket'];
   loadAttachments?: SupportInboundDependencies['loadAttachments'];
 }): SupportInboundDependencies {
   return {

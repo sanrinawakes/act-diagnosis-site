@@ -252,9 +252,10 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const alertDelivery = duplicateAlert
+    const alertDelivery: Awaited<ReturnType<typeof sendCoachingAlert>> = duplicateAlert
       ? {
           accepted: false,
+          channel: 'automation',
           reason: `duplicate suppressed; previous monitor run ${duplicateAlert.id}`,
         }
       : await sendCoachingAlert({

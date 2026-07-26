@@ -1,7 +1,7 @@
 const DEFAULT_ALERT_EMAILS = ['awakes2025@gmail.com', 'silversense.fzco@gmail.com'];
-const ALERT_FROM_EMAIL = process.env.FROM_EMAIL || 'noreply@silversense.cc';
-const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
 const ALERT_DELIVERY_TIMEOUT_MS = 8000;
+const AUTOMATION_DELIVERY_REASON =
+  'routed to ACTI Codex automation; operator email delivery is disabled';
 
 const CODEX_RESPONSE_GUIDE = [
   '【ACTI自動対応】',
@@ -32,23 +32,66 @@ export function buildCoachingAlertText(params: {
   ].join('\n');
 }
 
+export function getCoachingAlertDeliveryMode(
+  environment: NodeJS.ProcessEnv = process.env
+) {
+  return environment.COACHING_ALERT_DELIVERY_MODE?.trim().toLowerCase() ===
+    'email'
+    ? ('email' as const)
+    : ('automation' as const);
+}
+
 export async function sendCoachingAlert(params: {
   subject: string;
   summary: string;
   details?: Record<string, unknown>;
-}): Promise<{ accepted: boolean; status?: number; id?: string; reason?: string }> {
-  if (!RESEND_API_KEY) {
+}): Promise<{
+  accepted: boolean;
+  channel: 'automation' | 'email';
+  status?: number;
+  id?: string;
+  reason?: string;
+}> {
+  const deliveryMode = getCoachingAlertDeliveryMode();
+  if (deliveryMode === 'automation') {
+    console.info(
+      JSON.stringify({
+        event: 'coaching_alert_routed_to_automation',
+        subject: params.subject,
+        summary: params.summary,
+        details: params.details || {},
+      })
+    );
+    return {
+      accepted: true,
+      channel: 'automation',
+      reason: AUTOMATION_DELIVERY_REASON,
+    };
+  }
+
+  const resendApiKey = process.env.RESEND_API_KEY || '';
+  if (!resendApiKey) {
     console.error('COACHING_ALERT_SKIPPED: RESEND_API_KEY is not configured');
-    return { accepted: false, reason: 'RESEND_API_KEY is not configured' };
+    return {
+      accepted: false,
+      channel: 'email',
+      reason: 'RESEND_API_KEY is not configured',
+    };
   }
 
   const recipients = getAlertEmails();
   if (recipients.length === 0) {
     console.error('COACHING_ALERT_SKIPPED: no recipients configured');
-    return { accepted: false, reason: 'no recipients configured' };
+    return {
+      accepted: false,
+      channel: 'email',
+      reason: 'no recipients configured',
+    };
   }
 
   const text = buildCoachingAlertText(params);
+  const alertFromEmail =
+    process.env.FROM_EMAIL || 'noreply@silversense.cc';
   const abortController = new AbortController();
   const timeoutId = setTimeout(
     () => abortController.abort(),
@@ -60,10 +103,10 @@ export async function sendCoachingAlert(params: {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${RESEND_API_KEY}`,
+        Authorization: `Bearer ${resendApiKey}`,
       },
       body: JSON.stringify({
-        from: `ACTI Bot Monitor <${ALERT_FROM_EMAIL}>`,
+        from: `ACTI Bot Monitor <${alertFromEmail}>`,
         to: recipients,
         subject: params.subject,
         text,
@@ -79,6 +122,7 @@ export async function sendCoachingAlert(params: {
       });
       return {
         accepted: false,
+        channel: 'email',
         status: response.status,
         reason: body.slice(0, 500),
       };
@@ -89,6 +133,7 @@ export async function sendCoachingAlert(params: {
     } | null;
     return {
       accepted: true,
+      channel: 'email',
       status: response.status,
       id: responseBody?.id,
     };
@@ -96,6 +141,7 @@ export async function sendCoachingAlert(params: {
     console.error('COACHING_ALERT_FAILED', error);
     return {
       accepted: false,
+      channel: 'email',
       reason: error instanceof Error ? error.message : String(error),
     };
   } finally {
