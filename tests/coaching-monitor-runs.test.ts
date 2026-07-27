@@ -127,13 +127,8 @@ describe('buildCoachingMonitorRunRecord', () => {
 
 describe('monitor run persistence', () => {
   it('inserts a monitor row and returns its id', async () => {
-    const single = vi.fn().mockResolvedValue({
-      data: { id: '580e9d31-8462-4e68-a144-c1d75e1df297' },
-      error: null,
-    });
-    const abortSignal = vi.fn(() => ({ single }));
-    const select = vi.fn(() => ({ abortSignal }));
-    const upsert = vi.fn(() => ({ select }));
+    const abortSignal = vi.fn().mockResolvedValue({ error: null });
+    const upsert = vi.fn(() => ({ abortSignal }));
     const from = vi.fn(() => ({ upsert }));
 
     const id = await persistCoachingMonitorRun(
@@ -158,13 +153,12 @@ describe('monitor run persistence', () => {
   });
 
   it('throws when the monitor row cannot be persisted', async () => {
-    const single = vi.fn().mockResolvedValue({
-      data: null,
-      error: { message: 'relation does not exist' },
-    });
     const from = vi.fn(() => ({
       upsert: () => ({
-        select: () => ({ abortSignal: () => ({ single }) }),
+        abortSignal: () =>
+          Promise.resolve({
+            error: { message: 'relation does not exist' },
+          }),
       }),
     }));
 
@@ -185,13 +179,40 @@ describe('monitor run persistence', () => {
   });
 
   it('wraps a monitor persistence timeout with an actionable error', async () => {
+    const abortSignal = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('request timed out'))
+      .mockResolvedValueOnce({ error: null });
     const from = vi.fn(() => ({
       upsert: () => ({
-        select: () => ({
-          abortSignal: () => ({
-            single: () => Promise.reject(new Error('request timed out')),
-          }),
-        }),
+        abortSignal,
+      }),
+    }));
+
+    const id = await persistCoachingMonitorRun(
+      { from } as unknown as SupabaseClient,
+      buildCoachingMonitorRunRecord({
+        id: '580e9d31-8462-4e68-a144-c1d75e1df297',
+        status: 'failure',
+        baseUrl: 'https://act-diagnosis-site.vercel.app',
+        checkedAt: '2026-07-21T08:00:00.000Z',
+        elapsedMs: 5000,
+        result: null,
+        error: 'monitor failed',
+      })
+    );
+
+    expect(id).toBe('580e9d31-8462-4e68-a144-c1d75e1df297');
+    expect(abortSignal).toHaveBeenCalledTimes(2);
+  });
+
+  it('throws after retryable persistence failures continue', async () => {
+    const abortSignal = vi
+      .fn()
+      .mockRejectedValue(new Error('request timed out'));
+    const from = vi.fn(() => ({
+      upsert: () => ({
+        abortSignal,
       }),
     }));
 
@@ -211,6 +232,7 @@ describe('monitor run persistence', () => {
     ).rejects.toThrow(
       'coaching monitor result persistence failed: request timed out'
     );
+    expect(abortSignal).toHaveBeenCalledTimes(2);
   });
 
   it('records alert delivery on a failed monitor row', async () => {

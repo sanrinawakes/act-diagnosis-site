@@ -5,7 +5,9 @@ export const COACHING_MONITOR_STALE_AFTER_MS = 2 * 60 * 1000;
 export const COACHING_MONITOR_STALE_RECOVERY_ATTEMPTS = 2;
 export const COACHING_MONITOR_STALE_RECOVERY_RETRY_MS = 250;
 export const COACHING_MONITOR_ALERT_COOLDOWN_MS = 60 * 60 * 1000;
-const MONITOR_PERSISTENCE_TIMEOUT_MS = 5000;
+const MONITOR_PERSISTENCE_TIMEOUT_MS = 15000;
+const MONITOR_PERSISTENCE_RETRY_ATTEMPTS = 2;
+const MONITOR_PERSISTENCE_RETRY_DELAY_MS = 250;
 
 export type CoachingMonitorMetrics = {
   status: number;
@@ -147,31 +149,22 @@ export async function persistCoachingMonitorRun(
   supabaseAdmin: SupabaseClient,
   record: CoachingMonitorRunRecord
 ) {
-  let response;
-  try {
-    response = await supabaseAdmin
-      .from('coaching_monitor_runs')
-      .upsert(record, { onConflict: 'id' })
-      .select('id')
-      .abortSignal(AbortSignal.timeout(MONITOR_PERSISTENCE_TIMEOUT_MS))
-      .single();
-  } catch (error) {
+  const response = await retryMonitorPersistence(
+    () =>
+      supabaseAdmin
+        .from('coaching_monitor_runs')
+        .upsert(record, { onConflict: 'id' })
+        .abortSignal(AbortSignal.timeout(MONITOR_PERSISTENCE_TIMEOUT_MS)),
+    'coaching monitor result persistence failed'
+  );
+
+  if (response.error) {
     throw new Error(
-      `coaching monitor result persistence failed: ${getErrorMessage(error)}`
+      `coaching monitor result persistence failed: ${response.error.message}`
     );
   }
 
-  const { data, error } = response;
-
-  if (error || !data?.id) {
-    throw new Error(
-      `coaching monitor result persistence failed: ${
-        error?.message || 'insert returned no id'
-      }`
-    );
-  }
-
-  return String(data.id);
+  return String(record.id);
 }
 
 export async function failStaleCoachingMonitorRuns(
@@ -363,4 +356,43 @@ function getErrorMessage(error: unknown) {
 
 function wait(ms: number) {
   return new Promise<void>((resolve) => setTimeout(resolve, ms));
+}
+
+async function retryMonitorPersistence<T>(
+  operation: () => PromiseLike<T> | T,
+  label: string
+) {
+  let lastError: unknown = null;
+
+  for (
+    let attempt = 1;
+    attempt <= MONITOR_PERSISTENCE_RETRY_ATTEMPTS;
+    attempt += 1
+  ) {
+    try {
+      return await Promise.resolve(operation());
+    } catch (error) {
+      lastError = error;
+      if (
+        attempt < MONITOR_PERSISTENCE_RETRY_ATTEMPTS &&
+        isRetryableMonitorPersistenceError(error)
+      ) {
+        await wait(MONITOR_PERSISTENCE_RETRY_DELAY_MS);
+        continue;
+      }
+
+      throw new Error(`${label}: ${getErrorMessage(error)}`);
+    }
+  }
+
+  throw new Error(`${label}: ${getErrorMessage(lastError)}`);
+}
+
+function isRetryableMonitorPersistenceError(error: unknown) {
+  const message = getErrorMessage(error).toLowerCase();
+  return (
+    message.includes('timeout') ||
+    message.includes('timed out') ||
+    message.includes('aborted')
+  );
 }
