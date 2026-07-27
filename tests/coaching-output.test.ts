@@ -4233,6 +4233,16 @@ describe('normalizeCoachingOutput', () => {
     expect(assessment.issues).toContain('vague_action_target');
   });
 
+  it('明日の具体策を求められたのに対象不明のファーストステップへ逃がす回答を不合格にする', () => {
+    const assessment = assessCoachingResponseQuality({
+      text: 'これは自律神経を刺激して頭と体をすっきりと目覚めさせ、一日のスタートをスムーズにするための具体的で簡単なファーストステップです。明日の朝、まずはこれだけを実行してみてください。',
+      lastUserText:
+        '同時接続テスト1です。明日の朝に始める行動を一つだけ、質問なしで答えてください。',
+    });
+
+    expect(assessment.issues).toContain('vague_action_target');
+  });
+
   it('スマホをしまって景色を見る二つの行動を一つ扱いにしない', () => {
     const assessment = assessCoachingResponseQuality({
       text: '明日は、仕事が終わったらスマートフォンをカバンにしまい、5分間だけ外の景色を眺めてください。',

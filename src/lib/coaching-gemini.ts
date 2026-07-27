@@ -2090,6 +2090,16 @@ export function assessCoachingResponseQuality(params: {
   }
 
   if (
+    requestsConcreteSuggestion(lastUserText) &&
+    requestsSingleAnswerFormat(lastUserText) &&
+    !requestsDirectWording(lastUserText) &&
+    hasGenericSingleActionPlaceholder(text, lastUserText) &&
+    !issues.includes('vague_action_target')
+  ) {
+    issues.push('vague_action_target');
+  }
+
+  if (
     /明日/.test(lastUserText) &&
     requestsConcreteSuggestion(lastUserText) &&
     !hasValidDirectWording &&
@@ -4598,6 +4608,34 @@ function hasConcreteAction(text: string, lastUserText: string) {
   }
 
   return true;
+}
+
+function hasGenericSingleActionPlaceholder(
+  text: string,
+  lastUserText: string
+) {
+  if (
+    !requestsConcreteSuggestion(lastUserText) ||
+    !requestsSingleAnswerFormat(lastUserText) ||
+    requestsDirectWording(lastUserText)
+  ) {
+    return false;
+  }
+
+  const normalized = stripJapaneseQuotedContent(text).replace(/\s+/g, '');
+  const explainsInsteadOfDirecting =
+    /(?:これは|それは|この(?:一歩|行動|方法|提案)|ファーストステップ|最初のステップ)[^。！？\n]{0,80}(?:ため|ので|こと|もの|ステップ|一歩)[^。！？\n]{0,80}です/.test(
+      normalized
+    );
+  const usesPlaceholderAsActionTarget =
+    /(?:これ|それ|この(?:一歩|行動|方法|提案)|ファーストステップ|最初のステップ|これだけ)[^。！？\n]{0,40}(?:実行|やって|始め|進め|試し)/.test(
+      normalized
+    );
+
+  return (
+    usesPlaceholderAsActionTarget ||
+    (explainsInsteadOfDirecting && !hasConcreteAction(text, lastUserText))
+  );
 }
 
 function hasExplicitCoachingAction(text: string) {
