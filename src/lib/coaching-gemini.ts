@@ -513,15 +513,22 @@ export async function generateCoachingText(params: {
     throw new Error('GEMINI_EMPTY_RESPONSE');
   }
 
+  const verifiedResolution = ensureVerifiedCoachingResolution({
+    resolution: qualityResolution,
+    lastUserText,
+    historyMessages: params.historyMessages,
+    preserveUsage: true,
+  });
+
   return {
-    text,
-    usage: qualityResolution.usage,
-    modelName: qualityResolution.modelName,
-    provider: qualityResolution.provider,
-    qualityRepairAttempted: qualityResolution.repairAttempted,
-    qualityRepairAccepted: qualityResolution.repairAccepted,
-    qualityInitialIssues: qualityResolution.initialIssues,
-    qualityFinalIssues: qualityResolution.finalIssues,
+    text: verifiedResolution.text,
+    usage: verifiedResolution.usage,
+    modelName: verifiedResolution.modelName,
+    provider: verifiedResolution.provider,
+    qualityRepairAttempted: verifiedResolution.repairAttempted,
+    qualityRepairAccepted: verifiedResolution.repairAccepted,
+    qualityInitialIssues: verifiedResolution.initialIssues,
+    qualityFinalIssues: verifiedResolution.finalIssues,
     completionStatus,
     finishReason,
   };
@@ -702,10 +709,16 @@ export function createJsonLineStream(params: {
           provider: completionStatus === 'partial' ? 'local' : undefined,
           allowRemoteRepair: completionStatus === 'complete',
         });
-        fullText = qualityResolution.text;
-        const usage = qualityResolution.usage;
-        const finalModelName = qualityResolution.modelName;
-        const finalProvider = qualityResolution.provider;
+        const verifiedResolution = ensureVerifiedCoachingResolution({
+          resolution: qualityResolution,
+          lastUserText,
+          historyMessages: params.historyMessages,
+          preserveUsage: true,
+        });
+        fullText = verifiedResolution.text;
+        const usage = verifiedResolution.usage;
+        const finalModelName = verifiedResolution.modelName;
+        const finalProvider = verifiedResolution.provider;
         if (!emittedText) writeVerifiedChunk(fullText);
         const finalization = await resolveDonePayload(params.onDone, usage, {
           message: fullText,
@@ -718,10 +731,10 @@ export function createJsonLineStream(params: {
         logChatTelemetry(completionStatus === 'partial' ? 'partial_done' : 'done', params.telemetry, {
           modelName: finalModelName,
           provider: finalProvider,
-          qualityRepairAttempted: qualityResolution.repairAttempted,
-          qualityRepairAccepted: qualityResolution.repairAccepted,
-          qualityInitialIssues: qualityResolution.initialIssues,
-          qualityFinalIssues: qualityResolution.finalIssues,
+          qualityRepairAttempted: verifiedResolution.repairAttempted,
+          qualityRepairAccepted: verifiedResolution.repairAccepted,
+          qualityInitialIssues: verifiedResolution.initialIssues,
+          qualityFinalIssues: verifiedResolution.finalIssues,
           completionStatus,
           elapsedMs: Date.now() - startedAt,
           firstChunkMs,
@@ -738,10 +751,10 @@ export function createJsonLineStream(params: {
           type: 'done',
           modelName: finalModelName,
           provider: finalProvider,
-          qualityRepairAttempted: qualityResolution.repairAttempted,
-          qualityRepairAccepted: qualityResolution.repairAccepted,
-          qualityInitialIssues: qualityResolution.initialIssues,
-          qualityFinalIssues: qualityResolution.finalIssues,
+          qualityRepairAttempted: verifiedResolution.repairAttempted,
+          qualityRepairAccepted: verifiedResolution.repairAccepted,
+          qualityInitialIssues: verifiedResolution.initialIssues,
+          qualityFinalIssues: verifiedResolution.finalIssues,
           completionStatus,
           finalizationStatus: finalization.status,
           finishReason,
@@ -3678,6 +3691,39 @@ function expandTooShortCoachingResponse(
   }
 
   return [grounding, candidate, focus].filter(Boolean).join('\n\n');
+}
+
+export function ensureVerifiedCoachingResolution(params: {
+  resolution: Awaited<ReturnType<typeof resolveCoachingResponseQuality>>;
+  lastUserText: string;
+  historyMessages: CoachingChatMessage[];
+  preserveUsage?: boolean;
+}) {
+  const { resolution, lastUserText, historyMessages, preserveUsage = false } =
+    params;
+  if (resolution.finalIssues.length === 0) {
+    return resolution;
+  }
+
+  const fallbackText = buildFinalVerifiedQualityFallback(
+    lastUserText,
+    historyMessages
+  );
+  const fallbackQuality = assessCoachingResponseQuality({
+    text: fallbackText,
+    lastUserText,
+    historyMessages,
+  });
+
+  return {
+    ...resolution,
+    text: fallbackText,
+    usage: preserveUsage ? resolution.usage : {},
+    modelName: 'local-quality-fallback',
+    provider: 'local' as const,
+    repairAccepted: fallbackText !== resolution.text,
+    finalIssues: fallbackQuality.issues,
+  };
 }
 
 function mergeCoachingUsage(

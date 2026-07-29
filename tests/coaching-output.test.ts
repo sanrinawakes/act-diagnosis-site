@@ -11,6 +11,7 @@ import {
   buildUrgentSafetyResponse,
   classifyGeminiCompletion,
   createJsonLineStream,
+  ensureVerifiedCoachingResolution,
   generateCoachingText,
   getCoachingGeminiModelName,
   normalizeCoachingOutput,
@@ -447,6 +448,76 @@ describe('prepareGeminiHistory', () => {
     expect(
       history.flatMap((item) => item.parts.map((part) => part.text)).join('\n')
     ).toContain('職場で言われた言葉');
+  });
+});
+
+describe('ensureVerifiedCoachingResolution', () => {
+  it('未解決の品質違反が残る候補を最終ローカル品質フォールバックへ切り替える', () => {
+    const historyMessages = [
+      {
+        role: 'user' as const,
+        content: '上司に否定されたように感じて、次の一言が怖いです。',
+      },
+    ];
+    const result = ensureVerifiedCoachingResolution({
+      resolution: {
+        text: 'どうしたいですか？',
+        usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
+        modelName: 'gemini-3.5-flash',
+        provider: 'gemini',
+        repairAttempted: true,
+        repairAccepted: true,
+        initialIssues: ['too_short'],
+        finalIssues: ['too_short'],
+      },
+      lastUserText: '明日どうする？',
+      historyMessages,
+      preserveUsage: true,
+    });
+
+    expect(result).toMatchObject({
+      modelName: 'local-quality-fallback',
+      provider: 'local',
+      repairAttempted: true,
+      repairAccepted: true,
+      finalIssues: [],
+      usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
+    });
+    expect(result.text).not.toBe('どうしたいですか？');
+    expect(
+      assessCoachingResponseQuality({
+        text: result.text,
+        lastUserText: '明日どうする？',
+        historyMessages,
+      }).issues
+    ).toEqual([]);
+  });
+
+  it('最終候補が合格済みならそのまま返す', () => {
+    const resolution = {
+      text: '明日の朝、上司に「前回のご指摘について、最初に見直す点を一つだけ挙げてもらえますか」と確認してください。',
+      usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
+      modelName: 'gemini-3.5-flash',
+      provider: 'gemini' as const,
+      repairAttempted: true,
+      repairAccepted: true,
+      initialIssues: ['too_short'],
+      finalIssues: [] as string[],
+    };
+
+    expect(
+      ensureVerifiedCoachingResolution({
+        resolution,
+        lastUserText: '明日どうする？',
+        historyMessages: [
+          {
+            role: 'user' as const,
+            content: '上司に否定されたように感じて、次の一言が怖いです。',
+          },
+        ],
+        preserveUsage: true,
+      })
+    ).toBe(resolution);
   });
 });
 
