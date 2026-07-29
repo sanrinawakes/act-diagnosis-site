@@ -19,6 +19,7 @@ const state = vi.hoisted(() => ({
   qualityRepairMode: 'long' as
     | 'long'
     | 'short'
+    | 'still-short'
     | 'vague'
     | 'ambiguous-action'
     | 'categorization'
@@ -39,6 +40,8 @@ vi.mock('@/lib/openai', () => ({
                   ? '家計簿を付けているなら、先月と今月の支出を同じ項目ごとに比べると原因を絞れます。赤字8,166円は収入と支出の差なので、固定費、食費、臨時支出のうち、前月との差が大きい項目から見ると確認しやすいです。\n\nまずは今月と先月の固定費、食費、臨時支出を同じ項目で並べ、各項目の差額を合計してください。合計が8,166円に近い項目が、今回の赤字の主な原因です。'
                   : state.qualityRepairMode === 'short'
                   ? '上司に否定されたように感じて、次の一言が怖いんですね。次に何を避けたいですか？'
+                  : state.qualityRepairMode === 'still-short'
+                    ? 'どうしたいですか？'
                   : state.qualityRepairMode === 'vague'
                     ? '仕事のことで落ち込んでいる時は、頭の中も複雑に絡まりやすくなりますよね。\n\nまずは絡まった糸を少しずつ解きほぐしていきましょう。\n\n明日ひとつだけ状況を動かすなら、何から始めますか？'
                     : state.qualityRepairMode === 'ambiguous-action'
