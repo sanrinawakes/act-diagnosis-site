@@ -3317,15 +3317,37 @@ export function buildFinalVerifiedQualityFallback(
   lastUserText: string,
   historyMessages: CoachingChatMessage[]
 ) {
+  const immediatePreviousUserText =
+    [...historyMessages]
+      .reverse()
+      .find((message) => message.role === 'user')?.content || '';
+  const previousTopicalUserText =
+    [...historyMessages]
+      .reverse()
+      .find(
+        (message) =>
+          message.role === 'user' &&
+          COACHING_DOMAIN_CONTEXT_PATTERN.test(message.content)
+      )?.content || '';
+  const fallbackSourceText = COACHING_DOMAIN_CONTEXT_PATTERN.test(
+    lastUserText
+  )
+    ? lastUserText
+    : previousTopicalUserText || immediatePreviousUserText || lastUserText;
   const cleanUserText = stripAttachmentMarkdown(lastUserText)
     .replace(/\s+/g, ' ')
     .replace(/[「」『』]/g, '')
     .replace(/[。！？!?]+$/g, '')
     .trim();
+  const cleanFallbackSourceText = stripAttachmentMarkdown(fallbackSourceText)
+    .replace(/\s+/g, ' ')
+    .replace(/[「」『』]/g, '')
+    .replace(/[。！？!?]+$/g, '')
+    .trim();
   const excerpt =
-    cleanUserText.length > 48
-      ? `${cleanUserText.slice(0, 48)}…`
-      : cleanUserText || '今回の相談';
+    cleanFallbackSourceText.length > 48
+      ? `${cleanFallbackSourceText.slice(0, 48)}…`
+      : cleanFallbackSourceText || cleanUserText || '今回の相談';
   const acknowledgement = `「${excerpt}」という相談ですね。`;
   const noQuestionRequested = requestsNoFollowUpQuestion(lastUserText);
   const dissatisfaction =
@@ -3336,43 +3358,61 @@ export function buildFinalVerifiedQualityFallback(
         historyMessages
       )
     : '';
-  const specificFallback = buildSubstantiveShortFallback(lastUserText);
   const historicalUserContext = historyMessages
     .filter((message) => message.role === 'user')
     .map((message) => stripAttachmentMarkdown(message.content))
     .join('\n');
-  const userContext = [historicalUserContext, lastUserText]
+  const fallbackContext = [historicalUserContext, fallbackSourceText]
     .filter(Boolean)
     .join('\n');
   const contextualCommunicationFallback =
     /責め(?:る|ない)|落ち着いて(?:話|伝)|喧嘩|言い方|最初の一言/.test(
-      lastUserText
+      fallbackSourceText
     ) &&
-    /話|伝|言葉|一言|言い方|会議|提案|家事|夫|妻|相手/.test(userContext)
+    /話|伝|言葉|一言|言い方|会議|提案|家事|夫|妻|相手/.test(
+      fallbackContext
+    )
       ? buildDirectWordingFallback(
-          lastUserText,
-          userContext,
+          fallbackSourceText,
+          fallbackContext,
           historyMessages
         )
       : '';
-  const domainExplanation = /家賃|支払|未払い|振込|お金/.test(userContext)
+  const domainExplanation = /家賃|支払|未払い|振込|お金/.test(
+    fallbackContext
+  )
     ? '相手の理由を推測するより、決まっている金額、期限、実際の支払いを分けて確認すると、次に必要な対応を判断できます。'
-    : /夫|妻|家事|家族|関係|相手/.test(userContext)
+    : /夫|妻|家事|家族|関係|相手/.test(fallbackContext)
       ? '相手の気持ちを推測するより、実際に起きたことと、相手に変えてほしい行動を分けると、話し合う内容が明確になります。'
-      : /仕事|上司|同僚|会議|企画|職場/.test(userContext)
+      : /仕事|上司|同僚|会議|企画|職場/.test(fallbackContext)
         ? '仕事全体について結論を急がず、実際に困った場面と、次に確認する点を分けると、具体的な対応を選びやすくなります。'
         : 'まだ書かれていない原因を推測せず、実際に起きたことと、次に困る場面を分けると、具体的な対応を選びやすくなります。';
   const concreteAction = preserveRequestedActionTime(
-    buildNoQuestionFallback(lastUserText, historyMessages),
+    buildNoQuestionFallback(fallbackSourceText, historyMessages),
     lastUserText
   );
-  const questionCandidates = [
-    'その悩みが強くなった直前に、誰が何を言った、または何が起きましたか？',
-    'いま困っている場面の中で、最後に実際に起きた出来事は何ですか？',
-    '次の対応を決めるために、日時と相手を特定できる出来事を一つ教えてください。',
-  ];
+  const questionCandidates = /仕事|上司|同僚|会議|企画|職場/.test(
+    fallbackContext
+  )
+    ? [
+        '最後に困った仕事の場面で、上司や相手から実際に言われた言葉を一つ教えてください。',
+        'いま詰まっている仕事の場面で、誰が何を言ったかを一つだけ書いてください。',
+        '次の対応を決めるために、最後に困った仕事の場面の日時と相手を一つ教えてください。',
+      ]
+    : /夫|妻|家事|家族|関係|相手/.test(fallbackContext)
+      ? [
+          '最後に困った場面で、相手が実際にしたことを一つだけ教えてください。',
+          '家族とのやり取りで、最後に止まった場面の日時と相手を一つ教えてください。',
+          '次の対応を決めるために、相手に変えてほしい行動を一つだけ具体的に書いてください。',
+        ]
+      : [
+          'その悩みが強くなった直前に、誰が何を言った、または何が起きましたか？',
+          'いま困っている場面の中で、最後に実際に起きた出来事は何ですか？',
+          '次の対応を決めるために、日時と相手を特定できる出来事を一つ教えてください。',
+        ];
   const candidates = [
-    specificFallback,
+    buildSubstantiveShortFallback(lastUserText),
+    buildSubstantiveShortFallback(fallbackSourceText),
     contextualCommunicationFallback,
     contextualDissatisfactionFallback,
     noQuestionRequested ? concreteAction : '',

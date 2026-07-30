@@ -493,6 +493,38 @@ describe('ensureVerifiedCoachingResolution', () => {
     ).toEqual([]);
   });
 
+  it('短い追記しかない会話でも直前の実質的な相談文脈を使って最終フォールバックを合格させる', () => {
+    const historyMessages = [
+      {
+        role: 'user' as const,
+        content: '上司に否定されたように感じて、次の一言が怖いです。',
+      },
+      {
+        role: 'assistant' as const,
+        content: '前回のご指摘について、最初に見直す点を一つだけ確認してみてください。',
+      },
+    ];
+    const result = ensureVerifiedCoachingResolution({
+      resolution: {
+        text: '「結局どうしたらいい？」という相談ですね。',
+        usage: { prompt_tokens: 12, completion_tokens: 8, total_tokens: 20 },
+        modelName: 'gemini-3.5-flash',
+        provider: 'gemini',
+        repairAttempted: true,
+        repairAccepted: true,
+        initialIssues: ['too_short', 'latest_user_echo', 'context_mismatch'],
+        finalIssues: ['too_short', 'latest_user_echo', 'context_mismatch'],
+      },
+      lastUserText: '結局どうしたらいい？',
+      historyMessages,
+      preserveUsage: true,
+    });
+
+    expect(result.finalIssues).toEqual([]);
+    expect(result.text).toContain('上司');
+    expect(result.text).not.toContain('「結局どうしたらいい？」という相談ですね。');
+  });
+
   it('最終候補が合格済みならそのまま返す', () => {
     const resolution = {
       text: '明日の朝、上司に「前回のご指摘について、最初に見直す点を一つだけ挙げてもらえますか」と確認してください。',
