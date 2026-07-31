@@ -28,6 +28,7 @@ import { readChatStream } from '@/lib/chat-stream-client';
 import {
   connectChatWithRecovery,
   getUserFacingChatError,
+  isRecoverableChatStreamError,
 } from '@/lib/chat-request-client';
 import {
   COACHING_HISTORY_PAGE_SIZE,
@@ -1208,23 +1209,24 @@ function CoachingContent() {
       // クライアント側でも60秒で打ち切る。fetch開始からストリーム読み取り完了までを対象にし、
       // 途中で応答が止まっても「送信中…」が固着しないようにする。
       responseMessageId = createMessageId();
+      const chatRequestBody = {
+        sessionId: activeSessionId,
+        requestId: userMessage.id,
+        assistantMessageId: responseMessageId,
+        messages: apiMessages,
+        ...(diagnosisCode ? { diagnosisCode } : {}),
+        attachments: chatAttachments,
+        stream: true,
+      };
       failureStage = 'connect_chat';
       const connection = await connectChatWithRecovery({
-        body: {
-          sessionId: activeSessionId,
-          requestId: userMessage.id,
-          assistantMessageId: responseMessageId,
-          messages: apiMessages,
-          ...(diagnosisCode ? { diagnosisCode } : {}),
-          attachments: chatAttachments,
-          stream: true,
-        },
+        body: chatRequestBody,
         timeoutMs: CHAT_RESPONSE_TIMEOUT_MS,
         timeoutMessage:
           'AIへの接続に時間がかかりすぎました。もう一度お試しください。',
       });
       controller = connection.controller;
-      const response = connection.response;
+      let response = connection.response;
 
       if (response.status === 429) {
         const data = await response.json();
@@ -1244,22 +1246,46 @@ function CoachingContent() {
       setMessages((prev) => [...prev, assistantMessage]);
 
       failureStage = 'read_stream';
-      const data = await withTimeout(
-        readChatStream(response, (chunk, mode) => {
-          assistantContent =
-            mode === 'replace' ? chunk : assistantContent + chunk;
-          setMessages((prev) =>
-            prev.map((message) =>
-              message.id === assistantMessageId
-                ? { ...message, content: assistantContent }
-                : message
-            )
-          );
-        }),
-        CHAT_RESPONSE_TIMEOUT_MS,
-        'AIの応答に時間がかかりすぎました。もう一度お試しください。',
-        () => controller?.abort()
-      );
+      const applyAssistantChunk = (chunk: string, mode: 'append' | 'replace') => {
+        assistantContent = mode === 'replace' ? chunk : assistantContent + chunk;
+        setMessages((prev) =>
+          prev.map((message) =>
+            message.id === assistantMessageId
+              ? { ...message, content: assistantContent }
+              : message
+          )
+        );
+      };
+      const readStreamResponse = () =>
+        withTimeout(
+          readChatStream(response, applyAssistantChunk),
+          CHAT_RESPONSE_TIMEOUT_MS,
+          'AIの応答に時間がかかりすぎました。もう一度お試しください。',
+          () => controller?.abort()
+        );
+      let data;
+      try {
+        data = await readStreamResponse();
+      } catch (streamError) {
+        if (!isRecoverableChatStreamError(streamError)) {
+          throw streamError;
+        }
+        const recovery = await connectChatWithRecovery({
+          body: chatRequestBody,
+          timeoutMs: CHAT_RESPONSE_TIMEOUT_MS,
+          timeoutMessage:
+            'AIの再接続に時間がかかりすぎました。もう一度お試しください。',
+          retryDelaysMs: [1500, 4000, 8000],
+        });
+        controller = recovery.controller;
+        response = recovery.response;
+        data = await withTimeout(
+          readChatStream(response, applyAssistantChunk),
+          CHAT_RESPONSE_TIMEOUT_MS,
+          'AIの応答に時間がかかりすぎました。もう一度お試しください。',
+          () => controller?.abort()
+        );
+      }
 
       if (data.message && data.message !== assistantContent) {
         assistantContent = data.message;
