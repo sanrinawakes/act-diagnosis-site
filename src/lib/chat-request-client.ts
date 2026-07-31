@@ -1,4 +1,9 @@
 const DEFAULT_RETRY_DELAYS_MS = [700, 1800] as const;
+const RECOVERABLE_STREAM_ERROR_PATTERNS = [
+  /AIの応答が途中で切れました/u,
+  /AIの応答データが途中で壊れました/u,
+  /AIから空の応答が返されました/u,
+] as const;
 
 type ConnectChatParams = {
   body: Record<string, unknown>;
@@ -99,6 +104,13 @@ export function isRetryableChatConnectionError(error: unknown) {
     /Failed to fetch|Load failed|NetworkError|Network request failed/i.test(
       error.message
     )
+  );
+}
+
+export function isRecoverableChatStreamError(error: unknown) {
+  if (!(error instanceof Error) || !error.message) return false;
+  return RECOVERABLE_STREAM_ERROR_PATTERNS.some((pattern) =>
+    pattern.test(error.message)
   );
 }
 

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   connectChatWithRecovery,
   getUserFacingChatError,
+  isRecoverableChatStreamError,
 } from '../src/lib/chat-request-client';
 
 const requestBody = {
@@ -150,5 +151,23 @@ describe('getUserFacingChatError', () => {
     expect(getUserFacingChatError(error)).toBe(
       '通信が一時的に切れました。相談内容は保存されています。通信状態を確認して、もう一度送信してください。'
     );
+  });
+});
+
+describe('isRecoverableChatStreamError', () => {
+  it.each([
+    'AIの応答が途中で切れました。入力内容は保存されています。もう一度お試しください。',
+    'AIの応答データが途中で壊れました。入力内容は保存されています。もう一度お試しください。',
+    'AIから空の応答が返されました。入力内容は保存されています。もう一度お試しください。',
+  ])('treats stream delivery failures as recoverable: %s', (message) => {
+    expect(isRecoverableChatStreamError(new Error(message))).toBe(true);
+  });
+
+  it('does not treat ordinary scope or auth errors as recoverable stream failures', () => {
+    expect(
+      isRecoverableChatStreamError(
+        new Error('有料会員のみご利用いただけます。')
+      )
+    ).toBe(false);
   });
 });
