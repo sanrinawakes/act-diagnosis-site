@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { readChatStream } from '../src/lib/chat-stream-client';
+import { ChatStreamReadError, readChatStream } from '../src/lib/chat-stream-client';
 
 const encoder = new TextEncoder();
 
@@ -55,9 +55,21 @@ describe('readChatStream', () => {
       '{"type":"chunk","text":"途中まで"}\n',
     ]);
 
-    await expect(readChatStream(response, vi.fn())).rejects.toThrow(
-      'AIの応答が途中で切れました'
-    );
+    await expect(readChatStream(response, vi.fn())).rejects.toMatchObject({
+      message: expect.stringContaining('AIの応答が途中で切れました'),
+      retryable: false,
+      hadStreamData: true,
+    } satisfies Partial<ChatStreamReadError>);
+  });
+
+  it('本文が届く前の空切断だけを再接続対象として扱う', async () => {
+    const response = streamResponse([]);
+
+    await expect(readChatStream(response, vi.fn())).rejects.toMatchObject({
+      message: expect.stringContaining('AIの応答が途中で切れました'),
+      retryable: true,
+      hadStreamData: false,
+    } satisfies Partial<ChatStreamReadError>);
   });
 
   it('壊れたNDJSONを見逃さない', async () => {

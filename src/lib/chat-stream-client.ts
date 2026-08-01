@@ -21,6 +21,24 @@ type StreamEvent =
 
 export type ChatStreamUpdateMode = 'append' | 'replace';
 
+export class ChatStreamReadError extends Error {
+  readonly retryable: boolean;
+  readonly hadStreamData: boolean;
+
+  constructor(
+    message: string,
+    options?: {
+      retryable?: boolean;
+      hadStreamData?: boolean;
+    }
+  ) {
+    super(message);
+    this.name = 'ChatStreamReadError';
+    this.retryable = options?.retryable ?? false;
+    this.hadStreamData = options?.hadStreamData ?? false;
+  }
+}
+
 export async function readChatStream(
   response: Response,
   onChunk: (text: string, mode: ChatStreamUpdateMode) => void
@@ -49,11 +67,15 @@ export async function readChatStream(
   let donePayload: ChatStreamDone = {};
   let receivedDone = false;
   let receivedText = '';
+  let receivedAnyStreamData = false;
 
   while (true) {
     const { value, done } = await reader.read();
     if (done) break;
 
+    if (value && value.length > 0) {
+      receivedAnyStreamData = true;
+    }
     buffer += decoder.decode(value, { stream: true });
     const lines = buffer.split('\n');
     buffer = lines.pop() || '';
@@ -95,14 +117,22 @@ export async function readChatStream(
   }
 
   if (!receivedDone) {
-    throw new Error(
-      'AIの応答が途中で切れました。入力内容は保存されています。もう一度お試しください。'
+    throw new ChatStreamReadError(
+      'AIの応答が途中で切れました。入力内容は保存されています。もう一度お試しください。',
+      {
+        retryable: !receivedAnyStreamData,
+        hadStreamData: receivedAnyStreamData,
+      }
     );
   }
 
   if (!receivedText.trim() && !donePayload.message?.trim()) {
-    throw new Error(
-      'AIから空の応答が返されました。入力内容は保存されています。もう一度お試しください。'
+    throw new ChatStreamReadError(
+      'AIから空の応答が返されました。入力内容は保存されています。もう一度お試しください。',
+      {
+        retryable: true,
+        hadStreamData: receivedAnyStreamData,
+      }
     );
   }
 
@@ -149,8 +179,12 @@ function parseRequiredStreamLine(line: string) {
   if (!line.trim()) return null;
   const event = parseStreamLine(line);
   if (!event) {
-    throw new Error(
-      'AIの応答データが途中で壊れました。入力内容は保存されています。もう一度お試しください。'
+    throw new ChatStreamReadError(
+      'AIの応答データが途中で壊れました。入力内容は保存されています。もう一度お試しください。',
+      {
+        retryable: false,
+        hadStreamData: true,
+      }
     );
   }
   return event;
