@@ -112,6 +112,13 @@ const CHAT_BUSY_MESSAGE =
   'AIが前の返信を処理中です。完了すると送信できます。入力内容はこのまま残ります。';
 const CHAT_NOT_READY_MESSAGE =
   'チャットを準備中です。数秒待ってからもう一度送信してください。';
+const CHAT_STREAM_RECOVERY_RETRY_DELAYS_MS = [
+  1500,
+  4000,
+  8000,
+  12000,
+  12000,
+] as const;
 const CHAT_API_MESSAGE_LIMIT = 24;
 const CLIENT_CHAT_FAILURE_QUEUE_KEY = 'acti-client-chat-failure-queue';
 const CLIENT_CHAT_FAILURE_QUEUE_LIMIT = 10;
@@ -1275,7 +1282,7 @@ function CoachingContent() {
           timeoutMs: CHAT_RESPONSE_TIMEOUT_MS,
           timeoutMessage:
             'AIの再接続に時間がかかりすぎました。もう一度お試しください。',
-          retryDelaysMs: [1500, 4000, 8000],
+          retryDelaysMs: CHAT_STREAM_RECOVERY_RETRY_DELAYS_MS,
         });
         controller = recovery.controller;
         response = recovery.response;

@@ -80,6 +80,42 @@ describe('connectChatWithRecovery', () => {
     expect(result.attempts).toBe(2);
   });
 
+  it('keeps polling long enough for a replay that stays pending across several retries', async () => {
+    const pendingResponse = () =>
+      new Response(
+        JSON.stringify({
+          error: '回答を処理中です。',
+          code: 'CHAT_RESPONSE_PENDING',
+        }),
+        {
+          status: 409,
+          headers: {
+            'Content-Type': 'application/json',
+            'X-ACTI-Chat-Status': 'pending',
+          },
+        }
+      );
+    const fetchFn = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(pendingResponse())
+      .mockResolvedValueOnce(pendingResponse())
+      .mockResolvedValueOnce(pendingResponse())
+      .mockResolvedValueOnce(new Response('ok', { status: 200 }));
+
+    const result = await connectChatWithRecovery({
+      body: requestBody,
+      timeoutMs: 1000,
+      timeoutMessage: 'timeout',
+      retryDelaysMs: [0, 0, 0, 0, 0],
+      fetchFn,
+      delayFn: async () => {},
+    });
+
+    expect(result.response.status).toBe(200);
+    expect(result.attempts).toBe(4);
+    expect(fetchFn).toHaveBeenCalledTimes(4);
+  });
+
   it('retries a transient server error with the same idempotency IDs', async () => {
     const fetchFn = vi
       .fn<typeof fetch>()
