@@ -4,6 +4,7 @@ import {
   getUserFacingChatError,
   isRecoverableChatStreamError,
 } from '../src/lib/chat-request-client';
+import { ChatStreamReadError } from '../src/lib/chat-stream-client';
 
 const requestBody = {
   sessionId: '11111111-1111-4111-8111-111111111111',
@@ -156,11 +157,39 @@ describe('getUserFacingChatError', () => {
 
 describe('isRecoverableChatStreamError', () => {
   it.each([
-    'AIの応答が途中で切れました。入力内容は保存されています。もう一度お試しください。',
-    'AIの応答データが途中で壊れました。入力内容は保存されています。もう一度お試しください。',
     'AIから空の応答が返されました。入力内容は保存されています。もう一度お試しください。',
   ])('treats stream delivery failures as recoverable: %s', (message) => {
     expect(isRecoverableChatStreamError(new Error(message))).toBe(true);
+  });
+
+  it('retries only when the stream ended before any bytes arrived', () => {
+    expect(
+      isRecoverableChatStreamError(
+        new ChatStreamReadError(
+          'AIの応答が途中で切れました。入力内容は保存されています。もう一度お試しください。',
+          { retryable: true, hadStreamData: false }
+        )
+      )
+    ).toBe(true);
+    expect(
+      isRecoverableChatStreamError(
+        new ChatStreamReadError(
+          'AIの応答が途中で切れました。入力内容は保存されています。もう一度お試しください。',
+          { retryable: false, hadStreamData: true }
+        )
+      )
+    ).toBe(false);
+  });
+
+  it('does not retry a corrupted or partial stream that already returned bytes', () => {
+    expect(
+      isRecoverableChatStreamError(
+        new ChatStreamReadError(
+          'AIの応答データが途中で壊れました。入力内容は保存されています。もう一度お試しください。',
+          { retryable: false, hadStreamData: true }
+        )
+      )
+    ).toBe(false);
   });
 
   it('does not treat ordinary scope or auth errors as recoverable stream failures', () => {

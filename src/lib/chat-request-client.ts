@@ -1,3 +1,5 @@
+import { ChatStreamReadError } from '@/lib/chat-stream-client';
+
 const DEFAULT_RETRY_DELAYS_MS = [700, 1800] as const;
 const RECOVERABLE_STREAM_ERROR_PATTERNS = [
   /AIの応答が途中で切れました/u,
@@ -108,6 +110,9 @@ export function isRetryableChatConnectionError(error: unknown) {
 }
 
 export function isRecoverableChatStreamError(error: unknown) {
+  if (error instanceof ChatStreamReadError) {
+    return error.retryable;
+  }
   if (!(error instanceof Error) || !error.message) return false;
   return RECOVERABLE_STREAM_ERROR_PATTERNS.some((pattern) =>
     pattern.test(error.message)
