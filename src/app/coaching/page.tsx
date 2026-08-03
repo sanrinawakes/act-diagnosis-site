@@ -36,6 +36,7 @@ import {
   COACHING_HISTORY_RETRY_DELAYS_MS,
   retryClientRead,
 } from '@/lib/coaching-history';
+import { persistChatMessageRecord } from '@/lib/chat-message-persistence';
 
 interface Message {
   id: string;
@@ -920,19 +921,18 @@ function CoachingContent() {
       attempt += 1
     ) {
       try {
-        const { error } = await withTimeout(
-          supabase.from('chat_messages').insert({
+        await withTimeout(
+          persistChatMessageRecord({
+            supabase,
             id: params.id,
-            session_id: params.sessionId,
+            sessionId: params.sessionId,
             role: params.role,
             content: params.content,
           }),
           CHAT_PERSIST_TIMEOUT_MS,
           params.failureMessage
         );
-
-        if (!error || error.code === '23505') return;
-        lastError = error;
+        return;
       } catch (error) {
         lastError = error;
       }
