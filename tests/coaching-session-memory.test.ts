@@ -259,6 +259,65 @@ describe('buildCoachingSessionContext', () => {
       })
     );
   });
+
+  it('長期要約を更新しても過去要約の見出しを自己複製しない', async () => {
+    const sessionId = '44444444-4444-4444-8444-444444444444';
+    const loadedMessages = Array.from({ length: 32 }, (_, index) => ({
+      role: index % 2 === 0 ? 'user' : 'assistant',
+      content: `保存メッセージ${index + 27}`,
+      created_at: new Date(1_700_000_000_000 + index * 1000).toISOString(),
+    }));
+    const memoryContent = `ACTI_SESSION_MEMORY_V1\n${JSON.stringify({
+      version: 1,
+      generatedAt: '2026-08-04T08:50:00.000Z',
+      coveredMessageCount: 33,
+      summary: [
+        '前回までの保存済み要約:',
+        '前回までの保存済み要約:',
+        '前回までの保存済み要約:',
+        'ユーザーが話した事実・希望・未解決点:',
+        '- 講座に申し込むか迷っている。',
+      ].join('\n'),
+    })}`;
+    const sessionQuery = createAwaitableQuery({
+      data: { id: sessionId },
+      error: null,
+    });
+    const countQuery = createAwaitableQuery({
+      data: null,
+      error: null,
+      count: 58,
+    });
+    const memoryQuery = createAwaitableQuery({
+      data: [{ id: 'memory-row-id', content: memoryContent }],
+      error: null,
+    });
+    const recentQuery = createAwaitableQuery({
+      data: loadedMessages.slice().reverse(),
+      error: null,
+    });
+    const chatQueries = [countQuery, memoryQuery, recentQuery];
+    const from = vi.fn((table: string) => {
+      if (table === 'chat_sessions') return sessionQuery;
+      if (table === 'chat_messages') {
+        const query = chatQueries.shift();
+        if (query) return query;
+      }
+      throw new Error(`Unexpected table call: ${table}`);
+    });
+
+    const result = await buildCoachingSessionContext({
+      supabaseAdmin: { from } as unknown as SupabaseClient,
+      sessionId,
+      userId: '11111111-1111-4111-8111-111111111111',
+      requestMessages: [{ role: 'user', content: '今の不安について話します。' }],
+      scheduleMemoryRefresh: () => undefined,
+    });
+
+    const context = result.messages[0].content;
+    expect(context).toContain('講座に申し込むか迷っている');
+    expect(context.match(/前回までの保存済み要約:/g) || []).toHaveLength(1);
+  });
 });
 
 function createAwaitableQuery(result: Record<string, unknown>) {

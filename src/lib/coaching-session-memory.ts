@@ -462,10 +462,13 @@ function buildDeterministicSummary(params: {
   const recentAssistantDirections = uniqueByValue(assistantMessages.slice(-8))
     .map((text) => `- ${clipText(text, 140)}`)
     .join('\n');
+  const previousHighlights = normalizePreviousSummary(
+    params.previousSummary
+  );
 
   const sections = [
-    params.previousSummary && params.omittedEarlierMessages > 0
-      ? `前回までの保存済み要約:\n${clipText(params.previousSummary, 900)}`
+    previousHighlights && params.omittedEarlierMessages > 0
+      ? `前回までの保存済み要約:\n${previousHighlights}`
       : '',
     params.omittedEarlierMessages > 0
       ? `注記: さらに古い${params.omittedEarlierMessages}件の会話は要約済みまたは安全のため省略。`
@@ -479,6 +482,22 @@ function buildDeterministicSummary(params: {
   ].filter(Boolean);
 
   return clipText(sections.join('\n\n'), SUMMARY_CHAR_LIMIT);
+}
+
+function normalizePreviousSummary(summary: string) {
+  if (!summary.trim()) return '';
+
+  const structuralLine =
+    /^(?:前回までの保存済み要約:|注記:.*|ユーザーが話した事実・希望・未解決点:|直近でコーチが扱っていた方向性:)$/;
+  const highlights = uniqueByValue(
+    summary
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line && !structuralLine.test(line))
+      .map((line) => (line.startsWith('- ') ? line : `- ${line}`))
+  );
+
+  return clipText(highlights.join('\n'), 900);
 }
 
 function serializeMemoryPayload(memory: MemoryPayload) {

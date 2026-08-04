@@ -526,7 +526,9 @@ describe('ensureVerifiedCoachingResolution', () => {
   });
 
   it('最終候補が合格済みならそのまま返す', () => {
-    const resolution = {
+    const resolution: Parameters<
+      typeof ensureVerifiedCoachingResolution
+    >[0]['resolution'] = {
       text: '明日の朝、上司に「前回のご指摘について、最初に見直す点を一つだけ挙げてもらえますか」と確認してください。',
       usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
       modelName: 'gemini-3.5-flash',
@@ -534,7 +536,7 @@ describe('ensureVerifiedCoachingResolution', () => {
       repairAttempted: true,
       repairAccepted: true,
       initialIssues: ['too_short'],
-      finalIssues: [] as string[],
+      finalIssues: [],
     };
 
     expect(
@@ -712,6 +714,102 @@ describe('assessCoachingResponseQuality', () => {
     });
 
     expect(result.issues).toContain('repeated_closing_move');
+  });
+
+  it('利用者が文脈のずれを指摘した後は短い完全重複も不合格にする', () => {
+    const repeated =
+      '現在の支払い分担について、口頭のお願い以外に確認できる合意や記録はありますか？';
+    const result = assessCoachingResponseQuality({
+      text: repeated,
+      lastUserText: '本当に何の話？',
+      historyMessages: [
+        {
+          role: 'user',
+          content: '仕事中に、お金の不安を解放していた話です。',
+        },
+        { role: 'assistant', content: repeated },
+      ],
+    });
+
+    expect(result.issues).toContain('repeated_closing_move');
+    expect(result.issues).toContain('dissatisfaction_unanswered');
+  });
+
+  it('現在のお金の不安を古い支払いトラブルへ誤接続しない', () => {
+    const lastUserText =
+      'もう、これ以上お金を使いたくない！スピリチュアルに疲れた。なぜ私にはお金が入ってこないの、という不安を解放していました。';
+    const historyMessages = [
+      {
+        role: 'user' as const,
+        content: '以前、夫が家賃を払わないことで困っていました。',
+      },
+      {
+        role: 'assistant' as const,
+        content: '支払額と期限を文面で確認してください。',
+      },
+      {
+        role: 'user' as const,
+        content: '今回は講座に申し込まなかった後悔と、お金への不安の話です。',
+      },
+      {
+        role: 'assistant' as const,
+        content: '今夜はリリーシング瞑想をすると決めました。',
+      },
+    ];
+
+    const result = buildFinalVerifiedQualityFallback(
+      lastUserText,
+      historyMessages
+    );
+
+    expect(result).toMatch(/お金|スピリチュアル|不安|使いたくない/);
+    expect(result).not.toMatch(
+      /支払い分担|口頭のお願い|合意や記録|決まっている金額|相手の理由/
+    );
+    expect(
+      assessCoachingResponseQuality({
+        text: result,
+        lastUserText,
+        historyMessages,
+      }).issues
+    ).toEqual([]);
+  });
+
+  it('文脈訂正を重ねた利用者へ誤った支払い質問を再掲しない', () => {
+    const repeated =
+      '現在の支払い分担について、口頭のお願い以外に確認できる合意や記録はありますか？';
+    const historyMessages = [
+      {
+        role: 'user' as const,
+        content:
+          '仕事中に、スピリチュアルなことと、お金が入ってこない不安を解放していた話です。',
+      },
+      { role: 'assistant' as const, content: repeated },
+      { role: 'user' as const, content: '支払い分担って何の話？' },
+      { role: 'assistant' as const, content: repeated },
+      {
+        role: 'user' as const,
+        content: 'なんで私ばっかりお金が入ってこないの、という話です。',
+      },
+      { role: 'assistant' as const, content: repeated },
+    ];
+    const lastUserText = '本当に何の話？';
+
+    const result = buildFinalVerifiedQualityFallback(
+      lastUserText,
+      historyMessages
+    );
+
+    expect(result).toMatch(/お金が入ってこない|お金/);
+    expect(result).not.toContain(repeated);
+    expect(result).not.toMatch(/支払い分担|口頭のお願い|合意や記録/);
+    expect(
+      assessCoachingResponseQuality({
+        text: result,
+        lastUserText,
+        historyMessages,
+      }).issues
+    ).toEqual([]);
   });
 
   it('提案後の短い返答から実行済みの行動を捏造した回答を不合格にする', () => {

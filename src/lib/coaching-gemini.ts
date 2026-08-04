@@ -1817,7 +1817,7 @@ export function assessCoachingResponseQuality(params: {
       (message) =>
         canonicalizeAssistantParagraph(message.content) ===
           canonicalizeAssistantParagraph(text) &&
-        compactText.length >= 60
+        (compactText.length >= 16 || userReportsDissatisfaction)
     );
   if (
     repeatsFullResponse ||
@@ -3175,7 +3175,13 @@ function buildSafeQualityFallback(
   const userContext = [
     ...historyMessages
       .filter((message) => message.role === 'user')
-      .slice(-10)
+      .filter(
+        (message) =>
+          !message.content.startsWith(
+            '以下は過去の会話の保存済み要約です。'
+          )
+      )
+      .slice(-3)
       .map((message) => stripAttachmentMarkdown(message.content)),
     lastUserText,
   ].join('\n');
@@ -3209,7 +3215,7 @@ function buildSafeQualityFallback(
   }
 
   if (
-    /家賃|支払|未払い|振込|お金/.test(userContext) &&
+    hasPaymentObligationContext(userContext) &&
     hasUnsafeHighImpactAdvice(withoutGenericClosing)
   ) {
     const alreadyRecordedShortfall = historyMessages.some(
@@ -3321,19 +3327,10 @@ export function buildFinalVerifiedQualityFallback(
     [...historyMessages]
       .reverse()
       .find((message) => message.role === 'user')?.content || '';
-  const previousTopicalUserText =
-    [...historyMessages]
-      .reverse()
-      .find(
-        (message) =>
-          message.role === 'user' &&
-          COACHING_DOMAIN_CONTEXT_PATTERN.test(message.content)
-      )?.content || '';
-  const fallbackSourceText = COACHING_DOMAIN_CONTEXT_PATTERN.test(
-    lastUserText
-  )
-    ? lastUserText
-    : previousTopicalUserText || immediatePreviousUserText || lastUserText;
+  const fallbackSourceText =
+    selectRelevantFallbackSource(lastUserText, historyMessages) ||
+    immediatePreviousUserText ||
+    lastUserText;
   const cleanUserText = stripAttachmentMarkdown(lastUserText)
     .replace(/\s+/g, ' ')
     .replace(/[「」『』]/g, '')
@@ -3360,6 +3357,13 @@ export function buildFinalVerifiedQualityFallback(
     : '';
   const historicalUserContext = historyMessages
     .filter((message) => message.role === 'user')
+    .filter(
+      (message) =>
+        !message.content.startsWith(
+          '以下は過去の会話の保存済み要約です。'
+        )
+    )
+    .slice(-6)
     .map((message) => stripAttachmentMarkdown(message.content))
     .join('\n');
   const fallbackContext = [historicalUserContext, fallbackSourceText]
@@ -3378,13 +3382,13 @@ export function buildFinalVerifiedQualityFallback(
           historyMessages
         )
       : '';
-  const domainExplanation = /家賃|支払|未払い|振込|お金/.test(
-    fallbackContext
+  const domainExplanation = hasPaymentObligationContext(
+    fallbackSourceText
   )
     ? '相手の理由を推測するより、決まっている金額、期限、実際の支払いを分けて確認すると、次に必要な対応を判断できます。'
-    : /夫|妻|家事|家族|関係|相手/.test(fallbackContext)
+    : /夫|妻|家事|家族|関係|相手/.test(fallbackSourceText)
       ? '相手の気持ちを推測するより、実際に起きたことと、相手に変えてほしい行動を分けると、話し合う内容が明確になります。'
-      : /仕事|上司|同僚|会議|企画|職場/.test(fallbackContext)
+      : /仕事|上司|同僚|会議|企画|職場/.test(fallbackSourceText)
         ? '仕事全体について結論を急がず、実際に困った場面と、次に確認する点を分けると、具体的な対応を選びやすくなります。'
         : 'まだ書かれていない原因を推測せず、実際に起きたことと、次に困る場面を分けると、具体的な対応を選びやすくなります。';
   const concreteAction = preserveRequestedActionTime(
@@ -3392,14 +3396,14 @@ export function buildFinalVerifiedQualityFallback(
     lastUserText
   );
   const questionCandidates = /仕事|上司|同僚|会議|企画|職場/.test(
-    fallbackContext
+    fallbackSourceText
   )
     ? [
         '最後に困った仕事の場面で、上司や相手から実際に言われた言葉を一つ教えてください。',
         'いま詰まっている仕事の場面で、誰が何を言ったかを一つだけ書いてください。',
         '次の対応を決めるために、最後に困った仕事の場面の日時と相手を一つ教えてください。',
       ]
-    : /夫|妻|家事|家族|関係|相手/.test(fallbackContext)
+    : /夫|妻|家事|家族|関係|相手/.test(fallbackSourceText)
       ? [
           '最後に困った場面で、相手が実際にしたことを一つだけ教えてください。',
           '家族とのやり取りで、最後に止まった場面の日時と相手を一つ教えてください。',
@@ -3482,6 +3486,14 @@ function buildSilentAnswerFallback(
 }
 
 function buildSubstantiveShortFallback(lastUserText: string) {
+  if (
+    /お金/.test(lastUserText) &&
+    /使いたくない|疲れ/.test(lastUserText) &&
+    /入ってこない|回ってこない|不安/.test(lastUserText)
+  ) {
+    return 'いま話しているのは、学びにこれ以上お金を使いたくない疲れと、お金を使っても収入につながらない不安です。新しい支払いを勧める場面ではありません。まず今日は申込みを決めず、生活に影響しない範囲で今後学びに使える上限額だけを決めてください。';
+  }
+
   if (
     /家計簿|収支|赤字|黒字|予算|固定費|変動費|食費|生活費/.test(
       lastUserText
@@ -3593,20 +3605,10 @@ function buildContextualDissatisfactionFallback(
   lastUserText: string,
   historyMessages: CoachingChatMessage[]
 ) {
-  const immediatePreviousUserText =
-    [...historyMessages]
-      .reverse()
-      .find((message) => message.role === 'user')?.content || '';
-  const previousTopicalUserText =
-    [...historyMessages]
-      .reverse()
-      .find(
-        (message) =>
-          message.role === 'user' &&
-          COACHING_DOMAIN_CONTEXT_PATTERN.test(message.content)
-      )?.content || '';
-  const previousUserText =
-    previousTopicalUserText || immediatePreviousUserText;
+  const previousUserText = selectRelevantFallbackSource(
+    lastUserText,
+    historyMessages
+  );
   if (!previousUserText) return '';
 
   const cleanPreviousText = stripAttachmentMarkdown(previousUserText)
@@ -3658,7 +3660,7 @@ function buildContextualDissatisfactionFallback(
     return `${opening}\n\n家族の悩みでは、相手の気持ちを推測することと、実際に変えてほしい行動を決めることを分ける必要があります。最後に困った場面について、相手がしたこと、自分への影響、次回から変えてほしい行動を一文ずつ書き分けてください。話し合う内容が具体的になります。`;
   }
 
-  return '';
+  return `${opening}\n\n前の返答では、今回出ていない人物や出来事を混ぜてしまいました。ここからは、直前までに本人が話した事実、本人が述べた不安、すでに決めている行動だけを分け、古い別件を持ち込まずに考え直します。`;
 }
 
 function buildHouseholdRepeatedRequestFallback(
@@ -3694,7 +3696,7 @@ function expandTooShortCoachingResponse(
     /落ち込/.test(lastUserText) && !/落ち込/.test(candidate)
       ? `${/仕事/.test(lastUserText) ? '仕事のことで' : '今の出来事について'}${/少し/.test(lastUserText) ? '少し' : ''}落ち込んでいるのですね。`
       : '';
-  const focus = /家賃|支払|未払い|振込|お金/.test(lastUserText)
+  const focus = hasPaymentObligationContext(lastUserText)
     ? '今は、相手の理由を推測するより、金額、期限、実際の支払いを分けて確認する方が、次の対応を判断しやすくなります。'
     : /夫|妻|家事|家族|関係/.test(lastUserText)
       ? '今は、相手の気持ちを推測するより、実際に起きたことと、相手に変えてほしい行動を分けて考える方が、話し合う点が明確になります。'
@@ -4605,7 +4607,56 @@ function shouldAvoidForcedCoachingMove(
 }
 
 function reportsResponseDissatisfaction(text: string) {
-  return /わからないから聞いて|それを聞いている|質問ばかり|同じ質問|答えになっていない|納得(?:できない|いかない)|何を言いたいのかわから|ちゃんと答えて|前の返答.{0,20}(?:わか(?:ら|り)|短|意味)|前(?:の|より).{0,20}(?:方が|ほうが).{0,20}(?:的確|良かった|よかった)|頭が悪くな/.test(
+  return /わからないから聞いて|それを聞いている|質問ばかり|同じ質問|答えになっていない|納得(?:できない|いかない)|何を言いたいのかわから|ちゃんと答えて|何の話|^(?:(?:これ|それ)は)?どういう(?:こと|事)[。！？!?]*$|^相手とは[。！？!?]*$|意味(?:が)?(?:不明|わから)|話が(?:違|ずれ)|前の返答.{0,20}(?:わか(?:ら|り)|短|意味)|前(?:の|より).{0,20}(?:方が|ほうが).{0,20}(?:的確|良かった|よかった)|頭が悪くな/.test(
+    text
+  );
+}
+
+function selectRelevantFallbackSource(
+  lastUserText: string,
+  historyMessages: CoachingChatMessage[]
+) {
+  const cleanCurrent = stripAttachmentMarkdown(lastUserText)
+    .replace(/\s+/g, ' ')
+    .trim();
+  const currentIsSubstantive =
+    cleanCurrent.length >= 12 &&
+    !reportsResponseDissatisfaction(cleanCurrent);
+  if (currentIsSubstantive) return lastUserText;
+
+  const previousUserTexts = [...historyMessages]
+    .reverse()
+    .filter((message) => message.role === 'user')
+    .map((message) => message.content)
+    .filter((content) => {
+      const clean = stripAttachmentMarkdown(content)
+        .replace(/\s+/g, ' ')
+        .trim();
+      return (
+        clean.length >= 6 &&
+        !clean.startsWith('以下は過去の会話の保存済み要約です。') &&
+        !reportsResponseDissatisfaction(clean)
+      );
+    });
+  const immediatePrevious = previousUserTexts[0] || '';
+  const currentTopicPattern =
+    /家計簿|収支|赤字|黒字|予算|固定費|変動費|食費|生活費|仕事|職場|業務|会社|上司|同僚|会議|企画|顧客|夫|妻|主人|家事|家族|親|子ども|パートナー|お金|収入|講座|スピリチュアル|瞑想|解放|不安|後悔/;
+  if (currentTopicPattern.test(immediatePrevious)) {
+    return immediatePrevious;
+  }
+
+  const earlierTopical = previousUserTexts
+    .slice(1, 4)
+    .find((content) => currentTopicPattern.test(content));
+  if (immediatePrevious && earlierTopical) {
+    return `${earlierTopical}\n${immediatePrevious}`;
+  }
+
+  return immediatePrevious || lastUserText;
+}
+
+function hasPaymentObligationContext(text: string) {
+  return /家賃|未払い|支払(?:い)?(?:分担|額|日|期限|不足|われない|わない|っていない|ってない)|振込(?:額|日|期限|不足|がない|まれていない)|負担額|請求額/.test(
     text
   );
 }
@@ -4617,12 +4668,18 @@ function buildRejectedMoveFallback(
   const userContext = [
     ...historyMessages
       .filter((message) => message.role === 'user')
-      .slice(-10)
+      .filter(
+        (message) =>
+          !message.content.startsWith(
+            '以下は過去の会話の保存済み要約です。'
+          )
+      )
+      .slice(-3)
       .map((message) => stripAttachmentMarkdown(message.content)),
     lastUserText,
   ].join('\n');
 
-  if (/家賃|支払|未払い|振込|お金/.test(userContext)) {
+  if (hasPaymentObligationContext(userContext)) {
     const alreadyRecordedShortfall = historyMessages.some(
       (message) =>
         message.role === 'assistant' &&
@@ -4788,7 +4845,7 @@ function buildClosingCoachingQuestion(
       .map((message) => stripAttachmentMarkdown(message.content)),
     lastUserText,
   ].join('\n');
-  if (/家賃|支払|未払い|振込|お金/.test(recentUserContext)) {
+  if (hasPaymentObligationContext(recentUserContext)) {
     const previousAssistantText = historyMessages
       .filter((message) => message.role === 'assistant')
       .slice(-6)
