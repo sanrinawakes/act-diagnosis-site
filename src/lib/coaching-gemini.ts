@@ -76,7 +76,9 @@ const API_HISTORY_CHAR_LIMIT = 700;
 const API_LAST_USER_CHAR_LIMIT = 2500;
 const COACHING_DOMAIN_CONTEXT_PATTERN =
   /家計簿|収支|赤字|黒字|予算|固定費|変動費|食費|生活費|仕事|職場|業務|会社|上司|同僚|会議|企画|顧客|夫|妻|主人|家事|家族|親|子ども|パートナー/;
-const GEMINI_TEXT_TIMEOUT_MS = 12000;
+// Leave enough time for a verified provider fallback to finish before the
+// 10-second first-response monitor threshold.
+const GEMINI_TEXT_TIMEOUT_MS = 6500;
 const GEMINI_IMAGE_TIMEOUT_MS = 20000;
 const GEMINI_FINALIZE_TIMEOUT_MS = 4000;
 const QUALITY_REPAIR_TIMEOUT_MS = 7000;

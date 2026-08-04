@@ -53,6 +53,7 @@ try {
 
   if (shouldRunLongHistory) {
     results.push(await runLongHistoryConversation());
+    results.push(await runTopicDriftRecoveryConversation());
   }
 
   if (shouldRunConcurrency) {
@@ -118,6 +119,43 @@ async function runLongHistoryConversation() {
     diagnosisCode: 'SMM-1',
     messages,
     label: 'long-history-437',
+  });
+}
+
+async function runTopicDriftRecoveryConversation() {
+  const email = uniqueEmail('topic-drift-recovery');
+  createdEmails.push(email);
+  const repeated =
+    '現在の支払い分担について、口頭のお願い以外に確認できる合意や記録はありますか？';
+
+  return sendStreamRequest({
+    email,
+    diagnosisCode: 'SMM-1',
+    messages: [
+      {
+        role: 'user',
+        content: '以前、夫が家賃を払わないことで困っていました。',
+      },
+      {
+        role: 'assistant',
+        content: '支払額と期限を文面で確認してください。',
+      },
+      {
+        role: 'user',
+        content:
+          '今回は講座に申し込まなかった後悔と、スピリチュアルな学びにこれ以上お金を使いたくない疲れ、お金が入ってこない不安の話です。',
+      },
+      { role: 'assistant', content: repeated },
+      { role: 'user', content: '支払い分担って何の話？' },
+      { role: 'assistant', content: repeated },
+      {
+        role: 'user',
+        content: 'なんで私ばっかりお金が入ってこないの、という話です。',
+      },
+      { role: 'assistant', content: repeated },
+      { role: 'user', content: '本当に何の話？' },
+    ],
+    label: 'topic-drift-recovery',
   });
 }
 
@@ -464,7 +502,11 @@ function assertResults(results) {
         `${result.label} did not complete generation: ${result.completionStatus || 'missing status'}`
       );
     }
-    if (result.finishReason !== result.expectedFinishReason) {
+    const acceptedFinishReasons =
+      result.expectedFinishReason === 'STOP'
+        ? ['STOP', 'completed', 'end_turn']
+        : [result.expectedFinishReason];
+    if (!acceptedFinishReasons.includes(result.finishReason)) {
       throw new Error(
         `${result.label} ended with ${result.finishReason || 'missing finish reason'}`
       );
@@ -498,6 +540,15 @@ function assertResults(results) {
       }
     }
     if (result.label === 'urgent-safety') continue;
+    if (
+      result.label === 'topic-drift-recovery' &&
+      (/支払い分担|口頭のお願い|合意や記録|家賃/.test(result.message) ||
+        !/お金|講座|スピリチュアル|不安|疲れ/.test(result.message))
+    ) {
+      throw new Error(
+        `${result.label} did not recover the current topic: ${result.message}`
+      );
+    }
     if (
       ['normal-3', 'long-history-437'].includes(result.label) &&
       /今できる最小の行動を一つだけ決めて/.test(result.message)
