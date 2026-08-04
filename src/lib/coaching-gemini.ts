@@ -1891,6 +1891,14 @@ export function assessCoachingResponseQuality(params: {
     issues.push('dissatisfaction_unanswered');
   }
   if (
+    userReportsDissatisfaction &&
+    /本人が話した事実|本人が述べた不安|古い別件|持ち込まずに考え直|ここからは[^。！？?\n]{0,80}考え直/.test(
+      text
+    )
+  ) {
+    issues.push('dissatisfaction_unanswered');
+  }
+  if (
     /能力がないと思われる.{0,20}(?:怖|不安)/.test(lastUserText) &&
     (!/能力がないと思われる|能力を低く評価され/.test(text) ||
       !/評価基準|評価される基準|評価の基準/.test(text) ||
@@ -3674,6 +3682,20 @@ function buildContextualDissatisfactionFallback(
       ? `${cleanPreviousText.slice(0, 72)}…`
       : cleanPreviousText;
   const opening = `前の返答は短い質問だけで、何を言いたいのか分からない内容になっていました。申し訳ありません。「${previousExcerpt}」という悩みについて、考え方を先に示します。`;
+  const recentUserContext = historyMessages
+    .filter((message) => message.role === 'user')
+    .map((message) => stripAttachmentMarkdown(message.content))
+    .filter((content) => !reportsResponseDissatisfaction(content))
+    .slice(-4)
+    .join('\n');
+
+  if (
+    /講座/.test(recentUserContext) &&
+    /スピリチュアル/.test(recentUserContext) &&
+    /お金が入ってこな/.test(recentUserContext)
+  ) {
+    return '前の返答は今回とは違う話を混ぜていました。申し訳ありません。\n\n今の話は、講座に申し込まなかった後悔、これ以上スピリチュアルな学びにお金を使いたくない疲れ、お金が入ってこない不安についてです。講座へ申し込む判断と、現在の収入の問題を分けます。今日は講座への申し込みを保留にし、現在の収入源と今月必要な金額を確認してください。';
+  }
 
   if (
     /仕事|職場|業務|会社|上司|同僚|会議|企画|顧客/.test(

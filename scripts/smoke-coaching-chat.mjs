@@ -495,7 +495,12 @@ function assertResults(results) {
     (/支払い分担|口頭のお願い|合意や記録|合意した負担|不足額|支払日|追い詰め|未練/.test(
       topicDriftResult.message
     ) ||
-      !/お金|講座|スピリチュアル|不安|疲れ/.test(topicDriftResult.message))
+      /本人が話した事実|本人が述べた不安|古い別件|持ち込まずに考え直/.test(
+        topicDriftResult.message
+      ) ||
+      !/講座への申し込みを保留/.test(topicDriftResult.message) ||
+      !/現在の収入源/.test(topicDriftResult.message) ||
+      !/今月必要な金額/.test(topicDriftResult.message))
   ) {
     throw new Error(
       `${topicDriftResult.label} did not recover the current topic: ${topicDriftResult.message}`

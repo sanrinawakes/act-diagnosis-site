@@ -864,6 +864,24 @@ describe('assessCoachingResponseQuality', () => {
     ).toBe('現在の収入源と支出を書き出してください。');
   });
 
+  it('不満への返答を内部処理の説明だけで終えない', () => {
+    const processOnlyReply =
+      '前の返答では、今回出ていない人物や出来事を混ぜてしまいました。ここからは、直前までに本人が話した事実、本人が述べた不安、すでに決めている行動だけを分け、古い別件を持ち込まずに考え直します。';
+
+    expect(
+      assessCoachingResponseQuality({
+        text: processOnlyReply,
+        lastUserText: '本当に何の話？',
+        historyMessages: [
+          {
+            role: 'user',
+            content: 'お金が入ってこない不安の話です。',
+          },
+        ],
+      }).issues
+    ).toContain('dissatisfaction_unanswered');
+  });
+
   it('提案後の短い返答から実行済みの行動を捏造した回答を不合格にする', () => {
     const result = assessCoachingResponseQuality({
       text: '夫に期限を確認しても、何も答えてくれなかったのですね。',
