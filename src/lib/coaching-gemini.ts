@@ -1996,6 +1996,9 @@ export function assessCoachingResponseQuality(params: {
   ) {
     issues.push('context_mismatch');
   }
+  if (reinforcesTopicAvoidance(text, userContext, lastUserText)) {
+    issues.push('context_mismatch');
+  }
   const responseParagraphs = text
     .split(/\n{2,}/)
     .map((paragraph) => paragraph.trim())
@@ -2013,7 +2016,7 @@ export function assessCoachingResponseQuality(params: {
           /「[^」]{4,}」/.test(paragraph)
       );
   if (
-    /(?:^|\n{2,})(?:だ|なの)と思います[。！？]?(?:\n{2,}|$)/.test(
+    /(?:^|\n{2,})(?:だ|なの)と思います[。！？]?(?:\n{2,}|$)|あなた自分(?:が|は|を)/.test(
       text
     ) ||
     (danglingDemonstrativeIndex >= 0 &&
@@ -4234,6 +4237,9 @@ function isSingleActionRelevantToContext(
       .map((message) => stripAttachmentMarkdown(message.content)),
     lastUserText,
   ].join('\n');
+  if (reinforcesTopicAvoidance(answer, userContext, lastUserText)) {
+    return false;
+  }
   if (
     /SNS.{0,28}(?:抵抗|怖|発信でき|投稿でき|苦手|避け)|(?:抵抗|怖|発信でき|投稿でき|苦手|避け).{0,28}SNS/.test(
       userContext
@@ -4310,6 +4316,28 @@ function isSingleActionRelevantToContext(
   return (
     contextChecks.length === 0 ||
     contextChecks.some((check) => check.relevant)
+  );
+}
+
+function reinforcesTopicAvoidance(
+  answer: string,
+  userContext: string,
+  lastUserText: string
+) {
+  const discussesSocialPostingResistance =
+    /SNS.{0,28}(?:抵抗|怖|発信でき|投稿でき|苦手|避け)|(?:抵抗|怖|発信でき|投稿でき|苦手|避け).{0,28}SNS/.test(
+      userContext
+    );
+  if (!discussesSocialPostingResistance) return false;
+
+  const explicitlyRequestsDistance =
+    /SNS.{0,24}(?:離れたい|休みたい|見たくない|やめたい|距離を置きたい)|(?:離れたい|休みたい|見たくない|やめたい|距離を置きたい).{0,24}SNS/.test(
+      lastUserText
+    );
+  if (explicitlyRequestsDistance) return false;
+
+  return /(?:仕事(?:や|と|・)\s*)?SNS(?:や仕事)?から(?:一度|いったん|一旦|しばらく)?離れ|SNS(?:や投稿|や発信)?(?:を|は)(?:一度|いったん|一旦|しばらく)?(?:見ない|使わない|休む|やめる|閉じる)/.test(
+    answer
   );
 }
 

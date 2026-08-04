@@ -542,7 +542,9 @@ function assertResults(results) {
     if (result.label === 'urgent-safety') continue;
     if (
       result.label === 'topic-drift-recovery' &&
-      (/支払い分担|口頭のお願い|合意や記録|家賃/.test(result.message) ||
+      (/支払い分担|口頭のお願い|合意や記録|支払額と期限/.test(
+        result.message
+      ) ||
         !/お金|講座|スピリチュアル|不安|疲れ/.test(result.message))
     ) {
       throw new Error(

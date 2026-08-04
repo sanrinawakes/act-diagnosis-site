@@ -1421,6 +1421,66 @@ describe('normalizeCoachingOutput', () => {
     ).toEqual([]);
   });
 
+  it('SNSへの抵抗を相談中にSNSから離れる回避助言を不合格にする', () => {
+    const lastUserText =
+      '明日まず何をすればいいか、一つだけ短く教えてください。';
+    const historyMessages = [
+      {
+        role: 'user' as const,
+        content: '仕事の悩みとSNSへの抵抗感について相談しています。',
+      },
+    ];
+    const text =
+      '明日はまず、仕事やSNSから一度離れて、自分が落ち着く行動を朝の10分間で行ってみてください。';
+
+    expect(
+      assessCoachingResponseQuality({
+        text,
+        lastUserText,
+        historyMessages,
+      }).issues
+    ).toContain('context_mismatch');
+    expect(
+      normalizeCoachingOutput(text, lastUserText, historyMessages)
+    ).toBe(
+      '明日の朝、SNSで最初に伝えたい内容を一文だけメモに書いてください。'
+    );
+  });
+
+  it('昔の離れたい発言を現在の回避助言の許可に使わない', () => {
+    const result = assessCoachingResponseQuality({
+      text: '明日は、SNSから一度離れてください。',
+      lastUserText: '明日まず何をすればいいか、一つだけ教えてください。',
+      historyMessages: [
+        {
+          role: 'user',
+          content: '以前はSNSから離れたいと思っていました。',
+        },
+        {
+          role: 'user',
+          content: '今はSNSへの抵抗感を減らし、発信を再開したいです。',
+        },
+      ],
+    });
+
+    expect(result.issues).toContain('context_mismatch');
+  });
+
+  it('主語が壊れた「あなた自分が」を不合格にする', () => {
+    const result = assessCoachingResponseQuality({
+      text: '今回は、あなた自分がお金が入ってこないと不安に感じているお話ですね。',
+      lastUserText: '本当に何の話？',
+      historyMessages: [
+        {
+          role: 'user',
+          content: '講座への後悔と、お金が入ってこない不安の話です。',
+        },
+      ],
+    });
+
+    expect(result.issues).toContain('fragmented_expression');
+  });
+
   it('短い返答指定にも飲む・休むなどの二動作を返さない', () => {
     const result = normalizeCoachingOutput(
       '今日は無理をせず、温かい飲み物を一杯飲んで、早めに休息をとってください。',
