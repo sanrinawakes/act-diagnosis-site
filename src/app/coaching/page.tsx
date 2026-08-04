@@ -36,8 +36,6 @@ import {
   COACHING_HISTORY_RETRY_DELAYS_MS,
   retryClientRead,
 } from '@/lib/coaching-history';
-import { persistChatMessageRecord } from '@/lib/chat-message-persistence';
-
 interface Message {
   id: string;
   role: 'user' | 'assistant';
@@ -922,13 +920,7 @@ function CoachingContent() {
     ) {
       try {
         await withTimeout(
-          persistChatMessageRecord({
-            supabase,
-            id: params.id,
-            sessionId: params.sessionId,
-            role: params.role,
-            content: params.content,
-          }),
+          persistChatMessageViaApi(params),
           CHAT_PERSIST_TIMEOUT_MS,
           params.failureMessage
         );
@@ -944,6 +936,27 @@ function CoachingContent() {
 
     console.error('Chat message persistence failed after retries:', lastError);
     throw new Error(params.failureMessage);
+  };
+
+  const persistChatMessageViaApi = async (params: {
+    id: string;
+    sessionId: string;
+    role: 'user' | 'assistant';
+    content: string;
+  }) => {
+    const response = await fetch('/api/chat/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      credentials: 'same-origin',
+      body: JSON.stringify(params),
+    });
+
+    if (!response.ok) {
+      const body = await response.json().catch(() => null);
+      throw new Error(body?.error || 'CHAT_MESSAGE_PERSIST_FAILED');
+    }
   };
 
   const loadApiMessages = async (
