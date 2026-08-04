@@ -70,9 +70,32 @@ if (command === 'list') {
     ticket_id: ticketId,
     run_id: runId,
   });
+} else if (
+  ['quality-claim', 'quality-heartbeat', 'quality-release'].includes(command)
+) {
+  const [incidentId, runId] = args;
+  requireValue(incidentId, 'quality incident id');
+  requireValue(runId, 'run id');
+  await request('/api/internal/support-automation', {
+    action: command.replace('-', '_'),
+    quality_incident_id: incidentId,
+    run_id: runId,
+  });
+} else if (command === 'quality-resolve') {
+  const [incidentId, runId, payloadFile] = args;
+  requireValue(incidentId, 'quality incident id');
+  requireValue(runId, 'run id');
+  requireValue(payloadFile, 'quality resolution payload file');
+  const payload = JSON.parse(await fs.readFile(payloadFile, 'utf8'));
+  await request('/api/internal/support-automation', {
+    ...payload,
+    action: 'quality_resolve',
+    quality_incident_id: incidentId,
+    run_id: runId,
+  });
 } else {
   throw new Error(
-    'Usage: support-automation-client.mjs list|claim|heartbeat|release|hold|decision|reply'
+    'Usage: support-automation-client.mjs list|claim|heartbeat|release|hold|decision|reply|quality-claim|quality-heartbeat|quality-release|quality-resolve'
   );
 }
 

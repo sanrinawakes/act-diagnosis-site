@@ -24,6 +24,7 @@ import {
   type CoachingCompletionDetails,
 } from '@/lib/coaching-gemini';
 import { buildCoachingSessionContext } from '@/lib/coaching-session-memory';
+import { persistResponseGateQualityIncidents } from '@/lib/coaching-quality-incidents';
 import {
   claimCoachingResponse,
   completeCoachingResponse,
@@ -648,6 +649,15 @@ export async function POST(request: NextRequest) {
           marker: responseMarker,
           message: completion.message,
         });
+        await persistResponseGateQualityIncidents({
+          supabaseAdmin,
+          assistantMessageId: recovery.assistantMessageId,
+          sessionId: recovery.sessionId,
+          userId: user.id,
+          qualityInitialIssues: completion.qualityInitialIssues,
+          qualityFinalIssues: completion.qualityFinalIssues,
+          qualitySafetyHold: completion.qualitySafetyHold,
+        });
       }
       return {
         remaining: quotaReservation.remaining,
@@ -685,6 +695,9 @@ export async function POST(request: NextRequest) {
     let completionStatus;
     let finishReason;
     let generatedModelName = '';
+    let qualityInitialIssues: CoachingCompletionDetails['qualityInitialIssues'] = [];
+    let qualityFinalIssues: CoachingCompletionDetails['qualityFinalIssues'] = [];
+    let qualitySafetyHold = false;
     try {
       const result = await generateCoachingText({
         systemPrompt,
@@ -696,6 +709,9 @@ export async function POST(request: NextRequest) {
       completionStatus = result.completionStatus;
       finishReason = result.finishReason;
       generatedModelName = result.modelName;
+      qualityInitialIssues = result.qualityInitialIssues;
+      qualityFinalIssues = result.qualityFinalIssues;
+      qualitySafetyHold = result.qualitySafetyHold === true;
       console.info(
         JSON.stringify({
           event: 'chat_nonstream_done',
@@ -749,6 +765,9 @@ export async function POST(request: NextRequest) {
         completionStatus,
         finishReason,
         modelName: generatedModelName,
+        qualityInitialIssues,
+        qualityFinalIssues,
+        qualitySafetyHold,
       }));
     } catch (error) {
       if (profile.role !== 'admin') {

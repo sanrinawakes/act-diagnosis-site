@@ -33,6 +33,7 @@ const CLAIM_LEASE_MS = 45 * 60 * 1000;
 const MAX_QUEUE_ITEMS = 20;
 const MAX_SUPPORT_SCAN_ITEMS = 500;
 const MAX_RECENT_MONITOR_FAILURES = 200;
+const MAX_QUALITY_INCIDENT_SCAN_ITEMS = 200;
 const RECENT_MONITOR_FAILURE_WINDOW_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_AUTOMATION_START_AT = '2026-07-25T00:00:00.000Z';
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -48,6 +49,23 @@ type SupportTicket = {
   message: string;
   status: string;
   created_at: string;
+  updated_at: string;
+};
+
+type CoachingQualityIncident = {
+  id: string;
+  assistant_message_id: string;
+  session_id: string;
+  user_id: string;
+  issue: string;
+  source: string;
+  status: string;
+  message_created_at: string;
+  detected_at: string;
+  deployment_commit: string | null;
+  details: Record<string, unknown>;
+  claimed_run_id: string | null;
+  claimed_at: string | null;
   updated_at: string;
 };
 
@@ -135,12 +153,36 @@ export async function GET(request: NextRequest) {
 
     if (monitorFailureError) throw monitorFailureError;
 
-    const [tickets, pendingDecisions] = await Promise.all([
+    const { data: rawQualityIncidents, error: qualityIncidentError } =
+      await client
+        .from('coaching_quality_incidents')
+        .select(
+          'id,assistant_message_id,session_id,user_id,issue,source,status,message_created_at,detected_at,deployment_commit,details,claimed_run_id,claimed_at,updated_at'
+        )
+        .in('status', ['open', 'in_progress'])
+        .order('detected_at', { ascending: true })
+        .limit(MAX_QUALITY_INCIDENT_SCAN_ITEMS);
+    if (qualityIncidentError) throw qualityIncidentError;
+    const qualityIncidents = (
+      (rawQualityIncidents || []) as CoachingQualityIncident[]
+    ).filter(
+      (incident) =>
+        incident.status === 'open' ||
+        (incident.status === 'in_progress' &&
+          (!incident.claimed_at || incident.claimed_at < staleBefore))
+    );
+
+    const [tickets, pendingDecisions, qualityIncidentQueue] = await Promise.all([
       Promise.all(queue.map((ticket) => enrichTicketContext(client, ticket))),
       Promise.all(
         pendingDecisionQueue.map((ticket) =>
           enrichTicketContext(client, ticket)
         )
+      ),
+      Promise.all(
+        qualityIncidents
+          .slice(0, limit)
+          .map((incident) => enrichQualityIncidentContext(client, incident))
       ),
     ]);
 
@@ -154,6 +196,8 @@ export async function GET(request: NextRequest) {
       pending_decisions: pendingDecisions,
       latest_coaching_monitors: monitors || [],
       recent_coaching_failures: monitorFailures || [],
+      open_coaching_quality_incident_count: qualityIncidents.length,
+      open_coaching_quality_incidents: qualityIncidentQueue,
     });
   } catch (error) {
     console.error('GET /api/internal/support-automation error:', error);
@@ -183,16 +227,46 @@ export async function POST(request: NextRequest) {
     }
 
     const action = toSafeText(body.action, 40);
-    const ticketId = toSafeText(body.ticket_id, 80);
     const runId = toSafeText(body.run_id, 120);
-    if (!isUuid(ticketId) || !/^[A-Za-z0-9_-]{8,120}$/.test(runId)) {
+    if (!/^[A-Za-z0-9_-]{8,120}$/.test(runId)) {
+      return NextResponse.json(
+        { error: 'Valid run_id is required' },
+        { status: 400 }
+      );
+    }
+
+    const client = createAdminClient();
+    if (action.startsWith('quality_')) {
+      const incidentId = toSafeText(body.quality_incident_id, 80);
+      if (!isUuid(incidentId)) {
+        return NextResponse.json(
+          { error: 'Valid quality_incident_id is required' },
+          { status: 400 }
+        );
+      }
+      if (action === 'quality_claim') {
+        return claimQualityIncident(client, incidentId, runId);
+      }
+      if (action === 'quality_heartbeat') {
+        return heartbeatQualityIncident(client, incidentId, runId);
+      }
+      if (action === 'quality_release') {
+        return releaseQualityIncident(client, incidentId, runId);
+      }
+      if (action === 'quality_resolve') {
+        return resolveQualityIncident(client, incidentId, runId, body);
+      }
+      return NextResponse.json({ error: 'Unknown quality action' }, { status: 400 });
+    }
+
+    const ticketId = toSafeText(body.ticket_id, 80);
+    if (!isUuid(ticketId)) {
       return NextResponse.json(
         { error: 'Valid ticket_id and run_id are required' },
         { status: 400 }
       );
     }
 
-    const client = createAdminClient();
     if (action === 'claim') {
       return claimTicket(client, ticketId, runId);
     }
@@ -220,6 +294,194 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
+}
+
+async function claimQualityIncident(
+  client: SupabaseClient,
+  incidentId: string,
+  runId: string
+) {
+  const incident = await getQualityIncident(client, incidentId);
+  if (incident.status === 'resolved' || incident.status === 'ignored') {
+    return NextResponse.json(
+      { error: `Quality incident is already ${incident.status}` },
+      { status: 409 }
+    );
+  }
+
+  const isStale =
+    incident.status === 'in_progress' &&
+    (!incident.claimed_at ||
+      Date.now() - new Date(incident.claimed_at).getTime() >= CLAIM_LEASE_MS);
+  if (
+    incident.status === 'in_progress' &&
+    !isStale &&
+    incident.claimed_run_id === runId
+  ) {
+    return NextResponse.json({
+      success: true,
+      claimed: true,
+      already_claimed: true,
+      run_id: runId,
+      quality_incident: incident,
+    });
+  }
+  if (incident.status === 'in_progress' && !isStale) {
+    return NextResponse.json(
+      { error: 'Quality incident is already claimed' },
+      { status: 409 }
+    );
+  }
+
+  const claimedAt = new Date().toISOString();
+  let query = client
+    .from('coaching_quality_incidents')
+    .update({
+      status: 'in_progress',
+      claimed_run_id: runId,
+      claimed_at: claimedAt,
+      updated_at: claimedAt,
+    })
+    .eq('id', incidentId);
+  query =
+    incident.status === 'open'
+      ? query.eq('status', 'open')
+      : query.eq('updated_at', incident.updated_at);
+  const { data, error } = await query.select().maybeSingle();
+  if (error) throw error;
+  if (!data) {
+    return NextResponse.json(
+      { error: 'Quality incident was claimed by another run' },
+      { status: 409 }
+    );
+  }
+  return NextResponse.json({
+    success: true,
+    claimed: true,
+    run_id: runId,
+    quality_incident: data,
+  });
+}
+
+async function heartbeatQualityIncident(
+  client: SupabaseClient,
+  incidentId: string,
+  runId: string
+) {
+  const incident = await getQualityIncident(client, incidentId);
+  const ownershipError = validateQualityIncidentOwnership(incident, runId);
+  if (ownershipError) {
+    return NextResponse.json({ error: ownershipError }, { status: 409 });
+  }
+  const now = new Date().toISOString();
+  const { data, error } = await client
+    .from('coaching_quality_incidents')
+    .update({ claimed_at: now, updated_at: now })
+    .eq('id', incidentId)
+    .eq('status', 'in_progress')
+    .eq('claimed_run_id', runId)
+    .eq('updated_at', incident.updated_at)
+    .select()
+    .maybeSingle();
+  if (error) throw error;
+  return NextResponse.json({ success: Boolean(data), quality_incident: data });
+}
+
+async function releaseQualityIncident(
+  client: SupabaseClient,
+  incidentId: string,
+  runId: string
+) {
+  const incident = await getQualityIncident(client, incidentId);
+  const ownershipError = validateQualityIncidentOwnership(incident, runId);
+  if (ownershipError) {
+    return NextResponse.json({ error: ownershipError }, { status: 409 });
+  }
+  const { data, error } = await client
+    .from('coaching_quality_incidents')
+    .update({
+      status: 'open',
+      claimed_run_id: null,
+      claimed_at: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', incidentId)
+    .eq('status', 'in_progress')
+    .eq('claimed_run_id', runId)
+    .eq('updated_at', incident.updated_at)
+    .select()
+    .maybeSingle();
+  if (error) throw error;
+  return NextResponse.json({ success: Boolean(data), quality_incident: data });
+}
+
+async function resolveQualityIncident(
+  client: SupabaseClient,
+  incidentId: string,
+  runId: string,
+  body: Record<string, unknown>
+) {
+  const incident = await getQualityIncident(client, incidentId);
+  const ownershipError = validateQualityIncidentOwnership(incident, runId);
+  if (ownershipError) {
+    return NextResponse.json({ error: ownershipError }, { status: 409 });
+  }
+  const resolutionKind = toSafeText(body.resolution_kind, 40);
+  const resolutionNote = toSafeText(body.resolution_note, 4000);
+  if (
+    !['technical_fix', 'false_positive', 'no_code_change'].includes(
+      resolutionKind
+    ) ||
+    !resolutionNote
+  ) {
+    return NextResponse.json(
+      { error: 'Valid resolution_kind and resolution_note are required' },
+      { status: 400 }
+    );
+  }
+  const evidence =
+    body.evidence && typeof body.evidence === 'object'
+      ? (body.evidence as Record<string, unknown>)
+      : {};
+  if (resolutionKind === 'technical_fix') {
+    const releaseEvidenceError = await verifyTechnicalReleaseEvidence(
+      client,
+      evidence
+    );
+    if (releaseEvidenceError) {
+      return NextResponse.json(
+        { error: releaseEvidenceError },
+        { status: 409 }
+      );
+    }
+  }
+
+  const resolvedAt = new Date().toISOString();
+  const status = resolutionKind === 'false_positive' ? 'ignored' : 'resolved';
+  const { data, error } = await client
+    .from('coaching_quality_incidents')
+    .update({
+      status,
+      resolution_kind: resolutionKind,
+      resolution_note: resolutionNote,
+      resolution_evidence: evidence,
+      resolved_at: resolvedAt,
+      updated_at: resolvedAt,
+    })
+    .eq('id', incidentId)
+    .eq('status', 'in_progress')
+    .eq('claimed_run_id', runId)
+    .eq('updated_at', incident.updated_at)
+    .select()
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) {
+    return NextResponse.json(
+      { error: 'Quality incident changed while resolving it' },
+      { status: 409 }
+    );
+  }
+  return NextResponse.json({ success: true, quality_incident: data });
 }
 
 async function claimTicket(
@@ -767,6 +1029,41 @@ async function enrichTicketContext(
   };
 }
 
+async function enrichQualityIncidentContext(
+  client: SupabaseClient,
+  incident: CoachingQualityIncident
+) {
+  const [profileResult, sessionResult, messagesResult] = await Promise.all([
+    client
+      .from('profiles')
+      .select('id,email,display_name,subscription_status,is_active')
+      .eq('id', incident.user_id)
+      .maybeSingle(),
+    client
+      .from('chat_sessions')
+      .select('id,title,created_at,updated_at,last_message_at,message_count')
+      .eq('id', incident.session_id)
+      .maybeSingle(),
+    client
+      .from('chat_messages')
+      .select('id,role,content,created_at')
+      .eq('session_id', incident.session_id)
+      .in('role', ['user', 'assistant'])
+      .order('created_at', { ascending: false })
+      .limit(24),
+  ]);
+  if (profileResult.error) throw profileResult.error;
+  if (sessionResult.error) throw sessionResult.error;
+  if (messagesResult.error) throw messagesResult.error;
+
+  return {
+    ...incident,
+    profile: profileResult.data || null,
+    session: sessionResult.data || null,
+    recent_messages: (messagesResult.data || []).reverse(),
+  };
+}
+
 async function getTicket(client: SupabaseClient, ticketId: string) {
   const { data, error } = await client
     .from('support_tickets')
@@ -774,6 +1071,19 @@ async function getTicket(client: SupabaseClient, ticketId: string) {
     .eq('id', ticketId)
     .single<SupportTicket>();
   if (error || !data) throw new Error('Ticket not found');
+  return data;
+}
+
+async function getQualityIncident(
+  client: SupabaseClient,
+  incidentId: string
+) {
+  const { data, error } = await client
+    .from('coaching_quality_incidents')
+    .select('*')
+    .eq('id', incidentId)
+    .single<CoachingQualityIncident>();
+  if (error || !data) throw new Error('Quality incident not found');
   return data;
 }
 
@@ -829,6 +1139,18 @@ function validateClaimOwnership(ticket: SupportTicket, runId: string) {
   return getLatestSupportAutomationClaimRunId(ticket.message || '') === runId
     ? ''
     : 'Ticket is owned by another automation run';
+}
+
+function validateQualityIncidentOwnership(
+  incident: CoachingQualityIncident,
+  runId: string
+) {
+  if (incident.status !== 'in_progress') {
+    return 'Quality incident must be claimed before this action';
+  }
+  return incident.claimed_run_id === runId
+    ? ''
+    : 'Quality incident is owned by another automation run';
 }
 
 function buildEvidenceSummary(

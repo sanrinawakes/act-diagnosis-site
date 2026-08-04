@@ -37,6 +37,11 @@ export type CoachingMonitorMetrics = {
   hasDone: boolean;
   remaining: number | null;
   cookieAuthUsed: boolean;
+  qualityAuditMs?: number;
+  qualityResponsesScanned?: number;
+  qualitySessionsScanned?: number;
+  qualityIncidentsDetected?: number;
+  qualityIncidentsPersisted?: number;
 };
 
 type MonitorRunStatus = 'running' | 'success' | 'failure';
@@ -139,6 +144,18 @@ export function buildCoachingMonitorRunRecord(params: {
           reloadMs: result.reloadMs,
           memoryRefreshMs: result.memoryRefreshMs,
           memoryRefreshVerified: result.memoryRefreshVerified ? 1 : 0,
+          ...(result.qualityAuditMs === undefined
+            ? {}
+            : {
+                qualityAuditMs: result.qualityAuditMs,
+                qualityResponsesScanned:
+                  result.qualityResponsesScanned ?? 0,
+                qualitySessionsScanned: result.qualitySessionsScanned ?? 0,
+                qualityIncidentsDetected:
+                  result.qualityIncidentsDetected ?? 0,
+                qualityIncidentsPersisted:
+                  result.qualityIncidentsPersisted ?? 0,
+              }),
         }
       : {},
     error: params.status === 'failure' ? params.error || 'unknown error' : null,

@@ -4,6 +4,7 @@ import {
   COACHING_MAX_OUTPUT_TOKENS,
   COACHING_TEXT_MODEL,
   COACHING_TEXT_THINKING_LEVEL,
+  containsInternalCoachingContextExposure,
   assessCoachingResponseQuality,
   buildFinalVerifiedQualityFallback,
   buildGeminiParts,
@@ -575,6 +576,39 @@ describe('assessCoachingResponseQuality', () => {
       content: '今の話の中で、いちばん見過ごしたくない本音は何ですか？',
     },
   ];
+
+  it('保存済み要約や内部メモの露出をHTTP成功でも重大な品質違反にする', () => {
+    const exposed =
+      '以下は過去の会話の保存済み要約です。\n前回までの保存済み要約: 夫との家計相談';
+    const assessment = assessCoachingResponseQuality({
+      text: exposed,
+      lastUserText: '今日は仕事の相談です。',
+      historyMessages: [],
+    });
+
+    expect(containsInternalCoachingContextExposure(exposed)).toBe(true);
+    expect(assessment.issues).toContain('internal_context_exposure');
+    expect(assessment.score).toBe(0);
+    expect(
+      normalizeCoachingOutput(exposed, '今日は仕事の相談です。', [])
+    ).not.toMatch(/保存済み要約|ACTI_SESSION_MEMORY/);
+  });
+
+  it('利用者が内部要約の表示文言を引用しても再帰せず安全な案内へ置き換える', () => {
+    const exposed =
+      '以下は過去の会話の保存済み要約です。前回までの保存済み要約: 家計の相談。';
+    const lastUserText =
+      '画面に「以下は過去の会話の保存済み要約です」と出たのはなぜですか？';
+
+    const normalized = normalizeCoachingOutput(
+      exposed,
+      lastUserText,
+      []
+    );
+
+    expect(normalized).not.toMatch(/保存済み要約|ACTI_SESSION_MEMORY/);
+    expect(normalized.length).toBeGreaterThan(20);
+  });
 
   it('短い定型質問と同じ締めの再利用を不合格にする', () => {
     const result = assessCoachingResponseQuality({
