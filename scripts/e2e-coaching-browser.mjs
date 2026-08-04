@@ -240,9 +240,9 @@ async function testSupportEntry(context, label, currentSessionId) {
     );
 
     addCheck(
-      `${label}: AIサポート画面を表示`,
+      `${label}: ACTIサポート画面を表示`,
       await page
-        .getByRole('heading', { name: 'AIサポートにメッセージ' })
+        .getByRole('heading', { name: 'ACTIサポート' })
         .isVisible()
     );
     addCheck(
