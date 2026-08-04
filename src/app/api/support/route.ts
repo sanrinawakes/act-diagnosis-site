@@ -16,6 +16,7 @@ import {
   deliverSupportReply,
 } from '@/lib/server/support-email';
 import { buildSupportReceiptMessage } from '@/lib/support-receipt';
+import { buildSupportNotificationEmail } from '@/lib/support-notification';
 
 export const runtime = 'nodejs';
 
@@ -193,37 +194,20 @@ export async function POST(request: NextRequest) {
               '',
             ].join('\n')
           : '';
-        const emailBody = `
-新しいサポートチケットが届きました。
-
-━━━━━━━━━━━━━━━━━━━━
-チケットID: ${ticket.id}
-カテゴリ: ${categoryLabel}
-━━━━━━━━━━━━━━━━━━━━
-
-■ 送信者情報
-名前: ${name}
-メール: ${email}
-
-■ 件名
-${subject}
-
-■ 内容
-${message}
-${attachmentText}
-
-■ 技術情報
-受付元: ${technicalContext.source}
-会話ID: ${technicalContext.sessionId || 'なし'}
-本番コミット: ${technicalContext.deploymentCommit || '不明'}
-
-━━━━━━━━━━━━━━━━━━━━
-送信日時: ${new Date().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })}
-管理画面: ${process.env.NEXT_PUBLIC_SITE_URL || 'https://act-diagnosis-site.vercel.app'}/admin/support
-技術調査・修正・検証・顧客返信はACTI自動対応タスクが処理します。
-返金、料金、契約、解約など判断が必要な内容だけ自動送信せず保留します。
-━━━━━━━━━━━━━━━━━━━━
-`.trim();
+        const notificationEmail = buildSupportNotificationEmail({
+          ticketId: ticket.id,
+          categoryLabel,
+          name,
+          email,
+          subject,
+          message,
+          attachmentText,
+          technicalContext,
+          sentAt: new Date().toLocaleString('ja-JP', {
+            timeZone: 'Asia/Tokyo',
+          }),
+          adminUrl: `${process.env.NEXT_PUBLIC_SITE_URL || 'https://act-diagnosis-site.vercel.app'}/admin/support`,
+        });
 
         const emailResponse = await fetch('https://api.resend.com/emails', {
           method: 'POST',
@@ -235,8 +219,8 @@ ${attachmentText}
           body: JSON.stringify({
             from: `ACTI サポート <${SUPPORT_FROM_EMAIL}>`,
             to: SUPPORT_NOTIFICATION_EMAILS,
-            subject: `[ACTI サポート] ${categoryLabel}: ${subject}`,
-            text: emailBody,
+            subject: notificationEmail.subject,
+            text: notificationEmail.text,
           }),
           signal: AbortSignal.timeout(8000),
         });
