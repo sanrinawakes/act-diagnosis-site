@@ -440,6 +440,123 @@ describe('createJsonLineStream', () => {
     });
   });
 
+  it('長い履歴ではGemini停止前に予備AIを待機させる', async () => {
+    vi.useFakeTimers();
+    process.env.OPENAI_API_KEY = 'test-openai-key';
+
+    try {
+      const stream = createJsonLineStream({
+        systemPrompt: 'テスト用指示',
+        historyMessages: Array.from({ length: 18 }, (_, index) => ({
+          role: index % 2 === 0 ? ('user' as const) : ('assistant' as const),
+          content: `長い履歴${index + 1}`,
+        })),
+        lastUserParts: [{ text: '仕事のことで迷っています。' }],
+        onDone: async () => ({ remaining: 48 }),
+      });
+      const responsePromise = new Response(stream).text();
+
+      await vi.advanceTimersByTimeAsync(249);
+      expect(state.externalCalls).toBe(0);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(state.externalCalls).toBe(1);
+      await vi.advanceTimersByTimeAsync(6250);
+
+      const events = (await responsePromise)
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line));
+      expect(events.find((event) => event.type === 'done')).toMatchObject({
+        fallbackFrom: 'gemini-3.5-flash',
+        completionStatus: 'complete',
+        finalizationStatus: 'complete',
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('長い履歴で明日の一行動だけを求められたら待たせず返す', async () => {
+    process.env.OPENAI_API_KEY = 'test-openai-key';
+    const stream = createJsonLineStream({
+      systemPrompt: 'テスト用指示',
+      historyMessages: Array.from({ length: 18 }, (_, index) => ({
+        role: index % 2 === 0 ? ('user' as const) : ('assistant' as const),
+        content: `仕事とSNS発信についての長い履歴${index + 1}`,
+      })),
+      lastUserParts: [
+        { text: '明日まず何をすればいいか、一つだけ短く教えてください。' },
+      ],
+      onDone: async () => ({ remaining: 48 }),
+    });
+
+    const events = (await new Response(stream).text())
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+    const done = events.find((event) => event.type === 'done');
+
+    expect(state.externalCalls).toBe(0);
+    expect(done).toMatchObject({
+      modelName: 'local-long-history-action',
+      finishReason: 'LOCAL_LONG_HISTORY_ACTION',
+      completionStatus: 'complete',
+      finalizationStatus: 'complete',
+      message:
+        '明日の朝、SNSで最初に伝えたい内容を一文だけメモに書いてください。',
+    });
+  });
+
+  it('話題ずれを指摘されたら直近の相談へ即時に戻す', async () => {
+    const repeated =
+      '現在の支払い分担について、口頭のお願い以外に確認できる合意や記録はありますか？';
+    const stream = createJsonLineStream({
+      systemPrompt: 'テスト用指示',
+      historyMessages: [
+        {
+          role: 'user',
+          content: '以前、夫が家賃を払わないことで困っていました。',
+        },
+        { role: 'assistant', content: repeated },
+        {
+          role: 'user',
+          content:
+            '今回は講座に申し込まなかった後悔と、スピリチュアルな学びにこれ以上お金を使いたくない疲れ、お金が入ってこない不安の話です。',
+        },
+        { role: 'assistant', content: repeated },
+        { role: 'user', content: '支払い分担って何の話？' },
+        { role: 'assistant', content: repeated },
+        {
+          role: 'user',
+          content: 'なんで私ばっかりお金が入ってこないの、という話です。',
+        },
+        { role: 'assistant', content: repeated },
+      ],
+      lastUserParts: [{ text: '本当に何の話？' }],
+      onDone: async () => ({ remaining: 48 }),
+    });
+
+    const events = (await new Response(stream).text())
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+    const done = events.find((event) => event.type === 'done');
+
+    expect(state.externalCalls).toBe(0);
+    expect(state.qualityRepairCalls).toBe(0);
+    expect(done).toMatchObject({
+      modelName: 'local-topic-recovery',
+      finishReason: 'LOCAL_TOPIC_RECOVERY',
+      qualityFinalIssues: [],
+      completionStatus: 'complete',
+      finalizationStatus: 'complete',
+    });
+    expect(done.message).toContain('講座への申し込みを保留');
+    expect(done.message).toContain('現在の収入源');
+    expect(done.message).toContain('今月必要な金額');
+    expect(done.message).not.toMatch(/支払い分担|不足額|支払日/);
+  });
+
   it('画像付きフォールバックには画像処理用の15秒期限を使う', async () => {
     state.mode = 'error';
     process.env.OPENAI_API_KEY = 'test-openai-key';

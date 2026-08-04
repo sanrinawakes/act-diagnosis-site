@@ -53,6 +53,7 @@ try {
 
   if (shouldRunLongHistory) {
     results.push(await runLongHistoryConversation());
+    results.push(await runTopicDriftRecoveryConversation());
   }
 
   if (shouldRunConcurrency) {
@@ -118,6 +119,47 @@ async function runLongHistoryConversation() {
     diagnosisCode: 'SMM-1',
     messages,
     label: 'long-history-437',
+    expectedModelName: 'local-long-history-action',
+    expectedFinishReason: 'LOCAL_LONG_HISTORY_ACTION',
+  });
+}
+
+async function runTopicDriftRecoveryConversation() {
+  const email = uniqueEmail('topic-drift-recovery');
+  createdEmails.push(email);
+  const repeated =
+    '現在の支払い分担について、口頭のお願い以外に確認できる合意や記録はありますか？';
+
+  return sendStreamRequest({
+    email,
+    diagnosisCode: 'SMM-1',
+    messages: [
+      {
+        role: 'user',
+        content: '以前、夫が家賃を払わないことで困っていました。',
+      },
+      {
+        role: 'assistant',
+        content: '支払額と期限を文面で確認してください。',
+      },
+      {
+        role: 'user',
+        content:
+          '今回は講座に申し込まなかった後悔と、スピリチュアルな学びにこれ以上お金を使いたくない疲れ、お金が入ってこない不安の話です。',
+      },
+      { role: 'assistant', content: repeated },
+      { role: 'user', content: '支払い分担って何の話？' },
+      { role: 'assistant', content: repeated },
+      {
+        role: 'user',
+        content: 'なんで私ばっかりお金が入ってこないの、という話です。',
+      },
+      { role: 'assistant', content: repeated },
+      { role: 'user', content: '本当に何の話？' },
+    ],
+    label: 'topic-drift-recovery',
+    expectedModelName: 'local-topic-recovery',
+    expectedFinishReason: 'LOCAL_TOPIC_RECOVERY',
   });
 }
 
@@ -449,6 +491,26 @@ async function sendStreamRequest({
 }
 
 function assertResults(results) {
+  const topicDriftResult = results.find(
+    (result) => result.label === 'topic-drift-recovery'
+  );
+  if (
+    topicDriftResult &&
+    (/支払い分担|口頭のお願い|合意や記録|合意した負担|不足額|支払日|追い詰め|未練/.test(
+      topicDriftResult.message
+    ) ||
+      /本人が話した事実|本人が述べた不安|古い別件|持ち込まずに考え直/.test(
+        topicDriftResult.message
+      ) ||
+      !/講座への申し込みを保留/.test(topicDriftResult.message) ||
+      !/現在の収入源/.test(topicDriftResult.message) ||
+      !/今月必要な金額/.test(topicDriftResult.message))
+  ) {
+    throw new Error(
+      `${topicDriftResult.label} did not recover the current topic: ${topicDriftResult.message}`
+    );
+  }
+
   for (const result of results) {
     const requiredModelName = result.expectedModelName || expectedTextModel;
     if (requiredModelName && result.modelName !== requiredModelName) {
@@ -464,7 +526,11 @@ function assertResults(results) {
         `${result.label} did not complete generation: ${result.completionStatus || 'missing status'}`
       );
     }
-    if (result.finishReason !== result.expectedFinishReason) {
+    const acceptedFinishReasons =
+      result.expectedFinishReason === 'STOP'
+        ? ['STOP', 'completed', 'end_turn']
+        : [result.expectedFinishReason];
+    if (!acceptedFinishReasons.includes(result.finishReason)) {
       throw new Error(
         `${result.label} ended with ${result.finishReason || 'missing finish reason'}`
       );
