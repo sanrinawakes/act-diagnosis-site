@@ -882,6 +882,19 @@ describe('assessCoachingResponseQuality', () => {
     ).toContain('dissatisfaction_unanswered');
   });
 
+  it('整理依頼へ根拠のない二分類と二択質問を返さない', () => {
+    const inventedCategories =
+      '仕事での落ち込みは、業務内容そのものの難しさによるものと、周囲との人間関係や評価によるものの二つに大別されることが多いです。今回の落ち込みはどちらの要素が強いですか？';
+
+    expect(
+      assessCoachingResponseQuality({
+        text: inventedCategories,
+        lastUserText:
+          '仕事のことで少し落ち込んでいます。短く整理を手伝ってください。',
+      }).issues
+    ).toContain('ungrounded_categorization');
+  });
+
   it('話題ずれへの謝罪と要約だけで終わる返答を不合格にする', () => {
     const summaryOnlyReply =
       '前の相談と混ざってしまい、申し訳ありません。今回は、講座への後悔と、お金が入ってこない不安について話していたのですね。';

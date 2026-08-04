@@ -2451,7 +2451,7 @@ function hasUngroundedCategorization(
     /どっち|どちら|選|比較|迷|二つ|2つ|二択|2択/.test(userContext);
   const assistantInventedChoice =
     !userRequestedChoice &&
-    /それとも|(?:この|その)(?:二つ|2つ)|(?:二つ|2つ)のうち/.test(
+    /それとも|(?:この|その)(?:二つ|2つ)|(?:二つ|2つ)のうち|(?:二つ|2つ)に(?:大別|分類)|どちらの要素/.test(
       text
     );
 
