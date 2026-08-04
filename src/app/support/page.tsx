@@ -212,10 +212,14 @@ export default function SupportPage() {
         <div className="max-w-2xl mx-auto">
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 sm:p-8">
             <h1 className="text-2xl font-bold text-gray-900 mb-2">
-              AIサポートにメッセージ
+              {source === 'coaching'
+                ? 'AIコーチングについて問い合わせ'
+                : 'ACTIサポート'}
             </h1>
             <p className="text-gray-600 mb-6">
-              エラー、困っていること、改善してほしいことをご記入ください。
+              {source === 'coaching'
+                ? 'この会話で起きたエラー、困っていること、改善してほしいことをご記入ください。'
+                : 'ACTIについてのエラー、困っていること、改善してほしいことをご記入ください。AIコーチング中の不具合は、該当する会話画面の「AIサポートにメッセージ」から送ると、会話情報も一緒に届きます。'}
             </p>
 
             <form onSubmit={handleSubmit} className="space-y-5">
