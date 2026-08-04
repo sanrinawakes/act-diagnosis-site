@@ -64,7 +64,8 @@ try {
     is_active: true,
     subscription_status: 'active',
     subscribed_at: new Date().toISOString(),
-    chat_count_today: 0,
+    chat_count_month: 0,
+    chat_month_start: getJapanMonthStartKey(),
   });
   if (profileError) throw profileError;
 
@@ -140,6 +141,12 @@ try {
   process.exitCode = 1;
 } finally {
   await cleanup();
+}
+
+function getJapanMonthStartKey(now = new Date()) {
+  return `${new Date(now.getTime() + 9 * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 7)}-01`;
 }
 
 async function sendImage(accessToken, attachment, index) {

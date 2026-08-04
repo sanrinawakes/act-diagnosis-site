@@ -5,6 +5,8 @@ import type {
   CoachingScopeCategory,
   CoachingScopeDecision,
 } from '@/lib/coaching-scope';
+import { MONTHLY_COACHING_LIMIT } from '@/lib/coaching-quota';
+import { getJapanMonthStartKey } from '@/lib/japan-date';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -209,6 +211,10 @@ async function loadOverview(serviceClient: SupabaseClient) {
 }
 
 function normalizeUserSummary(item: Record<string, unknown>) {
+  const currentMonthRequests =
+    item.chat_month_start === getJapanMonthStartKey()
+      ? Number(item.chat_count_month || 0)
+      : 0;
   return {
     userId: String(item.user_id || ''),
     email: String(item.email || ''),
@@ -219,6 +225,8 @@ function normalizeUserSummary(item: Record<string, unknown>) {
     blockedRequests: Number(item.blocked_requests || 0),
     longMessageRequests: Number(item.long_message_requests || 0),
     attachmentRequests: Number(item.attachment_requests || 0),
+    currentMonthRequests,
+    monthlyLimit: MONTHLY_COACHING_LIMIT,
     lastRequestAt: String(item.last_request_at || ''),
     lastBlockedAt:
       typeof item.last_blocked_at === 'string' ? item.last_blocked_at : null,

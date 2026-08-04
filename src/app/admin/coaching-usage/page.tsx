@@ -25,6 +25,8 @@ type UserSummary = {
   blockedRequests: number;
   longMessageRequests: number;
   attachmentRequests: number;
+  currentMonthRequests: number;
+  monthlyLimit: number;
   lastRequestAt: string;
   lastBlockedAt: string | null;
 };
@@ -224,7 +226,7 @@ export default function CoachingUsagePage() {
                   利用者別集計
                 </h2>
                 <p className="mt-1 text-sm text-gray-500">
-                  全期間の利用状況です。
+                  今月の利用回数と全期間の判定状況です。
                 </p>
               </div>
               <form onSubmit={applySearch} className="flex gap-2">
@@ -249,6 +251,7 @@ export default function CoachingUsagePage() {
                 <thead className="bg-gray-100 text-left text-xs font-semibold text-gray-600">
                   <tr>
                     <th className="px-4 py-3">利用者</th>
+                    <th className="px-4 py-3 text-right">今月</th>
                     <th className="px-4 py-3 text-right">総数</th>
                     <th className="px-4 py-3 text-right">利用可</th>
                     <th className="px-4 py-3 text-right">用途外</th>
@@ -260,7 +263,7 @@ export default function CoachingUsagePage() {
                 <tbody className="divide-y divide-gray-100">
                   {!loading && users.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="px-4 py-10 text-center text-gray-500">
+                      <td colSpan={8} className="px-4 py-10 text-center text-gray-500">
                         該当する利用記録はありません。
                       </td>
                     </tr>
@@ -272,6 +275,9 @@ export default function CoachingUsagePage() {
                             {user.displayName || '名前未設定'}
                           </p>
                           <p className="text-xs text-gray-500">{user.email}</p>
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3 text-right font-semibold text-blue-700">
+                          {user.currentMonthRequests}/{user.monthlyLimit}
                         </td>
                         <td className="px-4 py-3 text-right font-semibold text-gray-900">
                           {user.totalRequests}

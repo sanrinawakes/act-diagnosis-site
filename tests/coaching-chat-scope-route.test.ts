@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import { COACHING_SCOPE_GUIDANCE } from '../src/lib/coaching-scope';
-import { getJapanDateKey } from '../src/lib/japan-date';
+import { getJapanMonthStartKey } from '../src/lib/japan-date';
 
 const mocks = vi.hoisted(() => ({
   createServiceClient: vi.fn(),
@@ -12,6 +12,8 @@ const mocks = vi.hoisted(() => ({
   compactCoachingMessages: vi.fn(),
   buildSessionContext: vi.fn(),
   usageInsert: vi.fn(),
+  quotaRpc: vi.fn(),
+  profileCount: 9,
 }));
 
 vi.mock('@supabase/supabase-js', () => ({
@@ -46,6 +48,7 @@ const SESSION_ID = '22222222-2222-4222-8222-222222222222';
 describe('POST /api/chat scope guard', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.profileCount = 9;
 
     mocks.createServerClient.mockResolvedValue({
       auth: {
@@ -70,6 +73,7 @@ describe('POST /api/chat scope guard', () => {
     });
 
     const serviceClient = {
+      rpc: mocks.quotaRpc,
       from: vi.fn((table: string) => {
         if (table === 'profiles') {
           return {
@@ -77,8 +81,8 @@ describe('POST /api/chat scope guard', () => {
               eq: vi.fn(() => ({
                 single: vi.fn().mockResolvedValue({
                   data: {
-                    chat_count_today: 9,
-                    last_chat_date: getJapanDateKey(),
+                    chat_count_month: mocks.profileCount,
+                    chat_month_start: getJapanMonthStartKey(),
                     role: 'member',
                     subscription_status: 'active',
                     is_active: true,
@@ -97,9 +101,32 @@ describe('POST /api/chat scope guard', () => {
       }),
     };
     mocks.usageInsert.mockResolvedValue({ error: null });
+    mocks.quotaRpc.mockResolvedValue({
+      data: [
+        {
+          allowed: true,
+          usage_count: 10,
+          remaining: 1490,
+          reserved_now: true,
+        },
+      ],
+      error: null,
+    });
     mocks.createServiceClient.mockReturnValue(serviceClient);
     mocks.compactCoachingMessages.mockImplementation((messages) => messages);
     mocks.buildGeminiParts.mockImplementation((text) => [{ text }]);
+    mocks.generateCoachingText.mockResolvedValue({
+      text: '相談への回答',
+      usage: { prompt_tokens: 10, completion_tokens: 8, total_tokens: 18 },
+      completionStatus: 'complete',
+      finishReason: 'STOP',
+      modelName: 'test-model',
+      provider: 'test',
+      qualityRepairAttempted: false,
+      qualityRepairAccepted: false,
+      qualityInitialIssues: [],
+      qualityFinalIssues: [],
+    });
     mocks.buildSessionContext.mockImplementation(({ requestMessages }) => ({
       messages: requestMessages,
       totalStoredMessages: requestMessages.length,
@@ -154,10 +181,11 @@ describe('POST /api/chat scope guard', () => {
       finishReason: 'SCOPE_BLOCKED',
       scopeDecision: 'blocked',
       scopeCategory: 'marketing_content',
-      remaining: 41,
+      remaining: 1491,
     });
     expect(mocks.createJsonLineStream).not.toHaveBeenCalled();
     expect(mocks.generateCoachingText).not.toHaveBeenCalled();
+    expect(mocks.quotaRpc).not.toHaveBeenCalled();
     expect(mocks.usageInsert).toHaveBeenCalledWith(
       expect.objectContaining({
         user_id: USER_ID,
@@ -190,12 +218,146 @@ describe('POST /api/chat scope guard', () => {
     expect(response.status).toBe(200);
     expect(await response.text()).toContain('相談への回答');
     expect(mocks.createJsonLineStream).toHaveBeenCalledTimes(1);
+    expect(mocks.quotaRpc).toHaveBeenCalledWith(
+      'reserve_coaching_monthly_usage',
+      expect.objectContaining({
+        p_user_id: USER_ID,
+        p_limit: 1500,
+        p_period_start: getJapanMonthStartKey(),
+      })
+    );
     expect(mocks.usageInsert).toHaveBeenCalledWith(
       expect.objectContaining({
         decision: 'allowed',
         category: 'coaching',
         provider_requested: true,
       })
+    );
+  });
+
+  it('allows the 1500th request and returns zero remaining', async () => {
+    mocks.profileCount = 1499;
+    mocks.quotaRpc.mockResolvedValueOnce({
+      data: [
+        {
+          allowed: true,
+          usage_count: 1500,
+          remaining: 0,
+          reserved_now: true,
+        },
+      ],
+      error: null,
+    });
+
+    const response = await POST(createAllowedRequest(false));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({ remaining: 0, limit: 1500 });
+  });
+
+  it('rejects a request immediately when the monthly snapshot is already 1500', async () => {
+    mocks.profileCount = 1500;
+
+    const response = await POST(createAllowedRequest(true));
+
+    expect(response.status).toBe(429);
+    expect(await response.json()).toEqual({
+      error:
+        '今月の利用上限（1500回）に達しました。翌月1日から再びご利用いただけます。',
+      remaining: 0,
+      limit: 1500,
+    });
+    expect(mocks.quotaRpc).not.toHaveBeenCalled();
+    expect(mocks.createJsonLineStream).not.toHaveBeenCalled();
+  });
+
+  it('rejects a concurrently arriving 1501st request using the database result', async () => {
+    mocks.profileCount = 1499;
+    mocks.quotaRpc.mockResolvedValueOnce({
+      data: [
+        {
+          allowed: false,
+          usage_count: 1500,
+          remaining: 0,
+          reserved_now: false,
+        },
+      ],
+      error: null,
+    });
+
+    const response = await POST(createAllowedRequest(true));
+
+    expect(response.status).toBe(429);
+    expect(await response.json()).toMatchObject({ remaining: 0, limit: 1500 });
+    expect(mocks.createJsonLineStream).not.toHaveBeenCalled();
+    expect(mocks.usageInsert).not.toHaveBeenCalled();
+  });
+
+  it('releases the reserved count when non-stream generation fails', async () => {
+    mocks.generateCoachingText.mockRejectedValueOnce(
+      new Error('provider unavailable')
+    );
+    mocks.quotaRpc.mockImplementation((name: string) => {
+      if (name === 'reserve_coaching_monthly_usage') {
+        return Promise.resolve({
+          data: [
+            {
+              allowed: true,
+              usage_count: 10,
+              remaining: 1490,
+              reserved_now: true,
+            },
+          ],
+          error: null,
+        });
+      }
+      if (name === 'release_coaching_monthly_usage') {
+        return Promise.resolve({
+          data: [{ released: true, usage_count: 9, remaining: 1491 }],
+          error: null,
+        });
+      }
+      throw new Error(`Unexpected RPC: ${name}`);
+    });
+
+    const response = await POST(createAllowedRequest(false));
+
+    expect(response.status).toBe(502);
+    expect(mocks.quotaRpc).toHaveBeenNthCalledWith(
+      2,
+      'release_coaching_monthly_usage',
+      expect.objectContaining({
+        p_user_id: USER_ID,
+        p_limit: 1500,
+        p_period_start: getJapanMonthStartKey(),
+      })
+    );
+  });
+
+  it('does not release an existing idempotent reservation after a retry fails', async () => {
+    mocks.generateCoachingText.mockRejectedValueOnce(
+      new Error('provider unavailable')
+    );
+    mocks.quotaRpc.mockResolvedValueOnce({
+      data: [
+        {
+          allowed: true,
+          usage_count: 10,
+          remaining: 1490,
+          reserved_now: false,
+        },
+      ],
+      error: null,
+    });
+
+    const response = await POST(createAllowedRequest(false));
+
+    expect(response.status).toBe(502);
+    expect(mocks.quotaRpc).toHaveBeenCalledTimes(1);
+    expect(mocks.quotaRpc).not.toHaveBeenCalledWith(
+      'release_coaching_monthly_usage',
+      expect.anything()
     );
   });
 
@@ -312,3 +474,20 @@ describe('POST /api/chat scope guard', () => {
   });
 
 });
+
+function createAllowedRequest(stream: boolean) {
+  return new NextRequest('http://localhost/api/chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      sessionId: SESSION_ID,
+      messages: [
+        {
+          role: 'user',
+          content: '夫との関係で悩んでいます。どう伝えればいいですか？',
+        },
+      ],
+      stream,
+    }),
+  });
+}

@@ -706,7 +706,7 @@ async function enrichTicketContext(
   let profileQuery = client
     .from('profiles')
     .select(
-      'id,email,display_name,role,is_active,subscription_status,subscribed_at,cancelled_at,paid_test_credits,chat_count_today,last_chat_date'
+      'id,email,display_name,role,is_active,subscription_status,subscribed_at,cancelled_at,paid_test_credits,chat_count_month,chat_month_start'
     )
     .limit(1);
   profileQuery = ticket.user_id

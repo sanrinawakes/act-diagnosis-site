@@ -1,17 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
-import { getJapanDateKey } from '../src/lib/japan-date';
+import { getJapanMonthStartKey } from '../src/lib/japan-date';
 
 const state = vi.hoisted(() => ({
   createServiceClient: vi.fn(),
   createServerClient: vi.fn(),
   createJsonLineStream: vi.fn(),
+  generateCoachingText: vi.fn(),
   profileCount: 3,
+  completeUpdateError: false,
   messages: new Map<
     string,
     { id: string; session_id: string; role: string; content: string; created_at: string }
   >(),
   usageRequestIds: new Set<string>(),
+  quotaRequestIds: new Set<string>(),
 }));
 
 vi.mock('@supabase/supabase-js', () => ({
@@ -30,6 +33,7 @@ vi.mock('../src/lib/coaching-gemini', async (importOriginal) => {
     buildGeminiParts: (text: string) => [{ text }],
     compactCoachingMessages: (messages: unknown[]) => messages,
     createJsonLineStream: state.createJsonLineStream,
+    generateCoachingText: state.generateCoachingText,
   };
 });
 
@@ -60,6 +64,7 @@ describe('POST /api/chat connection recovery', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     state.profileCount = 3;
+    state.completeUpdateError = false;
     state.messages = new Map([
       [
         REQUEST_ID,
@@ -73,6 +78,7 @@ describe('POST /api/chat connection recovery', () => {
       ],
     ]);
     state.usageRequestIds = new Set();
+    state.quotaRequestIds = new Set();
 
     state.createServerClient.mockResolvedValue({
       auth: {
@@ -96,6 +102,18 @@ describe('POST /api/chat connection recovery', () => {
       }),
     });
     state.createServiceClient.mockReturnValue(createServiceClient());
+    state.generateCoachingText.mockResolvedValue({
+      text: ANSWER,
+      usage: { prompt_tokens: 10, completion_tokens: 8, total_tokens: 18 },
+      completionStatus: 'complete',
+      finishReason: 'STOP',
+      modelName: 'test-model',
+      provider: 'test',
+      qualityRepairAttempted: false,
+      qualityRepairAccepted: false,
+      qualityInitialIssues: [],
+      qualityFinalIssues: [],
+    });
     state.createJsonLineStream.mockImplementation(
       ({
         onDone,
@@ -166,9 +184,19 @@ describe('POST /api/chat connection recovery', () => {
       content: ANSWER,
     });
   });
+
+  it('releases a new reservation when non-stream response saving fails', async () => {
+    state.completeUpdateError = true;
+
+    const response = await POST(createRequest(false));
+
+    expect(response.status).toBe(500);
+    expect(state.profileCount).toBe(3);
+    expect(state.quotaRequestIds.size).toBe(0);
+  });
 });
 
-function createRequest() {
+function createRequest(stream = true) {
   return new NextRequest('http://localhost/api/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -177,13 +205,49 @@ function createRequest() {
       requestId: REQUEST_ID,
       assistantMessageId: ASSISTANT_ID,
       messages: [{ role: 'user', content: '仕事について相談したいです。' }],
-      stream: true,
+      stream,
     }),
   });
 }
 
 function createServiceClient() {
   return {
+    rpc(name: string, args: Record<string, unknown>) {
+      const requestId = String(args.p_request_id || '');
+      if (name === 'reserve_coaching_monthly_usage') {
+        const reservedNow = !state.quotaRequestIds.has(requestId);
+        if (reservedNow) {
+          state.quotaRequestIds.add(requestId);
+          state.profileCount += 1;
+        }
+        return Promise.resolve({
+          data: [
+            {
+              allowed: true,
+              usage_count: state.profileCount,
+              remaining: 1500 - state.profileCount,
+              reserved_now: reservedNow,
+            },
+          ],
+          error: null,
+        });
+      }
+      if (name === 'release_coaching_monthly_usage') {
+        const released = state.quotaRequestIds.delete(requestId);
+        if (released) state.profileCount -= 1;
+        return Promise.resolve({
+          data: [
+            {
+              released,
+              usage_count: state.profileCount,
+              remaining: 1500 - state.profileCount,
+            },
+          ],
+          error: null,
+        });
+      }
+      throw new Error(`Unexpected RPC: ${name}`);
+    },
     from(table: string) {
       if (table === 'profiles') return createProfilesQuery();
       if (table === 'chat_sessions') return createChatSessionsQuery();
@@ -214,8 +278,8 @@ function createProfilesQuery() {
           return {
             single: async () => ({
               data: {
-                chat_count_today: state.profileCount,
-                last_chat_date: getJapanDateKey(),
+                chat_count_month: state.profileCount,
+                chat_month_start: getJapanMonthStartKey(),
                 role: 'member',
                 subscription_status: 'active',
                 is_active: true,
@@ -224,14 +288,6 @@ function createProfilesQuery() {
               error: null,
             }),
           };
-        },
-      };
-    },
-    update(values: { chat_count_today: number }) {
-      return {
-        eq: async () => {
-          state.profileCount = values.chat_count_today;
-          return { error: null };
         },
       };
     },
@@ -270,6 +326,12 @@ function createChatMessagesQuery() {
       const row = state.messages.get(String(filters.id || ''));
       if (!row || !matches(row, filters)) return { data: null, error: null };
       if (updateValues) {
+        if (state.completeUpdateError && updateValues.role === 'assistant') {
+          return {
+            data: null,
+            error: { message: 'response save unavailable' },
+          };
+        }
         const updated = { ...row, ...updateValues };
         state.messages.set(row.id, updated);
         return { data: { id: row.id }, error: null };

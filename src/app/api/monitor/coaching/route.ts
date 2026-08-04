@@ -17,7 +17,7 @@ import {
   COACHING_RECENT_MESSAGE_LIMIT,
   COACHING_SESSION_MEMORY_PREFIX,
 } from '@/lib/coaching-session-memory';
-import { getJapanDateKey } from '@/lib/japan-date';
+import { getJapanMonthStartKey } from '@/lib/japan-date';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -505,10 +505,20 @@ async function runPaidCoachingMonitor(params: {
       throw new Error('paid monitor profile is not an active paid member');
     }
 
-    const today = getJapanDateKey();
+    const monthStart = getJapanMonthStartKey();
+    const { error: usageResetError } = await params.supabaseAdmin
+      .from('coaching_monthly_usage')
+      .delete()
+      .eq('user_id', userId)
+      .eq('period_start', monthStart);
+    if (usageResetError) {
+      throw new Error(
+        `paid monitor usage reset failed: ${usageResetError.message}`
+      );
+    }
     const { error: resetError } = await params.supabaseAdmin
       .from('profiles')
-      .update({ chat_count_today: 0, last_chat_date: today })
+      .update({ chat_count_month: 0, chat_month_start: monthStart })
       .eq('id', userId);
     if (resetError) {
       throw new Error(`paid monitor count reset failed: ${resetError.message}`);

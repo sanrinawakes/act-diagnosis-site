@@ -12,6 +12,8 @@ const mocks = vi.hoisted(() => ({
   assertHealthy: vi.fn(),
   reloadRoleFilter: vi.fn(),
   insertChatMessages: vi.fn(),
+  deleteMonthlyUsage: vi.fn(),
+  updateMonthlyProfile: vi.fn(),
 }));
 
 vi.mock('@supabase/supabase-js', () => ({
@@ -191,6 +193,14 @@ describe('GET /api/monitor/coaching maintenance isolation', () => {
       'user',
       'assistant',
     ]);
+    expect(mocks.deleteMonthlyUsage).toHaveBeenCalledWith({
+      user_id: USER_ID,
+      period_start: expect.stringMatching(/^\d{4}-\d{2}-01$/),
+    });
+    expect(mocks.updateMonthlyProfile).toHaveBeenCalledWith({
+      chat_count_month: 0,
+      chat_month_start: expect.stringMatching(/^\d{4}-\d{2}-01$/),
+    });
     const insertedRows = mocks.insertChatMessages.mock.calls.at(-1)?.[0];
     expect(Array.isArray(insertedRows)).toBe(true);
     expect(insertedRows?.at(-1)?.content).toBe(
@@ -355,9 +365,29 @@ function createAdminClient() {
               },
             };
           },
-          update() {
+          update(values: Record<string, unknown>) {
+            mocks.updateMonthlyProfile(values);
             return {
               eq: async () => ({ error: null }),
+            };
+          },
+        };
+      }
+      if (table === 'coaching_monthly_usage') {
+        return {
+          delete() {
+            const filters: Record<string, unknown> = {};
+            return {
+              eq(column: string, value: unknown) {
+                filters[column] = value;
+                return {
+                  eq: async (nextColumn: string, nextValue: unknown) => {
+                    filters[nextColumn] = nextValue;
+                    mocks.deleteMonthlyUsage(filters);
+                    return { error: null };
+                  },
+                };
+              },
             };
           },
         };
