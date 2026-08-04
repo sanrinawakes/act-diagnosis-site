@@ -1989,6 +1989,12 @@ export function assessCoachingResponseQuality(params: {
       .map((message) => stripAttachmentMarkdown(message.content)),
     lastUserText,
   ].join('\n');
+  if (
+    (/追い詰められ/.test(text) && !/追い詰め/.test(userContext)) ||
+    (/未練/.test(text) && !/未練/.test(userContext))
+  ) {
+    issues.push('context_mismatch');
+  }
   const contextRelevanceChecks = [
     {
       present:
@@ -5843,6 +5849,8 @@ function removeUnsupportedPsychologicalInference(
       supportedBy: /やり場のない|一人で抱え|ひとりで抱え|肩にかか/,
     },
     { output: /孤独感|孤独/, supportedBy: /孤独/ },
+    { output: /追い詰められ/, supportedBy: /追い詰め/ },
+    { output: /未練/, supportedBy: /未練/ },
     { output: /不公平感|不公平/, supportedBy: /不公平/ },
     { output: /本当にお疲れ/, supportedBy: /疲れ/ },
     {

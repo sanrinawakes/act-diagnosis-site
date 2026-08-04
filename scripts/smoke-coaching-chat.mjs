@@ -492,7 +492,7 @@ function assertResults(results) {
   );
   if (
     topicDriftResult &&
-    (/支払い分担|口頭のお願い|合意や記録|合意した負担|不足額|支払日/.test(
+    (/支払い分担|口頭のお願い|合意や記録|合意した負担|不足額|支払日|追い詰め|未練/.test(
       topicDriftResult.message
     ) ||
       !/お金|講座|スピリチュアル|不安|疲れ/.test(topicDriftResult.message))

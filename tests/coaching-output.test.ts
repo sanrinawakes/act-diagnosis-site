@@ -841,6 +841,29 @@ describe('assessCoachingResponseQuality', () => {
     ).toContain('context_mismatch');
   });
 
+  it('疲れと不安を追い詰められた状態や未練へ強めない', () => {
+    const historyMessages = [
+      {
+        role: 'user' as const,
+        content:
+          '講座に申し込まなかった後悔と、これ以上お金を使いたくない疲れ、お金が入ってこない不安の話です。',
+      },
+    ];
+    const rawText =
+      '講座への未練が混ざり合い、精神的にも追い詰められている状態です。\n\n現在の収入源と支出を書き出してください。';
+
+    expect(
+      assessCoachingResponseQuality({
+        text: rawText,
+        lastUserText: '本当に何の話？',
+        historyMessages,
+      }).issues
+    ).toContain('context_mismatch');
+    expect(
+      normalizeCoachingOutput(rawText, '本当に何の話？', historyMessages)
+    ).toBe('現在の収入源と支出を書き出してください。');
+  });
+
   it('提案後の短い返答から実行済みの行動を捏造した回答を不合格にする', () => {
     const result = assessCoachingResponseQuality({
       text: '夫に期限を確認しても、何も答えてくれなかったのですね。',
