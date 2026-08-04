@@ -20,6 +20,7 @@ export interface CoachingUsage {
 }
 
 export type CoachingQualityIssue =
+  | 'internal_context_exposure'
   | 'too_short'
   | 'generic_canned_close'
   | 'repeated_closing_move'
@@ -94,6 +95,8 @@ export const COACHING_MAX_OUTPUT_TOKENS = 4096;
 export const COACHING_TEXT_THINKING_LEVEL = 'minimal';
 const PARTIAL_STREAM_TIMEOUT_NOTICE =
   '\n\n（応答処理に時間がかかったため、ここで一度区切っています。続きが必要な場合は、「続き」と入力するとここから再開できます。）';
+export const COACHING_QUALITY_SAFETY_HOLD =
+  '回答を確認したところ、過去の別の話題が今回の相談に混ざる可能性を検知したため、誤った内容の表示を止めました。送信した相談内容は保存されています。お手数ですが、この画面のサポートからご連絡ください。担当側で会話履歴を確認し、必要な修正を行います。';
 export const COACHING_RESPONSE_SPEED_INSTRUCTION = [
   '',
   '---',
@@ -406,6 +409,7 @@ export async function generateCoachingText(params: {
       qualityRepairAccepted: false,
       qualityInitialIssues: [],
       qualityFinalIssues: [],
+      qualitySafetyHold: false,
       completionStatus: 'complete' as const,
       finishReason: immediateResponse.finishReason,
     };
@@ -451,15 +455,22 @@ export async function generateCoachingText(params: {
         provider: fallback.provider,
         allowRemoteRepair: false,
       });
+      const verifiedFallbackResolution = ensureVerifiedCoachingResolution({
+        resolution: fallbackResolution,
+        lastUserText,
+        historyMessages: params.historyMessages,
+        preserveUsage: true,
+      });
       return {
-        text: fallbackResolution.text,
-        usage: fallbackResolution.usage,
-        modelName: fallbackResolution.modelName,
-        provider: fallbackResolution.provider,
-        qualityRepairAttempted: fallbackResolution.repairAttempted,
-        qualityRepairAccepted: fallbackResolution.repairAccepted,
-        qualityInitialIssues: fallbackResolution.initialIssues,
-        qualityFinalIssues: fallbackResolution.finalIssues,
+        text: verifiedFallbackResolution.text,
+        usage: verifiedFallbackResolution.usage,
+        modelName: verifiedFallbackResolution.modelName,
+        provider: verifiedFallbackResolution.provider,
+        qualityRepairAttempted: verifiedFallbackResolution.repairAttempted,
+        qualityRepairAccepted: verifiedFallbackResolution.repairAccepted,
+        qualityInitialIssues: verifiedFallbackResolution.initialIssues,
+        qualityFinalIssues: verifiedFallbackResolution.finalIssues,
+        qualitySafetyHold: verifiedFallbackResolution.qualitySafetyHold,
         completionStatus: 'complete' as const,
         finishReason: fallback.finishReason || 'EXTERNAL_FALLBACK',
       };
@@ -474,15 +485,31 @@ export async function generateCoachingText(params: {
       lastUserText,
       historyMessages: params.historyMessages,
     });
+    const verifiedFallback = ensureVerifiedCoachingResolution({
+      resolution: {
+        text: fallbackText,
+        usage: {},
+        modelName: 'local-fallback',
+        provider: 'local',
+        repairAttempted: false,
+        repairAccepted: false,
+        initialIssues: fallbackQuality.issues,
+        finalIssues: fallbackQuality.issues,
+        qualitySafetyHold: false,
+      },
+      lastUserText,
+      historyMessages: params.historyMessages,
+    });
     return {
-      text: fallbackText,
-      usage: {},
-      modelName: 'local-fallback',
-      provider: 'local',
-      qualityRepairAttempted: false,
-      qualityRepairAccepted: false,
-      qualityInitialIssues: fallbackQuality.issues,
-      qualityFinalIssues: fallbackQuality.issues,
+      text: verifiedFallback.text,
+      usage: verifiedFallback.usage,
+      modelName: verifiedFallback.modelName,
+      provider: verifiedFallback.provider,
+      qualityRepairAttempted: verifiedFallback.repairAttempted,
+      qualityRepairAccepted: verifiedFallback.repairAccepted,
+      qualityInitialIssues: verifiedFallback.initialIssues,
+      qualityFinalIssues: verifiedFallback.finalIssues,
+      qualitySafetyHold: verifiedFallback.qualitySafetyHold,
       completionStatus: 'fallback' as const,
       finishReason: getErrorMessage(error),
     };
@@ -532,6 +559,7 @@ export async function generateCoachingText(params: {
     qualityRepairAccepted: verifiedResolution.repairAccepted,
     qualityInitialIssues: verifiedResolution.initialIssues,
     qualityFinalIssues: verifiedResolution.finalIssues,
+    qualitySafetyHold: verifiedResolution.qualitySafetyHold,
     completionStatus,
     finishReason,
   };
@@ -616,6 +644,9 @@ export function createJsonLineStream(params: {
             completionStatus: 'complete',
             finishReason: immediateResponse.finishReason,
             modelName: immediateResponse.modelName,
+            qualityInitialIssues: [],
+            qualityFinalIssues: [],
+            qualitySafetyHold: false,
           });
           logChatTelemetry('done', params.telemetry, {
             modelName: immediateResponse.modelName,
@@ -637,6 +668,7 @@ export function createJsonLineStream(params: {
             qualityRepairAccepted: false,
             qualityInitialIssues: [],
             qualityFinalIssues: [],
+            qualitySafetyHold: false,
             completionStatus: 'complete',
             finalizationStatus: finalization.status,
             finishReason: immediateResponse.finishReason,
@@ -770,6 +802,9 @@ export function createJsonLineStream(params: {
           finishReason,
           modelName: finalModelName,
           provider: finalProvider,
+          qualityInitialIssues: verifiedResolution.initialIssues,
+          qualityFinalIssues: verifiedResolution.finalIssues,
+          qualitySafetyHold: verifiedResolution.qualitySafetyHold,
         });
 
         logChatTelemetry(completionStatus === 'partial' ? 'partial_done' : 'done', params.telemetry, {
@@ -779,6 +814,7 @@ export function createJsonLineStream(params: {
           qualityRepairAccepted: verifiedResolution.repairAccepted,
           qualityInitialIssues: verifiedResolution.initialIssues,
           qualityFinalIssues: verifiedResolution.finalIssues,
+          qualitySafetyHold: verifiedResolution.qualitySafetyHold,
           completionStatus,
           elapsedMs: Date.now() - startedAt,
           firstChunkMs,
@@ -799,6 +835,7 @@ export function createJsonLineStream(params: {
           qualityRepairAccepted: verifiedResolution.repairAccepted,
           qualityInitialIssues: verifiedResolution.initialIssues,
           qualityFinalIssues: verifiedResolution.finalIssues,
+          qualitySafetyHold: verifiedResolution.qualitySafetyHold,
           completionStatus,
           finalizationStatus: finalization.status,
           finishReason,
@@ -824,27 +861,41 @@ export function createJsonLineStream(params: {
               provider: externalFallback.provider,
               allowRemoteRepair: false,
             });
-            fullText = fallbackResolution.text;
+            const verifiedFallbackResolution =
+              ensureVerifiedCoachingResolution({
+                resolution: fallbackResolution,
+                lastUserText: fallbackUserText,
+                historyMessages: params.historyMessages,
+                preserveUsage: true,
+              });
+            fullText = verifiedFallbackResolution.text;
             writeVerifiedChunk(fullText);
             const finalization = await resolveDonePayload(
               params.onDone,
-              fallbackResolution.usage,
+              verifiedFallbackResolution.usage,
               {
                 message: fullText,
                 completionStatus: 'complete',
                 finishReason: externalFallback.finishReason ?? undefined,
-                modelName: fallbackResolution.modelName,
-                provider: fallbackResolution.provider,
+                modelName: verifiedFallbackResolution.modelName,
+                provider: verifiedFallbackResolution.provider,
+                qualityInitialIssues:
+                  verifiedFallbackResolution.initialIssues,
+                qualityFinalIssues: verifiedFallbackResolution.finalIssues,
+                qualitySafetyHold:
+                  verifiedFallbackResolution.qualitySafetyHold,
               }
             );
             logChatTelemetry('fallback_done', params.telemetry, {
-              modelName: fallbackResolution.modelName,
-              provider: fallbackResolution.provider,
+              modelName: verifiedFallbackResolution.modelName,
+              provider: verifiedFallbackResolution.provider,
               fallbackFrom: modelName,
-              qualityRepairAttempted: fallbackResolution.repairAttempted,
-              qualityRepairAccepted: fallbackResolution.repairAccepted,
-              qualityInitialIssues: fallbackResolution.initialIssues,
-              qualityFinalIssues: fallbackResolution.finalIssues,
+              qualityRepairAttempted:
+                verifiedFallbackResolution.repairAttempted,
+              qualityRepairAccepted: verifiedFallbackResolution.repairAccepted,
+              qualityInitialIssues: verifiedFallbackResolution.initialIssues,
+              qualityFinalIssues: verifiedFallbackResolution.finalIssues,
+              qualitySafetyHold: verifiedFallbackResolution.qualitySafetyHold,
               completionStatus: 'complete',
               elapsedMs: Date.now() - startedAt,
               firstChunkMs,
@@ -854,23 +905,25 @@ export function createJsonLineStream(params: {
               finalizationError: finalization.error,
               outputChars: fullText.length,
               finishReason: externalFallback.finishReason,
-              usage: fallbackResolution.usage,
+              usage: verifiedFallbackResolution.usage,
               error: getErrorMessage(error),
             });
             write({
               type: 'done',
-              modelName: fallbackResolution.modelName,
-              provider: fallbackResolution.provider,
+              modelName: verifiedFallbackResolution.modelName,
+              provider: verifiedFallbackResolution.provider,
               fallbackFrom: modelName,
-              qualityRepairAttempted: fallbackResolution.repairAttempted,
-              qualityRepairAccepted: fallbackResolution.repairAccepted,
-              qualityInitialIssues: fallbackResolution.initialIssues,
-              qualityFinalIssues: fallbackResolution.finalIssues,
+              qualityRepairAttempted:
+                verifiedFallbackResolution.repairAttempted,
+              qualityRepairAccepted: verifiedFallbackResolution.repairAccepted,
+              qualityInitialIssues: verifiedFallbackResolution.initialIssues,
+              qualityFinalIssues: verifiedFallbackResolution.finalIssues,
+              qualitySafetyHold: verifiedFallbackResolution.qualitySafetyHold,
               completionStatus: 'complete',
               finalizationStatus: finalization.status,
               finishReason: externalFallback.finishReason,
               message: fullText,
-              usage: fallbackResolution.usage,
+              usage: verifiedFallbackResolution.usage,
               ...finalization.payload,
             });
             return;
@@ -878,7 +931,13 @@ export function createJsonLineStream(params: {
         }
 
         if (fullText.trim()) {
-          fullText = trimToNaturalContinuationBoundary(fullText);
+          const partialRawText = trimToNaturalContinuationBoundary(fullText);
+          const partialRawQuality = assessCoachingResponseQuality({
+            text: partialRawText,
+            lastUserText: fallbackUserText,
+            historyMessages: params.historyMessages,
+          });
+          fullText = partialRawText;
           fullText = normalizeCoachingOutput(
             fullText,
             fallbackUserText,
@@ -892,6 +951,12 @@ export function createJsonLineStream(params: {
             lastUserText: fallbackUserText,
             historyMessages: params.historyMessages,
           });
+          const initialFallbackIssues = [
+            ...new Set([
+              ...partialRawQuality.issues,
+              ...fallbackQuality.issues,
+            ]),
+          ];
           if (fallbackQuality.issues.length > 0) {
             fullText = buildFinalVerifiedQualityFallback(
               fallbackUserText,
@@ -906,14 +971,36 @@ export function createJsonLineStream(params: {
               historyMessages: params.historyMessages,
             });
           }
+          const verifiedPartialResolution = ensureVerifiedCoachingResolution({
+            resolution: {
+              text: fullText,
+              usage: {},
+              modelName: modelName,
+              provider: 'gemini',
+              repairAttempted: initialFallbackIssues.length > 0,
+              repairAccepted:
+                initialFallbackIssues.length > 0 && fullText !== partialRawText,
+              initialIssues: initialFallbackIssues,
+              finalIssues: fallbackQuality.issues,
+              qualitySafetyHold: false,
+            },
+            lastUserText: fallbackUserText,
+            historyMessages: params.historyMessages,
+          });
+          fullText = verifiedPartialResolution.text;
           if (!emittedText) writeVerifiedChunk(fullText);
           const finalization = await resolveDonePayload(params.onDone, {}, {
             message: fullText,
             completionStatus: 'partial',
-            modelName,
+            modelName: verifiedPartialResolution.modelName,
+            provider: verifiedPartialResolution.provider,
+            qualityInitialIssues: verifiedPartialResolution.initialIssues,
+            qualityFinalIssues: verifiedPartialResolution.finalIssues,
+            qualitySafetyHold: verifiedPartialResolution.qualitySafetyHold,
           });
           logChatTelemetry('partial_done', params.telemetry, {
-            modelName,
+            modelName: verifiedPartialResolution.modelName,
+            provider: verifiedPartialResolution.provider,
             completionStatus: 'partial',
             elapsedMs: Date.now() - startedAt,
             firstChunkMs,
@@ -922,16 +1009,21 @@ export function createJsonLineStream(params: {
             finalizationMs: finalization.elapsedMs,
             finalizationError: finalization.error,
             outputChars: fullText.length,
-            qualityFinalIssues: fallbackQuality.issues,
+            qualityInitialIssues: verifiedPartialResolution.initialIssues,
+            qualityFinalIssues: verifiedPartialResolution.finalIssues,
+            qualitySafetyHold: verifiedPartialResolution.qualitySafetyHold,
             error: getErrorMessage(error),
           });
           write({
             type: 'done',
-            modelName,
+            modelName: verifiedPartialResolution.modelName,
+            provider: verifiedPartialResolution.provider,
             completionStatus: 'partial',
             finalizationStatus: finalization.status,
             message: fullText,
-            qualityFinalIssues: fallbackQuality.issues,
+            qualityInitialIssues: verifiedPartialResolution.initialIssues,
+            qualityFinalIssues: verifiedPartialResolution.finalIssues,
+            qualitySafetyHold: verifiedPartialResolution.qualitySafetyHold,
             usage: {},
             ...finalization.payload,
           });
@@ -947,15 +1039,35 @@ export function createJsonLineStream(params: {
           lastUserText: fallbackUserText,
           historyMessages: params.historyMessages,
         });
-        writeVerifiedChunk(fallbackText);
+        const verifiedLocalFallback = ensureVerifiedCoachingResolution({
+          resolution: {
+            text: fallbackText,
+            usage: {},
+            modelName: 'local-fallback',
+            provider: 'local',
+            repairAttempted: false,
+            repairAccepted: false,
+            initialIssues: fallbackQuality.issues,
+            finalIssues: fallbackQuality.issues,
+            qualitySafetyHold: false,
+          },
+          lastUserText: fallbackUserText,
+          historyMessages: params.historyMessages,
+        });
+        writeVerifiedChunk(verifiedLocalFallback.text);
         const finalization = await resolveDonePayload(params.onDone, {}, {
-          message: fallbackText,
+          message: verifiedLocalFallback.text,
           completionStatus: 'fallback',
           finishReason: 'LOCAL_FALLBACK',
-          modelName: 'local-fallback',
+          modelName: verifiedLocalFallback.modelName,
+          provider: verifiedLocalFallback.provider,
+          qualityInitialIssues: verifiedLocalFallback.initialIssues,
+          qualityFinalIssues: verifiedLocalFallback.finalIssues,
+          qualitySafetyHold: verifiedLocalFallback.qualitySafetyHold,
         });
         logChatTelemetry('fallback_done', params.telemetry, {
-          modelName: 'local-fallback',
+          modelName: verifiedLocalFallback.modelName,
+          provider: verifiedLocalFallback.provider,
           fallbackFrom: modelName,
           completionStatus: 'fallback',
           elapsedMs: Date.now() - startedAt,
@@ -964,19 +1076,24 @@ export function createJsonLineStream(params: {
           finalizationStatus: finalization.status,
           finalizationMs: finalization.elapsedMs,
           finalizationError: finalization.error,
-          outputChars: fallbackText.length,
-          qualityFinalIssues: fallbackQuality.issues,
+          outputChars: verifiedLocalFallback.text.length,
+          qualityInitialIssues: verifiedLocalFallback.initialIssues,
+          qualityFinalIssues: verifiedLocalFallback.finalIssues,
+          qualitySafetyHold: verifiedLocalFallback.qualitySafetyHold,
           error: getErrorMessage(error),
         });
         write({
           type: 'done',
-          modelName: 'local-fallback',
+          modelName: verifiedLocalFallback.modelName,
+          provider: verifiedLocalFallback.provider,
           fallbackFrom: modelName,
           completionStatus: 'fallback',
           finalizationStatus: finalization.status,
           finishReason: 'LOCAL_FALLBACK',
-          message: fallbackText,
-          qualityFinalIssues: fallbackQuality.issues,
+          message: verifiedLocalFallback.text,
+          qualityInitialIssues: verifiedLocalFallback.initialIssues,
+          qualityFinalIssues: verifiedLocalFallback.finalIssues,
+          qualitySafetyHold: verifiedLocalFallback.qualitySafetyHold,
           usage: {},
           ...finalization.payload,
         });
@@ -1003,6 +1120,9 @@ export type CoachingCompletionDetails = {
   finishReason?: string;
   modelName: string;
   provider?: string;
+  qualityInitialIssues?: CoachingQualityIssue[];
+  qualityFinalIssues?: CoachingQualityIssue[];
+  qualitySafetyHold?: boolean;
 };
 
 type CoachingStreamStatus =
@@ -1046,6 +1166,7 @@ export function getCoachingTelemetryLevel(
   const qualityFailed =
     Array.isArray(payload.qualityFinalIssues) &&
     payload.qualityFinalIssues.length > 0;
+  const qualitySafetyHold = payload.qualitySafetyHold === true;
   const recoveredProviderFallback = isRecoveredProviderFallback(
     status,
     payload
@@ -1054,6 +1175,7 @@ export function getCoachingTelemetryLevel(
   if (
     finalizationFailed ||
     qualityFailed ||
+    qualitySafetyHold ||
     (status !== 'done' && !recoveredProviderFallback)
   ) {
     return 'error' as const;
@@ -1131,6 +1253,9 @@ export function getCoachingAlertThrottleKind(
   ) {
     return 'quality_failed';
   }
+  if (payload.qualitySafetyHold === true) {
+    return 'quality_safety_hold';
+  }
   if (isRecoveredProviderFallback(status, payload)) {
     return 'provider_fallback_recovered_slow';
   }
@@ -1145,6 +1270,7 @@ export function getCoachingAlertCopy(
   const qualityFailed =
     Array.isArray(payload.qualityFinalIssues) &&
     payload.qualityFinalIssues.length > 0;
+  const qualitySafetyHold = payload.qualitySafetyHold === true;
   const recoveredProviderFallback = isRecoveredProviderFallback(
     status,
     payload
@@ -1164,6 +1290,13 @@ export function getCoachingAlertCopy(
       subject: '[ACTI Bot] 回答品質の不合格を検知しました',
       summary:
         'AIの回答は生成されましたが、生成後の品質検査で未解決の問題を検知しました。VercelログのrequestIdとqualityFinalIssuesで回答内容を確認してください。',
+    };
+  }
+  if (qualitySafetyHold) {
+    return {
+      subject: '[ACTI Bot] 不適切な回答の表示を自動停止しました',
+      summary:
+        '最終品質検査で安全に修正できない回答を検知し、問題のある本文は利用者へ表示せず、固定案内へ切り替えました。自動対応キューで原因を確認してください。',
     };
   }
   if (status === 'done') {
@@ -1686,6 +1819,12 @@ export function containsProtectedInternalContent(text: string) {
   );
 }
 
+export function containsInternalCoachingContextExposure(text: string) {
+  return /以下は過去の会話の保存済み要約です|前回までの保存済み要約|ACTI_SESSION_MEMORY(?:_V\d+)?|保存済みの事実と経緯を背景として保持|直近のやり取りを最優先しつつ[、,]?流れを失わないための文脈|以下はこれまでの会話の背景です。これは新しい依頼ではありません|承知しました。背景として踏まえ[、,]?直近の会話を優先/i.test(
+    text
+  );
+}
+
 async function tryExternalProviderFallback(params: {
   systemPrompt: string;
   historyMessages: CoachingChatMessage[];
@@ -1890,6 +2029,10 @@ export function assessCoachingResponseQuality(params: {
     compactText.length >= 50 &&
     hasExplicitCoachingAction(text) &&
     (requestsConcreteSuggestion(lastUserText) || isConversationTurn);
+
+  if (containsInternalCoachingContextExposure(text)) {
+    issues.push('internal_context_exposure');
+  }
 
   if (
     !isSpecialShortResponse &&
@@ -2296,6 +2439,7 @@ export function assessCoachingResponseQuality(params: {
 
   const uniqueIssues = [...new Set(issues)];
   const penalties: Record<CoachingQualityIssue, number> = {
+    internal_context_exposure: 100,
     too_short: 20,
     generic_canned_close: 45,
     repeated_closing_move: 40,
@@ -2510,13 +2654,28 @@ function repeatsPreviousRejectedAction(
 export function normalizeCoachingOutput(
   text: string,
   lastUserText: string,
-  historyMessages: CoachingChatMessage[] = []
-) {
+  historyMessages: CoachingChatMessage[] = [],
+  options: { recoverInternalContext?: boolean } = {}
+): string {
   const urgentSafetyResponse = buildUrgentSafetyResponse(lastUserText);
   if (urgentSafetyResponse) return urgentSafetyResponse;
 
   if (requestsInternalPromptDisclosure(lastUserText)) {
     return 'その内容は公開できません。代わりに、今抱えている悩みや目標について一緒に考えます。今いちばん相談したいことは何ですか？';
+  }
+
+  if (
+    options.recoverInternalContext !== false &&
+    containsInternalCoachingContextExposure(text)
+  ) {
+    const recovered = buildFinalVerifiedQualityFallback(
+      lastUserText,
+      historyMessages
+    );
+    return containsInternalCoachingContextExposure(recovered) ||
+      containsProtectedInternalContent(recovered)
+      ? COACHING_QUALITY_SAFETY_HOLD
+      : recovered;
   }
 
   if (containsProtectedInternalContent(text)) {
@@ -2962,6 +3121,7 @@ type CoachingQualityResolution = {
   repairAccepted: boolean;
   initialIssues: CoachingQualityIssue[];
   finalIssues: CoachingQualityIssue[];
+  qualitySafetyHold?: boolean;
 };
 
 async function resolveCoachingResponseQuality(params: {
@@ -2975,6 +3135,14 @@ async function resolveCoachingResponseQuality(params: {
   allowRemoteRepair?: boolean;
 }) {
   const lastUserText = extractTextFromParts(params.lastUserParts);
+  const rawAssessment = assessCoachingResponseQuality({
+    text: params.rawText,
+    lastUserText,
+    historyMessages: params.historyMessages,
+  });
+  const internalContextRecovered = rawAssessment.issues.includes(
+    'internal_context_exposure'
+  );
   const normalized = normalizeCoachingOutput(
     params.rawText,
     lastUserText,
@@ -2985,15 +3153,21 @@ async function resolveCoachingResponseQuality(params: {
     lastUserText,
     historyMessages: params.historyMessages,
   });
+  const initialIssues = [
+    ...new Set([...rawAssessment.issues, ...initialAssessment.issues]),
+  ];
   const baseResolution: CoachingQualityResolution = {
     text: normalized,
     usage: params.usage,
-    modelName: params.modelName,
-    provider: params.provider,
-    repairAttempted: false,
-    repairAccepted: false,
-    initialIssues: initialAssessment.issues,
+    modelName: internalContextRecovered
+      ? 'local-internal-context-recovery'
+      : params.modelName,
+    provider: internalContextRecovered ? 'local' : params.provider,
+    repairAttempted: internalContextRecovered,
+    repairAccepted: internalContextRecovered,
+    initialIssues,
     finalIssues: initialAssessment.issues,
+    qualitySafetyHold: false,
   };
 
   if (
@@ -3042,8 +3216,9 @@ async function resolveCoachingResponseQuality(params: {
         provider: 'gemini',
         repairAttempted: true,
         repairAccepted: true,
-        initialIssues: initialAssessment.issues,
+        initialIssues,
         finalIssues: repairedAssessment.issues,
+        qualitySafetyHold: false,
       };
     }
   }
@@ -3053,6 +3228,7 @@ async function resolveCoachingResponseQuality(params: {
     bestAssessment.issues.some((issue) =>
       [
         'too_short',
+        'internal_context_exposure',
         'generic_canned_close',
         'repeated_closing_move',
         'repeats_rejected_move',
@@ -3446,7 +3622,7 @@ function buildSafeQualityFallback(
 export function buildFinalVerifiedQualityFallback(
   lastUserText: string,
   historyMessages: CoachingChatMessage[]
-) {
+): string {
   const immediatePreviousUserText =
     [...historyMessages]
       .reverse()
@@ -3557,10 +3733,11 @@ export function buildFinalVerifiedQualityFallback(
   ].filter(Boolean);
 
   for (const candidate of candidates) {
-    const normalized = normalizeCoachingOutput(
+    const normalized: string = normalizeCoachingOutput(
       candidate,
       lastUserText,
-      historyMessages
+      historyMessages,
+      { recoverInternalContext: false }
     );
     const assessment = assessCoachingResponseQuality({
       text: normalized,
@@ -3587,7 +3764,8 @@ export function buildFinalVerifiedQualityFallback(
   return normalizeCoachingOutput(
     `${acknowledgement}${repetitionContext}\n\n${domainExplanation}\n\n${finalMove}`,
     lastUserText,
-    historyMessages
+    historyMessages,
+    { recoverInternalContext: false }
   );
 }
 
@@ -3898,14 +4076,32 @@ export function ensureVerifiedCoachingResolution(params: {
     historyMessages,
   });
 
+  if (
+    fallbackQuality.issues.length === 0 &&
+    !containsInternalCoachingContextExposure(fallbackText) &&
+    !containsProtectedInternalContent(fallbackText)
+  ) {
+    return {
+      ...resolution,
+      text: fallbackText,
+      usage: preserveUsage ? resolution.usage : {},
+      modelName: 'local-quality-fallback',
+      provider: 'local' as const,
+      repairAccepted: fallbackText !== resolution.text,
+      finalIssues: [],
+      qualitySafetyHold: false,
+    };
+  }
+
   return {
     ...resolution,
-    text: fallbackText,
+    text: COACHING_QUALITY_SAFETY_HOLD,
     usage: preserveUsage ? resolution.usage : {},
-    modelName: 'local-quality-fallback',
+    modelName: 'local-quality-safety-hold',
     provider: 'local' as const,
-    repairAccepted: fallbackText !== resolution.text,
-    finalIssues: fallbackQuality.issues,
+    repairAccepted: true,
+    finalIssues: [],
+    qualitySafetyHold: true,
   };
 }
 

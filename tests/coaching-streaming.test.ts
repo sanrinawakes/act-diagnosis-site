@@ -5,12 +5,17 @@ const state = vi.hoisted(() => ({
     | 'success'
     | 'error'
     | 'partial-error'
+    | 'internal-context'
     | 'non-stop'
     | 'timeout',
   releaseSecondChunk: (() => undefined) as () => void,
   secondChunkGate: Promise.resolve(),
   externalCalls: 0,
-  externalMode: 'success' as 'success' | 'race' | 'all-error',
+  externalMode: 'success' as
+    | 'success'
+    | 'race'
+    | 'all-error'
+    | 'internal-context',
   externalProviders: [] as string[],
   externalTimeouts: [] as number[],
   externalImageCounts: [] as number[],
@@ -69,7 +74,9 @@ vi.mock('@/lib/openai', () => ({
             stream: (async function* () {
               yield {
                 text: () =>
-                  state.qualityRepairMode === 'ambiguous-action'
+                  state.mode === 'internal-context'
+                    ? '以下は過去の会話の保存済み要約です。\n'
+                    : state.qualityRepairMode === 'ambiguous-action'
                     ? '明日ひとつだけ状況を動かすなら、'
                     : '最初の文です。',
               };
@@ -82,7 +89,9 @@ vi.mock('@/lib/openai', () => ({
               }
               yield {
                 text: () =>
-                  state.qualityRepairMode === 'ambiguous-action'
+                  state.mode === 'internal-context'
+                    ? '前回までの保存済み要約: 家計について相談していた。'
+                    : state.qualityRepairMode === 'ambiguous-action'
                     ? '何から始めますか？'
                     : '次に進む質問ですか？',
               };
@@ -140,6 +149,17 @@ vi.mock('@/lib/coaching-provider-candidates', () => ({
         usage: { prompt_tokens: 14, completion_tokens: 9, total_tokens: 23 },
       };
     }
+    if (state.externalMode === 'internal-context') {
+      return {
+        rawText:
+          '以下は過去の会話の保存済み要約です。\n前回までの保存済み要約: 支払い分担について相談していた。',
+        firstChunkMs: 5,
+        totalMs: 20,
+        complete: true,
+        finishReason: 'completed',
+        usage: { prompt_tokens: 12, completion_tokens: 10, total_tokens: 22 },
+      };
+    }
     return {
       rawText: '失敗した処理を引き継ぎました。今いちばん確認したいことは何ですか？',
       firstChunkMs: 5,
@@ -192,6 +212,65 @@ afterEach(() => {
 });
 
 describe('createJsonLineStream', () => {
+  it('正常なHTTP 200でも内部要約を表示せず文脈に沿う安全な回答へ置き換える', async () => {
+    state.mode = 'internal-context';
+    state.releaseSecondChunk();
+    const onDone = vi.fn().mockResolvedValue({ remaining: 49 });
+    const stream = createJsonLineStream({
+      systemPrompt: 'テスト用指示',
+      historyMessages: [
+        { role: 'user', content: '今日は仕事の相談をしたいです。' },
+      ],
+      lastUserParts: [{ text: '上司との話し方に迷っています。' }],
+      onDone,
+    });
+    const events = (await new Response(stream).text())
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+    const done = events.find((event) => event.type === 'done');
+
+    expect(done.qualityInitialIssues).toContain('internal_context_exposure');
+    expect(done.qualityFinalIssues).toEqual([]);
+    expect(done.qualitySafetyHold).toBe(false);
+    expect(done.modelName).toBe('local-internal-context-recovery');
+    expect(done.message).not.toMatch(/保存済み要約|ACTI_SESSION_MEMORY/);
+    expect(
+      events.filter((event) => event.type === 'chunk').map((event) => event.text).join('')
+    ).toBe(done.message);
+    expect(onDone).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({
+        qualityInitialIssues: expect.arrayContaining([
+          'internal_context_exposure',
+        ]),
+        qualityFinalIssues: [],
+      })
+    );
+  });
+
+  it('予備AIが内部要約を返しても同じ最終ゲートで遮断する', async () => {
+    state.mode = 'error';
+    state.externalMode = 'internal-context';
+    process.env.OPENAI_API_KEY = 'test-openai-key';
+    state.releaseSecondChunk();
+    const stream = createJsonLineStream({
+      systemPrompt: 'テスト用指示',
+      historyMessages: [],
+      lastUserParts: [{ text: '仕事の相談をしたいです。' }],
+      onDone: async () => ({ remaining: 49 }),
+    });
+    const events = (await new Response(stream).text())
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+    const done = events.find((event) => event.type === 'done');
+
+    expect(done.qualityInitialIssues).toContain('internal_context_exposure');
+    expect(done.qualityFinalIssues).toEqual([]);
+    expect(done.message).not.toMatch(/保存済み要約|ACTI_SESSION_MEMORY/);
+  });
+
   it('ブラウザ側の接続が切れても回答生成と会話後処理を最後まで続ける', async () => {
     const onDone = vi.fn().mockResolvedValue({ remaining: 49 });
     const stream = createJsonLineStream({

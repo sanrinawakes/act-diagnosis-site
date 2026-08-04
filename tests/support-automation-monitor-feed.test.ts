@@ -155,12 +155,59 @@ describe('GET /api/internal/support-automation monitor feed', () => {
       expect.objectContaining({ id: pendingTicketId })
     );
   });
+
+  it('returns semantic HTTP 200 failures in the unattended automation queue', async () => {
+    const qualityIncidents = [
+      {
+        id: 'c1e5a62e-7140-4a1c-99c0-15508806ef7b',
+        assistant_message_id: 'f9344148-0b68-4f48-b613-21a63c840422',
+        session_id: '2722bbd4-ccbf-4cd0-b2a9-d69c7f4048d3',
+        user_id: '0e7bea61-5a41-4e19-a9de-66d7ed5fa400',
+        issue: 'repeated_response_after_dissatisfaction',
+        source: 'scheduled_audit',
+        status: 'open',
+        message_created_at: '2026-08-04T09:00:00.000Z',
+        detected_at: '2026-08-04T09:10:00.000Z',
+        deployment_commit: 'abc123',
+        details: { repeatCount: 2 },
+        claimed_run_id: null,
+        claimed_at: null,
+        updated_at: '2026-08-04T09:10:00.000Z',
+      },
+    ];
+    mocks.createClient.mockReturnValue(
+      createQueueClient([], [], [], qualityIncidents)
+    );
+
+    const response = await GET(
+      new NextRequest(
+        'https://act-diagnosis-site.vercel.app/api/internal/support-automation',
+        { headers: { Authorization: 'Bearer automation-test-secret' } }
+      )
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.open_coaching_quality_incident_count).toBe(1);
+    expect(body.open_coaching_quality_incidents).toEqual([
+      expect.objectContaining({
+        ...qualityIncidents[0],
+        profile: null,
+        session: null,
+        recent_messages: [],
+      }),
+    ]);
+    expect(JSON.stringify(body.open_coaching_quality_incidents)).not.toContain(
+      'customer_message'
+    );
+  });
 });
 
 function createQueueClient(
   latestMonitors: Array<Record<string, unknown>>,
   monitorFailures: Array<Record<string, unknown>>,
-  supportTickets: Array<Record<string, unknown>> = []
+  supportTickets: Array<Record<string, unknown>> = [],
+  qualityIncidents: Array<Record<string, unknown>> = []
 ) {
   return {
     from(table: string) {
@@ -222,6 +269,27 @@ function createQueueClient(
         };
       }
 
+      if (table === 'coaching_quality_incidents') {
+        return {
+          select() {
+            return {
+              in() {
+                return {
+                  order() {
+                    return {
+                      limit: async (limit: number) => ({
+                        data: qualityIncidents.slice(0, limit),
+                        error: null,
+                      }),
+                    };
+                  },
+                };
+              },
+            };
+          },
+        };
+      }
+
       if (table === 'profiles') {
         const emptyProfileResult = async () => ({
           data: [],
@@ -230,10 +298,51 @@ function createQueueClient(
         return {
           select() {
             return {
+              eq() {
+                return {
+                  maybeSingle: async () => ({ data: null, error: null }),
+                };
+              },
               limit() {
                 return {
                   eq: emptyProfileResult,
                   ilike: emptyProfileResult,
+                };
+              },
+            };
+          },
+        };
+      }
+
+      if (table === 'chat_sessions') {
+        return {
+          select() {
+            return {
+              eq() {
+                return {
+                  maybeSingle: async () => ({ data: null, error: null }),
+                };
+              },
+            };
+          },
+        };
+      }
+
+      if (table === 'chat_messages') {
+        return {
+          select() {
+            return {
+              eq() {
+                return {
+                  in() {
+                    return {
+                      order() {
+                        return {
+                          limit: async () => ({ data: [], error: null }),
+                        };
+                      },
+                    };
+                  },
                 };
               },
             };

@@ -18,6 +18,7 @@ import {
   COACHING_SESSION_MEMORY_PREFIX,
 } from '@/lib/coaching-session-memory';
 import { getJapanMonthStartKey } from '@/lib/japan-date';
+import { auditRecentStoredCoachingResponses } from '@/lib/coaching-quality-incidents';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -68,6 +69,11 @@ type MonitorResult = {
   remaining: number | null;
   cookieAuthUsed: boolean;
   diagnosisCodeProvided: boolean;
+  qualityAuditMs?: number;
+  qualityResponsesScanned?: number;
+  qualitySessionsScanned?: number;
+  qualityIncidentsDetected?: number;
+  qualityIncidentsPersisted?: number;
 };
 
 type MonitorMessage = {
@@ -120,6 +126,18 @@ export async function GET(request: NextRequest) {
       maxFirstChunkMs,
       maxTotalMs,
     });
+    const qualityAudit = await auditRecentStoredCoachingResponses(
+      supabaseAdmin,
+      { now: new Date() }
+    );
+    monitorResult = {
+      ...monitorResult,
+      qualityAuditMs: qualityAudit.elapsedMs,
+      qualityResponsesScanned: qualityAudit.scannedResponses,
+      qualitySessionsScanned: qualityAudit.scannedSessions,
+      qualityIncidentsDetected: qualityAudit.detectedIncidents,
+      qualityIncidentsPersisted: qualityAudit.persistedIncidents,
+    };
 
     const elapsedMs = Date.now() - startedAt;
     await persistCoachingMonitorRun(
@@ -149,6 +167,7 @@ export async function GET(request: NextRequest) {
         staleRecoveryAttempts,
         staleRecoveryStatus: staleRecoveryError ? 'failed' : 'complete',
         staleRecoveryError,
+        qualityAudit,
         ...monitorResult,
       })
     );
@@ -181,6 +200,7 @@ export async function GET(request: NextRequest) {
           staleRecoveryStatus: staleRecoveryError ? 'failed' : 'complete',
           staleRecoveryError,
         },
+        qualityAudit,
       },
       { headers: { 'Cache-Control': 'no-store' } }
     );

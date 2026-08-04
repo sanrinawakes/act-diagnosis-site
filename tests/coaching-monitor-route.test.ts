@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   updateAlertDelivery: vi.fn(),
   sendAlert: vi.fn(),
   assertHealthy: vi.fn(),
+  auditStoredQuality: vi.fn(),
   reloadRoleFilter: vi.fn(),
   insertChatMessages: vi.fn(),
   deleteMonthlyUsage: vi.fn(),
@@ -43,6 +44,10 @@ vi.mock('../src/lib/coaching-alerts', () => ({
 
 vi.mock('../src/lib/coaching-monitor-health', () => ({
   assertHealthyCoachingMonitorResult: mocks.assertHealthy,
+}));
+
+vi.mock('../src/lib/coaching-quality-incidents', () => ({
+  auditRecentStoredCoachingResponses: mocks.auditStoredQuality,
 }));
 
 let GET: typeof import('../src/app/api/monitor/coaching/route').GET;
@@ -116,6 +121,13 @@ describe('GET /api/monitor/coaching maintenance isolation', () => {
     });
     mocks.updateAlertDelivery.mockResolvedValue(undefined);
     mocks.assertHealthy.mockReturnValue(undefined);
+    mocks.auditStoredQuality.mockResolvedValue({
+      scannedResponses: 3,
+      scannedSessions: 2,
+      detectedIncidents: 1,
+      persistedIncidents: 1,
+      elapsedMs: 12,
+    });
 
     vi.stubGlobal(
       'fetch',
@@ -165,6 +177,13 @@ describe('GET /api/monitor/coaching maintenance isolation', () => {
         staleRecoveryAttempts: 2,
         staleRecoveryStatus: 'failed',
       },
+      qualityAudit: {
+        scannedResponses: 3,
+        scannedSessions: 2,
+        detectedIncidents: 1,
+        persistedIncidents: 1,
+        elapsedMs: 12,
+      },
     });
     expect(mocks.persistMonitorRun).toHaveBeenCalledTimes(2);
     expect(mocks.persistMonitorRun.mock.calls[0][1]).toMatchObject({
@@ -174,7 +193,12 @@ describe('GET /api/monitor/coaching maintenance isolation', () => {
       status: 'success',
       http_status: 200,
       has_done: true,
+      stage_timings: expect.objectContaining({
+        qualityAuditMs: 12,
+        qualityIncidentsDetected: 1,
+      }),
     });
+    expect(mocks.auditStoredQuality).toHaveBeenCalledTimes(1);
     expect(mocks.sendAlert).toHaveBeenCalledTimes(1);
     expect(mocks.sendAlert).toHaveBeenCalledWith(
       expect.objectContaining({
