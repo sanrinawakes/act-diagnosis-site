@@ -476,6 +476,37 @@ describe('createJsonLineStream', () => {
     }
   });
 
+  it('長い履歴で明日の一行動だけを求められたら待たせず返す', async () => {
+    process.env.OPENAI_API_KEY = 'test-openai-key';
+    const stream = createJsonLineStream({
+      systemPrompt: 'テスト用指示',
+      historyMessages: Array.from({ length: 18 }, (_, index) => ({
+        role: index % 2 === 0 ? ('user' as const) : ('assistant' as const),
+        content: `仕事とSNS発信についての長い履歴${index + 1}`,
+      })),
+      lastUserParts: [
+        { text: '明日まず何をすればいいか、一つだけ短く教えてください。' },
+      ],
+      onDone: async () => ({ remaining: 48 }),
+    });
+
+    const events = (await new Response(stream).text())
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+    const done = events.find((event) => event.type === 'done');
+
+    expect(state.externalCalls).toBe(0);
+    expect(done).toMatchObject({
+      modelName: 'local-long-history-action',
+      finishReason: 'LOCAL_LONG_HISTORY_ACTION',
+      completionStatus: 'complete',
+      finalizationStatus: 'complete',
+      message:
+        '明日の朝、SNSで最初に伝えたい内容を一文だけメモに書いてください。',
+    });
+  });
+
   it('画像付きフォールバックには画像処理用の15秒期限を使う', async () => {
     state.mode = 'error';
     process.env.OPENAI_API_KEY = 'test-openai-key';

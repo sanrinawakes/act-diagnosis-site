@@ -633,6 +633,10 @@ export function createJsonLineStream(params: {
           write({
             type: 'done',
             modelName: immediateResponse.modelName,
+            qualityRepairAttempted: false,
+            qualityRepairAccepted: false,
+            qualityInitialIssues: [],
+            qualityFinalIssues: [],
             completionStatus: 'complete',
             finalizationStatus: finalization.status,
             finishReason: immediateResponse.finishReason,
@@ -1590,6 +1594,32 @@ function buildImmediateCoachingResponse(
     };
   }
   if (
+    historyMessages.length >= 18 &&
+    /明日/.test(text) &&
+    /(?:一つ|ひとつ|1つ)(?:だけ)?/.test(text) &&
+    /何をすれば|どうすれば|教えて|提案/.test(text)
+  ) {
+    const recentUserContext = historyMessages
+      .filter((message) => message.role === 'user')
+      .slice(-8)
+      .map((message) => stripAttachmentMarkdown(message.content))
+      .join('\n');
+    const action = /SNS|投稿|発信/.test(recentUserContext)
+      ? '明日の朝、SNSで最初に伝えたい内容を一文だけメモに書いてください。'
+      : /仕事|職場|業務|会社|上司|同僚|会議|企画|顧客/.test(
+            recentUserContext
+          )
+        ? '明日の朝、最初に終わらせたい仕事を一つだけメモしてください。'
+        : '';
+    if (action) {
+      return {
+        text: action,
+        modelName: 'local-long-history-action',
+        finishReason: 'LOCAL_LONG_HISTORY_ACTION',
+      };
+    }
+  }
+  if (
     /(?:今も|現在も|ちゃんと)?.{0,12}(?:前|これまで|今まで)(?:の)?(?:話|会話|相談|内容).{0,20}(?:踏まえ|覚え|反映|引き継)/.test(
       text
     )
@@ -1888,6 +1918,14 @@ export function assessCoachingResponseQuality(params: {
     (hasAnyCoachingQuestion(text) ||
       (compactText.length < 140 &&
         !hasExplicitCoachingAction(text)))
+  ) {
+    issues.push('dissatisfaction_unanswered');
+  }
+  if (
+    /何の話|話が(?:違|ずれ)|意味(?:が)?(?:不明|わから)/.test(
+      lastUserText
+    ) &&
+    !hasExplicitCoachingAction(text)
   ) {
     issues.push('dissatisfaction_unanswered');
   }
@@ -5824,6 +5862,12 @@ function removeUnsupportedPsychologicalInference(
       /(?:お気持ち|気持ち|心)が沈んでいる/g,
       '落ち込んでいる'
     );
+  }
+  if (
+    /不安/.test(userContext) &&
+    !/強い不安|不安が強|とても不安|非常に不安/.test(userContext)
+  ) {
+    candidateText = candidateText.replace(/強い不安/g, '不安');
   }
   if (reportsTimeTreatedLightly(userContext)) {
     candidateText = candidateText.replace(

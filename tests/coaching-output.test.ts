@@ -882,6 +882,24 @@ describe('assessCoachingResponseQuality', () => {
     ).toContain('dissatisfaction_unanswered');
   });
 
+  it('話題ずれへの謝罪と要約だけで終わる返答を不合格にする', () => {
+    const summaryOnlyReply =
+      '前の相談と混ざってしまい、申し訳ありません。今回は、講座への後悔と、お金が入ってこない不安について話していたのですね。';
+
+    expect(
+      assessCoachingResponseQuality({
+        text: summaryOnlyReply,
+        lastUserText: '本当に何の話？',
+        historyMessages: [
+          {
+            role: 'user',
+            content: '講座への後悔と、お金が入ってこない不安の話です。',
+          },
+        ],
+      }).issues
+    ).toContain('dissatisfaction_unanswered');
+  });
+
   it('話題ずれを指摘されたら現在の相談と次の一手を具体的に返す', () => {
     const repeated =
       '現在の支払い分担について、口頭のお願い以外に確認できる合意や記録はありますか？';
