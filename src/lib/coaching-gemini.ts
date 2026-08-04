@@ -84,6 +84,7 @@ const GEMINI_FINALIZE_TIMEOUT_MS = 4000;
 const QUALITY_REPAIR_TIMEOUT_MS = 7000;
 const EXTERNAL_FALLBACK_TIMEOUT_MS = 10000;
 const EXTERNAL_IMAGE_FALLBACK_TIMEOUT_MS = 15000;
+const LONG_HISTORY_FALLBACK_HEDGE_DELAY_MS = 3500;
 const GEMINI_RETRY_DELAYS_MS = [300];
 const ALERT_SLOW_RESPONSE_MS = 10000;
 const ALERT_THROTTLE_MS = 5 * 60 * 1000;
@@ -557,6 +558,33 @@ export function createJsonLineStream(params: {
       const startedAt = Date.now();
       let firstChunkMs: number | null = null;
       let generationFirstChunkMs: number | null = null;
+      const fallbackAbortController = new AbortController();
+      let fallbackHedgeTimer: ReturnType<typeof setTimeout> | null = null;
+      let externalFallbackPromise: ReturnType<
+        typeof tryExternalProviderFallback
+      > | null = null;
+
+      const startExternalFallback = () => {
+        if (fallbackHedgeTimer) {
+          clearTimeout(fallbackHedgeTimer);
+          fallbackHedgeTimer = null;
+        }
+        if (fallbackAbortController.signal.aborted) {
+          return Promise.resolve(null);
+        }
+        externalFallbackPromise ??= tryExternalProviderFallback({
+          ...params,
+          signal: fallbackAbortController.signal,
+        });
+        return externalFallbackPromise;
+      };
+      const stopExternalFallback = () => {
+        if (fallbackHedgeTimer) {
+          clearTimeout(fallbackHedgeTimer);
+          fallbackHedgeTimer = null;
+        }
+        fallbackAbortController.abort();
+      };
 
       const write = (payload: Record<string, unknown>) => {
         if (!deliveryOpen) return;
@@ -637,6 +665,15 @@ export function createJsonLineStream(params: {
         const isImageRequest = params.lastUserParts.some(
           (part) => 'inlineData' in part
         );
+        if (
+          !isImageRequest &&
+          params.historyMessages.length >= 18 &&
+          (process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY)
+        ) {
+          fallbackHedgeTimer = setTimeout(() => {
+            void startExternalFallback();
+          }, LONG_HISTORY_FALLBACK_HEDGE_DELAY_MS);
+        }
         const geminiTimeoutMs = getGeminiTimeoutMs(isImageRequest);
         await runWithGeminiRetry(async () => {
           fullText = '';
@@ -717,6 +754,7 @@ export function createJsonLineStream(params: {
           historyMessages: params.historyMessages,
           preserveUsage: true,
         });
+        stopExternalFallback();
         fullText = verifiedResolution.text;
         const usage = verifiedResolution.usage;
         const finalModelName = verifiedResolution.modelName;
@@ -770,7 +808,7 @@ export function createJsonLineStream(params: {
         const fallbackUserText = extractTextFromParts(params.lastUserParts);
 
         if (!emittedText) {
-          const externalFallback = await tryExternalProviderFallback(params);
+          const externalFallback = await startExternalFallback();
           if (externalFallback) {
             const fallbackResolution = await resolveCoachingResponseQuality({
               rawText: externalFallback.rawText,
@@ -939,6 +977,7 @@ export function createJsonLineStream(params: {
           ...finalization.payload,
         });
       } finally {
+        stopExternalFallback();
         if (deliveryOpen) {
           try {
             controller.close();
@@ -1598,6 +1637,7 @@ async function tryExternalProviderFallback(params: {
   historyMessages: CoachingChatMessage[];
   lastUserParts: GeminiPart[];
   timeoutMs?: number;
+  signal?: AbortSignal;
 }) {
   const modelInput = params.lastUserParts
     .map((part) => ('text' in part ? part.text : ''))
@@ -1644,11 +1684,16 @@ async function tryExternalProviderFallback(params: {
     } => Boolean(candidate)
   );
   if (candidates.length === 0) return null;
+  if (params.signal?.aborted) return null;
 
   const { generateCoachingProviderCandidate } = await import(
     '@/lib/coaching-provider-candidates'
   );
   const controllers = candidates.map(() => new AbortController());
+  const abortCandidates = () => {
+    controllers.forEach((controller) => controller.abort());
+  };
+  params.signal?.addEventListener('abort', abortCandidates, { once: true });
   let winnerSelected = false;
   const attempts = candidates.map(async (candidate, index) => {
     try {
@@ -1702,7 +1747,8 @@ async function tryExternalProviderFallback(params: {
     return null;
   } finally {
     winnerSelected = true;
-    controllers.forEach((controller) => controller.abort());
+    params.signal?.removeEventListener('abort', abortCandidates);
+    abortCandidates();
   }
 }
 

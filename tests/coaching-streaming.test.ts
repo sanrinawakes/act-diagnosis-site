@@ -440,6 +440,42 @@ describe('createJsonLineStream', () => {
     });
   });
 
+  it('長い履歴ではGemini停止前に予備AIを待機させる', async () => {
+    vi.useFakeTimers();
+    process.env.OPENAI_API_KEY = 'test-openai-key';
+
+    try {
+      const stream = createJsonLineStream({
+        systemPrompt: 'テスト用指示',
+        historyMessages: Array.from({ length: 18 }, (_, index) => ({
+          role: index % 2 === 0 ? ('user' as const) : ('assistant' as const),
+          content: `長い履歴${index + 1}`,
+        })),
+        lastUserParts: [{ text: '仕事のことで迷っています。' }],
+        onDone: async () => ({ remaining: 48 }),
+      });
+      const responsePromise = new Response(stream).text();
+
+      await vi.advanceTimersByTimeAsync(3499);
+      expect(state.externalCalls).toBe(0);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(state.externalCalls).toBe(1);
+      await vi.advanceTimersByTimeAsync(3000);
+
+      const events = (await responsePromise)
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line));
+      expect(events.find((event) => event.type === 'done')).toMatchObject({
+        fallbackFrom: 'gemini-3.5-flash',
+        completionStatus: 'complete',
+        finalizationStatus: 'complete',
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('画像付きフォールバックには画像処理用の15秒期限を使う', async () => {
     state.mode = 'error';
     process.env.OPENAI_API_KEY = 'test-openai-key';
