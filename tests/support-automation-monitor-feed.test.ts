@@ -86,7 +86,7 @@ describe('GET /api/internal/support-automation monitor feed', () => {
       idempotencyKey: `decision-${pendingTicketId}`,
       status: 'decision_required',
       note: [
-        '確認済み事実: 1日50回の上限に達しています。',
+        '確認済み事実: 1か月1500回の上限に達しています。',
         '判断事項: 利用上限を変更するか決めてください。',
         '推奨案: 現行上限を維持する。',
       ].join('\n'),

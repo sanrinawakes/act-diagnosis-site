@@ -203,7 +203,8 @@ async function createTestMember() {
     is_active: true,
     subscription_status: 'active',
     subscribed_at: new Date().toISOString(),
-    chat_count_today: 0,
+    chat_count_month: 0,
+    chat_month_start: getJapanMonthStartKey(),
   });
   if (profileError) throw profileError;
 }
@@ -1010,11 +1011,17 @@ async function countMessages(sid) {
 async function getProfileChatCount() {
   const { data, error } = await admin
     .from('profiles')
-    .select('chat_count_today')
+    .select('chat_count_month')
     .eq('id', userId)
     .single();
   if (error) throw error;
-  return data.chat_count_today || 0;
+  return data.chat_count_month || 0;
+}
+
+function getJapanMonthStartKey(now = new Date()) {
+  return `${new Date(now.getTime() + 9 * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 7)}-01`;
 }
 
 async function latestConversationRows(sid, limit) {

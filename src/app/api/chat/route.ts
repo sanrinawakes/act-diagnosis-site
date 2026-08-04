@@ -39,7 +39,14 @@ import {
   createScopeBlockedStream,
   type CoachingScopeResult,
 } from '@/lib/coaching-scope';
-import { getJapanDateKey } from '@/lib/japan-date';
+import {
+  buildMonthlyQuotaError,
+  getMonthlyQuotaState,
+  MONTHLY_COACHING_LIMIT,
+  releaseMonthlyQuota,
+  reserveMonthlyQuota,
+  type MonthlyQuotaReservation,
+} from '@/lib/coaching-quota';
 
 export const runtime = 'nodejs';
 // Vercel関数のデフォルト打ち切り(Hobby 10s)を延長し、Gemini生成の途中切断を防ぐ
@@ -49,7 +56,6 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
-const DAILY_CHAT_LIMIT = 50; // 1日50往復まで
 const AUTH_TIMEOUT_MS = 8000;
 const PROFILE_TIMEOUT_MS = 8000;
 const SETTINGS_TIMEOUT_MS = 5000;
@@ -164,15 +170,14 @@ export async function POST(request: NextRequest) {
           }
         : null;
 
-    // Check daily chat limit
-    const today = getJapanDateKey();
+    // Load the paid member's current Japanese calendar-month allowance.
     let profile;
     let profileError;
     try {
       const profileResult = await withStageTimeout(
         supabaseAdmin
           .from('profiles')
-          .select('chat_count_today, last_chat_date, role, subscription_status, is_active, paid_test_credits')
+          .select('chat_count_month, chat_month_start, role, subscription_status, is_active, paid_test_credits')
           .eq('id', user.id)
           .single(),
         PROFILE_TIMEOUT_MS,
@@ -213,12 +218,9 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const currentChatCount =
-      profile.last_chat_date === today ? profile.chat_count_today || 0 : 0;
-    const currentRemaining =
-      profile.role === 'admin'
-        ? DAILY_CHAT_LIMIT
-        : Math.max(0, DAILY_CHAT_LIMIT - currentChatCount);
+    const monthlyQuota = getMonthlyQuotaState(profile);
+    const currentChatCount = monthlyQuota.used;
+    const currentRemaining = monthlyQuota.remaining;
     let responseMarker: string | null = null;
 
     const respondFromState = async (
@@ -250,7 +252,7 @@ export async function POST(request: NextRequest) {
             createCachedCoachingStream({
               message: state.message,
               remaining: currentRemaining,
-              limit: DAILY_CHAT_LIMIT,
+              limit: MONTHLY_COACHING_LIMIT,
             }),
             {
               headers: {
@@ -263,7 +265,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({
           message: state.message,
           remaining: currentRemaining,
-          limit: DAILY_CHAT_LIMIT,
+          limit: MONTHLY_COACHING_LIMIT,
           completionStatus: 'complete',
           finalizationStatus: 'complete',
           finishReason: 'CACHED_REPLAY',
@@ -339,14 +341,12 @@ export async function POST(request: NextRequest) {
     }
 
     if (profile && profile.role !== 'admin') {
-      const chatCountToday = currentChatCount;
-
-      if (chatCountToday >= DAILY_CHAT_LIMIT) {
+      if (currentChatCount >= MONTHLY_COACHING_LIMIT) {
         return NextResponse.json(
           {
-            error: `本日の利用上限（${DAILY_CHAT_LIMIT}往復）に達しました。明日またご利用ください。`,
+            error: buildMonthlyQuotaError(),
             remaining: 0,
-            limit: DAILY_CHAT_LIMIT,
+            limit: MONTHLY_COACHING_LIMIT,
           },
           { status: 429 }
         );
@@ -389,15 +389,16 @@ export async function POST(request: NextRequest) {
       messages,
       attachmentCount: attachments.length,
     });
-    const usageAuditPromise = recordCoachingUsageEvent({
-      supabaseAdmin,
-      requestId: clientRequestId || requestId,
-      userId: user.id,
-      sessionId: activeSessionId,
-      result: scopeResult,
-    });
+    const quotaRequestId = clientRequestId || requestId;
 
     if (scopeResult.decision === 'blocked') {
+      const usageAuditPromise = recordCoachingUsageEvent({
+        supabaseAdmin,
+        requestId: quotaRequestId,
+        userId: user.id,
+        sessionId: activeSessionId,
+        result: scopeResult,
+      });
       await usageAuditPromise;
       const claimedResponse = await claimResponse();
       if (claimedResponse) return claimedResponse;
@@ -412,8 +413,8 @@ export async function POST(request: NextRequest) {
       }
       const remaining =
         profile.role === 'admin'
-          ? DAILY_CHAT_LIMIT
-          : Math.max(0, DAILY_CHAT_LIMIT - currentChatCount);
+          ? MONTHLY_COACHING_LIMIT
+          : Math.max(0, MONTHLY_COACHING_LIMIT - currentChatCount);
       console.warn(
         JSON.stringify({
           event: 'chat_scope_blocked',
@@ -434,7 +435,7 @@ export async function POST(request: NextRequest) {
           createScopeBlockedStream({
             result: scopeResult,
             remaining,
-            limit: DAILY_CHAT_LIMIT,
+            limit: MONTHLY_COACHING_LIMIT,
           }),
           { headers: getStreamHeaders() }
         );
@@ -443,7 +444,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         message: COACHING_SCOPE_GUIDANCE,
         remaining,
-        limit: DAILY_CHAT_LIMIT,
+        limit: MONTHLY_COACHING_LIMIT,
         completionStatus: 'complete',
         finishReason: 'SCOPE_BLOCKED',
         scopeDecision: scopeResult.decision,
@@ -474,7 +475,6 @@ export async function POST(request: NextRequest) {
         'ATTACHMENT_LOAD_TIMEOUT'
       );
     } catch (error) {
-      await usageAuditPromise;
       logPreflightError(requestId, 'attachments', requestStartedAt, error);
       const timedOut =
         error instanceof Error && error.message === 'ATTACHMENT_LOAD_TIMEOUT';
@@ -549,8 +549,88 @@ export async function POST(request: NextRequest) {
       contextMs: Date.now() - contextStartedAt,
     };
 
-    const claimedResponse = await claimResponse();
-    if (claimedResponse) return claimedResponse;
+    let quotaReservation: MonthlyQuotaReservation;
+    if (profile.role === 'admin') {
+      quotaReservation = {
+        allowed: true,
+        used: monthlyQuota.used,
+        remaining: MONTHLY_COACHING_LIMIT,
+        reservedNow: false,
+        periodStart: monthlyQuota.periodStart,
+        limit: MONTHLY_COACHING_LIMIT,
+        requestId: quotaRequestId,
+      };
+    } else {
+      try {
+        quotaReservation = await withStageTimeout(
+          reserveMonthlyQuota({
+            supabaseAdmin,
+            userId: user.id,
+            requestId: quotaRequestId,
+            periodStart: monthlyQuota.periodStart,
+          }),
+          PROFILE_TIMEOUT_MS,
+          'MONTHLY_QUOTA_TIMEOUT'
+        );
+      } catch (error) {
+        logPreflightError(requestId, 'monthly_quota', requestStartedAt, error);
+        const timedOut =
+          error instanceof Error && error.message === 'MONTHLY_QUOTA_TIMEOUT';
+        return NextResponse.json(
+          {
+            error: timedOut
+              ? '利用回数の確認に時間がかかりました。入力内容は保存されています。少し待ってから、もう一度送信してください。'
+              : '利用回数を確認できませんでした。少し待ってから、もう一度送信してください。',
+          },
+          { status: timedOut ? 504 : 503 }
+        );
+      }
+    }
+
+    if (!quotaReservation.allowed) {
+      return NextResponse.json(
+        {
+          error: buildMonthlyQuotaError(quotaReservation.limit),
+          remaining: 0,
+          limit: quotaReservation.limit,
+        },
+        { status: 429 }
+      );
+    }
+
+    let claimedResponse: Response | null;
+    try {
+      claimedResponse = await claimResponse();
+    } catch (error) {
+      if (quotaReservation.reservedNow) {
+        await safelyReleaseMonthlyQuota({
+          supabaseAdmin,
+          userId: user.id,
+          reservation: quotaReservation,
+          serverRequestId: requestId,
+        });
+      }
+      throw error;
+    }
+    if (claimedResponse) {
+      if (quotaReservation.reservedNow) {
+        await safelyReleaseMonthlyQuota({
+          supabaseAdmin,
+          userId: user.id,
+          reservation: quotaReservation,
+          serverRequestId: requestId,
+        });
+      }
+      return claimedResponse;
+    }
+
+    const usageAuditPromise = recordCoachingUsageEvent({
+      supabaseAdmin,
+      requestId: quotaRequestId,
+      userId: user.id,
+      sessionId: activeSessionId,
+      result: scopeResult,
+    });
 
     const completeSuccessfulResponse = async (
       _usage?: unknown,
@@ -569,37 +649,35 @@ export async function POST(request: NextRequest) {
           message: completion.message,
         });
       }
-      const newCount = currentChatCount + 1;
-
-      const { error: countUpdateError } = await supabaseAdmin
-        .from('profiles')
-        .update({
-          chat_count_today: newCount,
-          last_chat_date: today,
-        })
-        .eq('id', user.id);
-
-      if (countUpdateError) {
-        throw new Error(`CHAT_COUNT_UPDATE_FAILED: ${countUpdateError.message}`);
-      }
-
       return {
-        remaining: profile?.role === 'admin' ? DAILY_CHAT_LIMIT : Math.max(0, DAILY_CHAT_LIMIT - newCount),
-        limit: DAILY_CHAT_LIMIT,
+        remaining: quotaReservation.remaining,
+        limit: quotaReservation.limit,
       };
     };
 
     if (stream) {
-      return new Response(
-        createJsonLineStream({
-          systemPrompt,
-          historyMessages,
-          lastUserParts,
-          onDone: completeSuccessfulResponse,
-          telemetry,
-        }),
-        { headers: getStreamHeaders() }
-      );
+      try {
+        return new Response(
+          createJsonLineStream({
+            systemPrompt,
+            historyMessages,
+            lastUserParts,
+            onDone: completeSuccessfulResponse,
+            telemetry,
+          }),
+          { headers: getStreamHeaders() }
+        );
+      } catch (error) {
+        if (profile.role !== 'admin') {
+          await safelyReleaseMonthlyQuota({
+            supabaseAdmin,
+            userId: user.id,
+            reservation: quotaReservation,
+            serverRequestId: requestId,
+          });
+        }
+        throw error;
+      }
     }
 
     let assistantMessage: string;
@@ -636,6 +714,14 @@ export async function POST(request: NextRequest) {
       );
     } catch (genErr) {
       await usageAuditPromise;
+      if (profile.role !== 'admin') {
+        await safelyReleaseMonthlyQuota({
+          supabaseAdmin,
+          userId: user.id,
+          reservation: quotaReservation,
+          serverRequestId: requestId,
+        });
+      }
       const isTimeout =
         genErr instanceof Error && genErr.message === 'GEMINI_TIMEOUT';
       console.error(
@@ -655,13 +741,26 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Increment daily chat count
-    const { remaining, limit } = await completeSuccessfulResponse(usage, {
-      message: assistantMessage,
-      completionStatus,
-      finishReason,
-      modelName: generatedModelName,
-    });
+    let remaining: number;
+    let limit: number;
+    try {
+      ({ remaining, limit } = await completeSuccessfulResponse(usage, {
+        message: assistantMessage,
+        completionStatus,
+        finishReason,
+        modelName: generatedModelName,
+      }));
+    } catch (error) {
+      if (profile.role !== 'admin') {
+        await safelyReleaseMonthlyQuota({
+          supabaseAdmin,
+          userId: user.id,
+          reservation: quotaReservation,
+          serverRequestId: requestId,
+        });
+      }
+      throw error;
+    }
 
     return NextResponse.json({
       message: assistantMessage,
@@ -724,6 +823,36 @@ function logPreflightError(
       error: error instanceof Error ? error.message : String(error),
     })
   );
+}
+
+async function safelyReleaseMonthlyQuota(params: {
+  supabaseAdmin: SupabaseClient;
+  userId: string;
+  reservation: MonthlyQuotaReservation;
+  serverRequestId: string;
+}) {
+  if (!params.reservation.reservedNow) return;
+
+  try {
+    await releaseMonthlyQuota({
+      supabaseAdmin: params.supabaseAdmin,
+      userId: params.userId,
+      requestId: params.reservation.requestId,
+      periodStart: params.reservation.periodStart,
+      limit: params.reservation.limit,
+    });
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        event: 'monthly_quota_release_failed',
+        route: '/api/chat',
+        requestId: params.serverRequestId,
+        quotaRequestId: params.reservation.requestId,
+        userId: params.userId,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    );
+  }
 }
 
 async function recordCoachingUsageEvent(params: {

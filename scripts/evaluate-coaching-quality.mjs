@@ -734,7 +734,22 @@ async function runApiContractChecks() {
 }
 
 async function runAccessBoundaryChecks(checks) {
-  const today = getJapanDateKey();
+  const monthStart = getJapanMonthStartKey();
+  const { data: quotaProfile, error: quotaProfileError } = await admin
+    .from('profiles')
+    .select('chat_count_month, chat_month_start')
+    .eq('id', userId)
+    .single();
+  if (quotaProfileError || !quotaProfile) {
+    throw new Error(
+      `monthly quota baseline lookup failed: ${quotaProfileError?.message || 'missing'}`
+    );
+  }
+  const baselineCount =
+    quotaProfile.chat_month_start === monthStart
+      ? Number(quotaProfile.chat_count_month || 0)
+      : 0;
+
   try {
     const { error: inactiveError } = await admin
       .from('profiles')
@@ -758,8 +773,6 @@ async function runAccessBoundaryChecks(checks) {
       .update({
         is_active: true,
         subscription_status: 'active',
-        chat_count_today: 0,
-        last_chat_date: today,
       })
       .eq('id', userId);
     if (error) throw error;
@@ -768,7 +781,7 @@ async function runAccessBoundaryChecks(checks) {
   try {
     const { error: limitSetupError } = await admin
       .from('profiles')
-      .update({ chat_count_today: 50, last_chat_date: today })
+      .update({ chat_count_month: 1500, chat_month_start: monthStart })
       .eq('id', userId);
     if (limitSetupError) throw limitSetupError;
 
@@ -778,14 +791,17 @@ async function runAccessBoundaryChecks(checks) {
     });
     addCheck(
       checks,
-      '利用上限: 50回到達後は429',
+      '利用上限: 月1500回到達後は429',
       limitResponse.status === 429,
       String(limitResponse.status)
     );
   } finally {
     const { error } = await admin
       .from('profiles')
-      .update({ chat_count_today: 0, last_chat_date: today })
+      .update({
+        chat_count_month: baselineCount,
+        chat_month_start: monthStart,
+      })
       .eq('id', userId);
     if (error) throw error;
   }
@@ -2523,9 +2539,20 @@ async function cleanup() {
       .from('chat_sessions')
       .select('id', { count: 'exact', head: true })
       .eq('user_id', userId);
-    if (profileError || sessionError || profiles !== 0 || sessions !== 0) {
+    const { count: monthlyUsage, error: monthlyUsageError } = await admin
+      .from('coaching_monthly_usage')
+      .select('request_id', { count: 'exact', head: true })
+      .eq('user_id', userId);
+    if (
+      profileError ||
+      sessionError ||
+      monthlyUsageError ||
+      profiles !== 0 ||
+      sessions !== 0 ||
+      monthlyUsage !== 0
+    ) {
       console.error(
-        `Quality test cleanup verification failed: profiles=${profiles}, sessions=${sessions}`
+        `Quality test cleanup verification failed: profiles=${profiles}, sessions=${sessions}, monthlyUsage=${monthlyUsage}`
       );
       process.exitCode = 1;
     }
@@ -2538,8 +2565,8 @@ function requireEnv(name) {
   return value;
 }
 
-function getJapanDateKey(now = new Date()) {
-  return new Date(now.getTime() + 9 * 60 * 60 * 1000)
+function getJapanMonthStartKey(now = new Date()) {
+  return `${new Date(now.getTime() + 9 * 60 * 60 * 1000)
     .toISOString()
-    .slice(0, 10);
+    .slice(0, 7)}-01`;
 }

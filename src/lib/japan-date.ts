@@ -9,3 +9,7 @@ export function getJapanDateKey(now = new Date()) {
     .toISOString()
     .slice(0, 10);
 }
+
+export function getJapanMonthStartKey(now = new Date()) {
+  return `${getJapanDateKey(now).slice(0, 7)}-01`;
+}

@@ -279,7 +279,7 @@ function CoachingContent() {
   const [historyHasMore, setHistoryHasMore] = useState(false);
   const [historyLoadingOlder, setHistoryLoadingOlder] = useState(false);
   const [remainingChats, setRemainingChats] = useState<number | null>(null);
-  const [chatLimit, setChatLimit] = useState<number>(50);
+  const [chatLimit, setChatLimit] = useState<number>(1500);
   const [rateLimitReached, setRateLimitReached] = useState(false);
   const [pendingAttachments, setPendingAttachments] = useState<PendingImageAttachment[]>([]);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
@@ -1253,7 +1253,7 @@ function CoachingContent() {
         setRateLimitReached(true);
         setRemainingChats(0);
         shouldReportFailure = false;
-        throw new Error(data.error || '本日の利用上限に達しました。');
+        throw new Error(data.error || '今月の利用上限に達しました。');
       }
 
       assistantMessageId = responseMessageId;
@@ -1684,8 +1684,8 @@ function CoachingContent() {
                   <p className="text-blue-600 text-xs">タイプ: {diagnosisCode}</p>
                 )}
                 {remainingChats !== null && (
-                  <p className={`text-xs ${remainingChats <= 5 ? 'text-red-500 font-semibold' : 'text-gray-500'}`}>
-                    残り: {remainingChats}/{chatLimit}回
+                  <p className={`text-xs ${remainingChats <= 50 ? 'text-red-500 font-semibold' : 'text-gray-500'}`}>
+                    今月の残り: {remainingChats}/{chatLimit}回
                   </p>
                 )}
               </div>
@@ -1880,8 +1880,8 @@ function CoachingContent() {
             <div className="border-t border-blue-200 bg-white p-4 sm:p-6 flex-shrink-0">
               {rateLimitReached ? (
                 <div className="max-w-4xl mx-auto text-center py-2">
-                  <p className="text-red-600 font-semibold">本日の利用上限（{chatLimit}往復）に達しました。</p>
-                  <p className="text-gray-500 text-sm mt-1">明日またご利用ください。</p>
+                  <p className="text-red-600 font-semibold">今月の利用上限（{chatLimit}回）に達しました。</p>
+                  <p className="text-gray-500 text-sm mt-1">翌月1日から再びご利用いただけます。</p>
                 </div>
               ) : (
                 <div className="max-w-4xl mx-auto">

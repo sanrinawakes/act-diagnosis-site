@@ -182,8 +182,8 @@ async function createTestMember() {
     is_active: true,
     subscription_status: 'active',
     subscribed_at: new Date().toISOString(),
-    chat_count_today: 0,
-    last_chat_date: getJapanDateKey(),
+    chat_count_month: 0,
+    chat_month_start: getJapanMonthStartKey(),
   });
   if (profileError) {
     throw new Error(`test profile creation failed: ${profileError.message}`);
@@ -363,16 +363,16 @@ async function verifyDatabase(blockedCount) {
 
   const { data: profile, error: profileError } = await admin
     .from('profiles')
-    .select('chat_count_today')
+    .select('chat_count_month')
     .eq('id', userId)
     .single();
   if (profileError || !profile) {
     throw new Error(`profile count lookup failed: ${profileError?.message || 'missing'}`);
   }
-  assert(Number(profile.chat_count_today) === 1, 'blocked requests consumed the daily allowance');
+  assert(Number(profile.chat_count_month) === 1, 'blocked requests consumed the monthly allowance');
   addCheck('audit events recorded without private message text');
   addCheck('per-user blocked, allowed, and long totals matched');
-  addCheck('only the allowed consultation consumed one daily request');
+  addCheck('only the allowed consultation consumed one monthly request');
 }
 
 async function cleanup() {
@@ -476,10 +476,10 @@ function requireEnv(name) {
   return value;
 }
 
-function getJapanDateKey(now = new Date()) {
-  return new Date(now.getTime() + 9 * 60 * 60 * 1000)
+function getJapanMonthStartKey(now = new Date()) {
+  return `${new Date(now.getTime() + 9 * 60 * 60 * 1000)
     .toISOString()
-    .slice(0, 10);
+    .slice(0, 7)}-01`;
 }
 
 function sanitizeError(error) {
