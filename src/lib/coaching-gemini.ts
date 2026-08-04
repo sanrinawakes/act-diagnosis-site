@@ -1620,6 +1620,30 @@ function buildImmediateCoachingResponse(
     }
   }
   if (
+    historyMessages.some((message) => message.role === 'assistant') &&
+    /何の話|話が(?:違|ずれ)|意味(?:が)?(?:不明|わから)/.test(text)
+  ) {
+    const recovery = buildContextualDissatisfactionFallback(
+      text,
+      historyMessages
+    );
+    const verifiedRecovery = recovery.trim();
+    if (
+      verifiedRecovery &&
+      assessCoachingResponseQuality({
+        text: verifiedRecovery,
+        lastUserText: text,
+        historyMessages,
+      }).issues.length === 0
+    ) {
+      return {
+        text: verifiedRecovery,
+        modelName: 'local-topic-recovery',
+        finishReason: 'LOCAL_TOPIC_RECOVERY',
+      };
+    }
+  }
+  if (
     /(?:今も|現在も|ちゃんと)?.{0,12}(?:前|これまで|今まで)(?:の)?(?:話|会話|相談|内容).{0,20}(?:踏まえ|覚え|反映|引き継)/.test(
       text
     )

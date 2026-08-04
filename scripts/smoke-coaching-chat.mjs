@@ -119,6 +119,8 @@ async function runLongHistoryConversation() {
     diagnosisCode: 'SMM-1',
     messages,
     label: 'long-history-437',
+    expectedModelName: 'local-long-history-action',
+    expectedFinishReason: 'LOCAL_LONG_HISTORY_ACTION',
   });
 }
 
@@ -156,6 +158,8 @@ async function runTopicDriftRecoveryConversation() {
       { role: 'user', content: '本当に何の話？' },
     ],
     label: 'topic-drift-recovery',
+    expectedModelName: 'local-topic-recovery',
+    expectedFinishReason: 'LOCAL_TOPIC_RECOVERY',
   });
 }
 

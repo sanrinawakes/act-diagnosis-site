@@ -507,6 +507,56 @@ describe('createJsonLineStream', () => {
     });
   });
 
+  it('話題ずれを指摘されたら直近の相談へ即時に戻す', async () => {
+    const repeated =
+      '現在の支払い分担について、口頭のお願い以外に確認できる合意や記録はありますか？';
+    const stream = createJsonLineStream({
+      systemPrompt: 'テスト用指示',
+      historyMessages: [
+        {
+          role: 'user',
+          content: '以前、夫が家賃を払わないことで困っていました。',
+        },
+        { role: 'assistant', content: repeated },
+        {
+          role: 'user',
+          content:
+            '今回は講座に申し込まなかった後悔と、スピリチュアルな学びにこれ以上お金を使いたくない疲れ、お金が入ってこない不安の話です。',
+        },
+        { role: 'assistant', content: repeated },
+        { role: 'user', content: '支払い分担って何の話？' },
+        { role: 'assistant', content: repeated },
+        {
+          role: 'user',
+          content: 'なんで私ばっかりお金が入ってこないの、という話です。',
+        },
+        { role: 'assistant', content: repeated },
+      ],
+      lastUserParts: [{ text: '本当に何の話？' }],
+      onDone: async () => ({ remaining: 48 }),
+    });
+
+    const events = (await new Response(stream).text())
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+    const done = events.find((event) => event.type === 'done');
+
+    expect(state.externalCalls).toBe(0);
+    expect(state.qualityRepairCalls).toBe(0);
+    expect(done).toMatchObject({
+      modelName: 'local-topic-recovery',
+      finishReason: 'LOCAL_TOPIC_RECOVERY',
+      qualityFinalIssues: [],
+      completionStatus: 'complete',
+      finalizationStatus: 'complete',
+    });
+    expect(done.message).toContain('講座への申し込みを保留');
+    expect(done.message).toContain('現在の収入源');
+    expect(done.message).toContain('今月必要な金額');
+    expect(done.message).not.toMatch(/支払い分担|不足額|支払日/);
+  });
+
   it('画像付きフォールバックには画像処理用の15秒期限を使う', async () => {
     state.mode = 'error';
     process.env.OPENAI_API_KEY = 'test-openai-key';
