@@ -456,11 +456,11 @@ describe('createJsonLineStream', () => {
       });
       const responsePromise = new Response(stream).text();
 
-      await vi.advanceTimersByTimeAsync(3499);
+      await vi.advanceTimersByTimeAsync(249);
       expect(state.externalCalls).toBe(0);
       await vi.advanceTimersByTimeAsync(1);
       expect(state.externalCalls).toBe(1);
-      await vi.advanceTimersByTimeAsync(3000);
+      await vi.advanceTimersByTimeAsync(6250);
 
       const events = (await responsePromise)
         .trim()

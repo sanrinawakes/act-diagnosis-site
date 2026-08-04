@@ -84,7 +84,7 @@ const GEMINI_FINALIZE_TIMEOUT_MS = 4000;
 const QUALITY_REPAIR_TIMEOUT_MS = 7000;
 const EXTERNAL_FALLBACK_TIMEOUT_MS = 10000;
 const EXTERNAL_IMAGE_FALLBACK_TIMEOUT_MS = 15000;
-const LONG_HISTORY_FALLBACK_HEDGE_DELAY_MS = 3500;
+const LONG_HISTORY_FALLBACK_HEDGE_DELAY_MS = 250;
 const GEMINI_RETRY_DELAYS_MS = [300];
 const ALERT_SLOW_RESPONSE_MS = 10000;
 const ALERT_THROTTLE_MS = 5 * 60 * 1000;
@@ -1877,7 +1877,8 @@ export function assessCoachingResponseQuality(params: {
   if (
     shouldAvoidForcedCoachingMove(lastUserText, historyMessages) &&
     (hasAnyCoachingQuestion(text) ||
-      repeatsPreviousRejectedAction(text, historyMessages))
+      (explicitlyRejectsPreviousCoachingMove(lastUserText) &&
+        repeatsPreviousRejectedAction(text, historyMessages)))
   ) {
     issues.push('repeats_rejected_move');
   }
@@ -1892,7 +1893,7 @@ export function assessCoachingResponseQuality(params: {
   }
   if (
     userReportsDissatisfaction &&
-    /本人が話した事実|本人が述べた不安|古い別件|持ち込まずに考え直|ここからは[^。！？?\n]{0,80}考え直/.test(
+    /本人が話した事実|本人が述べた不安|古い別件|持ち込まずに考え直|ここからは[^。！？?\n]{0,80}考え直|ここまでに書かれた事実|確認できた事実を基準に|次の対応を一つに絞ります/.test(
       text
     )
   ) {
@@ -3696,6 +3697,9 @@ function buildContextualDissatisfactionFallback(
   ) {
     return '前の返答は今回とは違う話を混ぜていました。申し訳ありません。\n\n今の話は、講座に申し込まなかった後悔、これ以上スピリチュアルな学びにお金を使いたくない疲れ、お金が入ってこない不安についてです。講座へ申し込む判断と、現在の収入の問題を分けます。今日は講座への申し込みを保留にし、現在の収入源と今月必要な金額を確認してください。';
   }
+  if (/お金が入ってこな/.test(recentUserContext)) {
+    return '前の返答は今回とは違う話を混ぜていました。申し訳ありません。\n\n今の話は、お金が入ってこない不安についてです。原因をまだ確認できていない段階で、別の人物や出来事を当てはめるべきではありません。今日は、現在の収入源ごとの見込み額と、今月必要な金額を確認してください。足りない金額が分かれば、今ある収入源のどこを増やす必要があるかを具体的に考えられます。';
+  }
 
   if (
     /仕事|職場|業務|会社|上司|同僚|会議|企画|顧客/.test(
@@ -4696,13 +4700,23 @@ function shouldAvoidForcedCoachingMove(
   if (!hasPreviousAssistant) return false;
 
   return (
+    explicitlyRejectsPreviousCoachingMove(normalized) ||
+    reportsResponseDissatisfaction(normalized)
+  );
+}
+
+function explicitlyRejectsPreviousCoachingMove(text: string) {
+  const normalized = text.replace(/\s+/g, ' ').trim();
+  return (
     /^(?:できない|できて(?:い)?ない|無理|やりたくない|したくない|何も(?:言わない|答えない)|わからない)(?:[。！!？?]|$)/.test(
       normalized
     ) ||
     /毎回(?:言って|伝えて)いる|何度も(?:言って|伝えて)いる/.test(
       normalized
     ) ||
-    reportsResponseDissatisfaction(normalized)
+    /もう(?:試した|やった|伝えた|言った|確認した|相談した)/.test(
+      normalized
+    )
   );
 }
 

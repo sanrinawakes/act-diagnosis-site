@@ -882,6 +882,48 @@ describe('assessCoachingResponseQuality', () => {
     ).toContain('dissatisfaction_unanswered');
   });
 
+  it('話題ずれを指摘されたら現在の相談と次の一手を具体的に返す', () => {
+    const repeated =
+      '現在の支払い分担について、口頭のお願い以外に確認できる合意や記録はありますか？';
+    const historyMessages = [
+      {
+        role: 'user' as const,
+        content: '以前、夫が家賃を払わないことで困っていました。',
+      },
+      { role: 'assistant' as const, content: repeated },
+      {
+        role: 'user' as const,
+        content:
+          '今回は講座に申し込まなかった後悔と、スピリチュアルな学びにこれ以上お金を使いたくない疲れ、お金が入ってこない不安の話です。',
+      },
+      { role: 'assistant' as const, content: repeated },
+      { role: 'user' as const, content: '支払い分担って何の話？' },
+      { role: 'assistant' as const, content: repeated },
+      {
+        role: 'user' as const,
+        content: 'なんで私ばっかりお金が入ってこないの、という話です。',
+      },
+      { role: 'assistant' as const, content: repeated },
+    ];
+
+    const response = buildFinalVerifiedQualityFallback(
+      '本当に何の話？',
+      historyMessages
+    );
+
+    expect(response).toContain('講座への申し込みを保留');
+    expect(response).toContain('現在の収入源');
+    expect(response).toContain('今月必要な金額');
+    expect(response).not.toMatch(/支払い分担|不足額|支払日|古い別件/);
+    expect(
+      assessCoachingResponseQuality({
+        text: response,
+        lastUserText: '本当に何の話？',
+        historyMessages,
+      }).issues
+    ).toEqual([]);
+  });
+
   it('提案後の短い返答から実行済みの行動を捏造した回答を不合格にする', () => {
     const result = assessCoachingResponseQuality({
       text: '夫に期限を確認しても、何も答えてくれなかったのですね。',
