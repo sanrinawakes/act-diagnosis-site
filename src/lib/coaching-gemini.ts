@@ -1976,20 +1976,10 @@ export function assessCoachingResponseQuality(params: {
     issues.push('latest_user_echo');
   }
 
-  const immediatePreviousUserText =
-    [...historyMessages]
-      .reverse()
-      .find((message) => message.role === 'user')?.content || '';
-  const previousTopicalUserText =
-    [...historyMessages]
-      .reverse()
-      .find(
-        (message) =>
-          message.role === 'user' &&
-          COACHING_DOMAIN_CONTEXT_PATTERN.test(message.content)
-      )?.content || '';
-  const previousUserText =
-    previousTopicalUserText || immediatePreviousUserText;
+  const previousUserText = selectRelevantFallbackSource(
+    lastUserText,
+    historyMessages
+  );
   const relevanceContext = COACHING_DOMAIN_CONTEXT_PATTERN.test(lastUserText)
     ? lastUserText
     : [previousUserText, lastUserText].filter(Boolean).join('\n');
@@ -2043,6 +2033,12 @@ export function assessCoachingResponseQuality(params: {
     issues.push('context_mismatch');
   }
   if (reinforcesTopicAvoidance(text, userContext, lastUserText)) {
+    issues.push('context_mismatch');
+  }
+  if (
+    hasPaymentObligationContext(text) &&
+    !hasPaymentObligationContext(previousUserText || lastUserText)
+  ) {
     issues.push('context_mismatch');
   }
   const responseParagraphs = text

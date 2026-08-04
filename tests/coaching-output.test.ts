@@ -812,6 +812,35 @@ describe('assessCoachingResponseQuality', () => {
     ).toEqual([]);
   });
 
+  it('現在の相談に支払い義務がない時は古い不足額と支払日の助言を不合格にする', () => {
+    const stalePaymentAdvice =
+      '毎月伝えているなら、問題は伝え方ではなく、合意した負担が実行されていないことです。過去数か月の不足額を記録し、支払日を文面で確認してください。';
+    const historyMessages = [
+      {
+        role: 'user' as const,
+        content: '以前、夫が家賃を払わないことで困っていました。',
+      },
+      { role: 'assistant' as const, content: stalePaymentAdvice },
+      {
+        role: 'user' as const,
+        content: '今回は講座への後悔と、お金が入ってこない不安の話です。',
+      },
+      { role: 'assistant' as const, content: stalePaymentAdvice },
+      {
+        role: 'user' as const,
+        content: 'なんで私ばっかりお金が入ってこないの、という話です。',
+      },
+    ];
+
+    expect(
+      assessCoachingResponseQuality({
+        text: stalePaymentAdvice,
+        lastUserText: '本当に何の話？',
+        historyMessages,
+      }).issues
+    ).toContain('context_mismatch');
+  });
+
   it('提案後の短い返答から実行済みの行動を捏造した回答を不合格にする', () => {
     const result = assessCoachingResponseQuality({
       text: '夫に期限を確認しても、何も答えてくれなかったのですね。',

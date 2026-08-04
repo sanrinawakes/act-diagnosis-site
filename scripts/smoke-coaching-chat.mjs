@@ -487,6 +487,21 @@ async function sendStreamRequest({
 }
 
 function assertResults(results) {
+  const topicDriftResult = results.find(
+    (result) => result.label === 'topic-drift-recovery'
+  );
+  if (
+    topicDriftResult &&
+    (/支払い分担|口頭のお願い|合意や記録|合意した負担|不足額|支払日/.test(
+      topicDriftResult.message
+    ) ||
+      !/お金|講座|スピリチュアル|不安|疲れ/.test(topicDriftResult.message))
+  ) {
+    throw new Error(
+      `${topicDriftResult.label} did not recover the current topic: ${topicDriftResult.message}`
+    );
+  }
+
   for (const result of results) {
     const requiredModelName = result.expectedModelName || expectedTextModel;
     if (requiredModelName && result.modelName !== requiredModelName) {
@@ -540,17 +555,6 @@ function assertResults(results) {
       }
     }
     if (result.label === 'urgent-safety') continue;
-    if (
-      result.label === 'topic-drift-recovery' &&
-      (/支払い分担|口頭のお願い|合意や記録|支払額と期限/.test(
-        result.message
-      ) ||
-        !/お金|講座|スピリチュアル|不安|疲れ/.test(result.message))
-    ) {
-      throw new Error(
-        `${result.label} did not recover the current topic: ${result.message}`
-      );
-    }
     if (
       ['normal-3', 'long-history-437'].includes(result.label) &&
       /今できる最小の行動を一つだけ決めて/.test(result.message)
