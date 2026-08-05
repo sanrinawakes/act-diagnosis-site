@@ -916,6 +916,73 @@ describe('assessCoachingResponseQuality', () => {
     ).toContain('dissatisfaction_unanswered');
   });
 
+  it('安定した収入の作り方を聞かれたら不足額の確認まで具体化する', () => {
+    const lastUserText =
+      'とても良いけど安定した収入を得るにはどうしたらよいか分からない';
+    const historyMessages = [
+      {
+        role: 'user' as const,
+        content:
+          '今は建築の仕事はしていない。時々広告の仕事はあるけれど、金銭面で不安がある。',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          'まずは安心して生活できる基盤を整えることが最優先です。その不安の奥で、いちばん守りたいものは何ですか？',
+      },
+      {
+        role: 'user' as const,
+        content:
+          '自分の価値を大切にしたい。ただ金銭だけで仕事することは避けたい。',
+      },
+    ];
+
+    const fallback = buildFinalVerifiedQualityFallback(
+      lastUserText,
+      historyMessages
+    );
+
+    expect(fallback).toContain('建築の仕事');
+    expect(fallback).toContain('広告の仕事');
+    expect(fallback).toContain('今月入る見込みの収入源');
+    expect(fallback).toContain('今月生活に必要な金額');
+    expect(fallback).toContain('不足額');
+    expect(
+      assessCoachingResponseQuality({
+        text: fallback,
+        lastUserText,
+        historyMessages,
+      }).issues
+    ).toEqual([]);
+  });
+
+  it('SMAをどう上げるかの質問を抽象論だけで終えない', () => {
+    const lastUserText = 'SMA1をSMA2にするには？';
+    const historyMessages = [
+      {
+        role: 'user' as const,
+        content:
+          '私はSMA1と出たけれど、前はSMA2.5だった。どうして低くなったのか知りたい。',
+      },
+    ];
+
+    const fallback = buildFinalVerifiedQualityFallback(
+      lastUserText,
+      historyMessages
+    );
+
+    expect(fallback).toContain('本当はどうしたかったか');
+    expect(fallback).toContain('実際に選んだ行動');
+    expect(fallback).toContain('順に言ってください');
+    expect(
+      assessCoachingResponseQuality({
+        text: fallback,
+        lastUserText,
+        historyMessages,
+      }).issues
+    ).toEqual([]);
+  });
+
   it('整理依頼へ根拠のない二分類と二択質問を返さない', () => {
     const inventedCategories =
       '仕事での落ち込みは、業務内容そのものの難しさによるものと、周囲との人間関係や評価によるものの二つに大別されることが多いです。今回の落ち込みはどちらの要素が強いですか？';
