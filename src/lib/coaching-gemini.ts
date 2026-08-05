@@ -3623,6 +3623,19 @@ export function buildFinalVerifiedQualityFallback(
   lastUserText: string,
   historyMessages: CoachingChatMessage[]
 ): string {
+  const directSubstantiveFallback =
+    buildSubstantiveShortFallback(lastUserText);
+  if (directSubstantiveFallback) {
+    const directAssessment = assessCoachingResponseQuality({
+      text: directSubstantiveFallback,
+      lastUserText,
+      historyMessages,
+    });
+    if (directAssessment.issues.length === 0) {
+      return directSubstantiveFallback;
+    }
+  }
+
   const immediatePreviousUserText =
     [...historyMessages]
       .reverse()
@@ -3794,6 +3807,20 @@ function buildSubstantiveShortFallback(lastUserText: string) {
     /入ってこない|回ってこない|不安/.test(lastUserText)
   ) {
     return 'いま話しているのは、学びにこれ以上お金を使いたくない疲れと、お金を使っても収入につながらない不安です。新しい支払いを勧める場面ではありません。まず今日は申込みを決めず、生活に影響しない範囲で今後学びに使える上限額だけを決めてください。';
+  }
+
+  if (
+    /安定した収入/.test(lastUserText) &&
+    /どうすれば|どうしたら|方法|わから|分から/.test(lastUserText)
+  ) {
+    return '安定した収入が見えないのは、今ある仕事ごとの収入見込みと、生活に必要な金額がまだ並んでいないからです。建築の仕事、広告の仕事、そのほか今月入る見込みの収入源と、今月生活に必要な金額を、同じ紙に並べて書いてください。\n\n不足額が出れば、今の仕事や活動を続けながら何円分の収入を足す必要があるかを具体的に判断できます。';
+  }
+
+  if (
+    /SMA\s*-?\s*\d(?:\.\d+)?/i.test(lastUserText) &&
+    /どうすれば|どうしたら|上げ|戻|より良く|するには/.test(lastUserText)
+  ) {
+    return 'SMAの数値は能力の上下ではなく、最近の選択の傾向を表す目安です。数値を上げたいなら、その日の終わりに、その日いちばん迷った出来事を一つ選び、「本当はどうしたかったか」と「実際に選んだ行動」を順に言ってください。\n\n自分の判断を後回しにした場面が見えると、次に変える行動を具体的に決めやすくなります。';
   }
 
   if (
