@@ -235,6 +235,47 @@ describe('POST /api/chat scope guard', () => {
     );
   });
 
+  it('blocks business-growth consulting before the provider path runs', async () => {
+    const request = new NextRequest('http://localhost/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sessionId: SESSION_ID,
+        messages: [
+          {
+            role: 'user',
+            content:
+              'nirvanaのコンセプトで、月に50万稼げるようにコンサルしてほしい',
+          },
+        ],
+        stream: true,
+      }),
+    });
+
+    const response = await POST(request);
+    expect(response.status).toBe(200);
+    const lines = (await response.text())
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+
+    expect(lines[0].text).toBe(COACHING_SCOPE_GUIDANCE);
+    expect(lines[1]).toMatchObject({
+      finishReason: 'SCOPE_BLOCKED',
+      scopeDecision: 'blocked',
+      scopeCategory: 'marketing_content',
+    });
+    expect(mocks.generateCoachingText).not.toHaveBeenCalled();
+    expect(mocks.quotaRpc).not.toHaveBeenCalled();
+    expect(mocks.usageInsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        decision: 'blocked',
+        category: 'marketing_content',
+        provider_requested: false,
+      })
+    );
+  });
+
   it('allows the 1500th request and returns zero remaining', async () => {
     mocks.profileCount = 1499;
     mocks.quotaRpc.mockResolvedValueOnce({
