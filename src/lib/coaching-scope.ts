@@ -38,6 +38,10 @@ const MARKETING_OBJECT =
   /(?:広告|宣伝|販促|集客|\blp\b|ランディングページ|セールス(?:レター|ページ)|販売ページ|キャッチコピー|コピーライティング|sns(?:投稿)?|instagram|インスタ(?:グラム)?(?:投稿)?|facebook(?:投稿)?|twitter|x投稿|ブログ|メルマガ|youtube(?:動画)?(?:台本)?|動画台本|商品説明|告知文|プレスリリース|seo|ハッシュタグ|バナー|チラシ|営業資料)/i;
 const CONTENT_CREATION_ACTION =
   /(?:作(?:成|って|る)|書いて|考えて|添削|校正|推敲|リライト|書き直|修正して|改善して|要約して|構成して|案を(?:出|作)|生成して|魅力的にして|お願い(?:します)?)/i;
+const BUSINESS_GROWTH_INTENT =
+  /(?:コンサル(?:して|してほしい|して下さい|してください)?|売上(?:を|げ)?|月商|月収|年商|稼(?:ぐ|げる|ぎたい)|収益|利益|集客|予約数|成約率|単価|導線|ブランディング|事業計画|事業戦略|経営相談)/i;
+const BUSINESS_GROWTH_OBJECT =
+  /(?:コンセプト|サロン|店舗|お店|商品|サービス|講座|メニュー|予約サイト|instagram|インスタ(?:グラム)?|line公式|line|公式line|プロフィール欄|ブランド|屋号|告知)/i;
 const WRITING_OBJECT =
   /(?:文章|原稿|作文|レポート|論文|スピーチ|乾杯(?:の)?挨拶|挨拶文|祝辞|プロフィール文|自己紹介文|メール(?:文)?|メッセージ文|台本|記事)/i;
 const TRANSLATION_INTENT =
@@ -158,6 +162,10 @@ function classifyDirectRequest(text: string): ScopeClassification | null {
 
   if (MARKETING_OBJECT.test(text) && CONTENT_CREATION_ACTION.test(text)) {
     return blocked('marketing_content', 'marketing_content_request');
+  }
+
+  if (BUSINESS_GROWTH_INTENT.test(text) && BUSINESS_GROWTH_OBJECT.test(text)) {
+    return blocked('marketing_content', 'business_growth_consulting_request');
   }
 
   if (

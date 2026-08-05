@@ -18,6 +18,10 @@ describe('classifyCoachingScope', () => {
     ['Instagram投稿の文章を3案作って', 'marketing_content'],
     ['新商品のキャッチコピーを考えて', 'marketing_content'],
     ['このブログ記事を添削してください', 'marketing_content'],
+    [
+      'このサロンのコンセプトで月50万稼げるようにコンサルしてほしい',
+      'marketing_content',
+    ],
     ['この文章を添削してください', 'writing_editing'],
     ['結婚式の乾杯挨拶を作ってください', 'writing_editing'],
     ['歓迎会のスピーチをお願いします', 'writing_editing'],
@@ -63,6 +67,19 @@ describe('classifyCoachingScope', () => {
     });
     expect(result.decision).toBe('blocked');
     expect(result.category).toBe('marketing_content');
+  });
+
+  it('blocks business-growth consulting built on a concept brief', () => {
+    const result = classifyCoachingScope({
+      messages: [
+        userMessage(
+          'nirvanaのコンセプトです。心・身体・魂を整えるサロンとして、このコンセプトで月50万稼げるようにコンサルしてください'
+        ),
+      ],
+    });
+    expect(result.decision).toBe('blocked');
+    expect(result.category).toBe('marketing_content');
+    expect(result.matchedRule).toBe('business_growth_consulting_request');
   });
 
   it.each(['もっと魅力的にして', '別案もください', '3案ください']) (
