@@ -10,11 +10,22 @@ export const COACHING_RECENT_MESSAGE_LIMIT = 24;
 const MEMORY_DELTA_OVERLAP = 8;
 const CONTEXT_MESSAGE_LIMIT =
   COACHING_RECENT_MESSAGE_LIMIT + MEMORY_DELTA_OVERLAP;
+const STALE_CONTEXT_RESET_MS = 18 * 60 * 60 * 1000;
 const SUMMARY_TRIGGER_MESSAGE_COUNT = COACHING_RECENT_MESSAGE_LIMIT + 1;
 const SUMMARY_REFRESH_DELTA = 1;
 const MAX_SUMMARY_SOURCE_MESSAGES = 220;
 const SUMMARY_CHAR_LIMIT = 2400;
 const SESSION_MEMORY_REFRESH_TIMEOUT_MS = 10000;
+const CONTINUATION_REQUEST_PATTERN =
+  /続き|その後|さっき|先ほど|前回|前の|この件|この話|それで|それについて|同じ件|引き続き/;
+
+const CONTEXT_DOMAIN_PATTERNS = {
+  work: /仕事|職場|会社|業務|上司|同僚|契約|始業|部長|統括|遅参|書面/,
+  money: /お金|金銭|家計|収支|借金|貯金|返済|カード|年会費|残高|支払い|家賃/,
+  health: /健康|病院|医師|薬|検査|腎臓|通院|体調|精神科/,
+  family: /夫|妻|家族|親|子ども|子供|パートナー|相手|家庭/,
+  future: /5年後|将来|未来|目標|なりたい/,
+} as const;
 
 type MemoryPayload = {
   version: 1;
@@ -119,6 +130,8 @@ export async function buildCoachingSessionContext(params: {
     const recentMessages = loadedMessages.slice(
       -COACHING_RECENT_MESSAGE_LIMIT
     );
+    const latestStoredMessageCreatedAt =
+      ((recentResult.data || []) as StoredMessage[])[0]?.created_at || null;
     const latestMemory = parseMemoryPayload(memoryResult.data?.[0]?.content);
     let activeMemory = latestMemory;
     let memoryRefreshed = false;
@@ -212,6 +225,22 @@ export async function buildCoachingSessionContext(params: {
       recentMessages,
       params.requestMessages
     );
+    const shouldPreferRequestOnly = shouldPreferRequestOnlyContext({
+      latestStoredMessageCreatedAt,
+      storedMessages: recentMessages,
+      requestMessages: params.requestMessages,
+    });
+
+    if (shouldPreferRequestOnly) {
+      return {
+        messages: fallback,
+        totalStoredMessages,
+        memoryUsed: false,
+        memoryRefreshed,
+        memoryRefreshScheduled,
+        memoryCoveredMessages: null,
+      };
+    }
 
     if (!activeMemory?.summary) {
       return {
@@ -332,6 +361,32 @@ export function mergeRecentCoachingMessages(
   }
 
   return compactCoachingMessages([...stored, ...request]);
+}
+
+export function shouldPreferRequestOnlyContext(params: {
+  latestStoredMessageCreatedAt: string | null;
+  storedMessages: CoachingChatMessage[];
+  requestMessages: CoachingChatMessage[];
+}) {
+  const latestStoredAt = Date.parse(params.latestStoredMessageCreatedAt || '');
+  if (!Number.isFinite(latestStoredAt)) return false;
+  if (Date.now() - latestStoredAt < STALE_CONTEXT_RESET_MS) return false;
+
+  const compactRequest = compactCoachingMessages(params.requestMessages);
+  const latestRequest = compactRequest.at(-1)?.content || '';
+  if (!latestRequest) return false;
+  if (CONTINUATION_REQUEST_PATTERN.test(latestRequest)) return false;
+
+  const requestDomains = detectContextDomains(latestRequest);
+  if (requestDomains.size === 0) return false;
+
+  const storedContext = compactCoachingMessages(params.storedMessages)
+    .map((message) => message.content)
+    .join('\n');
+  const storedDomains = detectContextDomains(storedContext);
+  if (storedDomains.size === 0) return false;
+
+  return ![...requestDomains].some((domain) => storedDomains.has(domain));
 }
 
 async function createAndStoreMemory(params: {
@@ -535,6 +590,21 @@ function toCoachingMessages(messages: StoredMessage[]): CoachingChatMessage[] {
 
 function normalizeText(text: string) {
   return stripAttachmentMarkdown(text).replace(/\s+/g, ' ').trim();
+}
+
+function detectContextDomains(text: string) {
+  const normalized = normalizeText(text);
+  const matches = new Set<keyof typeof CONTEXT_DOMAIN_PATTERNS>();
+  (
+    Object.entries(CONTEXT_DOMAIN_PATTERNS) as Array<
+      [keyof typeof CONTEXT_DOMAIN_PATTERNS, RegExp]
+    >
+  ).forEach(([domain, pattern]) => {
+    if (pattern.test(normalized)) {
+      matches.add(domain);
+    }
+  });
+  return matches;
 }
 
 function clipText(text: string, limit: number) {

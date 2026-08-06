@@ -3,6 +3,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   buildCoachingSessionContext,
   mergeRecentCoachingMessages,
+  shouldPreferRequestOnlyContext,
   shouldRefreshSessionMemory,
 } from '../src/lib/coaching-session-memory';
 
@@ -71,6 +72,60 @@ describe('shouldRefreshSessionMemory', () => {
 
   it('直近24件より前をすべてカバー済みなら書き直さない', () => {
     expect(shouldRefreshSessionMemory(80, 56)).toBe(false);
+  });
+});
+
+describe('shouldPreferRequestOnlyContext', () => {
+  it('長時間空いた後に別話題へ切り替わったら古いDB履歴を外す', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-06T02:05:01.746Z'));
+
+    const shouldReset = shouldPreferRequestOnlyContext({
+      latestStoredMessageCreatedAt: '2026-08-04T02:48:55.490Z',
+      storedMessages: [
+        {
+          role: 'assistant',
+          content:
+            '書面で指示が出ているのであれば、会社の責任として証明できます。',
+        },
+        {
+          role: 'user',
+          content: 'コピーを保存している',
+        },
+        {
+          role: 'assistant',
+          content: '最後に困った仕事の場面で、上司や相手から実際に言われた言葉を一つ教えてください。',
+        },
+      ],
+      requestMessages: [
+        { role: 'user', content: '5年後よ私はどうなっている？' },
+      ],
+    });
+
+    expect(shouldReset).toBe(true);
+    vi.useRealTimers();
+  });
+
+  it('長時間空いても同じ金銭相談の続きなら古い履歴を保持する', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-06T10:00:00.000Z'));
+
+    const shouldReset = shouldPreferRequestOnlyContext({
+      latestStoredMessageCreatedAt: '2026-08-05T12:00:00.000Z',
+      storedMessages: [
+        {
+          role: 'assistant',
+          content:
+            '家賃とカードの支払い予定額を分けて確認すると整理しやすいです。',
+        },
+      ],
+      requestMessages: [
+        { role: 'user', content: '家賃の支払いの続きだけど、今日確認する順番は？' },
+      ],
+    });
+
+    expect(shouldReset).toBe(false);
+    vi.useRealTimers();
   });
 });
 
@@ -317,6 +372,86 @@ describe('buildCoachingSessionContext', () => {
     const context = result.messages[0].content;
     expect(context).toContain('講座に申し込むか迷っている');
     expect(context.match(/前回までの保存済み要約:/g) || []).toHaveLength(1);
+  });
+
+  it('長時間空いた後に別話題へ切り替わったら保存済み要約と古いDB履歴を混ぜない', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-06T02:05:01.746Z'));
+
+    const sessionId = '55555555-5555-4555-8555-555555555555';
+    const memoryContent = `ACTI_SESSION_MEMORY_V1\n${JSON.stringify({
+      version: 1,
+      generatedAt: '2026-08-06T02:12:39.353Z',
+      coveredMessageCount: 207,
+      summary: [
+        'ユーザーが話した事実・希望・未解決点:',
+        '- 正確には遅めると危険かあると主張している',
+        '- 相手は早めたく、私は現状維持したい',
+        '- 仕事の契約時間に遅参が生じる',
+      ].join('\n'),
+    })}`;
+    const sessionQuery = createAwaitableQuery({
+      data: { id: sessionId },
+      error: null,
+    });
+    const countQuery = createAwaitableQuery({
+      data: null,
+      error: null,
+      count: 237,
+    });
+    const memoryQuery = createAwaitableQuery({
+      data: [{ id: 'memory-row-id', content: memoryContent }],
+      error: null,
+    });
+    const recentQuery = createAwaitableQuery({
+      data: [
+        {
+          role: 'assistant',
+          content:
+            '最後に困った仕事の場面で、上司や相手から実際に言われた言葉を一つ教えてください。',
+          created_at: '2026-08-04T02:48:29.952Z',
+        },
+        {
+          role: 'user',
+          content: '既に貴君に話した',
+          created_at: '2026-08-04T02:48:54.607Z',
+        },
+        {
+          role: 'assistant',
+          content:
+            '次の対応を決めるために、最後に困った仕事の場面の日時と相手を一つ教えてください。',
+          created_at: '2026-08-04T02:48:55.490Z',
+        },
+      ],
+      error: null,
+    });
+    const sourceQuery = createAwaitableQuery({
+      data: [],
+      error: null,
+    });
+    const chatQueries = [countQuery, memoryQuery, recentQuery, sourceQuery];
+    const from = vi.fn((table: string) => {
+      if (table === 'chat_sessions') return sessionQuery;
+      if (table === 'chat_messages') {
+        const query = chatQueries.shift();
+        if (query) return query;
+      }
+      throw new Error(`Unexpected table call: ${table}`);
+    });
+
+    const result = await buildCoachingSessionContext({
+      supabaseAdmin: { from } as unknown as SupabaseClient,
+      sessionId,
+      userId: '11111111-1111-4111-8111-111111111111',
+      requestMessages: [{ role: 'user', content: '5年後よ私はどうなっている？' }],
+      scheduleMemoryRefresh: () => undefined,
+    });
+
+    expect(result.memoryUsed).toBe(false);
+    expect(result.messages).toEqual([
+      { role: 'user', content: '5年後よ私はどうなっている？' },
+    ]);
+    vi.useRealTimers();
   });
 });
 
