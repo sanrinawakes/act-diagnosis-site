@@ -5909,10 +5909,9 @@ function isQuestionInsideJapaneseQuote(segment: string, depthBefore: number) {
 }
 
 function requestsSingleAnswerFormat(text: string) {
-  const withoutRepeatedQuestionComplaint = text.replace(
-    /同じ質問(?:は|を)?(?:しない|しないで|不要)/g,
-    ''
-  );
+  const withoutRepeatedQuestionComplaint = text
+    .replace(/同じ質問(?:は|を)?(?:しない|しないで|不要)/g, '')
+    .replace(/(?:一つ|ひとつ|1つ)(?:隣|前|後ろ|横|上|下|先)/g, '');
   return /(?:(?:一つ|ひとつ|1つ)(?:だけ)?.{0,24}(?:教|提案|答|挙|示|伝|お願)|(?:教|提案|答|挙|示|伝|お願).{0,24}(?:一つ|ひとつ|1つ)(?:だけ)?|一言(?:だけ|で)|最初の一言|質問(?:は|を)?(?:なし|不要|しない)|短く(?:答|教|返))/.test(
     withoutRepeatedQuestionComplaint
   );

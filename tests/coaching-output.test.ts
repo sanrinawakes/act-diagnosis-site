@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   COACHING_IMAGE_MODEL,
   COACHING_MAX_OUTPUT_TOKENS,
+  COACHING_QUALITY_SAFETY_HOLD,
   COACHING_TEXT_MODEL,
   COACHING_TEXT_THINKING_LEVEL,
   containsInternalCoachingContextExposure,
@@ -566,6 +567,66 @@ describe('ensureVerifiedCoachingResolution', () => {
     expect(result.finalIssues).toEqual([]);
     expect(result.text).toContain('上司');
     expect(result.text).not.toContain('「結局どうしたらいい？」という相談ですね。');
+  });
+
+  it('元交際相手を連想した長い会話でも安全停止ではなく具体的な返答へ補正する', () => {
+    const historyMessages = [
+      {
+        role: 'user' as const,
+        content:
+          '寝ようとしたんだけど、元カノとの事いろいろ思い出して寝れない',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          '寝ようとしたタイミングで、元カノとのことが色々と頭に浮かんできて眠れなくなってしまったのですね。\n\n今、元カノとのどのような場面や、その時の自分の気持ちが一番強く頭に浮かんでいますか。',
+      },
+      {
+        role: 'user' as const,
+        content:
+          '今日のプロセスの中でパートナーと繋がる場面があって、そこで元カノとつながった感じがして、相手がどう思ってたのかとか何となくわかった気がして。',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          '今日のプロセスの中でパートナーとつながる場面があり、そこで元カノとつながった感じがして、相手が当時どう思っていたのかが何となく分かった気がしたのですね。\n\n相手がどう思っていたのかが何となく分かった時、あなたの心にはどのような感情が湧き上がってきましたか。',
+      },
+      {
+        role: 'user' as const,
+        content: '感情としては罪悪感が大きくて、自分も一緒だったなって',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          '自分も一緒だったなと感じ、大きな罪悪感が湧き上がってきたのですね。\n\n今は、まだ書かれていない原因を推測せず、実際に起きたことと、次に困る場面を分けて考える方が、具体的な対応を選びやすくなります。\n\n「自分も一緒だった」というのは、具体的にどのような部分がお互いに同じだったと感じたのでしょうか。',
+      },
+      {
+        role: 'user' as const,
+        content: '罪悪感を感じてたのが、自分も相手も一緒ってこと',
+      },
+    ];
+    const lastUserText =
+      'あとなんか伝えにくいんだけど、ひとつ隣の席にすごく元カノと似た人がいて、最初は本人かと思ったぐらいなんだけど、その人がもしかしたら元カノの母親なんじゃないかって思って';
+    const result = ensureVerifiedCoachingResolution({
+      resolution: {
+        text: 'その人が元カノの母親かもしれないと思ったのですね。',
+        usage: { prompt_tokens: 14, completion_tokens: 8, total_tokens: 22 },
+        modelName: 'gemini-3.5-flash',
+        provider: 'gemini',
+        repairAttempted: true,
+        repairAccepted: true,
+        initialIssues: ['too_short'],
+        finalIssues: ['too_short'],
+      },
+      lastUserText,
+      historyMessages,
+      preserveUsage: true,
+    });
+
+    expect(result.qualitySafetyHold).toBe(false);
+    expect(result.finalIssues).toEqual([]);
+    expect(result.text).not.toBe(COACHING_QUALITY_SAFETY_HOLD);
+    expect(result.text).toContain('元カノ');
   });
 
   it('最終候補が合格済みならそのまま返す', () => {
