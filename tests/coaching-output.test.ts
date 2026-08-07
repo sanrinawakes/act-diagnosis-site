@@ -210,6 +210,84 @@ describe('final verified quality fallback', () => {
     ).toEqual([]);
   });
 
+  it('お金の後悔相談でも別話題へ逸れず具体策で閉じる', () => {
+    const lastUserText =
+      'お金のことで後悔が二つあります。占いにはまり１６５万円使ってしまったこと。そして昨年申し込んで続かなかったセールス口座１００万円。本当にもったいなかった。これが残っていれば、今頃あれもできたかもしれない。これも買えたかもしれないとまたぐるぐるよぎってしまいます。そろそろ区切りをつけたい。どうしたら気持ちの整理がつくでしょうか？';
+    const historyMessages = [
+      {
+        role: 'user' as const,
+        content:
+          'なにも変えなくていいです。何も・・・。今月１７日の１５名限定のシークレットコンサートもことごとくお誘いした方ご予定ありでなかなかお客様が集まりません。お盆明け、平日のランチ…そりゃーそうですよね。だめだ気力がない',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          'お盆明けの平日ランチタイムという時期や、8千円という初めての価格設定もあり、お誘いした方々の都合が合わないのは、決して亜矢子さんの魅力や実力のせいではありません。',
+      },
+      {
+        role: 'user' as const,
+        content: 'ありがとうございます。デジタルデトックス！ですね',
+      },
+    ];
+
+    const result = buildFinalVerifiedQualityFallback(
+      lastUserText,
+      historyMessages
+    );
+
+    expect(result).toContain('１６５万円');
+    expect(result).toContain('１００万円');
+    expect(result).not.toMatch(/シークレットコンサート|相手に変えてほしい行動/);
+    expect(
+      assessCoachingResponseQuality({
+        text: result,
+        lastUserText,
+        historyMessages,
+      }).issues
+    ).toEqual([]);
+  });
+
+  it('短いお礼でも直前の提案を踏まえて別話題へ飛ばさない', () => {
+    const lastUserText = 'やってみます。ありがとう';
+    const historyMessages = [
+      {
+        role: 'user' as const,
+        content:
+          'お金のことで後悔が二つあります。占いにはまり１６５万円使ってしまったこと。そして昨年申し込んで続かなかったセールス口座１００万円。本当にもったいなかった。これが残っていれば、今頃あれもできたかもしれない。これも買えたかもしれないとまたぐるぐるよぎってしまいます。そろそろ区切りをつけたい。どうしたら気持ちの整理がつくでしょうか？',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          'お金の後悔が何度も頭に戻ってきているのですね。今つらいのは、使った金額そのものだけでなく、「あのお金が残っていればできたこと」を何度も計算し直してしまう状態です。\n\n今日は、占いに使った１６５万円とセールス講座の１００万円を紙に書き、その横に「今も痛い点」を一言ずつ書いてください。',
+      },
+      {
+        role: 'user' as const,
+        content:
+          '質問を変えますね。MVE3の私はどんなふうにメンタルのケアをしたらいいでしょうか？',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          'MVE3の亜矢子さんは、後悔を頭の中だけで回し続けるより、紙に出して順番を付ける方が落ち着きやすいです。\n\n今日は、浮かぶ後悔を二つだけ紙に書いて終えてください。',
+      },
+    ];
+
+    const result = buildFinalVerifiedQualityFallback(
+      lastUserText,
+      historyMessages
+    );
+
+    expect(result).not.toMatch(/という相談ですね|シークレットコンサート|相手に変えてほしい行動/);
+    expect(result).toMatch(/今日は|その進め方/);
+    expect(
+      assessCoachingResponseQuality({
+        text: result,
+        lastUserText,
+        historyMessages,
+      }).issues
+    ).toEqual([]);
+  });
+
   it.each([
     ['仕事がうまくいくか不安です。', []],
     ['夫との関係で困っています。', []],

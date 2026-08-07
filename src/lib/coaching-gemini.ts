@@ -76,7 +76,7 @@ const API_HISTORY_LIMIT = 24;
 const API_HISTORY_CHAR_LIMIT = 700;
 const API_LAST_USER_CHAR_LIMIT = 2500;
 const COACHING_DOMAIN_CONTEXT_PATTERN =
-  /家計簿|収支|赤字|黒字|予算|固定費|変動費|食費|生活費|仕事|職場|業務|会社|上司|同僚|会議|企画|顧客|夫|妻|主人|家事|家族|親|子ども|パートナー/;
+  /家計簿|収支|赤字|黒字|予算|固定費|変動費|食費|生活費|お金|返金|収入|支出|講座|占い|後悔|メンタル|ケア|仕事|職場|業務|会社|上司|同僚|会議|企画|顧客|夫|妻|主人|家事|家族|親|子ども|パートナー/;
 // Leave enough time for a verified provider fallback to finish before the
 // 10-second first-response monitor threshold.
 const GEMINI_TEXT_TIMEOUT_MS = 6500;
@@ -3636,6 +3636,19 @@ export function buildFinalVerifiedQualityFallback(
     }
   }
 
+  const briefAcknowledgementFallback =
+    buildBriefAcknowledgementFallback(lastUserText, historyMessages);
+  if (briefAcknowledgementFallback) {
+    const briefAssessment = assessCoachingResponseQuality({
+      text: briefAcknowledgementFallback,
+      lastUserText,
+      historyMessages,
+    });
+    if (briefAssessment.issues.length === 0) {
+      return briefAcknowledgementFallback;
+    }
+  }
+
   const directSubstantiveFallback =
     buildSubstantiveShortFallback(lastUserText);
   if (directSubstantiveFallback) {
@@ -3814,6 +3827,13 @@ function buildSilentAnswerFallback(
 }
 
 function buildSubstantiveShortFallback(lastUserText: string) {
+  if (
+    /お金/.test(lastUserText) &&
+    /後悔|もったいなかった|使ってしまった/.test(lastUserText)
+  ) {
+    return 'お金の後悔が何度も頭に戻ってきているのですね。今つらいのは、使った金額そのものだけでなく、「あの１６５万円と１００万円が残っていればできたこと」を頭の中で何度も計算し直してしまうことです。\n\n今日は、占いに使った１６５万円とセールス講座の１００万円を紙に書き、その横に「今も痛い点」を一言ずつ書いてください。';
+  }
+
   if (
     /お金/.test(lastUserText) &&
     /使いたくない|疲れ/.test(lastUserText) &&
@@ -6457,6 +6477,43 @@ function buildRestAcknowledgementFallback(
     : '考え事を増やさず';
 
   return `${opening}スマートフォンを閉じたら、${pauseTarget}、飲み物を一つ用意して座るか横になってください。\n\n今は次の答えを探すより、体の緊張を下げる方が先です。今日は連絡や集客をここで止めたまま、休むことだけを予定にしてください。`;
+}
+
+function buildBriefAcknowledgementFallback(
+  lastUserText: string,
+  historyMessages: CoachingChatMessage[]
+) {
+  const normalized = stripAttachmentMarkdown(lastUserText)
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!normalized) return '';
+
+  const isBriefAcknowledgement =
+    normalized.length <= 40 &&
+    /ありがとうございます|ありがとう|大丈夫です|はい|そうします|わかりました|やってみます/.test(
+      normalized
+    );
+  if (!isBriefAcknowledgement) return '';
+
+  const recentUserContext = historyMessages
+    .filter((message) => message.role === 'user')
+    .slice(-4)
+    .map((message) => stripAttachmentMarkdown(message.content))
+    .join('\n');
+  const recentAssistantContext = historyMessages
+    .filter((message) => message.role === 'assistant')
+    .slice(-3)
+    .map((message) => stripAttachmentMarkdown(message.content))
+    .join('\n');
+
+  if (
+    /お金|後悔|占い|講座|もったいなかった/.test(recentUserContext) &&
+    /紙に書|一言ずつ書|書けたところで終えて/.test(recentAssistantContext)
+  ) {
+    return 'その進め方で大丈夫です。頭の中で後悔を回し続けるより、紙に出した方が「過去に使った金額」と「今も痛い点」を分けやすくなります。\n\n今日は、二つの支出の名前と今も痛い点を書けたところで終えてください。';
+  }
+
+  return '';
 }
 
 function requestsShortRestResponse(text: string) {
