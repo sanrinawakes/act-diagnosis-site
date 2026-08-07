@@ -629,6 +629,63 @@ describe('ensureVerifiedCoachingResolution', () => {
     expect(result.text).toContain('元カノ');
   });
 
+  it('目標達成に向けた文章相談でも安全停止せず文面候補を返す', () => {
+    const historyMessages = [
+      {
+        role: 'user' as const,
+        content:
+          '人との繋がりを大切に感謝と幸せを感じる。\n好きなことを通じてたくさんの人達を笑顔にする。',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          '人との繋がりを大切にしながら、感謝と幸せを感じ、自分の好きなことを通じてたくさんの人たちを笑顔にしたいという、温かく素敵な思いが伝わってきます。周囲との調和を大切にしながら、自分らしい表現で周りを満たしていきたいという純粋な願いですね。\n\n今思い浮かんでいる「好きなこと」とは、具体的にどのような活動や分野のことでしょうか。',
+      },
+      {
+        role: 'user' as const,
+        content: 'ハンドメイドの販売とワークショップ',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          'ハンドメイドの販売とワークショップですね。自分の手から生まれる作品や、一緒にものづくりを楽しむ時間を通じて、たくさんの人たちに笑顔や温かい繋がりを届けていきたいという具体的なイメージが伝わってきます。\n\n作品を届ける「販売」と、その場で一緒に体験を共有する「ワークショップ」は、どちらも違った形で人と深く繋がれる素晴らしい方法です。',
+      },
+    ];
+    const lastUserText =
+      '冬至までにこの目標が達成されるように行動できるにはどんな文章にしたら良い？';
+    const fallbackText = buildFinalVerifiedQualityFallback(
+      lastUserText,
+      historyMessages
+    );
+    const fallbackAssessment = assessCoachingResponseQuality({
+      text: fallbackText,
+      lastUserText,
+      historyMessages,
+    });
+    const result = ensureVerifiedCoachingResolution({
+      resolution: {
+        text: '行動しやすい文章にすると良いですね。',
+        usage: { prompt_tokens: 16, completion_tokens: 8, total_tokens: 24 },
+        modelName: 'gemini-3.5-flash',
+        provider: 'gemini',
+        repairAttempted: true,
+        repairAccepted: true,
+        initialIssues: ['vague_action_target', 'multiple_coaching_moves'],
+        finalIssues: ['vague_action_target', 'multiple_coaching_moves'],
+      },
+      lastUserText,
+      historyMessages,
+      preserveUsage: true,
+    });
+
+    expect(result.qualitySafetyHold).toBe(false);
+    expect(result.finalIssues).toEqual([]);
+    expect(result.text).not.toBe(COACHING_QUALITY_SAFETY_HOLD);
+    expect(fallbackAssessment.issues).toEqual([]);
+    expect(result.text).toMatch(/「.+」/);
+    expect(result.text).toContain('冬至');
+  });
+
   it('最終候補が合格済みならそのまま返す', () => {
     const resolution: Parameters<
       typeof ensureVerifiedCoachingResolution
