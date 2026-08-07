@@ -3623,6 +3623,19 @@ export function buildFinalVerifiedQualityFallback(
   lastUserText: string,
   historyMessages: CoachingChatMessage[]
 ): string {
+  const restAcknowledgementFallback =
+    buildRestAcknowledgementFallback(lastUserText, historyMessages);
+  if (restAcknowledgementFallback) {
+    const restAssessment = assessCoachingResponseQuality({
+      text: restAcknowledgementFallback,
+      lastUserText,
+      historyMessages,
+    });
+    if (restAssessment.issues.length === 0) {
+      return restAcknowledgementFallback;
+    }
+  }
+
   const directSubstantiveFallback =
     buildSubstantiveShortFallback(lastUserText);
   if (directSubstantiveFallback) {
@@ -3699,7 +3712,7 @@ export function buildFinalVerifiedQualityFallback(
     fallbackSourceText
   )
     ? '相手の理由を推測するより、決まっている金額、期限、実際の支払いを分けて確認すると、次に必要な対応を判断できます。'
-    : /夫|妻|家事|家族|関係|相手/.test(fallbackSourceText)
+    : hasRelationshipConflictContext(fallbackSourceText)
       ? '相手の気持ちを推測するより、実際に起きたことと、相手に変えてほしい行動を分けると、話し合う内容が明確になります。'
       : /仕事|上司|同僚|会議|企画|職場/.test(fallbackSourceText)
         ? '仕事全体について結論を急がず、実際に困った場面と、次に確認する点を分けると、具体的な対応を選びやすくなります。'
@@ -3716,7 +3729,7 @@ export function buildFinalVerifiedQualityFallback(
         'いま詰まっている仕事の場面で、誰が何を言ったかを一つだけ書いてください。',
         '次の対応を決めるために、最後に困った仕事の場面の日時と相手を一つ教えてください。',
       ]
-    : /夫|妻|家事|家族|関係|相手/.test(fallbackSourceText)
+    : hasRelationshipConflictContext(fallbackSourceText)
       ? [
           '最後に困った場面で、相手が実際にしたことを一つだけ教えてください。',
           '家族とのやり取りで、最後に止まった場面の日時と相手を一つ教えてください。',
@@ -5054,6 +5067,20 @@ function selectRelevantFallbackSource(
   return immediatePrevious || lastUserText;
 }
 
+function hasRelationshipConflictContext(text: string) {
+  const normalized = stripAttachmentMarkdown(text).replace(/\s+/g, ' ').trim();
+  if (/夫|妻|家事|家族|関係|パートナー|恋人|親|子ども|子供/.test(normalized)) {
+    return true;
+  }
+
+  return (
+    /相手/.test(normalized) &&
+    /返事|態度|言い方|気持ち|喧嘩|会話|話し合|連絡|距離|家事|家庭/.test(
+      normalized
+    )
+  );
+}
+
 function hasPaymentObligationContext(text: string) {
   return /家賃|未払い|支払(?:い)?(?:分担|額|日|期限|不足|われない|わない|っていない|ってない)|振込(?:額|日|期限|不足|がない|まれていない)|負担額|請求額/.test(
     text
@@ -6386,6 +6413,42 @@ function requestsRestWithoutQuestions(text: string) {
   return /何も考えたくない|もう考えたくない|今日はもう(?:無理|限界)|疲れ(?:た|ました)|しんどい|休みたい/.test(
     text
   );
+}
+
+function buildRestAcknowledgementFallback(
+  lastUserText: string,
+  historyMessages: CoachingChatMessage[]
+) {
+  const normalized = stripAttachmentMarkdown(lastUserText)
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!normalized) return '';
+
+  const isBriefAcknowledgement =
+    normalized.length <= 40 &&
+    /ありがとうございます|ありがとう|大丈夫です|はい|そうします|わかりました|お休みします|休みます|デジタルデトックス/.test(
+      normalized
+    );
+  if (!isBriefAcknowledgement) return '';
+
+  const recentContext = [
+    ...historyMessages.slice(-4).map((message) => message.content),
+    lastUserText,
+  ]
+    .map((content) => stripAttachmentMarkdown(content))
+    .join('\n');
+  if (!/休|横にな|目を閉じ|スマートフォン|デジタルデトックス|休息|眠|お休み/.test(recentContext)) {
+    return '';
+  }
+
+  const opening = /デジタルデトックス/.test(normalized)
+    ? '今日はその方針で十分です。'
+    : '今日は休む方針で十分です。';
+  const pauseTarget = /コンサート|返金|支払|集客|連絡/.test(recentContext)
+    ? 'コンサートや返金のことは明日まで触れず'
+    : '考え事を増やさず';
+
+  return `${opening}スマートフォンを閉じたら、${pauseTarget}、飲み物を一つ用意して座るか横になってください。\n\n今は次の答えを探すより、体の緊張を下げる方が先です。今日は連絡や集客をここで止めたまま、休むことだけを予定にしてください。`;
 }
 
 function requestsShortRestResponse(text: string) {

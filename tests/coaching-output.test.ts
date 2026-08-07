@@ -167,6 +167,48 @@ describe('final verified quality fallback', () => {
     expect(assessment.issues).toContain('latest_user_echo');
   });
 
+  it('休む流れに入った短い確認では別件の対人質問へ逸れず休息提案で閉じる', () => {
+    const lastUserText = 'ありがとうございます。デジタルデトックス！ですね';
+    const historyMessages = [
+      {
+        role: 'user' as const,
+        content:
+          '返金の件が終わっても、コンサートの集客がうまくいかず気力がありません。',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          '今は集客のことをいったん止めて、スマートフォンを閉じて休む時間を先に作りませんか。',
+      },
+      {
+        role: 'user' as const,
+        content: 'はい。お休みします。',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          '今日はその方針で大丈夫です。連絡を増やさず、まず休んでください。',
+      },
+    ];
+
+    const result = buildFinalVerifiedQualityFallback(
+      lastUserText,
+      historyMessages
+    );
+
+    expect(result).toBe(
+      '今日はその方針で十分です。スマートフォンを閉じたら、コンサートや返金のことは明日まで触れず、飲み物を一つ用意して座るか横になってください。\n\n今は次の答えを探すより、体の緊張を下げる方が先です。今日は連絡や集客をここで止めたまま、休むことだけを予定にしてください。'
+    );
+    expect(result).not.toMatch(/相手に変えてほしい行動|最後に困った場面/);
+    expect(
+      assessCoachingResponseQuality({
+        text: result,
+        lastUserText,
+        historyMessages,
+      }).issues
+    ).toEqual([]);
+  });
+
   it.each([
     ['仕事がうまくいくか不安です。', []],
     ['夫との関係で困っています。', []],
