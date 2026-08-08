@@ -2,6 +2,8 @@
  * LINE Messaging API utilities
  */
 
+import { timingSafeEqual } from 'node:crypto';
+
 const LINE_API_BASE = 'https://api.line.me/v2/bot';
 
 /**
@@ -50,7 +52,11 @@ export async function verifySignature(
   const sig = await crypto.subtle.sign('HMAC', key, encoder.encode(body));
   const digest = btoa(String.fromCharCode(...new Uint8Array(sig)));
 
-  return digest === signature;
+  const expected = Buffer.from(digest);
+  const received = Buffer.from(signature);
+  return (
+    expected.length === received.length && timingSafeEqual(expected, received)
+  );
 }
 
 /**
@@ -166,6 +172,7 @@ export interface LineUserProfile {
 }
 
 export interface LineWebhookEvent {
+  webhookEventId?: string;
   type: string;
   message?: {
     type: string;

@@ -77,12 +77,12 @@ export default function FreeLandingPage() {
                 <p className="font-bold text-yellow-800">🎁 今だけ特典</p>
                 <p className="text-yellow-800">無料オンライン勉強会に参加するだけで、フルテスト＋2週間のAIコーチング無制限利用を丸ごとプレゼント！</p>
               </div>
-              <a
-                href="https://example.com/study-session"
+              <Link
+                href="/support"
                 className="block w-full py-4 px-6 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white font-bold rounded-lg transition-all duration-300 shadow-lg text-center text-lg"
               >
-                無料勉強会に今すぐ申し込む →
-              </a>
+                フルテスト・勉強会について問い合わせる
+              </Link>
             </div>
 
             {/* Testimonials */}
@@ -121,12 +121,12 @@ export default function FreeLandingPage() {
                 </div>
               </div>
               <div className="mt-8 text-center">
-                <a
-                  href="https://example.com/study-session"
+                <Link
+                  href="/support"
                   className="inline-block py-4 px-10 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white font-bold rounded-lg transition-all duration-300 shadow-lg text-lg"
                 >
-                  あなたも勉強会に参加する →
-                </a>
+                  フルテスト・勉強会について問い合わせる
+                </Link>
               </div>
             </div>
 
@@ -140,18 +140,18 @@ export default function FreeLandingPage() {
             <div className="mt-8">
               <p className="text-gray-600 mb-4">勉強会に参加してさらに詳しく学ぶ</p>
               <div className="flex flex-col sm:flex-row gap-4 justify-center">
-                <a
-                  href="https://example.com/study-session"
+                <Link
+                  href="/support"
                   className="px-8 py-3 bg-white hover:bg-gray-100 text-blue-500 font-semibold rounded-lg transition-colors duration-200 border border-blue-200"
                 >
-                  無料勉強会
-                </a>
-                <a
-                  href="https://example.com/resources"
+                  フルテスト・勉強会について問い合わせる
+                </Link>
+                <Link
+                  href="/support"
                   className="px-8 py-3 bg-blue-500 hover:bg-blue-600 text-white font-semibold rounded-lg transition-colors duration-200"
                 >
-                  学習リソース
-                </a>
+                  学習内容について問い合わせる
+                </Link>
               </div>
             </div>
           </div>

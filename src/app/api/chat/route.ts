@@ -48,6 +48,7 @@ import {
   reserveMonthlyQuota,
   type MonthlyQuotaReservation,
 } from '@/lib/coaching-quota';
+import { hasAllowedRequestOrigin } from '@/lib/request-origin';
 
 export const runtime = 'nodejs';
 // Vercel関数のデフォルト打ち切り(Hobby 10s)を延長し、Gemini生成の途中切断を防ぐ
@@ -89,6 +90,10 @@ interface RequestBody {
 export async function POST(request: NextRequest) {
   const requestStartedAt = Date.now();
   const requestId = randomUUID();
+  const authHeader = request.headers.get('Authorization');
+  const token = authHeader?.startsWith('Bearer ')
+    ? authHeader.replace('Bearer ', '')
+    : '';
 
   try {
     console.info(
@@ -101,10 +106,9 @@ export async function POST(request: NextRequest) {
 
     // Browser requests use the login cookie. Bearer auth remains supported for
     // automated tests and non-browser clients.
-    const authHeader = request.headers.get('Authorization');
-    const token = authHeader?.startsWith('Bearer ')
-      ? authHeader.replace('Bearer ', '')
-      : '';
+    if (!token && !hasAllowedRequestOrigin(request)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
     const supabase = token
       ? createClient(supabaseUrl, supabaseAnonKey, {
           global: { headers: { Authorization: `Bearer ${token}` } },
@@ -831,12 +835,7 @@ export async function POST(request: NextRequest) {
     console.error('Chat API error:', error);
 
     return NextResponse.json(
-      {
-        error:
-          error instanceof Error
-            ? error.message
-            : 'Internal server error',
-      },
+      { error: 'チャットの処理に失敗しました。画面を再読み込みして、もう一度お試しください。' },
       { status: 500 }
     );
   }

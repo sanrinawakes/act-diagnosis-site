@@ -35,6 +35,10 @@ create table if not exists public.chat_sessions (
   updated_at timestamptz not null default now()
 );
 
+alter table public.chat_sessions add column if not exists is_pinned boolean not null default false;
+alter table public.chat_sessions add column if not exists last_message_at timestamptz not null default now();
+alter table public.chat_sessions add column if not exists message_count integer not null default 0;
+
 -- Create chat_messages table
 create table if not exists public.chat_messages (
   id uuid primary key default gen_random_uuid(),
@@ -53,6 +57,22 @@ create table if not exists public.site_settings (
   updated_by uuid references public.profiles(id) on delete set null
 );
 
+-- Support correspondence is submitted through server routes and can only be
+-- read or updated by authenticated administrators in the management screen.
+create table if not exists public.support_tickets (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references public.profiles(id) on delete set null,
+  name text not null,
+  email text not null,
+  category text not null default 'general',
+  subject text not null,
+  message text not null,
+  status text not null default 'open' check (status in ('open', 'in_progress', 'resolved', 'closed')),
+  submission_key uuid,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 -- Insert default site_settings row
 insert into public.site_settings (id, bot_enabled, maintenance_mode, updated_at)
 values (1, true, false, now())
@@ -62,6 +82,11 @@ on conflict (id) do nothing;
 create index if not exists idx_diagnosis_results_user_id on public.diagnosis_results(user_id);
 create index if not exists idx_chat_messages_session_id on public.chat_messages(session_id);
 create index if not exists idx_chat_sessions_user_id on public.chat_sessions(user_id);
+create index if not exists idx_support_tickets_status_updated_at
+  on public.support_tickets(status, updated_at desc);
+create unique index if not exists support_tickets_user_submission_key_unique
+  on public.support_tickets(user_id, submission_key)
+  where submission_key is not null;
 
 -- Enable RLS (Row Level Security)
 alter table public.profiles enable row level security;
@@ -69,6 +94,7 @@ alter table public.diagnosis_results enable row level security;
 alter table public.chat_sessions enable row level security;
 alter table public.chat_messages enable row level security;
 alter table public.site_settings enable row level security;
+alter table public.support_tickets enable row level security;
 
 -- RLS Policies for profiles
 create policy "Users can view their own profile"
@@ -76,11 +102,6 @@ create policy "Users can view their own profile"
   using (auth.uid() = id or exists (
     select 1 from public.profiles where id = auth.uid() and role = 'admin'
   ));
-
-create policy "Users can update their own profile"
-  on public.profiles for update
-  using (auth.uid() = id)
-  with check (auth.uid() = id);
 
 create policy "Admins can view all profiles"
   on public.profiles for select
@@ -124,11 +145,26 @@ create policy "Users can view their own chat sessions"
 
 create policy "Users can create their own chat sessions"
   on public.chat_sessions for insert
-  with check (auth.uid() = user_id);
+  with check (
+    auth.uid() = user_id and (
+      diagnosis_result_id is null or exists (
+        select 1 from public.diagnosis_results
+        where id = chat_sessions.diagnosis_result_id and user_id = auth.uid()
+      )
+    )
+  );
 
 create policy "Users can update their own chat sessions"
   on public.chat_sessions for update
-  using (auth.uid() = user_id);
+  using (auth.uid() = user_id)
+  with check (
+    auth.uid() = user_id and (
+      diagnosis_result_id is null or exists (
+        select 1 from public.diagnosis_results
+        where id = chat_sessions.diagnosis_result_id and user_id = auth.uid()
+      )
+    )
+  );
 
 -- RLS Policies for chat_messages
 create policy "Users can view messages in their chat sessions"
@@ -140,9 +176,9 @@ create policy "Users can view messages in their chat sessions"
     ))
   ));
 
-create policy "Users can create messages in their chat sessions"
+create policy "Users can create their own chat inputs"
   on public.chat_messages for insert
-  with check (exists (
+  with check (role = 'user' and exists (
     select 1 from public.chat_sessions
     where id = session_id and user_id = auth.uid()
   ));
@@ -157,6 +193,45 @@ create policy "Only admins can update site settings"
   using (exists (
     select 1 from public.profiles where id = auth.uid() and role = 'admin'
   ));
+
+create policy "Only admins can manage support tickets"
+  on public.support_tickets for all
+  to authenticated
+  using (exists (
+    select 1 from public.profiles where id = auth.uid() and role = 'admin'
+  ))
+  with check (exists (
+    select 1 from public.profiles where id = auth.uid() and role = 'admin'
+  ));
+
+create or replace function public.enforce_pinned_chat_session_limit()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+declare
+  v_pinned_count integer;
+begin
+  if new.is_pinned is not true
+     or (tg_op = 'UPDATE' and old.is_pinned is true) then
+    return new;
+  end if;
+
+  perform pg_advisory_xact_lock(hashtext(new.user_id::text));
+  select count(*) into v_pinned_count
+  from public.chat_sessions
+  where user_id = new.user_id and is_pinned is true;
+  if v_pinned_count >= 100 then
+    raise exception 'A member may pin at most 100 chat sessions';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists trigger_enforce_pinned_chat_session_limit on public.chat_sessions;
+create trigger trigger_enforce_pinned_chat_session_limit
+before insert or update of is_pinned on public.chat_sessions
+for each row execute function public.enforce_pinned_chat_session_limit();
 
 -- Trigger to auto-create profile on auth.users insert
 create or replace function public.handle_new_user()

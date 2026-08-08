@@ -42,6 +42,9 @@ export async function POST(request: NextRequest) {
   }
 
   const auth = await getAuthResult();
+  if (auth.status !== 'authenticated' || !auth.userId) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
   const throttleActor = auth.userId || auth.status;
   const throttleKey = `${throttleActor}:${body.stage}`;
   const now = Date.now();

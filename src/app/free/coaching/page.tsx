@@ -449,12 +449,12 @@ export default function FreeCoachingPage() {
                   <p className="text-sm mt-2 text-gray-700">
                     無料勉強会に参加すれば、2週間AIコーチング無制限＋フルテスト（120問以上）がすべて無料！
                   </p>
-                  <a
-                    href="https://example.com/study-session"
+                  <Link
+                    href="/support"
                     className="inline-block mt-3 py-2 px-6 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white font-bold rounded-lg transition-all duration-300 shadow-lg text-sm"
                   >
-                    無料勉強会に申し込む →
-                  </a>
+                    フルテスト・勉強会について問い合わせる
+                  </Link>
                 </div>
               )}
               {pendingAttachments.length > 0 && (
@@ -602,11 +602,11 @@ export default function FreeCoachingPage() {
             <div className="space-y-3">
               <button
                 onClick={() => {
-                  window.location.href = 'https://example.com/study-session';
+                  router.push('/support');
                 }}
                 className="w-full py-4 px-6 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white font-bold rounded-lg transition-all duration-300 shadow-lg text-lg animate-pulse"
               >
-                無料勉強会に今すぐ申し込む →
+                フルテスト・勉強会について問い合わせる
               </button>
               <p className="text-center text-xs text-gray-500">※ 申し込みは30秒で完了します</p>
               <button

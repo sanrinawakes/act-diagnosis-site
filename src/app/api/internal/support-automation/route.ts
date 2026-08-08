@@ -1088,11 +1088,7 @@ async function getQualityIncident(
 }
 
 function validateAutomationAuthorization(request: NextRequest) {
-  const expectedSecret =
-    process.env.SUPPORT_AUTOMATION_SECRET ||
-    process.env.MONITORING_CRON_SECRET ||
-    process.env.CRON_SECRET ||
-    '';
+  const expectedSecret = process.env.SUPPORT_AUTOMATION_SECRET || '';
   if (!expectedSecret) return 'Support automation secret is not configured';
 
   const authHeader = request.headers.get('authorization') || '';

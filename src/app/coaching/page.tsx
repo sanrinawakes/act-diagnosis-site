@@ -183,6 +183,13 @@ const createMessageId = () =>
     return value.toString(16);
   });
 
+const buildWelcomeMessage = (code: string): Message => ({
+  id: `welcome-${code}`,
+  role: 'assistant',
+  content: `こんにちは！ACTIのコーチングへようこそ。\n\nあなたのタイプコード「${code}」に基づいて、パーソナライズされたコーチングを提供します。\n\n次のテーマについてお話しすることができます：\n・自己理解 - あなたのタイプの強みと課題\n・行動パターン - 日常での行動傾向\n・人間関係 - 対人スキルの向上\n・キャリア - 仕事での活躍方法\n・パーソナルグロース - 成長のステップ\n\n何について詳しく知りたいですか？`,
+  createdAt: new Date().toISOString(),
+});
+
 const postClientChatFailure = async (
   payload: ClientChatFailurePayload
 ): Promise<'sent' | 'retry' | 'drop'> => {
@@ -655,6 +662,10 @@ function CoachingContent() {
             }
           }
 
+          if ((!msgs || msgs.length === 0) && code) {
+            setMessages([buildWelcomeMessage(code)]);
+          }
+
           setInitialized(true);
           return;
         }
@@ -729,10 +740,6 @@ function CoachingContent() {
 
         setSessionId(session.id);
         setInitialized(true);
-
-        if (code) {
-          await sendInitialMessage(session.id, code);
-        }
 
         // Refresh sidebar to include the new session
         fetchSidebarSessions(sidebarSearch, sidebarTab, 1);
@@ -838,47 +845,6 @@ function CoachingContent() {
       });
     } finally {
       setHistoryLoadingOlder(false);
-    }
-  };
-
-  const sendInitialMessage = async (sid: string, code: string) => {
-    try {
-      const { error: systemMessageError } = await supabase
-        .from('chat_messages')
-        .insert({
-          session_id: sid,
-          role: 'system',
-          content: `ACTIの結果: ${code}\nこのコードに基づいてパーソナライズされたコーチングを提供します。`,
-        });
-      if (systemMessageError) throw systemMessageError;
-
-      const welcomeMsg: Message = {
-        id: createMessageId(),
-        role: 'assistant',
-        content: `こんにちは！ACTIのコーチングへようこそ。\n\nあなたのタイプコード「${code}」に基づいて、パーソナライズされたコーチングを提供します。\n\n次のテーマについてお話しすることができます：\n・自己理解 - あなたのタイプの強みと課題\n・行動パターン - 日常での行動傾向\n・人間関係 - 対人スキルの向上\n・キャリア - 仕事での活躍方法\n・パーソナルグロース - 成長のステップ\n\n何について詳しく知りたいですか？`,
-        createdAt: new Date().toISOString(),
-      };
-
-      setMessages([welcomeMsg]);
-
-      await persistChatMessage({
-        id: welcomeMsg.id,
-        sessionId: sid,
-        role: 'assistant',
-        content: welcomeMsg.content,
-        failureMessage: '最初のメッセージを保存できませんでした。',
-      });
-
-      const { error: activityError } = await supabase
-        .from('chat_sessions')
-        .update({
-          last_message_at: new Date().toISOString(),
-          message_count: 1,
-        })
-        .eq('id', sid);
-      if (activityError) throw activityError;
-    } catch (err) {
-      console.error('Failed to send initial message:', err);
     }
   };
 
@@ -1338,16 +1304,6 @@ function CoachingContent() {
 
       try {
         failureStage = 'save_response';
-        await persistChatMessage({
-          id: assistantMessageId,
-          sessionId: activeSessionId,
-          role: 'assistant',
-          content:
-            assistantContent ||
-            'すみません、応答に失敗しました。もう一度お試しください。',
-          failureMessage: 'AI応答を履歴に保存できませんでした。',
-        });
-
         await withTimeout(
           refreshSessionActivity(activeSessionId),
           CHAT_PERSIST_TIMEOUT_MS,
@@ -1406,15 +1362,9 @@ function CoachingContent() {
           },
         ]);
       }
-      // 失敗時もassistant行とセッション更新を保存し、再読込で履歴が消えたように見える状態を防ぐ。
+      // A client-side connection failure must never be recorded as an AI reply.
+      // If the server completed the turn, it has already saved the real reply.
       try {
-        await persistChatMessage({
-          id: assistantMessageId || responseMessageId || createMessageId(),
-          sessionId: activeSessionId,
-          role: 'assistant',
-          content: failContent,
-          failureMessage: 'エラー応答を履歴に保存できませんでした。',
-        });
         await withTimeout(
           refreshSessionActivity(activeSessionId),
           CHAT_PERSIST_TIMEOUT_MS,

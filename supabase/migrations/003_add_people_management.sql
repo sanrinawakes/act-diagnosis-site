@@ -36,6 +36,9 @@ CREATE POLICY "Admins can do everything on people_management"
 CREATE OR REPLACE FUNCTION check_people_limit()
 RETURNS TRIGGER AS $$
 BEGIN
+  -- The count must be checked while inserts are serialized, otherwise two
+  -- concurrent requests can both observe 99 rows and exceed the limit.
+  LOCK TABLE people_management IN SHARE ROW EXCLUSIVE MODE;
   IF (SELECT COUNT(*) FROM people_management) >= 100 THEN
     RAISE EXCEPTION 'Maximum number of people entries (100) reached';
   END IF;

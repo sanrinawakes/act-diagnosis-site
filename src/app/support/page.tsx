@@ -26,6 +26,7 @@ export default function SupportPage() {
   const [pendingAttachments, setPendingAttachments] = useState<PendingImageAttachment[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pendingAttachmentsRef = useRef<PendingImageAttachment[]>([]);
+  const submissionKeyRef = useRef<string | null>(null);
   const supabase = createClient();
 
   useEffect(() => {
@@ -138,6 +139,10 @@ export default function SupportPage() {
       formData.append('source', source);
       formData.append('session_id', sessionId);
       formData.append('page_path', pagePath);
+      if (!submissionKeyRef.current) {
+        submissionKeyRef.current = globalThis.crypto.randomUUID();
+      }
+      formData.append('submission_key', submissionKeyRef.current);
       pendingAttachments.forEach((attachment) => {
         formData.append('attachments', attachment.file);
       });
@@ -156,6 +161,7 @@ export default function SupportPage() {
       setSent(true);
       setTicketId(typeof data.ticket_id === 'string' ? data.ticket_id : '');
       setReceiptSent(data.receipt_sent === true);
+      submissionKeyRef.current = null;
       clearPendingAttachments();
     } catch (err) {
       setError(err instanceof Error ? err.message : '送信に失敗しました');
@@ -193,6 +199,7 @@ export default function SupportPage() {
                 setSubject('');
                 setMessage('');
                 setCategory(source === 'coaching' ? 'bug' : 'general');
+                submissionKeyRef.current = null;
                 clearPendingAttachments();
               }}
               className="px-6 py-2.5 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors font-semibold"

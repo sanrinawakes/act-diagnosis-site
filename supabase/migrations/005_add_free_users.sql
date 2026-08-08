@@ -14,23 +14,9 @@ CREATE TABLE IF NOT EXISTS public.free_users (
 -- Index on email for quick lookup
 CREATE INDEX IF NOT EXISTS idx_free_users_email ON public.free_users(email);
 
--- Allow anonymous access for free users (no auth required)
+-- Free-user records contain email addresses. API routes use the service role,
+-- which bypasses RLS, so no anon or authenticated table policy is permitted.
 ALTER TABLE public.free_users ENABLE ROW LEVEL SECURITY;
-
--- Policy: anyone can insert (new free user)
-CREATE POLICY "Anyone can create free user" ON public.free_users
-  FOR INSERT WITH CHECK (true);
-
--- Policy: Service role can do anything
-CREATE POLICY "Service role can do anything" ON public.free_users
-  FOR ALL USING (auth.role() = 'service_role');
-
--- Allow anon to select free_users (for the free version to work without auth)
-CREATE POLICY "Anon can select free_users" ON public.free_users
-  FOR SELECT USING (true);
-
--- Allow anon to update free_users (for the free version to work without auth)
-CREATE POLICY "Anon can update free_users" ON public.free_users
-  FOR UPDATE USING (true);
+REVOKE ALL ON TABLE public.free_users FROM anon, authenticated;
 
 NOTIFY pgrst, 'reload schema';

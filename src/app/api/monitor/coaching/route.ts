@@ -592,9 +592,29 @@ async function runPaidCoachingMonitor(params: {
       content: message.content,
       created_at: new Date(Date.now() - (allMessages.length - index) * 1000).toISOString(),
     }));
+    const historyRows = storedRows.slice(0, -1);
+    const finalUserRow = storedRows.at(-1);
+    if (!finalUserRow || finalUserRow.role !== 'user') {
+      throw new Error('paid monitor fixture is missing its final user message');
+    }
+
+    // Historical assistant turns are a server-owned fixture. The final user
+    // turn is written with the member session so this still verifies the RLS
+    // path a browser uses to save an actual consultation.
+    const historySeedStartedAt = Date.now();
+    const { error: historySeedError } = await withMonitorTimeout(
+      params.supabaseAdmin.from('chat_messages').insert(historyRows),
+      MONITOR_STAGE_TIMEOUT_MS,
+      'history-seed'
+    );
+    if (historySeedError) {
+      throw new Error(
+        `paid monitor history seed failed: ${historySeedError.message}`
+      );
+    }
     const userMessageStartedAt = Date.now();
     const { error: messageInsertError } = await withMonitorTimeout(
-      userClient.from('chat_messages').insert(storedRows),
+      userClient.from('chat_messages').insert(finalUserRow),
       MONITOR_STAGE_TIMEOUT_MS,
       'user-message-save'
     );
@@ -923,7 +943,6 @@ function validateMonitorAuthorization(request: NextRequest) {
       [
         process.env.MONITORING_CRON_SECRET,
         process.env.CRON_SECRET,
-        process.env.SUPPORT_AUTOMATION_SECRET,
       ].filter((secret): secret is string => Boolean(secret))
     )
   );

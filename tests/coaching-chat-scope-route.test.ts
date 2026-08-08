@@ -157,7 +157,7 @@ describe('POST /api/chat scope guard', () => {
   it('records and returns a blocked stream without calling an AI provider', async () => {
     const request = new NextRequest('http://localhost/api/chat', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', origin: 'http://localhost' },
       body: JSON.stringify({
         sessionId: SESSION_ID,
         messages: [{ role: 'user', content: '広告の文章を3案作って' }],
@@ -201,7 +201,7 @@ describe('POST /api/chat scope guard', () => {
   it('records a personal consultation and sends it to the normal provider path', async () => {
     const request = new NextRequest('http://localhost/api/chat', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', origin: 'http://localhost' },
       body: JSON.stringify({
         sessionId: SESSION_ID,
         messages: [
@@ -238,7 +238,7 @@ describe('POST /api/chat scope guard', () => {
   it('blocks business-growth consulting before the provider path runs', async () => {
     const request = new NextRequest('http://localhost/api/chat', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', origin: 'http://localhost' },
       body: JSON.stringify({
         sessionId: SESSION_ID,
         messages: [
@@ -405,7 +405,7 @@ describe('POST /api/chat scope guard', () => {
   it('accepts an explicit null diagnosis code for legacy sessions', async () => {
     const request = new NextRequest('http://localhost/api/chat', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', origin: 'http://localhost' },
       body: JSON.stringify({
         sessionId: SESSION_ID,
         messages: [
@@ -428,7 +428,7 @@ describe('POST /api/chat scope guard', () => {
   it('continues to reject a malformed non-null diagnosis code', async () => {
     const request = new NextRequest('http://localhost/api/chat', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', origin: 'http://localhost' },
       body: JSON.stringify({
         sessionId: SESSION_ID,
         messages: [
@@ -453,7 +453,7 @@ describe('POST /api/chat scope guard', () => {
     async (diagnosisCode) => {
       const request = new NextRequest('http://localhost/api/chat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', origin: 'http://localhost' },
         body: JSON.stringify({
           sessionId: SESSION_ID,
           messages: [
@@ -477,7 +477,7 @@ describe('POST /api/chat scope guard', () => {
   it('rejects an incomplete recovery identifier pair', async () => {
     const request = new NextRequest('http://localhost/api/chat', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', origin: 'http://localhost' },
       body: JSON.stringify({
         sessionId: SESSION_ID,
         requestId: '33333333-3333-4333-8333-333333333333',
@@ -497,7 +497,7 @@ describe('POST /api/chat scope guard', () => {
     const duplicateId = '33333333-3333-4333-8333-333333333333';
     const request = new NextRequest('http://localhost/api/chat', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', origin: 'http://localhost' },
       body: JSON.stringify({
         sessionId: SESSION_ID,
         requestId: duplicateId,
@@ -519,7 +519,7 @@ describe('POST /api/chat scope guard', () => {
 function createAllowedRequest(stream: boolean) {
   return new NextRequest('http://localhost/api/chat', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', origin: 'http://localhost' },
     body: JSON.stringify({
       sessionId: SESSION_ID,
       messages: [

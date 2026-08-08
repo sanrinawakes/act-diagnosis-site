@@ -186,7 +186,16 @@ describe('getUserFacingChatError', () => {
     new Error('NetworkError when attempting to fetch resource.'),
   ])('converts browser network errors to clear Japanese guidance', (error) => {
     expect(getUserFacingChatError(error)).toBe(
-      '通信が一時的に切れました。相談内容は保存されています。通信状態を確認して、もう一度送信してください。'
+      '通信が一時的に切れました。通信状態を確認して、もう一度お試しください。'
+    );
+  });
+
+  it('never shows unknown internal errors to a member', () => {
+    expect(getUserFacingChatError(new Error('Invalid diagnosis code'))).toBe(
+      '診断情報を確認できませんでした。画面を再読み込みして、もう一度お試しください。'
+    );
+    expect(getUserFacingChatError(new Error('SUPABASE_INTERNAL_DETAIL'))).toBe(
+      'メッセージを送信できませんでした。画面を再読み込みして、もう一度お試しください。'
     );
   });
 });

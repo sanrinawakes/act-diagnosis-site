@@ -1,11 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import {
+  canActivatePendingProfile,
+  hasValidWebhookSecret,
+} from '@/lib/webhook-auth';
 
 export const runtime = 'nodejs';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-const MYASP_WEBHOOK_SECRET = process.env.MYASP_WEBHOOK_SECRET || '';
+const MEMBER_IMPORT_SECRET = process.env.MEMBER_IMPORT_SECRET || '';
+const MAX_IMPORT_EMAILS = 500;
 
 function createAdminClient() {
   return createClient(supabaseUrl, serviceRoleKey, {
@@ -18,7 +23,7 @@ function createAdminClient() {
  *
  * POST /api/admin/import-members
  * Body (JSON):
- *   - secret: admin secret (uses MYASP_WEBHOOK_SECRET)
+ *   - secret: dedicated member-import secret
  *   - emails: string[] - list of email addresses to import
  *
  * This allows bulk importing existing MyASP members so they get auto-activated
@@ -30,8 +35,13 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
 
-    // Verify admin secret
-    if (!MYASP_WEBHOOK_SECRET || body.secret !== MYASP_WEBHOOK_SECRET) {
+    if (!MEMBER_IMPORT_SECRET) {
+      console.error('Member import is not configured');
+      return NextResponse.json({ error: 'Service unavailable' }, { status: 503 });
+    }
+
+    // Do not reuse the public payment webhook secret for an administrative bulk action.
+    if (!hasValidWebhookSecret(MEMBER_IMPORT_SECRET, body.secret)) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -42,16 +52,22 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+    if (emails.length > MAX_IMPORT_EMAILS || emails.some((email) => typeof email !== 'string')) {
+      return NextResponse.json(
+        { error: `emails must contain at most ${MAX_IMPORT_EMAILS} email addresses` },
+        { status: 400 }
+      );
+    }
 
     const adminClient = createAdminClient();
     const results = {
       imported: 0,
       skipped: 0,
       activated_existing: 0,
-      errors: [] as string[],
+      errors: 0,
     };
 
-    for (const rawEmail of emails) {
+    for (const rawEmail of new Set(emails)) {
       const email = rawEmail.trim().toLowerCase();
       if (!email || !email.includes('@')) {
         results.skipped++;
@@ -75,7 +91,10 @@ export async function POST(request: NextRequest) {
         if (upsertError) {
           // If unique constraint violation, it's already there - that's OK
           if (!upsertError.message.includes('duplicate')) {
-            results.errors.push(`${email}: ${upsertError.message}`);
+            console.error('Member import activation upsert failed', {
+              error: upsertError.message,
+            });
+            results.errors++;
             continue;
           }
         }
@@ -89,7 +108,10 @@ export async function POST(request: NextRequest) {
           .eq('email', email)
           .single();
 
-        if (existingProfile && existingProfile.subscription_status !== 'active') {
+        if (
+          existingProfile &&
+          canActivatePendingProfile(existingProfile.subscription_status)
+        ) {
           const { error: updateError } = await adminClient
             .from('profiles')
             .update({
@@ -112,7 +134,10 @@ export async function POST(request: NextRequest) {
           }
         }
       } catch (err) {
-        results.errors.push(`${email}: ${err instanceof Error ? err.message : 'Unknown error'}`);
+        console.error('Member import item failed', {
+          error: err instanceof Error ? err.message : 'Unknown error',
+        });
+        results.errors++;
       }
     }
 
@@ -124,10 +149,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('Import members error:', error);
     return NextResponse.json(
-      {
-        error: 'Internal server error',
-        details: error instanceof Error ? error.message : 'Unknown error',
-      },
+      { error: 'Internal server error' },
       { status: 500 }
     );
   }

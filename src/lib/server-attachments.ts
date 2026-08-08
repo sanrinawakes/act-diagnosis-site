@@ -1,12 +1,12 @@
 import { createClient } from '@supabase/supabase-js';
 import {
   ATTACHMENT_BUCKET,
+  buildAttachmentViewUrl,
   fileExtensionFromMimeType,
   isAllowedImageType,
   MAX_IMAGE_ATTACHMENTS,
   MAX_IMAGE_BYTES,
   sanitizeFileName,
-  SIGNED_URL_EXPIRES_IN,
   type StoredAttachment,
 } from '@/lib/attachments';
 
@@ -53,39 +53,47 @@ export async function uploadImageAttachments({
 
   const uploaded: StoredAttachment[] = [];
 
-  for (const file of files) {
-    const extension = fileExtensionFromMimeType(file.type);
-    const safeName = sanitizeFileName(file.name);
-    const path = `${folder}/${crypto.randomUUID()}-${safeName}.${extension}`;
-    const buffer = Buffer.from(await file.arrayBuffer());
+  try {
+    for (const file of files) {
+      const extension = fileExtensionFromMimeType(file.type);
+      const safeName = sanitizeFileName(file.name);
+      const path = `${folder}/${crypto.randomUUID()}-${safeName}.${extension}`;
+      const buffer = Buffer.from(await file.arrayBuffer());
 
-    const { error: uploadError } = await supabase.storage
-      .from(ATTACHMENT_BUCKET)
-      .upload(path, buffer, {
-        contentType: file.type,
-        cacheControl: '31536000',
-        upsert: false,
+      const { error: uploadError } = await supabase.storage
+        .from(ATTACHMENT_BUCKET)
+        .upload(path, buffer, {
+          contentType: file.type,
+          cacheControl: '31536000',
+          upsert: false,
+        });
+
+      if (uploadError) {
+        throw new Error(`画像の保存に失敗しました: ${uploadError.message}`);
+      }
+
+      uploaded.push({
+        name: safeName,
+        url: buildAttachmentViewUrl(path),
+        path,
+        mimeType: file.type,
+        size: file.size,
       });
-
-    if (uploadError) {
-      throw new Error(`画像の保存に失敗しました: ${uploadError.message}`);
     }
-
-    const { data: signedData, error: signedError } = await supabase.storage
-      .from(ATTACHMENT_BUCKET)
-      .createSignedUrl(path, SIGNED_URL_EXPIRES_IN);
-
-    if (signedError || !signedData?.signedUrl) {
-      throw new Error(`画像URLの作成に失敗しました: ${signedError?.message || 'unknown error'}`);
+  } catch (error) {
+    if (uploaded.length > 0) {
+      const { error: cleanupError } = await supabase.storage
+        .from(ATTACHMENT_BUCKET)
+        .remove(
+          uploaded.flatMap((attachment) =>
+            attachment.path ? [attachment.path] : []
+          )
+        );
+      if (cleanupError) {
+        console.error('Attachment cleanup after upload failure failed:', cleanupError);
+      }
     }
-
-    uploaded.push({
-      name: safeName,
-      url: signedData.signedUrl,
-      path,
-      mimeType: file.type,
-      size: file.size,
-    });
+    throw error;
   }
 
   return uploaded;

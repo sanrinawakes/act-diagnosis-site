@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getJapanDateKey } from '@/lib/japan-date';
+import { createServerClient } from '@/lib/supabase-server';
+import { hasAllowedRequestOrigin } from '@/lib/request-origin';
 
 export const runtime = 'nodejs';
 
@@ -22,12 +24,38 @@ interface RequestBody {
 
 export async function POST(request: NextRequest) {
   try {
+    if (!hasAllowedRequestOrigin(request)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
     const body: RequestBody = await request.json();
     const { email, answers, level, typeCode } = body;
 
-    if (!email || answers === undefined || level === undefined) {
+    const authClient = await createServerClient();
+    const {
+      data: { user },
+      error: authError,
+    } = await authClient.auth.getUser();
+    if (authError || !user?.email) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const requestedEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
+    const normalizedEmail = user.email.trim().toLowerCase();
+    if (requestedEmail && requestedEmail !== normalizedEmail) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
+    if (
+      !Array.isArray(answers) ||
+      answers.length !== 15 ||
+      !answers.every((answer) => Number.isInteger(answer) && answer >= -2 && answer <= 2) ||
+      !Number.isInteger(level) ||
+      level < 1 ||
+      level > 2 ||
+      (typeCode !== undefined && (typeof typeCode !== 'string' || !/^[SMP][VMG][AME]$/.test(typeCode)))
+    ) {
       return NextResponse.json(
-        { error: 'Missing required fields: email, answers, level' },
+        { error: '診断内容が正しくありません。最初からやり直してください。' },
         { status: 400 }
       );
     }
@@ -38,11 +66,12 @@ export async function POST(request: NextRequest) {
     const { data: existingUser, error: selectError } = await supabase
       .from('free_users')
       .select('id')
-      .eq('email', email)
-      .single();
+      .eq('email', normalizedEmail)
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .maybeSingle();
 
-    if (selectError && selectError.code !== 'PGRST116') {
-      // PGRST116 = no rows returned
+    if (selectError) {
       console.error('Error checking for existing user:', selectError);
       return NextResponse.json(
         { error: 'Database error' },
@@ -76,7 +105,7 @@ export async function POST(request: NextRequest) {
       const { error: insertError } = await supabase
         .from('free_users')
         .insert({
-          email,
+          email: normalizedEmail,
           diagnosis_completed: true,
           diagnosis_level: level,
           diagnosis_type_code: typeCode || null,
@@ -110,9 +139,7 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json(
-      {
-        error: error instanceof Error ? error.message : 'Internal server error',
-      },
+      { error: '診断結果を保存できませんでした。時間をおいて、もう一度お試しください。' },
       { status: 500 }
     );
   }

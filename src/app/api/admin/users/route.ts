@@ -2,7 +2,11 @@ import { createClient as createServerClient } from '@supabase/supabase-js';
 import { createServerClient as createSSRClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
-import type { Profile } from '@/lib/types';
+import { hasAllowedRequestOrigin } from '@/lib/request-origin';
+
+const PROFILE_ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const MAX_PAGE_SIZE = 100;
 
 // Helper to create admin Supabase client with service role key
 function createAdminClient() {
@@ -19,7 +23,7 @@ function createAdminClient() {
 }
 
 // Helper to check if user is admin
-async function verifyAdminRole(request: NextRequest): Promise<string | null> {
+async function verifyAdminRole(): Promise<string | null> {
   try {
     const cookieStore = await cookies();
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -76,7 +80,7 @@ async function verifyAdminRole(request: NextRequest): Promise<string | null> {
 export async function GET(request: NextRequest) {
   try {
     // Verify admin role
-    const userId = await verifyAdminRole(request);
+    const userId = await verifyAdminRole();
     if (!userId) {
       return NextResponse.json({ error: '管理者権限が必要です' }, { status: 403 });
     }
@@ -85,9 +89,9 @@ export async function GET(request: NextRequest) {
 
     // Get search and pagination params
     const searchParams = request.nextUrl.searchParams;
-    const search = searchParams.get('search') || '';
-    const page = parseInt(searchParams.get('page') || '1');
-    const limit = parseInt(searchParams.get('limit') || '20');
+    const search = (searchParams.get('search') || '').trim().slice(0, 100);
+    const page = parsePositiveInt(searchParams.get('page'), 1, 10_000);
+    const limit = parsePositiveInt(searchParams.get('limit'), 20, MAX_PAGE_SIZE);
     const offset = (page - 1) * limit;
 
     // Build query
@@ -98,10 +102,17 @@ export async function GET(request: NextRequest) {
       query = query.ilike('email', `%${search}%`);
     }
 
-    // Get total count
-    const { count: totalCount } = await adminClient
+    let countQuery = adminClient
       .from('profiles')
       .select('*', { count: 'exact', head: true });
+    if (search) {
+      countQuery = countQuery.ilike('email', `%${search}%`);
+    }
+
+    const { count: totalCount, error: countError } = await countQuery;
+    if (countError) {
+      throw countError;
+    }
 
     // Get paginated results
     const { data: profiles, error } = await query
@@ -136,23 +147,32 @@ export async function GET(request: NextRequest) {
 // PATCH: Update user (is_active or role)
 export async function PATCH(request: NextRequest) {
   try {
+    if (!hasAllowedRequestOrigin(request)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
     // Verify admin role
-    const userId = await verifyAdminRole(request);
+    const userId = await verifyAdminRole();
     if (!userId) {
       return NextResponse.json({ error: '管理者権限が必要です' }, { status: 403 });
     }
 
     const adminClient = createAdminClient();
-    const body = await request.json();
+    const body: unknown = await request.json();
+    if (!isRecord(body)) {
+      return NextResponse.json({ error: '更新内容が正しくありません' }, { status: 400 });
+    }
     const { user_id, is_active, role } = body;
 
-    if (!user_id) {
+    if (typeof user_id !== 'string' || !PROFILE_ID_PATTERN.test(user_id)) {
       return NextResponse.json({ error: 'user_idが必要です' }, { status: 400 });
     }
 
     // Build update object
-    const updateData: Record<string, any> = {};
+    const updateData: Record<string, boolean | string> = {};
     if (is_active !== undefined) {
+      if (typeof is_active !== 'boolean') {
+        return NextResponse.json({ error: 'is_activeは真偽値で指定してください' }, { status: 400 });
+      }
       updateData.is_active = is_active;
     }
     if (role !== undefined) {
@@ -163,7 +183,10 @@ export async function PATCH(request: NextRequest) {
     }
     if (body.subscription_status !== undefined) {
       const validStatuses = ['none', 'active', 'cancelled', 'payment_failed'];
-      if (!validStatuses.includes(body.subscription_status)) {
+      if (
+        typeof body.subscription_status !== 'string' ||
+        !validStatuses.includes(body.subscription_status)
+      ) {
         return NextResponse.json({ error: '無効な会員ステータスです' }, { status: 400 });
       }
       updateData.subscription_status = body.subscription_status;
@@ -205,4 +228,14 @@ export async function PATCH(request: NextRequest) {
       { status: 500 }
     );
   }
+}
+
+function parsePositiveInt(value: string | null, fallback: number, maximum: number) {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 1) return fallback;
+  return Math.min(parsed, maximum);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

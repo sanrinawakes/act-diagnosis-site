@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { sendDeactivationEmail } from '@/lib/email';
+import { hasValidWebhookSecret } from '@/lib/webhook-auth';
 
 export const runtime = 'nodejs';
 
@@ -50,14 +51,11 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    console.log('MyASP cancel webhook received:', {
-      email: body.mail,
-      reason: body.reason,
-    });
-
-    // Verify webhook secret if configured
-    if (MYASP_WEBHOOK_SECRET && body.secret !== MYASP_WEBHOOK_SECRET) {
-      console.error('MyASP webhook secret mismatch');
+    // Access changes must never accept a webhook when its secret is missing.
+    if (!hasValidWebhookSecret(MYASP_WEBHOOK_SECRET, body.secret)) {
+      console.error('MyASP cancellation webhook authentication rejected', {
+        configured: Boolean(MYASP_WEBHOOK_SECRET),
+      });
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -88,11 +86,10 @@ export async function POST(request: NextRequest) {
         .single();
 
       if (!profileByMyasp) {
-        console.log(`Cancel webhook: no user found with email ${email}`);
+        console.log('Cancel webhook: no matching user found');
         return NextResponse.json({
           success: false,
           message: 'User not found',
-          email,
         });
       }
 
@@ -101,7 +98,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         success: true,
         action: 'deactivated',
-        email,
         message: 'User subscription deactivated',
       });
     }
@@ -112,16 +108,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       action: 'deactivated',
-      email,
       message: 'User subscription deactivated',
     });
   } catch (error) {
     console.error('MyASP cancel webhook error:', error);
     return NextResponse.json(
-      {
-        error: 'Internal server error',
-        details: error instanceof Error ? error.message : 'Unknown error',
-      },
+      { error: 'Internal server error' },
       { status: 500 }
     );
   }
@@ -156,5 +148,5 @@ async function deactivateUser(
     console.error('Deactivation email failed:', emailResult.error);
   }
 
-  console.log(`Deactivated user: ${profile.email}`);
+  console.log('Subscription deactivated');
 }

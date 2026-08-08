@@ -215,7 +215,7 @@ function normalizeForScope(value: string) {
 
 export function createScopeBlockedStream(params: {
   result: CoachingScopeResult;
-  remaining: number;
+  remaining?: number;
   limit: number;
 }) {
   const encoder = new TextEncoder();
@@ -241,7 +241,9 @@ export function createScopeBlockedStream(params: {
             finishReason: 'SCOPE_BLOCKED',
             message: COACHING_SCOPE_GUIDANCE,
             usage: {},
-            remaining: params.remaining,
+            ...(typeof params.remaining === 'number'
+              ? { remaining: params.remaining }
+              : {}),
             limit: params.limit,
             scopeDecision: params.result.decision,
             scopeCategory: params.result.category,
