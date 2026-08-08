@@ -659,8 +659,22 @@ export async function POST(request: NextRequest) {
           qualitySafetyHold: completion.qualitySafetyHold,
         });
       }
+      const shouldReleaseQualityFallbackQuota =
+        completion?.chargeable === false &&
+        profile.role !== 'admin' &&
+        quotaReservation.reservedNow;
+      if (shouldReleaseQualityFallbackQuota) {
+        await safelyReleaseMonthlyQuota({
+          supabaseAdmin,
+          userId: user.id,
+          reservation: quotaReservation,
+          serverRequestId: requestId,
+        });
+      }
       return {
-        remaining: quotaReservation.remaining,
+        remaining: shouldReleaseQualityFallbackQuota
+          ? Math.min(quotaReservation.limit, quotaReservation.remaining + 1)
+          : quotaReservation.remaining,
         limit: quotaReservation.limit,
       };
     };
@@ -712,6 +726,7 @@ export async function POST(request: NextRequest) {
     let qualityInitialIssues: CoachingCompletionDetails['qualityInitialIssues'] = [];
     let qualityFinalIssues: CoachingCompletionDetails['qualityFinalIssues'] = [];
     let qualitySafetyHold = false;
+    let chargeable = true;
     try {
       const result = await generateCoachingText({
         systemPrompt,
@@ -726,6 +741,7 @@ export async function POST(request: NextRequest) {
       qualityInitialIssues = result.qualityInitialIssues;
       qualityFinalIssues = result.qualityFinalIssues;
       qualitySafetyHold = result.qualitySafetyHold === true;
+      chargeable = result.chargeable !== false;
       console.info(
         JSON.stringify({
           event: 'chat_nonstream_done',
@@ -782,6 +798,7 @@ export async function POST(request: NextRequest) {
         qualityInitialIssues,
         qualityFinalIssues,
         qualitySafetyHold,
+        chargeable,
       }));
     } catch (error) {
       if (profile.role !== 'admin') {
