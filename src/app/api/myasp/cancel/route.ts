@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { sendDeactivationEmail } from '@/lib/email';
 import { hasValidWebhookSecret } from '@/lib/webhook-auth';
 
@@ -137,13 +137,11 @@ export async function POST(request: NextRequest) {
 }
 
 async function deactivateUser(
-  adminClient: any,
+  adminClient: SupabaseClient,
   profile: {
     id: string;
     email: string;
     display_name: string | null;
-    subscription_status: string;
-    is_active: boolean;
   }
 ) {
   // A provider may retry the same cancellation webhook. Make the state change
