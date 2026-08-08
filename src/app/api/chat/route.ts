@@ -672,7 +672,21 @@ export async function POST(request: NextRequest) {
             systemPrompt,
             historyMessages,
             lastUserParts,
-            onDone: completeSuccessfulResponse,
+            onDone: async (usage, completion) => {
+              try {
+                return await completeSuccessfulResponse(usage, completion);
+              } catch (error) {
+                if (profile.role !== 'admin') {
+                  await safelyReleaseMonthlyQuota({
+                    supabaseAdmin,
+                    userId: user.id,
+                    reservation: quotaReservation,
+                    serverRequestId: requestId,
+                  });
+                }
+                throw error;
+              }
+            },
             telemetry,
           }),
           { headers: getStreamHeaders() }

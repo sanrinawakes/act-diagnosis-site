@@ -194,6 +194,50 @@ describe('POST /api/chat connection recovery', () => {
     expect(state.profileCount).toBe(3);
     expect(state.quotaRequestIds.size).toBe(0);
   });
+
+  it('releases a new reservation when stream response saving fails', async () => {
+    state.completeUpdateError = true;
+    state.createJsonLineStream.mockImplementation(
+      ({
+        onDone,
+      }: {
+        onDone: (
+          usage: Record<string, number>,
+          completion: {
+            message: string;
+            completionStatus: 'complete';
+            modelName: string;
+          }
+        ) => Promise<Record<string, unknown>>;
+      }) => {
+        return new ReadableStream({
+          async start(controller) {
+            try {
+              await onDone(
+                { prompt_tokens: 10, completion_tokens: 8, total_tokens: 18 },
+                {
+                  message: ANSWER,
+                  completionStatus: 'complete',
+                  modelName: 'test-model',
+                }
+              );
+            } catch {
+              // The real streaming layer turns finalization failures into an
+              // error event. This route test verifies the quota side effect.
+            }
+            controller.close();
+          },
+        });
+      }
+    );
+
+    const response = await POST(createRequest(true));
+    await response.text();
+
+    expect(response.status).toBe(200);
+    expect(state.profileCount).toBe(3);
+    expect(state.quotaRequestIds.size).toBe(0);
+  });
 });
 
 function createRequest(stream = true) {

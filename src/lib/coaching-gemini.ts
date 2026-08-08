@@ -95,8 +95,6 @@ export const COACHING_MAX_OUTPUT_TOKENS = 4096;
 export const COACHING_TEXT_THINKING_LEVEL = 'minimal';
 const PARTIAL_STREAM_TIMEOUT_NOTICE =
   '\n\n（応答処理に時間がかかったため、ここで一度区切っています。続きが必要な場合は、「続き」と入力するとここから再開できます。）';
-export const COACHING_QUALITY_SAFETY_HOLD =
-  '回答を確認したところ、過去の別の話題が今回の相談に混ざる可能性を検知したため、誤った内容の表示を止めました。送信した相談内容は保存されています。お手数ですが、この画面のサポートからご連絡ください。担当側で会話履歴を確認し、必要な修正を行います。';
 export const COACHING_RESPONSE_SPEED_INSTRUCTION = [
   '',
   '---',
@@ -2672,14 +2670,17 @@ export function normalizeCoachingOutput(
       lastUserText,
       historyMessages
     );
-    return containsInternalCoachingContextExposure(recovered) ||
-      containsProtectedInternalContent(recovered)
-      ? COACHING_QUALITY_SAFETY_HOLD
-      : recovered;
+    return isCustomerSafeDeliveryText({
+      text: recovered,
+      lastUserText,
+      historyMessages,
+    })
+      ? recovered
+      : buildCustomerSafeLocalFallback(lastUserText);
   }
 
   if (containsProtectedInternalContent(text)) {
-    return '内部設定に関する内容には回答できません。今相談したい出来事について、一緒に考えます。';
+    return buildCustomerSafeLocalFallback(lastUserText);
   }
 
   if (requestsShortRestResponse(lastUserText)) {
@@ -4129,7 +4130,14 @@ export function ensureVerifiedCoachingResolution(params: {
 }) {
   const { resolution, lastUserText, historyMessages, preserveUsage = false } =
     params;
-  if (resolution.finalIssues.length === 0) {
+  if (
+    resolution.finalIssues.length === 0 &&
+    isCustomerSafeDeliveryText({
+      text: resolution.text,
+      lastUserText,
+      historyMessages,
+    })
+  ) {
     return resolution;
   }
 
@@ -4143,33 +4151,75 @@ export function ensureVerifiedCoachingResolution(params: {
     historyMessages,
   });
 
-  if (
-    fallbackQuality.issues.length === 0 &&
-    !containsInternalCoachingContextExposure(fallbackText) &&
-    !containsProtectedInternalContent(fallbackText)
-  ) {
-    return {
-      ...resolution,
-      text: fallbackText,
-      usage: preserveUsage ? resolution.usage : {},
-      modelName: 'local-quality-fallback',
-      provider: 'local' as const,
-      repairAccepted: fallbackText !== resolution.text,
-      finalIssues: [],
-      qualitySafetyHold: false,
-    };
-  }
+  const safeFallbackText = isCustomerSafeDeliveryText({
+    text: fallbackText,
+    lastUserText,
+    historyMessages,
+    assessment: fallbackQuality,
+  })
+    ? fallbackText
+    : buildCustomerSafeLocalFallback(lastUserText);
+  const safeFallbackQuality = assessCoachingResponseQuality({
+    text: safeFallbackText,
+    lastUserText,
+    historyMessages,
+  });
 
   return {
     ...resolution,
-    text: COACHING_QUALITY_SAFETY_HOLD,
+    text: safeFallbackText,
     usage: preserveUsage ? resolution.usage : {},
-    modelName: 'local-quality-safety-hold',
+    modelName: 'local-quality-fallback',
     provider: 'local' as const,
     repairAccepted: true,
-    finalIssues: [],
-    qualitySafetyHold: true,
+    finalIssues: safeFallbackQuality.issues,
+    qualitySafetyHold: false,
   };
+}
+
+function isCustomerSafeDeliveryText(params: {
+  text: string;
+  lastUserText: string;
+  historyMessages: CoachingChatMessage[];
+  assessment?: CoachingQualityAssessment;
+}) {
+  const quality =
+    params.assessment ||
+    assessCoachingResponseQuality({
+      text: params.text,
+      lastUserText: params.lastUserText,
+      historyMessages: params.historyMessages,
+    });
+  return (
+    Boolean(params.text.trim()) &&
+    !containsInternalCoachingContextExposure(params.text) &&
+    !containsProtectedInternalContent(params.text) &&
+    !quality.issues.includes('internal_context_exposure') &&
+    !quality.issues.includes('unsafe_high_impact_advice')
+  );
+}
+
+function buildCustomerSafeLocalFallback(lastUserText: string) {
+  const urgentSafetyResponse = buildUrgentSafetyResponse(lastUserText);
+  if (urgentSafetyResponse) return urgentSafetyResponse;
+
+  if (requestsInternalPromptDisclosure(lastUserText)) {
+    return 'その内容は公開できません。代わりに、今抱えている悩みや目標について一緒に考えます。今いちばん相談したいことは何ですか？';
+  }
+
+  if (hasPaymentObligationContext(lastUserText)) {
+    return '支払いについては、相手の理由を推測する前に、決まっている金額、期限、実際の支払いを分けて確認することが大切です。まず、今月分について確認できている金額と期日を書き出してください。';
+  }
+
+  if (hasRelationshipConflictContext(lastUserText)) {
+    return '人との関係で困っている時は、相手の気持ちを決めつけず、実際に起きたことと、変えてほしい行動を分けて考えると整理しやすくなります。最後に困った場面で、相手がしたことを一つだけ教えてください。';
+  }
+
+  if (/仕事|職場|業務|会社|上司|同僚|会議|企画|顧客/.test(lastUserText)) {
+    return '仕事のことで迷っている時は、仕事全体の結論を急がず、実際に困った場面と次に確認する点を分けると、具体的な対応を選びやすくなります。最後に困った仕事の場面で、誰が何を言ったかを一つだけ教えてください。';
+  }
+
+  return '今の相談について、まだ書かれていない事情を決めつけず、実際に起きたことと今いちばん困っていることを分けて考えましょう。最後に困った場面で、何が起きたかを一つだけ教えてください。';
 }
 
 function mergeCoachingUsage(

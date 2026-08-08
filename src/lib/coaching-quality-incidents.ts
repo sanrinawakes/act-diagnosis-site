@@ -1,6 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
-  COACHING_QUALITY_SAFETY_HOLD,
   assessCoachingResponseQuality,
   containsInternalCoachingContextExposure,
   type CoachingQualityIssue,
@@ -479,7 +478,6 @@ function isExpectedRepeatableResponse(text: string) {
   const normalized = text.trim();
   return (
     normalized === COACHING_SCOPE_GUIDANCE ||
-    normalized === COACHING_QUALITY_SAFETY_HOLD ||
     /^(?:すみません、)?(?:応答|接続|保存|会員情報|利用回数).{0,100}(?:失敗|時間|確認でき|お試しください)/.test(
       normalized
     )
