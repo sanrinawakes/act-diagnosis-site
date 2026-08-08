@@ -9,9 +9,10 @@ const source = fs.readFileSync(
 );
 
 describe('LINE webhook cost and scope guard', () => {
-  it('blocks oversized, out-of-scope, and burst messages before calling the provider', () => {
+  it('blocks oversized, out-of-scope, burst, and monthly over-limit messages before calling the provider', () => {
     const scopeIndex = source.indexOf('const scope = classifyCoachingScope');
     const rateIndex = source.indexOf('const rate = await reserveLineMessageRate');
+    const quotaIndex = source.indexOf('quotaReservation = await reserveMonthlyQuota');
     const providerIndex = source.indexOf('const aiResponse = await generateCoachingResponse');
 
     expect(source).toContain('const MAX_LINE_MESSAGE_CHARS = 2000');
@@ -20,8 +21,12 @@ describe('LINE webhook cost and scope guard', () => {
     expect(rateIndex).toBeGreaterThan(-1);
     expect(providerIndex).toBeGreaterThan(rateIndex);
     expect(providerIndex).toBeGreaterThan(scopeIndex);
+    expect(quotaIndex).toBeGreaterThan(scopeIndex);
+    expect(providerIndex).toBeGreaterThan(quotaIndex);
     expect(source).toContain('短時間に連続して送信されています。');
     expect(source).toContain("if (scope.decision === 'blocked')");
     expect(source).toContain('textMessage(COACHING_SCOPE_GUIDANCE)');
+    expect(source).toContain('buildMonthlyQuotaError(MONTHLY_COACHING_LIMIT)');
+    expect(source).toContain('releaseMonthlyQuota({');
   });
 });

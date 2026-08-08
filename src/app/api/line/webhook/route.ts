@@ -33,6 +33,14 @@ import {
   classifyCoachingScope,
   COACHING_SCOPE_GUIDANCE,
 } from '@/lib/coaching-scope';
+import {
+  buildMonthlyQuotaError,
+  MONTHLY_COACHING_LIMIT,
+  releaseMonthlyQuota,
+  reserveMonthlyQuota,
+  type MonthlyQuotaReservation,
+} from '@/lib/coaching-quota';
+import { getJapanMonthStartKey } from '@/lib/japan-date';
 
 export const runtime = 'nodejs';
 const MAX_LINE_MESSAGE_CHARS = 2000;
@@ -159,11 +167,14 @@ async function processEvent(event: LineWebhookEvent): Promise<void> {
     return;
   }
 
-  try {
-    const supabase = createAdminClient();
+  let quotaReservation: MonthlyQuotaReservation | null = null;
+  let profile: { id: string; line_user_id: string } | null = null;
+  let supabase: ReturnType<typeof createAdminClient> | null = null;
 
-    // This only limits automated bursts. It does not consume a paid-member
-    // allowance and it runs before any AI request or history write.
+  try {
+    supabase = createAdminClient();
+
+    // This limits automated bursts before any history write or AI request.
     const rate = await reserveLineMessageRate({
       supabaseAdmin: supabase,
       lineUserId: userId,
@@ -178,7 +189,7 @@ async function processEvent(event: LineWebhookEvent): Promise<void> {
     }
 
     // 1. Find or create LINE-linked profile
-    const profile = await getOrCreateLineProfile(supabase, userId);
+    profile = await getOrCreateLineProfile(supabase, userId);
 
     // 2. Get or create active chat session for this LINE user
     const session = await getOrCreateChatSession(supabase, profile.id);
@@ -218,6 +229,31 @@ async function processEvent(event: LineWebhookEvent): Promise<void> {
       return;
     }
 
+    // LINE uses the same monthly allowance as the member site. The previous
+    // burst-only limit left this provider path effectively unlimited.
+    try {
+      quotaReservation = await reserveMonthlyQuota({
+        supabaseAdmin: supabase,
+        userId: profile.id,
+        requestId: event.webhookEventId || event.message.id || event.replyToken,
+        periodStart: getJapanMonthStartKey(),
+        limit: MONTHLY_COACHING_LIMIT,
+      });
+    } catch (quotaError) {
+      console.error('LINE monthly quota reservation failed:', quotaError);
+      await replyMessage(replyToken, [
+        textMessage('利用回数を確認できませんでした。少し時間をおいて、もう一度お試しください。'),
+      ]);
+      return;
+    }
+
+    if (!quotaReservation.allowed) {
+      await replyMessage(replyToken, [
+        textMessage(buildMonthlyQuotaError(MONTHLY_COACHING_LIMIT)),
+      ]);
+      return;
+    }
+
     // 5. Get diagnosis code if available
     const { data: diagnosisResult } = await supabase
       .from('diagnosis_results')
@@ -247,6 +283,22 @@ async function processEvent(event: LineWebhookEvent): Promise<void> {
     await replyMessage(replyToken, [textMessage(aiResponse)]);
   } catch (error) {
     console.error('Error handling LINE message:', error);
+
+    // Do not consume the monthly allowance when the response could not be
+    // stored or delivered. The reservation is otherwise kept after success.
+    if (quotaReservation?.reservedNow && profile && supabase) {
+      try {
+        await releaseMonthlyQuota({
+          supabaseAdmin: supabase,
+          userId: profile.id,
+          requestId: event.webhookEventId || event.message?.id || event.replyToken,
+          periodStart: getJapanMonthStartKey(),
+          limit: MONTHLY_COACHING_LIMIT,
+        });
+      } catch (releaseError) {
+        console.error('LINE monthly quota release failed:', releaseError);
+      }
+    }
 
     // Try to send an error message
     try {
