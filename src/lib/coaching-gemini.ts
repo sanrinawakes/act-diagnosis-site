@@ -469,6 +469,7 @@ export async function generateCoachingText(params: {
         qualityInitialIssues: verifiedFallbackResolution.initialIssues,
         qualityFinalIssues: verifiedFallbackResolution.finalIssues,
         qualitySafetyHold: verifiedFallbackResolution.qualitySafetyHold,
+        chargeable: verifiedFallbackResolution.chargeable,
         completionStatus: 'complete' as const,
         finishReason: fallback.finishReason || 'EXTERNAL_FALLBACK',
       };
@@ -508,6 +509,7 @@ export async function generateCoachingText(params: {
       qualityInitialIssues: verifiedFallback.initialIssues,
       qualityFinalIssues: verifiedFallback.finalIssues,
       qualitySafetyHold: verifiedFallback.qualitySafetyHold,
+      chargeable: verifiedFallback.chargeable,
       completionStatus: 'fallback' as const,
       finishReason: getErrorMessage(error),
     };
@@ -558,6 +560,7 @@ export async function generateCoachingText(params: {
     qualityInitialIssues: verifiedResolution.initialIssues,
     qualityFinalIssues: verifiedResolution.finalIssues,
     qualitySafetyHold: verifiedResolution.qualitySafetyHold,
+    chargeable: verifiedResolution.chargeable,
     completionStatus,
     finishReason,
   };
@@ -803,6 +806,7 @@ export function createJsonLineStream(params: {
           qualityInitialIssues: verifiedResolution.initialIssues,
           qualityFinalIssues: verifiedResolution.finalIssues,
           qualitySafetyHold: verifiedResolution.qualitySafetyHold,
+          chargeable: verifiedResolution.chargeable,
         });
 
         logChatTelemetry(completionStatus === 'partial' ? 'partial_done' : 'done', params.telemetry, {
@@ -882,6 +886,7 @@ export function createJsonLineStream(params: {
                 qualityFinalIssues: verifiedFallbackResolution.finalIssues,
                 qualitySafetyHold:
                   verifiedFallbackResolution.qualitySafetyHold,
+                chargeable: verifiedFallbackResolution.chargeable,
               }
             );
             logChatTelemetry('fallback_done', params.telemetry, {
@@ -995,6 +1000,7 @@ export function createJsonLineStream(params: {
             qualityInitialIssues: verifiedPartialResolution.initialIssues,
             qualityFinalIssues: verifiedPartialResolution.finalIssues,
             qualitySafetyHold: verifiedPartialResolution.qualitySafetyHold,
+            chargeable: verifiedPartialResolution.chargeable,
           });
           logChatTelemetry('partial_done', params.telemetry, {
             modelName: verifiedPartialResolution.modelName,
@@ -1062,6 +1068,7 @@ export function createJsonLineStream(params: {
           qualityInitialIssues: verifiedLocalFallback.initialIssues,
           qualityFinalIssues: verifiedLocalFallback.finalIssues,
           qualitySafetyHold: verifiedLocalFallback.qualitySafetyHold,
+          chargeable: verifiedLocalFallback.chargeable,
         });
         logChatTelemetry('fallback_done', params.telemetry, {
           modelName: verifiedLocalFallback.modelName,
@@ -1121,6 +1128,7 @@ export type CoachingCompletionDetails = {
   qualityInitialIssues?: CoachingQualityIssue[];
   qualityFinalIssues?: CoachingQualityIssue[];
   qualitySafetyHold?: boolean;
+  chargeable?: boolean;
 };
 
 type CoachingStreamStatus =
@@ -3123,6 +3131,7 @@ type CoachingQualityResolution = {
   initialIssues: CoachingQualityIssue[];
   finalIssues: CoachingQualityIssue[];
   qualitySafetyHold?: boolean;
+  chargeable?: boolean;
 };
 
 async function resolveCoachingResponseQuality(params: {
@@ -3169,6 +3178,9 @@ async function resolveCoachingResponseQuality(params: {
     initialIssues,
     finalIssues: initialAssessment.issues,
     qualitySafetyHold: false,
+    // The model exposed internal context before local recovery. Keep the
+    // recovery useful, but do not consume the member's monthly allowance.
+    chargeable: !internalContextRecovered,
   };
 
   if (
@@ -4174,6 +4186,7 @@ export function ensureVerifiedCoachingResolution(params: {
     repairAccepted: true,
     finalIssues: safeFallbackQuality.issues,
     qualitySafetyHold: false,
+    chargeable: false,
   };
 }
 

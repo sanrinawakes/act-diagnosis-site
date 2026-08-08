@@ -9,6 +9,7 @@ const state = vi.hoisted(() => ({
   generateCoachingText: vi.fn(),
   profileCount: 3,
   completeUpdateError: false,
+  chargeable: true,
   messages: new Map<
     string,
     { id: string; session_id: string; role: string; content: string; created_at: string }
@@ -65,6 +66,7 @@ describe('POST /api/chat connection recovery', () => {
     vi.clearAllMocks();
     state.profileCount = 3;
     state.completeUpdateError = false;
+    state.chargeable = true;
     state.messages = new Map([
       [
         REQUEST_ID,
@@ -102,18 +104,21 @@ describe('POST /api/chat connection recovery', () => {
       }),
     });
     state.createServiceClient.mockReturnValue(createServiceClient());
-    state.generateCoachingText.mockResolvedValue({
-      text: ANSWER,
-      usage: { prompt_tokens: 10, completion_tokens: 8, total_tokens: 18 },
-      completionStatus: 'complete',
-      finishReason: 'STOP',
-      modelName: 'test-model',
-      provider: 'test',
-      qualityRepairAttempted: false,
-      qualityRepairAccepted: false,
-      qualityInitialIssues: [],
-      qualityFinalIssues: [],
-    });
+    state.generateCoachingText.mockImplementation(() =>
+      Promise.resolve({
+        text: ANSWER,
+        usage: { prompt_tokens: 10, completion_tokens: 8, total_tokens: 18 },
+        completionStatus: 'complete',
+        finishReason: 'STOP',
+        modelName: 'test-model',
+        provider: 'test',
+        qualityRepairAttempted: false,
+        qualityRepairAccepted: false,
+        qualityInitialIssues: [],
+        qualityFinalIssues: [],
+        chargeable: state.chargeable ? undefined : false,
+      })
+    );
     state.createJsonLineStream.mockImplementation(
       ({
         onDone,
@@ -136,6 +141,7 @@ describe('POST /api/chat connection recovery', () => {
                 message: ANSWER,
                 completionStatus: 'complete',
                 modelName: 'test-model',
+                chargeable: state.chargeable ? undefined : false,
               }
             );
             controller.enqueue(
@@ -235,6 +241,30 @@ describe('POST /api/chat connection recovery', () => {
     await response.text();
 
     expect(response.status).toBe(200);
+    expect(state.profileCount).toBe(3);
+    expect(state.quotaRequestIds.size).toBe(0);
+  });
+
+  it('does not charge a local quality fallback', async () => {
+    state.chargeable = false;
+
+    const response = await POST(createRequest(true));
+    const responseText = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(responseText).toContain('"remaining":1497');
+    expect(state.profileCount).toBe(3);
+    expect(state.quotaRequestIds.size).toBe(0);
+  });
+
+  it('does not charge a local quality fallback without streaming', async () => {
+    state.chargeable = false;
+
+    const response = await POST(createRequest(false));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.remaining).toBe(1497);
     expect(state.profileCount).toBe(3);
     expect(state.quotaRequestIds.size).toBe(0);
   });

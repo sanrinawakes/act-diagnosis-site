@@ -594,6 +594,7 @@ describe('ensureVerifiedCoachingResolution', () => {
     expect(result.text).toContain('公開できません');
     expect(result.text).not.toMatch(/過去の別の話題|サポートからご連絡/);
     expect(result.finalIssues).not.toContain('internal_context_exposure');
+    expect(result.chargeable).toBe(false);
   });
 
   it('未解決の品質違反が残る候補を最終ローカル品質フォールバックへ切り替える', () => {
