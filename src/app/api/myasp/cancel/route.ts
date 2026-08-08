@@ -70,6 +70,18 @@ export async function POST(request: NextRequest) {
 
     const adminClient = createAdminClient();
 
+    // A cancellation can arrive before the member creates or links an ACTI
+    // account. Remove that pending entitlement first so it cannot later be
+    // claimed. Deleting a missing row is intentionally a successful no-op.
+    const { error: pendingDeleteError } = await adminClient
+      .from('pending_activations')
+      .delete()
+      .eq('email', email);
+    if (pendingDeleteError) {
+      console.error('Cancel webhook pending entitlement removal failed:', pendingDeleteError);
+      throw pendingDeleteError;
+    }
+
     // Find user by email
     const { data: profile, error: findError } = await adminClient
       .from('profiles')
@@ -86,29 +98,34 @@ export async function POST(request: NextRequest) {
         .single();
 
       if (!profileByMyasp) {
-        console.log('Cancel webhook: no matching user found');
+        console.log('Cancel webhook: pending entitlement removed; no linked account found');
         return NextResponse.json({
-          success: false,
-          message: 'User not found',
+          success: true,
+          action: 'pending_entitlement_revoked',
+          message: 'Pending entitlement revoked',
         });
       }
 
       // Deactivate the user found by myasp_customer_email
-      await deactivateUser(adminClient, profileByMyasp);
+      const deactivated = await deactivateUser(adminClient, profileByMyasp);
       return NextResponse.json({
         success: true,
-        action: 'deactivated',
-        message: 'User subscription deactivated',
+        action: deactivated ? 'deactivated' : 'already_deactivated',
+        message: deactivated
+          ? 'User subscription deactivated'
+          : 'User subscription was already deactivated',
       });
     }
 
     // Deactivate user
-    await deactivateUser(adminClient, profile);
+    const deactivated = await deactivateUser(adminClient, profile);
 
     return NextResponse.json({
       success: true,
-      action: 'deactivated',
-      message: 'User subscription deactivated',
+      action: deactivated ? 'deactivated' : 'already_deactivated',
+      message: deactivated
+        ? 'User subscription deactivated'
+        : 'User subscription was already deactivated',
     });
   } catch (error) {
     console.error('MyASP cancel webhook error:', error);
@@ -121,9 +138,18 @@ export async function POST(request: NextRequest) {
 
 async function deactivateUser(
   adminClient: any,
-  profile: { id: string; email: string; display_name: string | null }
+  profile: {
+    id: string;
+    email: string;
+    display_name: string | null;
+    subscription_status: string;
+    is_active: boolean;
+  }
 ) {
-  const { error: updateError } = await adminClient
+  // A provider may retry the same cancellation webhook. Make the state change
+  // conditional so only the request that actually deactivated the account
+  // sends the customer notification.
+  const { data: deactivatedProfile, error: updateError } = await adminClient
     .from('profiles')
     .update({
       subscription_status: 'cancelled',
@@ -131,17 +157,26 @@ async function deactivateUser(
       cancelled_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     })
-    .eq('id', profile.id);
+    .eq('id', profile.id)
+    .or('subscription_status.neq.cancelled,is_active.eq.true')
+    .select('id, email, display_name')
+    .maybeSingle();
 
   if (updateError) {
     console.error('Failed to deactivate user:', updateError);
     throw updateError;
   }
 
+  if (!deactivatedProfile) {
+    console.log('Subscription was already deactivated');
+    return false;
+  }
+
   // Send deactivation notification email
   const emailResult = await sendDeactivationEmail({
-    to: profile.email,
-    displayName: profile.display_name || profile.email.split('@')[0],
+    to: deactivatedProfile.email,
+    displayName:
+      deactivatedProfile.display_name || deactivatedProfile.email.split('@')[0],
   });
 
   if (!emailResult.success) {
@@ -149,4 +184,5 @@ async function deactivateUser(
   }
 
   console.log('Subscription deactivated');
+  return true;
 }
