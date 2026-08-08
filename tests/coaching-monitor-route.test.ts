@@ -226,7 +226,9 @@ describe('GET /api/monitor/coaching maintenance isolation', () => {
       chat_count_month: 0,
       chat_month_start: expect.stringMatching(/^\d{4}-\d{2}-01$/),
     });
-    const seededRows = mocks.seedChatMessages.mock.calls.at(-1)?.[0];
+    const seededRows = mocks.seedChatMessages.mock.calls.at(-1)?.[0] as
+      | Array<{ role?: string }>
+      | undefined;
     expect(Array.isArray(seededRows)).toBe(true);
     expect(seededRows).toHaveLength(80);
     expect(seededRows?.some((row) => row.role === 'assistant')).toBe(true);

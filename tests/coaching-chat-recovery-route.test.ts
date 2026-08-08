@@ -129,6 +129,7 @@ describe('POST /api/chat connection recovery', () => {
             message: string;
             completionStatus: 'complete';
             modelName: string;
+            chargeable?: boolean;
           }
         ) => Promise<Record<string, unknown>>;
       }) => {
