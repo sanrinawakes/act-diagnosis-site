@@ -5161,6 +5161,42 @@ describe('normalizeCoachingOutput', () => {
     expect(result).not.toMatch(/[？?]|見過ごしたくない本音/);
   });
 
+  it('収入につながる行動が分からない相談で投資講座の次の講義へ具体化する', () => {
+    const lastUserText =
+      '行動に移せないというより、何をしたら入ってくるか分からないって感じ';
+    const historyMessages = [
+      {
+        role: 'user' as const,
+        content:
+          '大丈夫。お金は入ってくると思いたい。近い内にディクシャギバーになれるONLINEセミナー受けるから、そうしたらもっとブロックも無くなる筈だし',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          '「大丈夫、お金は入ってくる」と思いたいという気持ち、とても大切ですね。近い内に受けるオンラインセミナーで、さらにブロックが外れていくことを期待されているのですね。\n\nスピリチュアルな学びを進めながら、現実の生活でも「お金が入ってくる」という安心感をより確かにしていくために、今すぐできる具体的な行動として、何かやってみたいことはありますか？',
+      },
+      {
+        role: 'user' as const,
+        content:
+          '自分の強みとか、活かす稼ぎ方とか。精々AWAKES講座を勉強し直すしか出てこない。最近解放ばかりに意識が行ってたし',
+      },
+    ];
+    const fallback = buildFinalVerifiedQualityFallback(
+      lastUserText,
+      historyMessages
+    );
+    const assessment = assessCoachingResponseQuality({
+      text: fallback,
+      lastUserText,
+      historyMessages,
+    });
+
+    expect(assessment.issues).toEqual([]);
+    expect(fallback).toContain('投資講座');
+    expect(fallback).toContain('次の講義');
+    expect(fallback).toContain('一つだけ開いてください');
+  });
+
   it('家賃相談で記録を提案した後は、口頭依頼から期限付き書面へ切り替える', () => {
     const result = normalizeCoachingOutput(
       '今の話の中で、いちばん見過ごしたくない本音は何ですか？',

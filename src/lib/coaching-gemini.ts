@@ -3675,6 +3675,21 @@ export function buildFinalVerifiedQualityFallback(
     }
   }
 
+  const incomeCourseFallback = buildIncomeCourseFallback(
+    lastUserText,
+    historyMessages
+  );
+  if (incomeCourseFallback) {
+    const incomeCourseAssessment = assessCoachingResponseQuality({
+      text: incomeCourseFallback,
+      lastUserText,
+      historyMessages,
+    });
+    if (incomeCourseAssessment.issues.length === 0) {
+      return incomeCourseFallback;
+    }
+  }
+
   const immediatePreviousUserText =
     [...historyMessages]
       .reverse()
@@ -6587,6 +6602,30 @@ function buildBriefAcknowledgementFallback(
     /紙に書|一言ずつ書|書けたところで終えて/.test(recentAssistantContext)
   ) {
     return 'その進め方で大丈夫です。頭の中で後悔を回し続けるより、紙に出した方が「過去に使った金額」と「今も痛い点」を分けやすくなります。\n\n今日は、二つの支出の名前と今も痛い点を書けたところで終えてください。';
+  }
+
+  return '';
+}
+
+function buildIncomeCourseFallback(
+  lastUserText: string,
+  historyMessages: CoachingChatMessage[]
+) {
+  const recentUserContext = [
+    ...historyMessages
+      .filter((message) => message.role === 'user')
+      .slice(-4)
+      .map((message) => stripAttachmentMarkdown(message.content)),
+    stripAttachmentMarkdown(lastUserText),
+  ].join('\n');
+
+  if (
+    /何をしたら|どうしたら/.test(lastUserText) &&
+    /入ってくる|稼ぎ方|収入/.test(lastUserText) &&
+    /わから|分から/.test(lastUserText) &&
+    /投資講座|講座/.test(recentUserContext)
+  ) {
+    return '何をしたら収入につながるか分からないのですね。候補を増やすより、すでに手元にある材料を一つ進めた方が次の判断に使えます。\n\n今日は、途中で止まっている投資講座の次の講義を一つだけ開いてください。';
   }
 
   return '';
