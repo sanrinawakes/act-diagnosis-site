@@ -3556,6 +3556,101 @@ describe('normalizeCoachingOutput', () => {
     expect(result).toContain('PMA');
   });
 
+  it('診断タイプの変化理由と特徴を聞き直された時に仕事一般の fallback へ逸れない', () => {
+    const lastUserText =
+      'これまでは、MMA3やＳMM3になることが多かったのですが、私の中でどんな変化があったのでしょうか？またこのタイプの特徴的な行動と、気をつけるべき点を教えてください。';
+    const historyMessages = [
+      {
+        role: 'user' as const,
+        content:
+          'MGA3との診断結果が出ましたが、このタイプは初めてです。タイプの特色を教えてください。',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          'MGA3という診断結果について、その特徴をお伝えしますね。このタイプは、現実的な視点を持って物事を一歩ずつ着実に進める力と、周囲の状況を冷静に観察して調和を図るバランス感覚を兼ね備えているのが大きな特徴です。',
+      },
+      {
+        role: 'user' as const,
+        content:
+          'これまでのタイプから変わったのは、どのような変化があったからでしょうか？',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          'これまでのタイプからMGA3へと変化した背景には、自分の置かれた環境や、物事への向き合い方に具体的な変化があったと考えられます。',
+      },
+      {
+        role: 'user' as const,
+        content:
+          '始めたばかりのパートを辞めて新しく仕事を探している状況です。',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          '始めたばかりのパートを辞めて、新しく仕事を探しているという状況なのですね。',
+      },
+      {
+        role: 'user' as const,
+        content:
+          '探すた条件がより明確になったようです。自分が何を1番重視しているかが明確になった気がする。',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          '自分が一番重視している条件が明確になったのですね。新しい仕事を探す中で、妥協できない軸が見つかったことは、次のステップへ進むためのとても大きな収穫だと思います。',
+      },
+      {
+        role: 'user' as const,
+        content:
+          'このタイプが周囲へ与える影響にはどんなものがありますか？',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          'MGA3のタイプが周囲に与える影響は、一言でいうと「地に足のついた安心感」です。',
+      },
+      {
+        role: 'user' as const,
+        content:
+          '努力して無理な状況に合わせるのではなく、自分の生活スタイルが大きく変わらない働き方を選ぶようになった。',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          '自分の生活スタイルを崩さず、無理に合わせない働き方を選ぶことは、自分を守るためにとても大切な決断ですね。',
+      },
+      {
+        role: 'user' as const,
+        content:
+          'シフトの時間が自分の生活パターンに合っているものを探しています。',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          'シフトの時間が自分の生活パターンに合っているかどうかを最優先にするのは、持続可能な働き方を実現するためのとても現実的で確実な基準ですね。',
+      },
+    ];
+
+    const result = buildFinalVerifiedQualityFallback(
+      lastUserText,
+      historyMessages
+    );
+
+    expect(result).toContain('MGA3');
+    expect(result).toContain('MMA3');
+    expect(result).toContain('SMM3');
+    expect(result).not.toContain('まだ書かれていない原因を推測せず');
+    expect(result).not.toContain('仕事全体について結論を急がず');
+    expect(
+      assessCoachingResponseQuality({
+        text: result,
+        lastUserText,
+        historyMessages,
+      }).issues
+    ).toEqual([]);
+  });
+
   it('最後の質問を一つ指定された場合は生成済み質問を全て置き換える', () => {
     const result = normalizeCoachingOutput(
       [
