@@ -13,6 +13,19 @@ describe('member import authorization', () => {
     expect(source).toContain("process.env.MEMBER_IMPORT_SECRET || ''");
     expect(source).not.toContain('MYASP_WEBHOOK_SECRET');
     expect(source).toContain('const MAX_IMPORT_EMAILS = 500');
-    expect(source).toContain('new Set(emails)');
+    expect(source).toContain('const importedEmails = new Set<string>()');
+  });
+
+  it('records pending entitlements without activating an existing account by email match', () => {
+    expect(source).toContain(".from('pending_activations')");
+    expect(source).not.toContain(".from('profiles')");
+    expect(source).not.toContain("subscription_status: 'active'");
+    expect(source).not.toContain('activated_existing');
+  });
+
+  it('does not reset a consumed entitlement when the same email is imported again', () => {
+    expect(source).not.toContain('activated: false');
+    expect(source).not.toContain('activated_at: null');
+    expect(source).not.toContain('created_at: new Date()');
   });
 });
