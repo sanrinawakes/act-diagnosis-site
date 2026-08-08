@@ -700,6 +700,16 @@ describe('ensureVerifiedCoachingResolution', () => {
       historyMessages,
       preserveUsage: true,
     });
+    const fallbackText = buildFinalVerifiedQualityFallback(
+      lastUserText,
+      historyMessages
+    );
+    const fallbackAssessment = assessCoachingResponseQuality({
+      text: fallbackText,
+      lastUserText,
+      historyMessages,
+    });
+    expect(fallbackAssessment.issues).toEqual([]);
 
     expect(result.qualitySafetyHold).toBe(false);
     expect(result.finalIssues).toEqual([]);
@@ -762,6 +772,82 @@ describe('ensureVerifiedCoachingResolution', () => {
     expect(fallbackAssessment.issues).toEqual([]);
     expect(result.text).toMatch(/「.+」/);
     expect(result.text).toContain('冬至');
+  });
+
+  it('応募の一歩が出ない相談でも安全停止せず応募着手の行動へ補正する', () => {
+    const historyMessages = [
+      {
+        role: 'user' as const,
+        content: '人間関係の負担を減らしたいです。',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          'まずは相手の愚痴を聞く時間を区切る方法から試してみましょう。',
+      },
+      {
+        role: 'user' as const,
+        content: '次はキャリアについて考えたいです。',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          '働き方や進む方向を整理するために、今いちばん大事にしたい条件を一つずつ見ていきましょう。',
+      },
+      {
+        role: 'user' as const,
+        content:
+          '今は創作を続けながら、生活費のためにアルバイトも考えています。',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          '創作の時間を守りながら生活を支える働き方を探しているのですね。',
+      },
+      {
+        role: 'user' as const,
+        content: '求人は探していて、良さそうな募集も見つかっています。',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          '候補が見つかっているなら、応募しやすい順番に並べるだけでも次の動きが見えやすくなります。',
+      },
+    ];
+    const lastUserText =
+      'もう候補はあるのに、応募の一歩だけがなかなか踏み出せません。';
+    const result = ensureVerifiedCoachingResolution({
+      resolution: {
+        text: '応募に向けて気持ちを整えることが大切です。',
+        usage: { prompt_tokens: 18, completion_tokens: 8, total_tokens: 26 },
+        modelName: 'gemini-3.5-flash',
+        provider: 'gemini',
+        repairAttempted: true,
+        repairAccepted: true,
+        initialIssues: ['vague_action_target'],
+        finalIssues: ['vague_action_target'],
+      },
+      lastUserText,
+      historyMessages,
+      preserveUsage: true,
+    });
+    const fallbackText = buildFinalVerifiedQualityFallback(
+      lastUserText,
+      historyMessages
+    );
+    const fallbackAssessment = assessCoachingResponseQuality({
+      text: fallbackText,
+      lastUserText,
+      historyMessages,
+    });
+    expect(fallbackAssessment.issues).toEqual([]);
+
+    expect(result.qualitySafetyHold).toBe(false);
+    expect(result.finalIssues).toEqual([]);
+    expect(result.text).not.toBe(COACHING_QUALITY_SAFETY_HOLD);
+    expect(result.text).toContain('応募');
+    expect(result.text).toContain('一件');
+    expect(result.text).toContain('最初の項目');
   });
 
   it('最終候補が合格済みならそのまま返す', () => {
