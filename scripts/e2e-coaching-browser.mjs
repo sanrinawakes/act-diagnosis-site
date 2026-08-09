@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { deflateSync } from 'node:zlib';
 import { chromium } from 'playwright';
 import { createClient } from '@supabase/supabase-js';
+import { deleteTestAuthUser } from './lib/test-account-cleanup.mjs';
 
 const args = new Map(
   process.argv.slice(2).map((arg) => {
@@ -1189,9 +1190,10 @@ async function cleanup() {
     }
   }
 
-  const { error } = await admin.auth.admin.deleteUser(userId);
-  if (error) {
-    console.error(`Failed to delete browser test user: ${error.message}`);
+  try {
+    await deleteTestAuthUser({ admin, userId, label: 'Browser test' });
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;
     return;
   }

@@ -10,6 +10,10 @@ const freeValidationSource = readFileSync(
   resolve(process.cwd(), 'src/lib/free-chat-validation.ts'),
   'utf8'
 );
+const cleanupSource = readFileSync(
+  resolve(process.cwd(), 'scripts/lib/test-account-cleanup.mjs'),
+  'utf8'
+);
 
 describe('production coaching smoke authentication', () => {
   it('creates and signs in a dedicated authenticated test user', () => {
@@ -20,8 +24,9 @@ describe('production coaching smoke authentication', () => {
 
   it('removes auth, profile, free-user, and quota test data', () => {
     expect(smokeSource).toContain(".from('free_users')");
-    expect(smokeSource).toContain('auth.admin.deleteUser');
-    expect(smokeSource).toContain('auth.admin.getUserById');
+    expect(smokeSource).toContain('deleteTestAuthUser');
+    expect(cleanupSource).toContain('auth.admin.deleteUser');
+    expect(cleanupSource).toContain('auth.admin.getUserById');
     expect(smokeSource).toContain(".from('profiles')");
     expect(smokeSource).toContain(".from('free_coaching_daily_usage')");
     expect(smokeSource).toContain('profileCount !== 0');

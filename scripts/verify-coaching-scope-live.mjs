@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
+import { deleteTestAuthUser } from './lib/test-account-cleanup.mjs';
 
 const args = new Map(
   process.argv.slice(2).map((argument) => {
@@ -389,8 +390,11 @@ async function cleanup() {
       profileDeleted = true;
     }
     if (!authDeleted) {
-      const { error: authError } = await admin.auth.admin.deleteUser(id);
-      if (authError) throw new Error(`auth cleanup failed: ${authError.message}`);
+      await deleteTestAuthUser({
+        admin,
+        userId: id,
+        label: 'Scope live test',
+      });
       authDeleted = true;
     }
   }

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { deflateSync } from 'node:zlib';
 import { createClient } from '@supabase/supabase-js';
+import { deleteTestAuthUser } from './lib/test-account-cleanup.mjs';
 
 const args = new Map(
   process.argv.slice(2).map((arg) => {
@@ -261,9 +262,10 @@ async function cleanup() {
     }
   }
 
-  const { error } = await admin.auth.admin.deleteUser(userId);
-  if (error) {
-    console.error(`Image latency cleanup failed: ${error.message}`);
+  try {
+    await deleteTestAuthUser({ admin, userId, label: 'Image latency test' });
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;
     return;
   }
