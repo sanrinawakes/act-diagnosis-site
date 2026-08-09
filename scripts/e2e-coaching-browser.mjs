@@ -633,24 +633,49 @@ async function testIncompleteStreamRecovery(page) {
     .locator('textarea')
     .fill(`${marker}。接続が切れても相談文を残してください。`);
   await page.locator('button', { hasText: /^送信$/ }).click();
-  const result = await waitForCompletedTurn(marker, 30000);
+  const streamFailureGuidance =
+    'AIの応答が途中で切れました。入力内容は保存されています。もう一度お試しください。';
+  await page.getByText(streamFailureGuidance, { exact: true }).waitFor({
+    state: 'visible',
+    timeout: 30000,
+  });
+  await waitForChatIdle(page);
+
+  const { data: userRows, error: userError } = await admin
+    .from('chat_messages')
+    .select('created_at')
+    .eq('session_id', sessionId)
+    .eq('role', 'user')
+    .ilike('content', `%${marker}%`);
+  if (userError) throw userError;
+  const { data: assistantRows, error: assistantError } = await admin
+    .from('chat_messages')
+    .select('content')
+    .eq('session_id', sessionId)
+    .eq('role', 'assistant')
+    .gt('created_at', userRows?.[0]?.created_at || new Date().toISOString());
+  if (assistantError) throw assistantError;
+  const pageTextBeforeReload = await page.locator('body').innerText();
+
   addCheck(
-    '途中切断: 相談文と再試行案内を履歴へ保存',
-    result.userRows === 1 &&
-      result.assistantContent.includes('AIの応答が途中で切れました。') &&
-      result.assistantContent.includes('入力内容は保存されています。') &&
-      !result.assistantContent.includes('途中までの回答です。'),
-    JSON.stringify(result)
+    '途中切断: 相談文を保存し、未検証のAI回答は保存しない',
+    userRows?.length === 1 && assistantRows?.length === 0,
+    JSON.stringify({ userRows: userRows?.length, assistantRows: assistantRows?.length })
+  );
+  addCheck(
+    '途中切断: 画面に保存済みと再試行を案内',
+    pageTextBeforeReload.includes(streamFailureGuidance) &&
+      !pageTextBeforeReload.includes('途中までの回答です。'),
+    pageTextBeforeReload.slice(-500)
   );
 
   await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 });
   await waitForChatReady(page);
   const pageText = await page.locator('body').innerText();
   addCheck(
-    '途中切断: 再読み込み後も相談文と案内を表示',
+    '途中切断: 再読み込み後も相談文を表示し、偽のAI回答を復元しない',
     pageText.includes(marker) &&
-      pageText.includes('AIの応答が途中で切れました。') &&
-      pageText.includes('入力内容は保存されています。') &&
+      !pageText.includes(streamFailureGuidance) &&
       !pageText.includes('途中までの回答です。'),
     pageText.slice(-500)
   );
@@ -658,6 +683,19 @@ async function testIncompleteStreamRecovery(page) {
 
 async function testImageAttachment(page) {
   const before = await countMessages(sessionId);
+  const attachmentResponses = [];
+  const recordAttachmentResponse = (response) => {
+    if (response.request().resourceType() !== 'image') return;
+    const responseUrl = new URL(response.url());
+    attachmentResponses.push({
+      status: response.status(),
+      route:
+        responseUrl.origin === new URL(baseUrl).origin
+          ? responseUrl.pathname
+          : 'external-storage',
+    });
+  };
+  page.on('response', recordAttachmentResponse);
   const png = createPaddedWhitePng(4 * 1024 * 1024);
   await page.locator('input[type="file"]').setInputFiles({
     name: 'acti-e2e-white.png',
@@ -684,6 +722,19 @@ async function testImageAttachment(page) {
     .eq('role', 'user')
     .ilike('content', `%${marker}%`);
   if (error) throw error;
+  const renderedAttachment = page.locator('img[alt*="acti-e2e-white"]').last();
+  await renderedAttachment.waitFor({ state: 'attached', timeout: 10000 });
+  await page.waitForFunction(
+    (element) => element instanceof HTMLImageElement && element.complete,
+    await renderedAttachment.elementHandle(),
+    { timeout: 10000 }
+  );
+  const renderedImage = await renderedAttachment.evaluate((element) => ({
+    complete: element.complete,
+    naturalWidth: element.naturalWidth,
+    naturalHeight: element.naturalHeight,
+  }));
+  page.off('response', recordAttachmentResponse);
   addCheck(
     '画像: アップロード・AI回答・履歴保存まで完了',
     result.userRows === 1 &&
@@ -697,6 +748,13 @@ async function testImageAttachment(page) {
       ...result,
       savedUserContent: savedUserRows?.[0]?.content || '',
     })
+  );
+  addCheck(
+    '画像: 保存済みサムネイルをブラウザで描画',
+    renderedImage.complete &&
+      renderedImage.naturalWidth > 0 &&
+      renderedImage.naturalHeight > 0,
+    JSON.stringify({ renderedImage, attachmentResponses })
   );
 }
 
