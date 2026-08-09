@@ -6872,6 +6872,19 @@ function buildBriefAcknowledgementFallback(
     .slice(-3)
     .map((message) => stripAttachmentMarkdown(message.content))
     .join('\n');
+  const previousUserText =
+    [...historyMessages]
+      .reverse()
+      .find((message) => message.role === 'user')?.content || '';
+
+  if (
+    /実際に起きたこと/.test(recentAssistantContext) &&
+    /相手の心理|あなたの感情/.test(recentAssistantContext)
+  ) {
+    if (previousUserText) {
+      return 'では、その整理を続けます。ここで先に扱うのは、相手の気持ちの推測ではなく、あなたが実際に嫌だった出来事です。相手の意図はまだ決めず、記事を追記した直後に毎回反応が来るという、目で見えた流れだけを土台にします。まずはその出来事を基準に考えます。';
+    }
+  }
 
   if (
     /お金|後悔|占い|講座|もったいなかった/.test(recentUserContext) &&

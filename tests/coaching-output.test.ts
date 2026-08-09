@@ -209,6 +209,37 @@ describe('final verified quality fallback', () => {
     ).toEqual([]);
   });
 
+  it('整理への短い了承では事実整理の一歩を具体的に返す', () => {
+    const lastUserText = 'はい';
+    const historyMessages = [
+      {
+        role: 'user' as const,
+        content:
+          '記事を追記すると、ある人が毎回反応してきて、その反応を見るのが嫌です。',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          'このモヤモヤを整理すると、相手がなぜ反応するかという「相手の心理」と、あなたがその反応を見て嫌になるという「あなたの感情」を分けて考えられます。相手の本心は決めつけず、実際に起きたことから整理します。',
+      },
+    ];
+    const result = buildFinalVerifiedQualityFallback(
+      lastUserText,
+      historyMessages
+    );
+
+    expect(result).toBe(
+      'では、その整理を続けます。ここで先に扱うのは、相手の気持ちの推測ではなく、あなたが実際に嫌だった出来事です。相手の意図はまだ決めず、記事を追記した直後に毎回反応が来るという、目で見えた流れだけを土台にします。まずはその出来事を基準に考えます。'
+    );
+    expect(
+      assessCoachingResponseQuality({
+        text: result,
+        lastUserText,
+        historyMessages,
+      }).issues
+    ).toEqual([]);
+  });
+
   it('お金の後悔相談でも別話題へ逸れず具体策で閉じる', () => {
     const lastUserText =
       'お金のことで後悔が二つあります。占いにはまり１６５万円使ってしまったこと。そして昨年申し込んで続かなかったセールス口座１００万円。本当にもったいなかった。これが残っていれば、今頃あれもできたかもしれない。これも買えたかもしれないとまたぐるぐるよぎってしまいます。そろそろ区切りをつけたい。どうしたら気持ちの整理がつくでしょうか？';
