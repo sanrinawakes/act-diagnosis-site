@@ -740,6 +740,100 @@ describe('ensureVerifiedCoachingResolution', () => {
     expect(result.text).toContain('元カノ');
   });
 
+  it('追求できるという補足を関係の具体確認へつなぎ、曖昧な次の一歩へ戻さない', () => {
+    const historyMessages = [
+      {
+        role: 'user' as const,
+        content:
+          '俺と結婚しようと言われたのに、ほかの人に告白をすると盛り上がっているひとなので、ことの次第にきづいていないのです。',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          '「俺と結婚しよう」とあなたに言いながら、同時に他の人への告白で盛り上がっている彼の様子を見ると、その矛盾に驚き、あきれてしまうのも無理はありません。彼は自分の行動があなたをどれほど混乱させているか、本当に気づいていないようですね。',
+      },
+      {
+        role: 'user' as const,
+        content:
+          'わたしがそういうと彼はドン引きすると思います。\n告白前に大好きといってきたら、\nわたしも大好きだよといってみます。',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          '「ドン引きされるかもしれない」と彼の反応を気遣いながらも、彼の「大好き」に対して「私も大好きだよ」と素直に返してみようと思われたのですね。とても勇気のいる、温かい一歩だと思います。\n\nあなたのその言葉を聞いた時、彼が自分の矛盾した行動にハッと気づくきっかけになるかもしれません。\n\nもし彼が告白してくる前に「大好きだよ」と伝えたら、彼はどんな表情や反応をしそうだと思いますか。',
+      },
+      {
+        role: 'user' as const,
+        content:
+          'にたにたしていると思います。もしかしたら、更に追求をして、まじで？って聞いてきて、じゃあ結婚しようといいそうです。',
+      },
+    ];
+    const lastUserText =
+      '彼は意味深な行動をよくとるので、追求することはできると思います。';
+    const result = ensureVerifiedCoachingResolution({
+      resolution: {
+        text: 'まだ書かれていない原因を推測せず、実際に起きたことと、次に困る場面を分けると、具体的な対応を選びやすくなります。',
+        usage: { prompt_tokens: 15, completion_tokens: 9, total_tokens: 24 },
+        modelName: 'gemini-3.5-flash',
+        provider: 'gemini',
+        repairAttempted: true,
+        repairAccepted: true,
+        initialIssues: ['vague_action_target', 'multiple_coaching_moves'],
+        finalIssues: ['vague_action_target'],
+      },
+      lastUserText,
+      historyMessages,
+      preserveUsage: true,
+    });
+
+    expect(result.finalIssues).toEqual([]);
+    expect(result.text).toContain('結婚しようと言ってくれた気持ち');
+    expect(result.text).toContain('今も本気なのか');
+    expect(result.text).not.toContain('まだ書かれていない原因');
+  });
+
+  it('相談ではない訂正を最新発話のオウム返しにせず、直前の反応整理へ戻す', () => {
+    const historyMessages = [
+      {
+        role: 'user' as const,
+        content:
+          'わたしがそういうと彼はドン引きすると思います。\n告白前に大好きといってきたら、\nわたしも大好きだよといってみます。',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          '「ドン引きされるかもしれない」と彼の反応を気遣いながらも、彼の「大好き」に対して「私も大好きだよ」と素直に返してみようと思われたのですね。とても勇気のいる、温かい一歩だと思います。\n\nあなたのその言葉を聞いた時、彼が自分の矛盾した行動にハッと気づくきっかけになるかもしれません。\n\nもし彼が告白してくる前に「大好きだよ」と伝えたら、彼はどんな表情や反応をしそうだと思いますか。',
+      },
+      {
+        role: 'user' as const,
+        content:
+          'にたにたしていると思います。もしかしたら、更に追求をして、まじで？って聞いてきて、じゃあ結婚しようといいそうです。',
+      },
+    ];
+    const lastUserText =
+      '相談ではありません。にたにたしていると思うと答えただけです。';
+    const result = ensureVerifiedCoachingResolution({
+      resolution: {
+        text: '「相談ではありません。にたにたしていると思うと答えただけです」という相談ですね。',
+        usage: { prompt_tokens: 14, completion_tokens: 7, total_tokens: 21 },
+        modelName: 'gemini-3.5-flash',
+        provider: 'gemini',
+        repairAttempted: true,
+        repairAccepted: true,
+        initialIssues: ['too_short', 'latest_user_echo'],
+        finalIssues: ['too_short', 'latest_user_echo'],
+      },
+      lastUserText,
+      historyMessages,
+      preserveUsage: true,
+    });
+
+    expect(result.finalIssues).toEqual([]);
+    expect(result.text).toContain('彼の反応について答えてくれた内容');
+    expect(result.text).toContain('私も大好きだよ');
+    expect(result.text).not.toContain('という相談ですね');
+  });
+
   it('最終日が終わった短い更新を古い恋愛文脈へ引き戻さない', () => {
     const historyMessages = [
       {

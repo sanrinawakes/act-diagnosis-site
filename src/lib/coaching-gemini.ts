@@ -3501,6 +3501,29 @@ function buildSafeQualityFallback(
     lastUserText,
   ].join('\n');
   const substantiveFallback = buildSubstantiveShortFallback(lastUserText);
+  const clarificationCorrectionFallback =
+    buildClarificationCorrectionFallback(
+      lastUserText,
+      historyMessages
+    );
+  const relationshipClarificationFallback =
+    buildRelationshipClarificationFallback(
+      lastUserText,
+      historyMessages
+    );
+
+  if (clarificationCorrectionFallback) {
+    return clarificationCorrectionFallback;
+  }
+
+  if (
+    relationshipClarificationFallback &&
+    (issues.includes('vague_action_target') ||
+      issues.includes('too_short') ||
+      issues.includes('latest_user_echo'))
+  ) {
+    return relationshipClarificationFallback;
+  }
 
   if (issues.includes('dissatisfaction_unanswered')) {
     const dissatisfactionFallback = buildContextualDissatisfactionFallback(
@@ -3638,6 +3661,38 @@ export function buildFinalVerifiedQualityFallback(
   lastUserText: string,
   historyMessages: CoachingChatMessage[]
 ): string {
+  const clarificationCorrectionFallback =
+    buildClarificationCorrectionFallback(
+      lastUserText,
+      historyMessages
+    );
+  if (clarificationCorrectionFallback) {
+    const clarificationAssessment = assessCoachingResponseQuality({
+      text: clarificationCorrectionFallback,
+      lastUserText,
+      historyMessages,
+    });
+    if (clarificationAssessment.issues.length === 0) {
+      return clarificationCorrectionFallback;
+    }
+  }
+
+  const relationshipClarificationFallback =
+    buildRelationshipClarificationFallback(
+      lastUserText,
+      historyMessages
+    );
+  if (relationshipClarificationFallback) {
+    const relationshipAssessment = assessCoachingResponseQuality({
+      text: relationshipClarificationFallback,
+      lastUserText,
+      historyMessages,
+    });
+    if (relationshipAssessment.issues.length === 0) {
+      return relationshipClarificationFallback;
+    }
+  }
+
   const restAcknowledgementFallback =
     buildRestAcknowledgementFallback(lastUserText, historyMessages);
   if (restAcknowledgementFallback) {
@@ -3923,6 +3978,13 @@ function buildSilentAnswerFallback(
 }
 
 function buildSubstantiveShortFallback(lastUserText: string) {
+  if (
+    /追求|確認|確かめ/.test(lastUserText) &&
+    /でき(?:る|そう)|思います/.test(lastUserText)
+  ) {
+    return '相手に確かめること自体はできそうなのですね。今は相手の気持ちを推測し続けるより、何を先に聞くかを一つに絞る段階です。\n\n次に話す時、最初に確認したい言葉や行動を一つだけ教えてください。';
+  }
+
   if (
     /お金/.test(lastUserText) &&
     /後悔|もったいなかった|使ってしまった/.test(lastUserText)
@@ -4212,6 +4274,73 @@ function buildContextualDissatisfactionFallback(
   }
 
   return `${opening}\n\n前の返答では、今回出ていない人物や出来事を混ぜてしまいました。ここからは、直前までに本人が話した事実、本人が述べた不安、すでに決めている行動だけを分け、古い別件を持ち込まずに考え直します。`;
+}
+
+function reportsClarificationCorrection(text: string) {
+  const normalized = text.replace(/\s+/g, ' ').trim();
+  return /相談ではあり(?:ませ|ま)ん|相談じゃな(?:い|くて)|答え(?:た|ただけ)|聞かれた(?:だけ|から)|そういう意味じゃない|返事しただけ/.test(
+    normalized
+  );
+}
+
+function buildRelationshipClarificationFallback(
+  lastUserText: string,
+  historyMessages: CoachingChatMessage[]
+) {
+  const userContext = [
+    ...historyMessages
+      .filter((message) => message.role === 'user')
+      .map((message) => stripAttachmentMarkdown(message.content)),
+    lastUserText,
+  ].join('\n');
+  if (
+    !/彼|夫|妻|相手|大好き|告白|結婚/.test(userContext) ||
+    !/追求|確認|確かめ/.test(lastUserText) ||
+    !/でき(?:る|そう)|思います/.test(lastUserText)
+  ) {
+    return '';
+  }
+
+  return '彼に確かめること自体はできそうなのですね。今は気持ちを推測し続けるより、先に確認する言葉を一つに絞る段階です。\n\n次に彼へ聞くなら、「結婚しようと言ってくれた気持ちは今も本気なのか」と一文だけ確かめてください。';
+}
+
+function buildClarificationCorrectionFallback(
+  lastUserText: string,
+  historyMessages: CoachingChatMessage[]
+) {
+  if (!reportsClarificationCorrection(lastUserText)) {
+    return '';
+  }
+
+  const previousUserText =
+    [...historyMessages]
+      .reverse()
+      .find((message) => message.role === 'user')?.content || '';
+  if (!previousUserText) {
+    return '';
+  }
+
+  const previousExcerpt = stripAttachmentMarkdown(previousUserText)
+    .replace(/\s+/g, ' ')
+    .replace(/[「」『』]/g, '')
+    .replace(/[。！？!?]+$/g, '')
+    .trim();
+  const clippedPreviousExcerpt =
+    previousExcerpt.length > 36
+      ? `${previousExcerpt.slice(0, 36)}…`
+      : previousExcerpt;
+  const userContext = [
+    ...historyMessages
+      .filter((message) => message.role === 'user')
+      .map((message) => stripAttachmentMarkdown(message.content)),
+    lastUserText,
+  ].join('\n');
+
+  if (/彼|夫|妻|相手|大好き|告白|結婚/.test(userContext)) {
+    return `わかりました。さっきの内容は新しい相談ではなく、彼の反応について答えてくれた内容だったのですね。\n\n彼がその反応を見せそうだと感じているなら、次は気持ちを推測し直すより、「私も大好きだよ」と返すのか、別の言葉にするのかを一つに決める段階です。彼へ返したい言葉を一つだけ教えてください。`;
+  }
+
+  return `わかりました。「${clippedPreviousExcerpt}」は新しい相談ではなく、直前の問いへの答えだったのですね。\n\nその答えを踏まえて次に整理したい点がどこか、一つだけ教えてください。`;
 }
 
 function buildHouseholdRepeatedRequestFallback(
