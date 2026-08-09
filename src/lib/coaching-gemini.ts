@@ -5038,6 +5038,13 @@ function isGroundedDirectWording(
   if (
     /会議|提案/.test(userContext) &&
     /最後まで|却下|準備(?:に使った)?時間|準備時間/.test(userContext) &&
+    !/説明が途中で終わった/.test(answer)
+  ) {
+    return false;
+  }
+  if (
+    /会議|提案/.test(userContext) &&
+    /最後まで|却下|準備(?:に使った)?時間|準備時間/.test(userContext) &&
     /提案[^。！？?\n]{0,36}(?:説明|内容)[^。！？?\n]{0,48}最後まで[^。！？?\n]{0,48}(?:意見|判断)/.test(
       answer
     )
