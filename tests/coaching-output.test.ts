@@ -740,6 +740,68 @@ describe('ensureVerifiedCoachingResolution', () => {
     expect(result.text).toContain('元カノ');
   });
 
+  it('最終日が終わった短い更新を古い恋愛文脈へ引き戻さない', () => {
+    const historyMessages = [
+      {
+        role: 'user' as const,
+        content:
+          '最初は、強い呼吸を繰り返す場面で、そこで会場のみんなが一体となって本気で取り組んでるのを感じて、みんな一緒なんだなって思ったら涙が出てきた',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          '会場の全員が一体となって本気で取り組む中で、「みんな一緒なんだ」と深く感じられたのですね。\n\n一人で頑張っているのではなく、同じ場にいる仲間たちと深くつながっているという感覚が、心に強く響いて涙となって溢れたのだと思います。\n\nその一体感を感じた時、自分の身体や心には、どのような温かさや変化が広がっていきましたか。',
+      },
+      {
+        role: 'user' as const,
+        content: '寝ようとしたんだけど、元カノとの事いろいろ思い出して寝れない',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          '寝ようとしたタイミングで、元カノとのことが色々と頭に浮かんできて眠れなくなってしまったのですね。\n\n今、元カノとのどのような場面や、その時の自分の気持ちが一番強く頭に浮かんでいますか。',
+      },
+      {
+        role: 'user' as const,
+        content:
+          '今日のプロセスの中でパートナーと繋がる場面があって、そこで元カノとつながった感じがして、相手がどう思ってたのかとか何となくわかった気がして。',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          '今日のプロセスの中でパートナーとつながる場面があり、そこで元カノとつながった感じがして、相手が当時どう思っていたのかが何となく分かった気がしたのですね。\n\n相手がどう思っていたのかが何となく分かった時、あなたの心にはどのような感情が湧き上がってきましたか。',
+      },
+      {
+        role: 'user' as const,
+        content:
+          'あとなんか伝えにくいんだけど、ひとつ隣の席にすごく元カノと似た人がいて、最初は本人かと思ったぐらいなんだけど、その人がもしかしたら元カノの母親なんじゃないかって思って',
+      },
+    ];
+    const lastUserText = '最終日終わった';
+
+    const result = ensureVerifiedCoachingResolution({
+      resolution: {
+        text: '最後に困った場面で、相手が実際にしたことを一つだけ教えてください。',
+        usage: { prompt_tokens: 14, completion_tokens: 8, total_tokens: 22 },
+        modelName: 'gemini-3.5-flash',
+        provider: 'gemini',
+        repairAttempted: true,
+        repairAccepted: true,
+        initialIssues: ['context_mismatch', 'too_short'],
+        finalIssues: ['context_mismatch', 'too_short'],
+      },
+      lastUserText,
+      historyMessages,
+      preserveUsage: true,
+    });
+
+    expect(result.finalIssues).toEqual([]);
+    expect(result.text).toContain('プロセスを終えた');
+    expect(result.text).toContain('どこにその感覚がいちばん強く残っているかを一つだけ教えてください');
+    expect(result.text).not.toContain('相手が実際にしたこと');
+    expect(result.text).not.toContain('元カノ');
+  });
+
   it('目標達成に向けた文章相談でも安全停止せず文面候補を返す', () => {
     const historyMessages = [
       {
