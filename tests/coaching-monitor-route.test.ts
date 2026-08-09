@@ -300,14 +300,40 @@ describe('GET /api/monitor/coaching maintenance isolation', () => {
     });
   });
 
-  it('rejects the support automation secret for the monitor endpoint', async () => {
+  it('accepts the support automation secret for the monitor endpoint', async () => {
     vi.stubEnv('SUPPORT_AUTOMATION_SECRET', 'support-automation-test-secret');
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(
+          [
+            JSON.stringify({ type: 'chunk', text: ANSWER }),
+            JSON.stringify({
+              type: 'done',
+              message: ANSWER,
+              provider: 'gemini',
+              completionStatus: 'complete',
+              finalizationStatus: 'complete',
+              remaining: 49,
+            }),
+            '',
+          ].join('\n'),
+          {
+            status: 200,
+            headers: {
+              'Content-Type': 'application/x-ndjson; charset=utf-8',
+            },
+          }
+        )
+      )
+    );
 
     const response = await GET(
       createMonitorRequest('support-automation-test-secret')
     );
 
-    expect(response.status).toBe(401);
+    expect(response.status).toBe(200);
   });
 
   it('suppresses the same accepted failure alert for one deployment during the cooldown', async () => {
