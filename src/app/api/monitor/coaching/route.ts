@@ -666,6 +666,7 @@ async function runPaidCoachingMonitor(params: {
       headers: {
         'Content-Type': 'application/json',
         Accept: 'application/x-ndjson',
+        Authorization: `Bearer ${accessToken}`,
         Cookie: cookieHeader,
       },
       body: JSON.stringify(body),

@@ -238,6 +238,15 @@ describe('GET /api/monitor/coaching maintenance isolation', () => {
     expect(insertedRow?.content).toBe(
       '定期監視です。今も前の相談内容を踏まえているか、短く自然に教えてください。'
     );
+    expect(fetch).toHaveBeenCalledWith(
+      'https://act-diagnosis-site.vercel.app/api/chat',
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: 'Bearer monitor-access-token',
+          Cookie: 'sb-monitor-auth=authenticated-cookie',
+        }),
+      })
+    );
   });
 
   it('suppresses a transient maintenance timeout after the retry succeeds', async () => {
