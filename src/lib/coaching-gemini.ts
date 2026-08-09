@@ -3677,6 +3677,21 @@ export function buildFinalVerifiedQualityFallback(
     }
   }
 
+  const processCompletionFallback = buildProcessCompletionFallback(
+    lastUserText,
+    historyMessages
+  );
+  if (processCompletionFallback) {
+    const processCompletionAssessment = assessCoachingResponseQuality({
+      text: processCompletionFallback,
+      lastUserText,
+      historyMessages,
+    });
+    if (processCompletionAssessment.issues.length === 0) {
+      return processCompletionFallback;
+    }
+  }
+
   const diagnosisExplanationFallback = buildDiagnosisExplanationFallback(
     lastUserText,
     historyMessages
@@ -3851,6 +3866,42 @@ export function buildFinalVerifiedQualityFallback(
     historyMessages,
     { recoverInternalContext: false }
   );
+}
+
+function buildProcessCompletionFallback(
+  lastUserText: string,
+  historyMessages: CoachingChatMessage[]
+) {
+  const normalized = stripAttachmentMarkdown(lastUserText)
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (
+    normalized.length > 24 ||
+    !/^(?:最終日(?:が)?終わ(?:っ|り)た|最終日(?:が)?終わりました|終わ(?:っ|り)た|終わりました)$/.test(
+      normalized
+    )
+  ) {
+    return '';
+  }
+
+  const recentUserContext = historyMessages
+    .filter((message) => message.role === 'user')
+    .slice(-8)
+    .map((message) => stripAttachmentMarkdown(message.content))
+    .join('\n');
+  if (
+    !/プロセス|ワーク|会場|つながり|ワンネス|涙|最終日|解放/.test(
+      recentUserContext
+    )
+  ) {
+    return '';
+  }
+
+  const completionLabel =
+    /最終日|3日間/.test(`${recentUserContext}\n${normalized}`)
+      ? '3日間のプロセスを終えたのですね。'
+      : '今日のプロセスを終えたのですね。';
+  return `${completionLabel}\n\n会場で涙が出た体験や、途中で心が大きく動いた流れを経た直後だからこそ、今は出来事の意味を急いで決めるより、終わった直後の身体や気持ちに残っている反応をそのまま確かめる段階です。\n\n胸、お腹、喉のどこにその感覚がいちばん強く残っているかを一つだけ教えてください。`;
 }
 
 function buildSilentAnswerFallback(
