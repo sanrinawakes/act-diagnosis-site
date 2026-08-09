@@ -3052,6 +3052,18 @@ describe('normalizeCoachingOutput', () => {
     expect(result).not.toMatch(/開始時刻|予定表/);
   });
 
+  it('参照先のない「その一つのこと」を具体的な単一行動へ戻す', () => {
+    const result = normalizeCoachingOutput(
+      '明日の朝、あれこれ同時に手をつけず、その一つのことだけに最初の30分間を集中して使ってください。',
+      '同時接続テスト1です。明日の朝に始める行動を一つだけ、質問なしで答えてください。'
+    );
+
+    expect(result).toBe(
+      '明日の朝、終わらせたい用事を一つだけ紙に書いてください。'
+    );
+    expect(result).not.toContain('その一つのこと');
+  });
+
   it('断る一言を延期の打診で済ませず、今回は引き受けないと伝える', () => {
     const result = normalizeCoachingOutput(
       '「お声がけいただき嬉しいのですが、あいにく本日中は手一杯のため、明日以降の着手でもよろしいでしょうか」',

@@ -4757,6 +4757,9 @@ function selectSingleAnswerBlock(
   if (directWordingRequested) {
     return buildNoQuestionFallback(lastUserText, historyMessages);
   }
+  if (hasGenericSingleActionPlaceholder(text, lastUserText)) {
+    return buildNoQuestionFallback(lastUserText, historyMessages);
+  }
   if (
     /明日/.test(lastUserText) &&
     /(?:何をすれば|できること|行動|一つだけ|ひとつだけ|1つだけ)/.test(
@@ -5446,7 +5449,7 @@ function hasGenericSingleActionPlaceholder(
       normalized
     );
   const usesPlaceholderAsActionTarget =
-    /(?:これ|それ|この(?:一歩|行動|方法|提案)|ファーストステップ|最初のステップ|これだけ)[^。！？\n]{0,40}(?:実行|やって|始め|進め|試し)/.test(
+    /(?:これ|それ|この(?:一歩|行動|方法|提案)|その(?:一|1|ひと)つの(?:こと|もの)|ファーストステップ|最初のステップ|これだけ)[^。！？\n]{0,40}(?:実行|やって|始め|進め|試し|集中|時間を使)/.test(
       normalized
     );
 
