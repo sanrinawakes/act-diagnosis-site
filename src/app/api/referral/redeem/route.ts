@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
+import { hasAllowedRequestOrigin } from '@/lib/request-origin';
 
 const VALID_CODES: Record<string, number> = {
   'DSA7H1': 1,
@@ -9,6 +10,9 @@ const VALID_CODES: Record<string, number> = {
 
 export async function POST(request: NextRequest) {
   try {
+    if (!hasAllowedRequestOrigin(request)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
     const body = await request.json();
     const code = (body.code || '').trim().toUpperCase();
 
@@ -48,40 +52,35 @@ export async function POST(request: NextRequest) {
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
 
-    const { data: profile, error: profileError } = await supabaseAdmin
-      .from('profiles')
-      .select('referral_code_used, paid_test_credits')
-      .eq('id', user.id)
-      .single();
-
-    if (profileError) {
+    const credits = VALID_CODES[code];
+    const { data, error: redeemError } = await supabaseAdmin.rpc(
+      'redeem_referral_code',
+      {
+        p_user_id: user.id,
+        p_referral_code: code,
+        p_credits: credits,
+      }
+    );
+    if (redeemError) {
+      console.error('Referral code redemption failed:', redeemError);
       return NextResponse.json(
-        { error: 'プロフィールの取得に失敗しました' },
-        { status: 500 }
+        { error: '紹介コードの適用に失敗しました' },
+        { status: 503 }
       );
     }
 
-    if (profile.referral_code_used) {
+    const result = Array.isArray(data) ? data[0] : data;
+    if (result?.status === 'already_used') {
       return NextResponse.json(
         { error: '紹介コードは既に使用済みです' },
         { status: 400 }
       );
     }
-
-    // Apply referral code
-    const credits = VALID_CODES[code];
-    const { error: updateError } = await supabaseAdmin
-      .from('profiles')
-      .update({
-        referral_code_used: code,
-        paid_test_credits: (profile.paid_test_credits || 0) + credits,
-      })
-      .eq('id', user.id);
-
-    if (updateError) {
+    if (result?.status !== 'applied') {
+      console.error('Referral code redemption returned an unexpected result');
       return NextResponse.json(
         { error: '紹介コードの適用に失敗しました' },
-        { status: 500 }
+        { status: 503 }
       );
     }
 

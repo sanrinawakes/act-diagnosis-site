@@ -1,7 +1,7 @@
 export const ATTACHMENT_BUCKET = 'acti-attachments';
 export const MAX_IMAGE_ATTACHMENTS = 3;
 export const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
-export const SIGNED_URL_EXPIRES_IN = 60 * 60 * 24 * 365 * 5;
+export const SIGNED_URL_EXPIRES_IN = 60 * 15;
 
 export const ALLOWED_IMAGE_TYPES = [
   'image/jpeg',
@@ -78,13 +78,17 @@ export function formatAttachmentMarkdown(attachments: StoredAttachment[]) {
   ].join('\n');
 }
 
+export function buildAttachmentViewUrl(path: string) {
+  return `/api/attachments?path=${encodeURIComponent(path)}`;
+}
+
 export function appendAttachmentMarkdown(content: string, attachments: StoredAttachment[]) {
   return `${content.trim()}${formatAttachmentMarkdown(attachments)}`.trim();
 }
 
 export function parseAttachmentMarkdown(content: string) {
   const attachments: Array<{ label: string; url: string }> = [];
-  const imagePattern = /!\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/g;
+  const imagePattern = /!\[([^\]]*)\]\(((?:\/api\/attachments\?path=|https?:\/\/)[^\s)]+)\)/g;
   let match: RegExpExecArray | null;
 
   while ((match = imagePattern.exec(content)) !== null) {

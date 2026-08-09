@@ -344,7 +344,12 @@ async function runCandidate(
 }
 
 async function runViaPreview(candidate: Candidate, scenario: Scenario) {
-  const vercelCli = `${process.cwd()}/node_modules/.bin/vercel`;
+  const vercelCli = process.env.VERCEL_CLI_PATH?.trim();
+  if (!vercelCli) {
+    throw new Error(
+      'VERCEL_CLI_PATH is required for preview provider benchmarks'
+    );
+  }
   const payload = JSON.stringify({
     provider: candidate.provider,
     model: candidate.model,

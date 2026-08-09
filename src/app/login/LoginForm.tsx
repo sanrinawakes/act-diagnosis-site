@@ -117,11 +117,11 @@ export default function LoginForm() {
       });
 
       if (authError) {
-        if (authError.message.includes('Invalid login credentials')) {
-          setError(t('login.error.invalid'));
-        } else {
-          setError(authError.message);
-        }
+        setError(
+          authError.message.includes('Invalid login credentials')
+            ? t('login.error.invalid')
+            : t('login.error.failed')
+        );
         return;
       }
 
@@ -158,7 +158,7 @@ export default function LoginForm() {
         },
       });
       if (otpError) {
-        setError(otpError.message);
+        setError('ログインリンクを送信できませんでした。時間をおいて、もう一度お試しください。');
         return;
       }
       setMagicSent(true);
@@ -194,7 +194,7 @@ export default function LoginForm() {
       });
 
       if (oauthError) {
-        setError(oauthError.message);
+        setError('ソーシャルログインを開始できませんでした。時間をおいて、もう一度お試しください。');
         setSocialLoading(null);
       }
       // リダイレクトされるのでsocialLoadingのリセットは不要
@@ -263,7 +263,7 @@ export default function LoginForm() {
           </div>
 
           {/* Form - action/method provide native HTML fallback if React JS fails */}
-          <form action="/api/auth/login" method="POST" onSubmit={handleLogin} className="space-y-5">
+          <form onSubmit={handleLogin} className="space-y-5">
             <input type="hidden" name="redirect" value={normalizeAuthRedirect(searchParams.get('redirect'))} />
             {/* Email Field */}
             <div>

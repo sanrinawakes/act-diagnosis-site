@@ -15,49 +15,9 @@ ALTER TABLE public.pending_activations ADD CONSTRAINT pending_activations_email_
 -- RLS有効化
 ALTER TABLE public.pending_activations ENABLE ROW LEVEL SECURITY;
 
--- サービスロールのみフルアクセス
-CREATE POLICY "Service role full access on pending_activations"
-  ON public.pending_activations
-  FOR ALL
-  USING (true)
-  WITH CHECK (true);
+-- API routes use the service role, which bypasses RLS. Do not create a policy
+-- here: a policy without TO service_role applies to anonymous callers too.
+REVOKE ALL ON TABLE public.pending_activations FROM anon, authenticated;
 
--- profilesテーブルにINSERT時、pending_activationsをチェックして自動active化する関数
-CREATE OR REPLACE FUNCTION public.check_pending_activation()
-RETURNS TRIGGER AS $$
-DECLARE
-  pending_record RECORD;
-BEGIN
-  -- pending_activationsテーブルで未使用のメールを検索
-  SELECT id INTO pending_record
-  FROM public.pending_activations
-  WHERE lower(email) = lower(NEW.email)
-    AND activated = false
-  LIMIT 1;
-
-  -- マッチしたら自動的にsubscription_statusをactiveにする
-  IF FOUND THEN
-    NEW.subscription_status := 'active';
-    NEW.is_active := true;
-    NEW.subscribed_at := now();
-    NEW.updated_at := now();
-
-    -- pending_activationsを使用済みに更新
-    UPDATE public.pending_activations
-    SET activated = true, activated_at = now()
-    WHERE id = pending_record.id;
-
-    RAISE LOG 'Auto-activated subscription for email: %', NEW.email;
-  END IF;
-
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
--- profilesへのINSERT時にトリガーを発火
--- BEFORE INSERTを使うことで、INSERT前にNEWの値を変更できる
-DROP TRIGGER IF EXISTS trigger_check_pending_activation ON public.profiles;
-CREATE TRIGGER trigger_check_pending_activation
-  BEFORE INSERT ON public.profiles
-  FOR EACH ROW
-  EXECUTE FUNCTION public.check_pending_activation();
+-- Account activation is intentionally not automatic. The account holder must
+-- complete the one-time code flow in migration 019 before paid access is set.

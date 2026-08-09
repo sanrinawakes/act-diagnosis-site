@@ -129,24 +129,33 @@ export async function POST(request: NextRequest) {
     sessionId = await createChatSession(userClient, userId, parsed);
 
     if (parsed === 'long-history') {
-      await seedLongHistory(userClient, sessionId);
+      await seedLongHistory(admin, sessionId);
     }
 
     const fixture = SCENARIOS[parsed];
     const turns = [];
     for (const input of fixture.inputs) {
-      await insertMessage(userClient, sessionId, 'user', input.content);
+      const requestId = randomUUID();
+      const assistantMessageId = randomUUID();
+      await insertUserMessage(userClient, sessionId, requestId, input.content);
       const messages = await loadRecentMessages(userClient, sessionId);
       const result = await callPaidChat({
         request,
         cookieHeader: session.cookieHeader,
         sessionId,
+        requestId,
+        assistantMessageId,
         diagnosisCode: fixture.diagnosisCode,
         messages,
         attachments: input.attachments || [],
       });
       assertHealthyTurn(parsed, result);
-      await insertMessage(userClient, sessionId, 'assistant', result.message);
+      await assertServerAssistantMessage(
+        userClient,
+        sessionId,
+        assistantMessageId,
+        result.message
+      );
       turns.push(result);
     }
 
@@ -292,18 +301,43 @@ async function seedLongHistory(client: SupabaseClient, sessionId: string) {
   if (error) throw new Error(`long history seed failed: ${error.message}`);
 }
 
-async function insertMessage(
+async function insertUserMessage(
   client: SupabaseClient,
   sessionId: string,
-  role: 'user' | 'assistant',
+  messageId: string,
   content: string
 ) {
   const { error } = await client.from('chat_messages').insert({
+    id: messageId,
     session_id: sessionId,
-    role,
+    role: 'user',
     content,
   });
   if (error) throw new Error(`message save failed: ${error.message}`);
+}
+
+async function assertServerAssistantMessage(
+  client: SupabaseClient,
+  sessionId: string,
+  assistantMessageId: string,
+  content: string
+) {
+  const { data, error } = await client
+    .from('chat_messages')
+    .select('id, role, content')
+    .eq('id', assistantMessageId)
+    .eq('session_id', sessionId)
+    .maybeSingle();
+  if (
+    error ||
+    !data ||
+    data.role !== 'assistant' ||
+    data.content !== content
+  ) {
+    throw new Error(
+      `server assistant persistence failed: ${error?.message || 'missing'}`
+    );
+  }
 }
 
 async function loadRecentMessages(client: SupabaseClient, sessionId: string) {
@@ -329,6 +363,8 @@ async function callPaidChat(params: {
   request: NextRequest;
   cookieHeader: string;
   sessionId: string;
+  requestId: string;
+  assistantMessageId: string;
   diagnosisCode: string;
   messages: ChatMessage[];
   attachments: ChatImageAttachment[];
@@ -353,6 +389,8 @@ async function callPaidChat(params: {
     },
     body: JSON.stringify({
       sessionId: params.sessionId,
+      requestId: params.requestId,
+      assistantMessageId: params.assistantMessageId,
       diagnosisCode: params.diagnosisCode,
       messages: params.messages,
       attachments: params.attachments,

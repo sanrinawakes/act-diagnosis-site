@@ -72,15 +72,13 @@ export default function ProfilePage() {
 
       if (!user) throw new Error('認証エラー');
 
-      const { error: updateError } = await supabase
-        .from('profiles')
-        .update({
-          display_name: displayName.trim() || null,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', user.id);
-
-      if (updateError) throw updateError;
+      const response = await fetch('/api/profile', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ display_name: displayName }),
+      });
+      if (!response.ok) throw new Error('PROFILE_SAVE_FAILED');
 
       setSuccessMessage(t('profile.saved'));
       setTimeout(() => setSuccessMessage(null), 3000);

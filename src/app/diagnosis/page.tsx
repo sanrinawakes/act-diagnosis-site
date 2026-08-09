@@ -261,7 +261,7 @@ function DiagnosisContent() {
       router.push(`/results/${data.id}`);
     } catch (error) {
       console.error('Error saving diagnosis:', error);
-      setSubmitError(error instanceof Error ? error.message : 'An error occurred while saving.');
+      setSubmitError('診断結果を保存できませんでした。時間をおいて、もう一度お試しください。');
       setLoading(false);
     }
   };

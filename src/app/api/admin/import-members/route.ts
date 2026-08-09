@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { hasValidWebhookSecret } from '@/lib/webhook-auth';
 
 export const runtime = 'nodejs';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-const MYASP_WEBHOOK_SECRET = process.env.MYASP_WEBHOOK_SECRET || '';
+const MEMBER_IMPORT_SECRET = process.env.MEMBER_IMPORT_SECRET || '';
+const MAX_IMPORT_EMAILS = 500;
 
 function createAdminClient() {
   return createClient(supabaseUrl, serviceRoleKey, {
@@ -18,20 +20,24 @@ function createAdminClient() {
  *
  * POST /api/admin/import-members
  * Body (JSON):
- *   - secret: admin secret (uses MYASP_WEBHOOK_SECRET)
+ *   - secret: dedicated member-import secret
  *   - emails: string[] - list of email addresses to import
  *
- * This allows bulk importing existing MyASP members so they get auto-activated
- * when they create an account on the ACT diagnosis site.
- *
- * Also checks if any of these emails already have profiles, and activates them.
+ * This allows bulk importing existing MyASP members as pending entitlements.
+ * Importing an email never activates an ACTI account. The person who controls
+ * that email must complete the separate one-time verification-code flow.
  */
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
 
-    // Verify admin secret
-    if (!MYASP_WEBHOOK_SECRET || body.secret !== MYASP_WEBHOOK_SECRET) {
+    if (!MEMBER_IMPORT_SECRET) {
+      console.error('Member import is not configured');
+      return NextResponse.json({ error: 'Service unavailable' }, { status: 503 });
+    }
+
+    // Do not reuse the public payment webhook secret for an administrative bulk action.
+    if (!hasValidWebhookSecret(MEMBER_IMPORT_SECRET, body.secret)) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -42,21 +48,32 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+    if (emails.length > MAX_IMPORT_EMAILS || emails.some((email) => typeof email !== 'string')) {
+      return NextResponse.json(
+        { error: `emails must contain at most ${MAX_IMPORT_EMAILS} email addresses` },
+        { status: 400 }
+      );
+    }
 
     const adminClient = createAdminClient();
     const results = {
       imported: 0,
       skipped: 0,
-      activated_existing: 0,
-      errors: [] as string[],
+      errors: 0,
     };
 
+    const importedEmails = new Set<string>();
     for (const rawEmail of emails) {
       const email = rawEmail.trim().toLowerCase();
       if (!email || !email.includes('@')) {
         results.skipped++;
         continue;
       }
+      if (importedEmails.has(email)) {
+        results.skipped++;
+        continue;
+      }
+      importedEmails.add(email);
 
       try {
         // Upsert into pending_activations
@@ -66,8 +83,6 @@ export async function POST(request: NextRequest) {
             {
               email,
               source: 'myasp_import',
-              activated: false,
-              created_at: new Date().toISOString(),
             },
             { onConflict: 'email' }
           );
@@ -75,59 +90,32 @@ export async function POST(request: NextRequest) {
         if (upsertError) {
           // If unique constraint violation, it's already there - that's OK
           if (!upsertError.message.includes('duplicate')) {
-            results.errors.push(`${email}: ${upsertError.message}`);
+            console.error('Member import activation upsert failed', {
+              error: upsertError.message,
+            });
+            results.errors++;
             continue;
           }
         }
 
         results.imported++;
-
-        // Check if this email already has a profile, and activate if needed
-        const { data: existingProfile } = await adminClient
-          .from('profiles')
-          .select('id, email, subscription_status')
-          .eq('email', email)
-          .single();
-
-        if (existingProfile && existingProfile.subscription_status !== 'active') {
-          const { error: updateError } = await adminClient
-            .from('profiles')
-            .update({
-              subscription_status: 'active',
-              is_active: true,
-              myasp_customer_email: email,
-              subscribed_at: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
-            })
-            .eq('id', existingProfile.id);
-
-          if (!updateError) {
-            results.activated_existing++;
-
-            // Mark as activated in pending_activations
-            await adminClient
-              .from('pending_activations')
-              .update({ activated: true, activated_at: new Date().toISOString() })
-              .eq('email', email);
-          }
-        }
       } catch (err) {
-        results.errors.push(`${email}: ${err instanceof Error ? err.message : 'Unknown error'}`);
+        console.error('Member import item failed', {
+          error: err instanceof Error ? err.message : 'Unknown error',
+        });
+        results.errors++;
       }
     }
 
     return NextResponse.json({
       success: true,
       results,
-      message: `Imported ${results.imported} emails, activated ${results.activated_existing} existing profiles, skipped ${results.skipped}`,
+      message: `Imported ${results.imported} pending entitlements, skipped ${results.skipped}`,
     });
   } catch (error) {
     console.error('Import members error:', error);
     return NextResponse.json(
-      {
-        error: 'Internal server error',
-        details: error instanceof Error ? error.message : 'Unknown error',
-      },
+      { error: 'Internal server error' },
       { status: 500 }
     );
   }

@@ -4,12 +4,12 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { Resend, type AttachmentData } from 'resend';
 import {
   ATTACHMENT_BUCKET,
+  buildAttachmentViewUrl,
   fileExtensionFromMimeType,
   isAllowedImageType,
   MAX_IMAGE_ATTACHMENTS,
   MAX_IMAGE_BYTES,
   sanitizeFileName,
-  SIGNED_URL_EXPIRES_IN,
   type StoredAttachment,
 } from '@/lib/attachments';
 import { validateInboundImageBytes } from '@/lib/support-inbound';
@@ -163,19 +163,9 @@ async function storeInboundAttachment(params: {
     throw new Error(`Inbound attachment storage failed: ${uploadError.message}`);
   }
 
-  const { data: signedData, error: signedError } =
-    await params.adminClient.storage
-      .from(ATTACHMENT_BUCKET)
-      .createSignedUrl(path, SIGNED_URL_EXPIRES_IN);
-  if (signedError || !signedData?.signedUrl) {
-    throw new Error(
-      `Inbound attachment URL creation failed: ${signedError?.message || 'unknown error'}`
-    );
-  }
-
   return {
     name: safeName,
-    url: signedData.signedUrl,
+    url: buildAttachmentViewUrl(path),
     path,
     mimeType: detectedMimeType,
     size: bytes.byteLength,

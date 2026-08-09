@@ -171,12 +171,7 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error('Sessions GET error:', error);
     return NextResponse.json(
-      {
-        error:
-          error instanceof Error
-            ? error.message
-            : 'Internal server error',
-      },
+      { error: '会話履歴を読み込めませんでした。もう一度お試しください。' },
       { status: 500 }
     );
   }
@@ -278,12 +273,7 @@ export async function PATCH(request: NextRequest) {
   } catch (error) {
     console.error('Sessions PATCH error:', error);
     return NextResponse.json(
-      {
-        error:
-          error instanceof Error
-            ? error.message
-            : 'Internal server error',
-      },
+      { error: '会話履歴を更新できませんでした。もう一度お試しください。' },
       { status: 500 }
     );
   }
@@ -347,12 +337,7 @@ export async function DELETE(request: NextRequest) {
   } catch (error) {
     console.error('Sessions DELETE error:', error);
     return NextResponse.json(
-      {
-        error:
-          error instanceof Error
-            ? error.message
-            : 'Internal server error',
-      },
+      { error: '会話履歴を削除できませんでした。もう一度お試しください。' },
       { status: 500 }
     );
   }

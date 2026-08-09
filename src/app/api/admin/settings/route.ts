@@ -12,6 +12,7 @@ import {
   loadCoachingNoticeSettings,
   saveCoachingNoticeSettings,
 } from '@/lib/coaching-notice-storage';
+import { hasAllowedRequestOrigin } from '@/lib/request-origin';
 
 // Helper to create admin Supabase client with service role key
 function createAdminClient() {
@@ -130,6 +131,9 @@ export async function GET(request: NextRequest) {
 // PATCH: Update site settings
 export async function PATCH(request: NextRequest) {
   try {
+    if (!hasAllowedRequestOrigin(request)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
     // Verify admin role
     const userId = await verifyAdminRole(request);
     if (!userId) {

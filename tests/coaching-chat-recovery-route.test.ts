@@ -129,6 +129,7 @@ describe('POST /api/chat connection recovery', () => {
             message: string;
             completionStatus: 'complete';
             modelName: string;
+            chargeable?: boolean;
           }
         ) => Promise<Record<string, unknown>>;
       }) => {
@@ -273,7 +274,7 @@ describe('POST /api/chat connection recovery', () => {
 function createRequest(stream = true) {
   return new NextRequest('http://localhost/api/chat', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', origin: 'http://localhost' },
     body: JSON.stringify({
       sessionId: SESSION_ID,
       requestId: REQUEST_ID,

@@ -6,6 +6,7 @@ import {
   buildSupportEmailIdempotencyKey,
   deliverSupportReply,
 } from '@/lib/server/support-email';
+import { hasAllowedRequestOrigin } from '@/lib/request-origin';
 
 export const runtime = 'nodejs';
 
@@ -79,6 +80,9 @@ async function verifyAdminRole(): Promise<{ id: string; email: string } | null> 
 
 export async function POST(request: NextRequest) {
   try {
+    if (!hasAllowedRequestOrigin(request)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
     const adminUser = await verifyAdminRole();
     if (!adminUser) {
       return NextResponse.json({ error: '管理者権限が必要です' }, { status: 403 });
@@ -141,7 +145,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('POST /api/admin/support/reply error:', error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : '返信の送信に失敗しました' },
+      { error: '返信の送信に失敗しました。履歴を確認して、もう一度お試しください。' },
       { status: 500 }
     );
   }

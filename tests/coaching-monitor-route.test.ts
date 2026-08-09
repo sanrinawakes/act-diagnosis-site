@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   auditStoredQuality: vi.fn(),
   reloadRoleFilter: vi.fn(),
   insertChatMessages: vi.fn(),
+  seedChatMessages: vi.fn(),
   deleteMonthlyUsage: vi.fn(),
   updateMonthlyProfile: vi.fn(),
 }));
@@ -225,9 +226,16 @@ describe('GET /api/monitor/coaching maintenance isolation', () => {
       chat_count_month: 0,
       chat_month_start: expect.stringMatching(/^\d{4}-\d{2}-01$/),
     });
-    const insertedRows = mocks.insertChatMessages.mock.calls.at(-1)?.[0];
-    expect(Array.isArray(insertedRows)).toBe(true);
-    expect(insertedRows?.at(-1)?.content).toBe(
+    const seededRows = mocks.seedChatMessages.mock.calls.at(-1)?.[0] as
+      | Array<{ role?: string }>
+      | undefined;
+    expect(Array.isArray(seededRows)).toBe(true);
+    expect(seededRows).toHaveLength(80);
+    expect(seededRows?.some((row) => row.role === 'assistant')).toBe(true);
+    const insertedRow = mocks.insertChatMessages.mock.calls.at(-1)?.[0];
+    expect(Array.isArray(insertedRow)).toBe(false);
+    expect(insertedRow?.role).toBe('user');
+    expect(insertedRow?.content).toBe(
       '定期監視です。今も前の相談内容を踏まえているか、短く自然に教えてください。'
     );
   });
@@ -283,14 +291,14 @@ describe('GET /api/monitor/coaching maintenance isolation', () => {
     });
   });
 
-  it('accepts the support automation secret alongside the Vercel cron secret', async () => {
+  it('rejects the support automation secret for the monitor endpoint', async () => {
     vi.stubEnv('SUPPORT_AUTOMATION_SECRET', 'support-automation-test-secret');
 
     const response = await GET(
       createMonitorRequest('support-automation-test-secret')
     );
 
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(401);
   });
 
   it('suppresses the same accepted failure alert for one deployment during the cooldown', async () => {
@@ -427,6 +435,10 @@ function createAdminClient() {
       }
       if (table === 'chat_messages') {
         return {
+          insert: async (rows: unknown) => {
+            mocks.seedChatMessages(rows);
+            return { error: null };
+          },
           select() {
             return {
               eq() {

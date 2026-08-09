@@ -38,9 +38,10 @@ export async function GET(request: NextRequest) {
   );
 
   if (providerError) {
+    console.error('[AUTH/CALLBACK] Provider returned an error:', providerError);
     return redirectToLogin(
       origin,
-      `ログイン連携が完了しませんでした: ${providerError}`,
+      'ログイン連携を完了できませんでした。もう一度ログインしてください。',
       next
     );
   }
@@ -78,7 +79,8 @@ export async function GET(request: NextRequest) {
       'ログインリンクの確認に時間がかかりすぎました。'
     );
     if (error) {
-      return redirectToLogin(origin, 'ログインリンクの検証に失敗しました: ' + error.message, next);
+      console.error('[AUTH/CALLBACK] OTP verification failed:', error);
+      return redirectToLogin(origin, 'ログインリンクを確認できませんでした。もう一度ログインしてください。', next);
     }
     return response;
   }
@@ -90,7 +92,8 @@ export async function GET(request: NextRequest) {
       'ログイン連携の完了に時間がかかりすぎました。'
     );
     if (error) {
-      return redirectToLogin(origin, 'セッション取得に失敗しました: ' + error.message, next);
+      console.error('[AUTH/CALLBACK] Session exchange failed:', error);
+      return redirectToLogin(origin, 'ログイン連携を完了できませんでした。もう一度ログインしてください。', next);
     }
     return response;
   }

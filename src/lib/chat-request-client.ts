@@ -121,7 +121,7 @@ export function isRecoverableChatStreamError(error: unknown) {
 
 export function getUserFacingChatError(error: unknown) {
   if (!(error instanceof Error) || !error.message) {
-    return '送信に失敗しました。入力内容は保存されています。少し待ってから、もう一度送信してください。';
+    return 'メッセージを送信できませんでした。画面を再読み込みして、もう一度お試しください。';
   }
 
   if (
@@ -129,20 +129,20 @@ export function getUserFacingChatError(error: unknown) {
       error.message
     )
   ) {
-    return '通信が一時的に切れました。相談内容は保存されています。通信状態を確認して、もう一度送信してください。';
+    return '通信が一時的に切れました。通信状態を確認して、もう一度お試しください。';
   }
 
   if (/Unauthorized|ログインが必要/.test(error.message)) {
-    return 'ログイン状態を確認できませんでした。入力内容は保存されています。画面を再読み込みして、もう一度送信してください。';
+    return 'ログイン状態を確認できませんでした。画面を再読み込みして、もう一度お試しください。';
   }
 
   if (/Failed to get response|Internal server error/.test(error.message)) {
-    return 'サーバーから回答を受け取れませんでした。入力内容は保存されています。少し待ってから、もう一度送信してください。';
+    return 'サーバーから回答を受け取れませんでした。少し待ってから、もう一度お試しください。';
   }
 
   if (/Invalid diagnosis code/.test(error.message)) {
-    return '診断情報を確認できませんでした。入力内容は保存されています。画面を再読み込みして、もう一度送信してください。';
+    return '診断情報を確認できませんでした。画面を再読み込みして、もう一度お試しください。';
   }
 
-  return error.message;
+  return 'メッセージを送信できませんでした。画面を再読み込みして、もう一度お試しください。';
 }

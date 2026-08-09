@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { randomUUID } from 'node:crypto';
 import {
   appendAttachmentMarkdown,
   formatBytes,
@@ -29,6 +30,17 @@ const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
 // Resend's onboarding@resend.dev sender is testing-only and fails for external recipients.
 // Use the same verified sender domain as welcome/deactivation emails.
 const SUPPORT_FROM_EMAIL = process.env.FROM_EMAIL || 'noreply@silversense.cc';
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function createSupportAdminClient() {
+  return createClient(supabaseUrl, supabaseServiceRoleKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  });
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -46,6 +58,7 @@ export async function POST(request: NextRequest) {
       session_id,
       page_path,
       attachments: attachmentFiles,
+      submission_key,
     } = await parseSupportRequest(request);
 
     if (!name || !requestedEmail || !subject || !message) {
@@ -64,6 +77,9 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+    if (submission_key && !UUID_PATTERN.test(submission_key)) {
+      return NextResponse.json({ error: '送信情報が正しくありません' }, { status: 400 });
+    }
 
     try {
       validateImageFiles(attachmentFiles);
@@ -79,7 +95,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const supabase = createClient(supabaseUrl, supabaseServiceRoleKey);
+    const supabase = createSupportAdminClient();
     const authenticatedUser = await getAuthenticatedUser();
     if (!authenticatedUser?.id || !authenticatedUser.email) {
       return NextResponse.json(
@@ -89,6 +105,32 @@ export async function POST(request: NextRequest) {
     }
     const authenticatedUserId = authenticatedUser.id;
     const email = authenticatedUser.email;
+    if (requestedEmail.toLowerCase() !== email.toLowerCase()) {
+      return NextResponse.json(
+        { error: 'ログイン中のメールアドレスでお問い合わせください' },
+        { status: 403 }
+      );
+    }
+
+    const submissionKey = submission_key || randomUUID();
+    if (submission_key) {
+      const { data: existingTicket, error: existingTicketError } = await supabase
+        .from('support_tickets')
+        .select('id')
+        .eq('user_id', authenticatedUserId)
+        .eq('submission_key', submissionKey)
+        .maybeSingle();
+      if (existingTicketError) throw existingTicketError;
+      if (existingTicket) {
+        return NextResponse.json({
+          success: true,
+          ticket_id: existingTicket.id,
+          receipt_sent: false,
+          duplicate: true,
+        });
+      }
+    }
+
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
     const { count: recentTicketCount, error: countError } = await supabase
       .from('support_tickets')
@@ -118,11 +160,28 @@ export async function POST(request: NextRequest) {
         subject,
         message,
         status: 'open',
+        submission_key: submissionKey,
       })
       .select()
       .single();
 
     if (insertError) {
+      if (isUniqueViolation(insertError)) {
+        const { data: existingTicket, error: existingTicketError } = await supabase
+          .from('support_tickets')
+          .select('id')
+          .eq('user_id', authenticatedUserId)
+          .eq('submission_key', submissionKey)
+          .maybeSingle();
+        if (!existingTicketError && existingTicket) {
+          return NextResponse.json({
+            success: true,
+            ticket_id: existingTicket.id,
+            receipt_sent: false,
+            duplicate: true,
+          });
+        }
+      }
       console.error('Failed to save support ticket:', insertError);
       return NextResponse.json(
         { error: 'サポートチケットの保存に失敗しました' },
@@ -132,40 +191,49 @@ export async function POST(request: NextRequest) {
 
     let storedMessage = message;
     let uploadedAttachments: StoredAttachment[] = [];
+    let technicalContext: ReturnType<typeof normalizeSupportTechnicalContext>;
+    try {
+      if (attachmentFiles.length > 0) {
+        uploadedAttachments = await uploadImageAttachments({
+          files: attachmentFiles,
+          folder: `support/${ticket.id}`,
+          supabaseUrl,
+          serviceRoleKey: supabaseServiceRoleKey,
+        });
+        storedMessage = appendAttachmentMarkdown(message, uploadedAttachments);
+      }
 
-    if (attachmentFiles.length > 0) {
-      uploadedAttachments = await uploadImageAttachments({
-        files: attachmentFiles,
-        folder: `support/${ticket.id}`,
-        supabaseUrl,
-        serviceRoleKey: supabaseServiceRoleKey,
+      technicalContext = normalizeSupportTechnicalContext({
+        source,
+        sessionId: session_id,
+        pagePath: page_path,
+        userAgent: request.headers.get('user-agent'),
+        deploymentCommit: process.env.VERCEL_GIT_COMMIT_SHA,
+        reportedAt: new Date().toISOString(),
       });
-      storedMessage = appendAttachmentMarkdown(message, uploadedAttachments);
-    }
+      storedMessage = appendSupportTechnicalContext(
+        storedMessage,
+        technicalContext
+      );
 
-    const technicalContext = normalizeSupportTechnicalContext({
-      source,
-      sessionId: session_id,
-      pagePath: page_path,
-      userAgent: request.headers.get('user-agent'),
-      deploymentCommit: process.env.VERCEL_GIT_COMMIT_SHA,
-      reportedAt: new Date().toISOString(),
-    });
-    storedMessage = appendSupportTechnicalContext(
-      storedMessage,
-      technicalContext
-    );
+      const { error: updateError } = await supabase
+        .from('support_tickets')
+        .update({
+          message: storedMessage,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', ticket.id);
 
-    const { error: updateError } = await supabase
-      .from('support_tickets')
-      .update({
-        message: storedMessage,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', ticket.id);
-
-    if (updateError) {
-      console.error('Failed to update support ticket details:', updateError);
+      if (updateError) throw updateError;
+    } catch (ticketPreparationError) {
+      console.error('Failed to prepare support ticket:', ticketPreparationError);
+      await deleteIncompleteSupportTicket({
+        supabase,
+        ticketId: ticket.id,
+        attachmentPaths: uploadedAttachments.flatMap((attachment) =>
+          attachment.path ? [attachment.path] : []
+        ),
+      });
       return NextResponse.json(
         { error: 'お問い合わせ情報の保存に失敗しました' },
         { status: 500 }
@@ -190,7 +258,6 @@ export async function POST(request: NextRequest) {
                 (attachment, index) =>
                   `${index + 1}. ${attachment.name} (${formatBytes(attachment.size)})`,
               ),
-              ...uploadedAttachments.map((attachment) => attachment.url),
               '',
             ].join('\n')
           : '';
@@ -304,6 +371,7 @@ type ParsedSupportRequest = {
   session_id: string;
   page_path: string;
   attachments: File[];
+  submission_key: string;
 };
 
 async function parseSupportRequest(request: NextRequest): Promise<ParsedSupportRequest> {
@@ -321,6 +389,7 @@ async function parseSupportRequest(request: NextRequest): Promise<ParsedSupportR
       source: getFormString(formData, 'source').trim() || 'support',
       session_id: getFormString(formData, 'session_id').trim(),
       page_path: getFormString(formData, 'page_path').trim(),
+      submission_key: getFormString(formData, 'submission_key').trim(),
       attachments: formData
         .getAll('attachments')
         .filter((entry): entry is File => entry instanceof File && entry.size > 0),
@@ -338,8 +407,33 @@ async function parseSupportRequest(request: NextRequest): Promise<ParsedSupportR
     source: typeof body.source === 'string' ? body.source.trim() : 'support',
     session_id: typeof body.session_id === 'string' ? body.session_id.trim() : '',
     page_path: typeof body.page_path === 'string' ? body.page_path.trim() : '',
+    submission_key:
+      typeof body.submission_key === 'string' ? body.submission_key.trim() : '',
     attachments: [],
   };
+}
+
+function isUniqueViolation(error: { code?: unknown }) {
+  return error.code === '23505';
+}
+
+async function deleteIncompleteSupportTicket(params: {
+  supabase: ReturnType<typeof createSupportAdminClient>;
+  ticketId: string;
+  attachmentPaths: string[];
+}) {
+  if (params.attachmentPaths.length > 0) {
+    const { error } = await params.supabase.storage
+      .from('acti-attachments')
+      .remove(params.attachmentPaths);
+    if (error) console.error('Failed to remove incomplete support attachments:', error);
+  }
+
+  const { error } = await params.supabase
+    .from('support_tickets')
+    .delete()
+    .eq('id', params.ticketId);
+  if (error) console.error('Failed to remove incomplete support ticket:', error);
 }
 
 function getFormString(formData: FormData, key: string) {

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { sendDeactivationEmail } from '@/lib/email';
+import { hasValidWebhookSecret } from '@/lib/webhook-auth';
 
 export const runtime = 'nodejs';
 
@@ -50,14 +51,11 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    console.log('MyASP cancel webhook received:', {
-      email: body.mail,
-      reason: body.reason,
-    });
-
-    // Verify webhook secret if configured
-    if (MYASP_WEBHOOK_SECRET && body.secret !== MYASP_WEBHOOK_SECRET) {
-      console.error('MyASP webhook secret mismatch');
+    // Access changes must never accept a webhook when its secret is missing.
+    if (!hasValidWebhookSecret(MYASP_WEBHOOK_SECRET, body.secret)) {
+      console.error('MyASP cancellation webhook authentication rejected', {
+        configured: Boolean(MYASP_WEBHOOK_SECRET),
+      });
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -71,6 +69,18 @@ export async function POST(request: NextRequest) {
     }
 
     const adminClient = createAdminClient();
+
+    // A cancellation can arrive before the member creates or links an ACTI
+    // account. Remove that pending entitlement first so it cannot later be
+    // claimed. Deleting a missing row is intentionally a successful no-op.
+    const { error: pendingDeleteError } = await adminClient
+      .from('pending_activations')
+      .delete()
+      .eq('email', email);
+    if (pendingDeleteError) {
+      console.error('Cancel webhook pending entitlement removal failed:', pendingDeleteError);
+      throw pendingDeleteError;
+    }
 
     // Find user by email
     const { data: profile, error: findError } = await adminClient
@@ -88,50 +98,56 @@ export async function POST(request: NextRequest) {
         .single();
 
       if (!profileByMyasp) {
-        console.log(`Cancel webhook: no user found with email ${email}`);
+        console.log('Cancel webhook: pending entitlement removed; no linked account found');
         return NextResponse.json({
-          success: false,
-          message: 'User not found',
-          email,
+          success: true,
+          action: 'pending_entitlement_revoked',
+          message: 'Pending entitlement revoked',
         });
       }
 
       // Deactivate the user found by myasp_customer_email
-      await deactivateUser(adminClient, profileByMyasp);
+      const deactivated = await deactivateUser(adminClient, profileByMyasp);
       return NextResponse.json({
         success: true,
-        action: 'deactivated',
-        email,
-        message: 'User subscription deactivated',
+        action: deactivated ? 'deactivated' : 'already_deactivated',
+        message: deactivated
+          ? 'User subscription deactivated'
+          : 'User subscription was already deactivated',
       });
     }
 
     // Deactivate user
-    await deactivateUser(adminClient, profile);
+    const deactivated = await deactivateUser(adminClient, profile);
 
     return NextResponse.json({
       success: true,
-      action: 'deactivated',
-      email,
-      message: 'User subscription deactivated',
+      action: deactivated ? 'deactivated' : 'already_deactivated',
+      message: deactivated
+        ? 'User subscription deactivated'
+        : 'User subscription was already deactivated',
     });
   } catch (error) {
     console.error('MyASP cancel webhook error:', error);
     return NextResponse.json(
-      {
-        error: 'Internal server error',
-        details: error instanceof Error ? error.message : 'Unknown error',
-      },
+      { error: 'Internal server error' },
       { status: 500 }
     );
   }
 }
 
 async function deactivateUser(
-  adminClient: any,
-  profile: { id: string; email: string; display_name: string | null }
+  adminClient: SupabaseClient,
+  profile: {
+    id: string;
+    email: string;
+    display_name: string | null;
+  }
 ) {
-  const { error: updateError } = await adminClient
+  // A provider may retry the same cancellation webhook. Make the state change
+  // conditional so only the request that actually deactivated the account
+  // sends the customer notification.
+  const { data: deactivatedProfile, error: updateError } = await adminClient
     .from('profiles')
     .update({
       subscription_status: 'cancelled',
@@ -139,22 +155,32 @@ async function deactivateUser(
       cancelled_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     })
-    .eq('id', profile.id);
+    .eq('id', profile.id)
+    .or('subscription_status.neq.cancelled,is_active.eq.true')
+    .select('id, email, display_name')
+    .maybeSingle();
 
   if (updateError) {
     console.error('Failed to deactivate user:', updateError);
     throw updateError;
   }
 
+  if (!deactivatedProfile) {
+    console.log('Subscription was already deactivated');
+    return false;
+  }
+
   // Send deactivation notification email
   const emailResult = await sendDeactivationEmail({
-    to: profile.email,
-    displayName: profile.display_name || profile.email.split('@')[0],
+    to: deactivatedProfile.email,
+    displayName:
+      deactivatedProfile.display_name || deactivatedProfile.email.split('@')[0],
   });
 
   if (!emailResult.success) {
     console.error('Deactivation email failed:', emailResult.error);
   }
 
-  console.log(`Deactivated user: ${profile.email}`);
+  console.log('Subscription deactivated');
+  return true;
 }

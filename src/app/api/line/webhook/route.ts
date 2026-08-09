@@ -14,7 +14,7 @@
  * 7. Reply via LINE Reply API
  */
 
-import { NextRequest, NextResponse } from 'next/server';
+import { after, NextRequest, NextResponse } from 'next/server';
 import { createClient as createServerClient } from '@supabase/supabase-js';
 import {
   verifySignature,
@@ -24,8 +24,26 @@ import {
   type LineWebhookEvent,
 } from '@/lib/line';
 import { generateCoachingResponse } from '@/lib/ai-coach';
+import {
+  claimLineWebhookEvent,
+  completeLineWebhookEvent,
+  reserveLineMessageRate,
+} from '@/lib/line-webhook-events';
+import {
+  classifyCoachingScope,
+  COACHING_SCOPE_GUIDANCE,
+} from '@/lib/coaching-scope';
+import {
+  buildMonthlyQuotaError,
+  MONTHLY_COACHING_LIMIT,
+  releaseMonthlyQuota,
+  reserveMonthlyQuota,
+  type MonthlyQuotaReservation,
+} from '@/lib/coaching-quota';
+import { getJapanMonthStartKey } from '@/lib/japan-date';
 
 export const runtime = 'nodejs';
+const MAX_LINE_MESSAGE_CHARS = 2000;
 
 // Use service role client for LINE webhook (no user session)
 function createAdminClient() {
@@ -72,15 +90,42 @@ export async function POST(request: NextRequest) {
     // Parse the webhook body
     const body: LineWebhookBody = JSON.parse(rawBody);
 
-    // Process events asynchronously (return 200 immediately to LINE)
-    // LINE expects a 200 response within 1 second, so we process in background
-    const processingPromise = processEvents(body.events);
+    const supabase = createAdminClient();
+    const claimedEvents = [] as LineWebhookEvent[];
+    for (const event of body.events) {
+      if (await claimLineWebhookEvent({ supabaseAdmin: supabase, event })) {
+        claimedEvents.push(event);
+      }
+    }
 
-    // Wait for processing but don't block the response for too long
-    // In serverless, we need to await since the function may be terminated after response
-    await processingPromise;
+    // A reply token has a short lifetime, but LINE also retries if the webhook
+    // blocks on model generation. `after` keeps the work attached to this
+    // request while returning a prompt acknowledgement to LINE.
+    after(async () => {
+      for (const event of claimedEvents) {
+        try {
+          await processEvent(event);
+          await completeLineWebhookEvent({
+            supabaseAdmin: supabase,
+            event,
+            status: 'complete',
+          });
+        } catch (error) {
+          console.error('LINE webhook event processing failed:', error);
+          try {
+            await completeLineWebhookEvent({
+              supabaseAdmin: supabase,
+              event,
+              status: 'failed',
+            });
+          } catch (completionError) {
+            console.error('LINE webhook event completion failed:', completionError);
+          }
+        }
+      }
+    });
 
-    return NextResponse.json({ status: 'ok' });
+    return NextResponse.json({ status: 'accepted' });
   } catch (error) {
     console.error('LINE webhook error:', error);
     // Always return 200 to LINE to prevent retries
@@ -91,16 +136,6 @@ export async function POST(request: NextRequest) {
 /**
  * Process an array of LINE webhook events
  */
-async function processEvents(events: LineWebhookEvent[]): Promise<void> {
-  for (const event of events) {
-    try {
-      await processEvent(event);
-    } catch (error) {
-      console.error('Error processing LINE event:', error);
-    }
-  }
-}
-
 /**
  * Process a single LINE webhook event
  */
@@ -123,11 +158,38 @@ async function processEvent(event: LineWebhookEvent): Promise<void> {
   const userText = event.message.text!;
   const replyToken = event.replyToken;
 
+  if (userText.length > MAX_LINE_MESSAGE_CHARS) {
+    await replyMessage(replyToken, [
+      textMessage(
+        `一度に送れる文章は${MAX_LINE_MESSAGE_CHARS}文字までです。内容を分けて送ってください。`
+      ),
+    ]);
+    return;
+  }
+
+  let quotaReservation: MonthlyQuotaReservation | null = null;
+  let profile: { id: string; line_user_id: string } | null = null;
+  let supabase: ReturnType<typeof createAdminClient> | null = null;
+
   try {
-    const supabase = createAdminClient();
+    supabase = createAdminClient();
+
+    // This limits automated bursts before any history write or AI request.
+    const rate = await reserveLineMessageRate({
+      supabaseAdmin: supabase,
+      lineUserId: userId,
+    });
+    if (!rate.allowed) {
+      await replyMessage(replyToken, [
+        textMessage(
+          `短時間に連続して送信されています。${rate.retryAfterSeconds}秒ほど待ってから、もう一度お試しください。`
+        ),
+      ]);
+      return;
+    }
 
     // 1. Find or create LINE-linked profile
-    const profile = await getOrCreateLineProfile(supabase, userId);
+    profile = await getOrCreateLineProfile(supabase, userId);
 
     // 2. Get or create active chat session for this LINE user
     const session = await getOrCreateChatSession(supabase, profile.id);
@@ -146,12 +208,51 @@ async function processEvent(event: LineWebhookEvent): Promise<void> {
       content: msg.content,
     }));
 
+    const scope = classifyCoachingScope({
+      messages: [...history, { role: 'user', content: userText }],
+    });
+
     // 4. Save user message to database
     await supabase.from('chat_messages').insert({
       session_id: session.id,
       role: 'user',
       content: userText,
     });
+
+    if (scope.decision === 'blocked') {
+      await supabase.from('chat_messages').insert({
+        session_id: session.id,
+        role: 'assistant',
+        content: COACHING_SCOPE_GUIDANCE,
+      });
+      await replyMessage(replyToken, [textMessage(COACHING_SCOPE_GUIDANCE)]);
+      return;
+    }
+
+    // LINE uses the same monthly allowance as the member site. The previous
+    // burst-only limit left this provider path effectively unlimited.
+    try {
+      quotaReservation = await reserveMonthlyQuota({
+        supabaseAdmin: supabase,
+        userId: profile.id,
+        requestId: event.webhookEventId || event.message.id || event.replyToken,
+        periodStart: getJapanMonthStartKey(),
+        limit: MONTHLY_COACHING_LIMIT,
+      });
+    } catch (quotaError) {
+      console.error('LINE monthly quota reservation failed:', quotaError);
+      await replyMessage(replyToken, [
+        textMessage('利用回数を確認できませんでした。少し時間をおいて、もう一度お試しください。'),
+      ]);
+      return;
+    }
+
+    if (!quotaReservation.allowed) {
+      await replyMessage(replyToken, [
+        textMessage(buildMonthlyQuotaError(MONTHLY_COACHING_LIMIT)),
+      ]);
+      return;
+    }
 
     // 5. Get diagnosis code if available
     const { data: diagnosisResult } = await supabase
@@ -182,6 +283,22 @@ async function processEvent(event: LineWebhookEvent): Promise<void> {
     await replyMessage(replyToken, [textMessage(aiResponse)]);
   } catch (error) {
     console.error('Error handling LINE message:', error);
+
+    // Do not consume the monthly allowance when the response could not be
+    // stored or delivered. The reservation is otherwise kept after success.
+    if (quotaReservation?.reservedNow && profile && supabase) {
+      try {
+        await releaseMonthlyQuota({
+          supabaseAdmin: supabase,
+          userId: profile.id,
+          requestId: event.webhookEventId || event.message?.id || event.replyToken,
+          periodStart: getJapanMonthStartKey(),
+          limit: MONTHLY_COACHING_LIMIT,
+        });
+      } catch (releaseError) {
+        console.error('LINE monthly quota release failed:', releaseError);
+      }
+    }
 
     // Try to send an error message
     try {

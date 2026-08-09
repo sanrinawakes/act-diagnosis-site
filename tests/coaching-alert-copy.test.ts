@@ -168,16 +168,11 @@ describe('sendCoachingAlert', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('sends email only when email delivery is explicitly enabled', async () => {
+  it('never sends operator email even when a legacy email setting remains', async () => {
     vi.stubEnv('COACHING_ALERT_DELIVERY_MODE', 'email');
     vi.stubEnv('RESEND_API_KEY', 'resend-test-key');
     vi.stubEnv('COACHING_ALERT_EMAILS', 'monitor@example.com');
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ id: 'resend-test-id' }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      })
-    );
+    const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
 
     const result = await sendCoachingAlert({
@@ -185,13 +180,11 @@ describe('sendCoachingAlert', () => {
       summary: 'monitor failed',
     });
 
-    expect(getCoachingAlertDeliveryMode()).toBe('email');
+    expect(getCoachingAlertDeliveryMode()).toBe('automation');
     expect(result).toMatchObject({
       accepted: true,
-      channel: 'email',
-      status: 200,
-      id: 'resend-test-id',
+      channel: 'automation',
     });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

@@ -58,7 +58,7 @@ describe('POST /api/chat/messages', () => {
     persistChatMessageRecordMock.mockResolvedValue(undefined);
   });
 
-  it('persists a message for the authenticated owner', async () => {
+  it('persists a user message for the authenticated owner', async () => {
     const response = await POST(
       new NextRequest('https://act-diagnosis-site.vercel.app/api/chat/messages', {
         method: 'POST',
@@ -69,8 +69,8 @@ describe('POST /api/chat/messages', () => {
         body: JSON.stringify({
           id: '33333333-3333-4333-8333-333333333333',
           sessionId: '22222222-2222-4222-8222-222222222222',
-          role: 'assistant',
-          content: '代替応答',
+          role: 'user',
+          content: '今の悩みを相談したいです。',
         }),
       })
     );
@@ -80,8 +80,8 @@ describe('POST /api/chat/messages', () => {
       expect.objectContaining({
         id: '33333333-3333-4333-8333-333333333333',
         sessionId: '22222222-2222-4222-8222-222222222222',
-        role: 'assistant',
-        content: '代替応答',
+        role: 'user',
+        content: '今の悩みを相談したいです。',
       })
     );
   });
@@ -102,8 +102,8 @@ describe('POST /api/chat/messages', () => {
         body: JSON.stringify({
           id: '33333333-3333-4333-8333-333333333333',
           sessionId: '22222222-2222-4222-8222-222222222222',
-          role: 'assistant',
-          content: '代替応答',
+          role: 'user',
+          content: '今の悩みを相談したいです。',
         }),
       })
     );
@@ -128,8 +128,8 @@ describe('POST /api/chat/messages', () => {
         body: JSON.stringify({
           id: '33333333-3333-4333-8333-333333333333',
           sessionId: '22222222-2222-4222-8222-222222222222',
-          role: 'assistant',
-          content: '代替応答',
+          role: 'user',
+          content: '今の悩みを相談したいです。',
         }),
       })
     );
@@ -149,8 +149,29 @@ describe('POST /api/chat/messages', () => {
         body: JSON.stringify({
           id: 'bad',
           sessionId: '22222222-2222-4222-8222-222222222222',
-          role: 'assistant',
+          role: 'user',
           content: '',
+        }),
+      })
+    );
+
+    expect(response.status).toBe(400);
+    expect(persistChatMessageRecordMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects a browser attempt to save an assistant response', async () => {
+    const response = await POST(
+      new NextRequest('https://act-diagnosis-site.vercel.app/api/chat/messages', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          origin: 'https://act-diagnosis-site.vercel.app',
+        },
+        body: JSON.stringify({
+          id: '33333333-3333-4333-8333-333333333333',
+          sessionId: '22222222-2222-4222-8222-222222222222',
+          role: 'assistant',
+          content: '利用者が偽装した回答',
         }),
       })
     );

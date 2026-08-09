@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { sendWelcomeEmail } from '@/lib/email';
-import crypto from 'crypto';
+import { hasValidWebhookSecret } from '@/lib/webhook-auth';
 
 export const runtime = 'nodejs';
 
@@ -16,24 +15,11 @@ function createAdminClient() {
 }
 
 /**
- * Generate a random password (12 characters, alphanumeric + symbols)
- */
-function generatePassword(): string {
-  const chars = 'abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  let password = '';
-  const bytes = crypto.randomBytes(12);
-  for (let i = 0; i < 12; i++) {
-    password += chars[bytes[i] % chars.length];
-  }
-  return password;
-}
-
-/**
  * MyASP Payment Completion Webhook
  *
- * Called when a user completes payment on MyASP.
- * - If user already exists (by email): activates their account
- * - If user doesn't exist: creates a new account and sends welcome email
+ * Called when a user completes payment on MyASP. It records the paid email
+ * only. The account holder must later complete the one-time verification code
+ * flow before any ACTI account is activated.
  *
  * MyASP sends POST with form data (application/x-www-form-urlencoded):
  *   - mail: user's email address
@@ -68,16 +54,11 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    console.log('MyASP payment webhook received:', {
-      email: body.mail,
-      name1: body.name1,
-      name2: body.name2,
-      hasSecret: !!body.secret,
-    });
-
-    // Verify webhook secret if configured
-    if (MYASP_WEBHOOK_SECRET && body.secret !== MYASP_WEBHOOK_SECRET) {
-      console.error('MyASP webhook secret mismatch');
+    // Access changes must never accept a webhook when its secret is missing.
+    if (!hasValidWebhookSecret(MYASP_WEBHOOK_SECRET, body.secret)) {
+      console.error('MyASP payment webhook authentication rejected', {
+        configured: Boolean(MYASP_WEBHOOK_SECRET),
+      });
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -90,139 +71,32 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const name1 = body.name1?.trim() || '';
-    const name2 = body.name2?.trim() || '';
-    const displayName = name2 ? `${name1} ${name2}` : name1 || email.split('@')[0];
-
     const adminClient = createAdminClient();
 
-    // Always upsert into pending_activations for future account creation
-    await adminClient
+    // Keep the entitlement pending. Do not overwrite an already-consumed
+    // record when MyASP retries the same payment webhook.
+    const { error: pendingError } = await adminClient
       .from('pending_activations')
       .upsert(
-        { email, source: 'myasp', activated: false, created_at: new Date().toISOString() },
+        { email, source: 'myasp' },
         { onConflict: 'email' }
       );
-
-    // Check if a user with this email already exists
-    const { data: existingProfile } = await adminClient
-      .from('profiles')
-      .select('id, email, subscription_status, is_active')
-      .eq('email', email)
-      .single();
-
-    if (existingProfile) {
-      // User already exists → activate their subscription
-      const { error: updateError } = await adminClient
-        .from('profiles')
-        .update({
-          subscription_status: 'active',
-          is_active: true,
-          myasp_customer_email: email,
-          subscribed_at: new Date().toISOString(),
-          cancelled_at: null,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', existingProfile.id);
-
-      if (updateError) {
-        console.error('Failed to update existing user:', updateError);
-        throw updateError;
-      }
-
-      // Mark pending_activation as used
-      await adminClient
-        .from('pending_activations')
-        .update({ activated: true, activated_at: new Date().toISOString() })
-        .eq('email', email);
-
-      console.log(`Activated existing user: ${email}`);
-      return NextResponse.json({
-        success: true,
-        action: 'activated',
-        email,
-        message: 'Existing user subscription activated',
-      });
+    if (pendingError) {
+      console.error('MyASP payment entitlement save failed:', pendingError);
+      throw pendingError;
     }
 
-    // User doesn't exist → create new account
-    const password = generatePassword();
-
-    // Create auth user via Supabase Admin API
-    const { data: newUser, error: createError } = await adminClient.auth.admin.createUser({
-      email,
-      password,
-      email_confirm: true, // Auto-confirm email
-      user_metadata: {
-        display_name: displayName,
-        source: 'myasp',
-      },
-    });
-
-    if (createError) {
-      console.error('Failed to create auth user:', createError);
-      throw createError;
-    }
-
-    if (!newUser.user) {
-      throw new Error('User creation returned no user');
-    }
-
-    // Update the auto-created profile with MyASP fields
-    // (profile is auto-created by the handle_new_user trigger)
-    // Wait a moment for the trigger to fire
-    await new Promise((resolve) => setTimeout(resolve, 500));
-
-    const { error: profileError } = await adminClient
-      .from('profiles')
-      .update({
-        display_name: displayName,
-        subscription_status: 'active',
-        is_active: true,
-        myasp_customer_email: email,
-        subscribed_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', newUser.user.id);
-
-    if (profileError) {
-      console.error('Failed to update new user profile:', profileError);
-      // Don't throw - the user was created, just the profile update failed
-    }
-
-    // Mark pending_activation as used
-    await adminClient
-      .from('pending_activations')
-      .update({ activated: true, activated_at: new Date().toISOString() })
-      .eq('email', email);
-
-    // Send welcome email with login credentials
-    const emailResult = await sendWelcomeEmail({
-      to: email,
-      displayName,
-      password,
-    });
-
-    if (!emailResult.success) {
-      console.error('Welcome email failed (user was still created):', emailResult.error);
-    }
-
-    console.log(`Created new user: ${email}, email sent: ${emailResult.success}`);
+    console.log('MyASP payment entitlement recorded');
 
     return NextResponse.json({
       success: true,
-      action: 'created',
-      email,
-      emailSent: emailResult.success,
-      message: 'New user created and welcome email sent',
+      action: 'pending_verification',
+      message: 'Payment entitlement recorded',
     });
   } catch (error) {
     console.error('MyASP payment webhook error:', error);
     return NextResponse.json(
-      {
-        error: 'Internal server error',
-        details: error instanceof Error ? error.message : 'Unknown error',
-      },
+      { error: 'Internal server error' },
       { status: 500 }
     );
   }

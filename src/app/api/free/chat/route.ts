@@ -23,12 +23,26 @@ import {
   generateCoachingText,
   getStreamHeaders,
 } from '@/lib/coaching-gemini';
+import {
+  FREE_DAILY_COACHING_LIMIT,
+  releaseFreeDailyQuota,
+  reserveFreeDailyQuota,
+  type FreeDailyQuotaReservation,
+} from '@/lib/free-coaching-quota';
+import { validateFreeMessages } from '@/lib/free-chat-validation';
+import {
+  classifyCoachingScope,
+  COACHING_SCOPE_GUIDANCE,
+  createScopeBlockedStream,
+} from '@/lib/coaching-scope';
+import { hasAllowedRequestOrigin } from '@/lib/request-origin';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+const DIAGNOSIS_CODE_PATTERN = /^[A-Z]{3}-[1-6]$/;
 
 interface ChatMessage {
   role: 'user' | 'assistant';
@@ -86,9 +100,9 @@ function getFreeCoachingSystemPrompt(diagnosisCode?: string): string {
 - ユーザーが話し続けたくなる自然な温度感を守る。
 - 返答の中心は、あくまでコーチング体験にする。
 
-### 提案リンク
-無料オンライン勉強会へは以下のURLで案内できます：
-https://example.com/study-session
+### リンクの扱い
+- 会話内で運営が明示したURL以外は、URLやリンク先を作らない。
+- 勉強会を案内する時は「案内ページをご確認ください」と伝え、架空のリンクを表示しない。
 
 ---
 
@@ -99,12 +113,46 @@ ${coachingConversationPriorityPrompt}`;
 
 export async function POST(request: NextRequest) {
   const requestStartedAt = Date.now();
+  const requestId = randomUUID();
 
   try {
-    const body: RequestBody = await request.json();
-    const { messages, diagnosisCode, email, attachments = [], stream = false } = body;
-    const normalizedEmail =
+    if (!hasAllowedRequestOrigin(request)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+    const body = (await request.json()) as RequestBody;
+    const messageValidation = validateFreeMessages(body.messages);
+    if (!messageValidation.messages) {
+      return NextResponse.json(
+        { error: messageValidation.error || 'メッセージ内容が正しくありません。' },
+        { status: 400 }
+      );
+    }
+    const messages = messageValidation.messages;
+    const diagnosisCode = body.diagnosisCode;
+    const email = body.email;
+    const attachments = body.attachments ?? [];
+    const stream = body.stream === true;
+    if (
+      diagnosisCode !== undefined &&
+      (typeof diagnosisCode !== 'string' || !DIAGNOSIS_CODE_PATTERN.test(diagnosisCode))
+    ) {
+      return NextResponse.json({ error: 'Invalid diagnosis code' }, { status: 400 });
+    }
+    const authClient = await createServerClient();
+    const {
+      data: { user },
+      error: authError,
+    } = await authClient.auth.getUser();
+    if (authError || !user?.email) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const requestedEmail =
       typeof email === 'string' ? email.trim().toLowerCase() : '';
+    const normalizedEmail = user.email.trim().toLowerCase();
+    if (requestedEmail && requestedEmail !== normalizedEmail) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
 
     if (!messages || messages.length === 0) {
       return NextResponse.json(
@@ -131,40 +179,39 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid attachments format' }, { status: 400 });
     }
 
-    const hasStoredAttachments = attachments.some(
-      (attachment) => attachment && typeof attachment === 'object' && 'path' in attachment
-    );
-    let attachmentUserId: string | null = null;
-    if (hasStoredAttachments) {
-      const authClient = await createServerClient();
-      const {
-        data: { user },
-      } = await authClient.auth.getUser();
-      if (!user) {
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    // Reject non-coaching requests before attachment work, quota consumption, or an AI call.
+    const scopeResult = classifyCoachingScope({
+      messages,
+      attachmentCount: attachments.length,
+    });
+    if (scopeResult.decision === 'blocked') {
+      if (stream) {
+        return new Response(
+          createScopeBlockedStream({
+            result: scopeResult,
+            limit: FREE_DAILY_COACHING_LIMIT,
+          }),
+          { headers: getStreamHeaders() }
+        );
       }
-      if (
-        !user.email ||
-        user.email.toLowerCase() !== normalizedEmail
-      ) {
-        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-      }
-      attachmentUserId = user.id;
+
+      return NextResponse.json({
+        message: COACHING_SCOPE_GUIDANCE,
+        limit: FREE_DAILY_COACHING_LIMIT,
+        completionStatus: 'complete',
+        finishReason: 'SCOPE_BLOCKED',
+        scopeDecision: scopeResult.decision,
+        scopeCategory: scopeResult.category,
+        usage: {},
+      });
     }
 
     const attachmentError = validateChatAttachments(
       attachments,
-      attachmentUserId
+      user.id
     );
     if (attachmentError) {
       return NextResponse.json({ error: attachmentError }, { status: 400 });
-    }
-
-    if (!normalizedEmail) {
-      return NextResponse.json(
-        { error: 'Email is required' },
-        { status: 400 }
-      );
     }
 
     const supabase = createAdminClient();
@@ -193,14 +240,15 @@ export async function POST(request: NextRequest) {
     const accountLookupStartedAt = Date.now();
     const { data: existingUser, error: selectError } = await supabase
       .from('free_users')
-      .select('id, chat_count_today, last_chat_date')
+      .select('id')
       .eq('email', normalizedEmail)
-      .single();
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .maybeSingle();
 
     const today = getJapanDateKey();
-    let chatCountToday = 0;
 
-    if (selectError && selectError.code !== 'PGRST116') {
+    if (selectError) {
       console.error('Error checking free user:', selectError);
       return NextResponse.json(
         { error: 'Database error' },
@@ -229,32 +277,31 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      chatCountToday = 0;
-    } else {
-      // Check if we need to reset the count (new day)
-      if (existingUser.last_chat_date !== today) {
-        chatCountToday = 0;
-        // Reset the count for the new day
-        await supabase
-          .from('free_users')
-          .update({
-            chat_count_today: 0,
-            last_chat_date: today,
-          })
-          .eq('id', existingUser.id);
-      } else {
-        chatCountToday = existingUser.chat_count_today;
-      }
     }
     const accountLookupMs = Date.now() - accountLookupStartedAt;
 
-    // Check rate limit (3 chats per day for free users)
-    if (chatCountToday >= 3) {
+    let quotaReservation: FreeDailyQuotaReservation;
+    try {
+      quotaReservation = await reserveFreeDailyQuota({
+        supabaseAdmin: supabase,
+        userId: user.id,
+        requestId,
+        day: today,
+      });
+    } catch (quotaError) {
+      console.error('Free coaching quota reservation failed:', quotaError);
+      return NextResponse.json(
+        { error: '利用回数を確認できませんでした。少し待ってから、もう一度お試しください。' },
+        { status: 503 }
+      );
+    }
+
+    if (!quotaReservation.allowed) {
       return NextResponse.json(
         {
           error: 'rate_limit',
           remaining: 0,
-          message: '本日のAIコーチングの利用回数に達しました。明日以降にご利用いただくか、フル版をご利用ください。',
+          message: `本日のAIコーチングの利用回数（${FREE_DAILY_COACHING_LIMIT}回）に達しました。明日以降にご利用いただくか、フル版をご利用ください。`,
         },
         { status: 429 }
       );
@@ -274,7 +321,7 @@ export async function POST(request: NextRequest) {
     );
     const telemetry = {
       route: '/api/free/chat',
-      requestId: randomUUID(),
+      requestId,
       requestMessages: messages.length,
       compactMessages: compactMessages.length,
       historyMessages: historyMessages.length,
@@ -286,27 +333,8 @@ export async function POST(request: NextRequest) {
     };
 
     const completeSuccessfulResponse = async () => {
-      const { data: updatedUser, error: updateError } = await supabase
-        .from('free_users')
-        .update({
-          chat_count_today: chatCountToday + 1,
-          last_chat_date: today,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('email', normalizedEmail)
-        .select('chat_count_today')
-        .single();
-
-      if (updateError || !updatedUser) {
-        throw new Error(
-          `FREE_CHAT_COUNT_UPDATE_FAILED: ${
-            updateError?.message || 'updated row not found'
-          }`
-        );
-      }
-
       return {
-        remaining: Math.max(0, 3 - updatedUser.chat_count_today),
+        remaining: quotaReservation.remaining,
       };
     };
 
@@ -354,6 +382,11 @@ export async function POST(request: NextRequest) {
         })
       );
     } catch (genErr) {
+      await safelyReleaseFreeDailyQuota({
+        supabase,
+        userId: user.id,
+        reservation: quotaReservation,
+      });
       const isTimeout =
         genErr instanceof Error && genErr.message === 'GEMINI_TIMEOUT';
       console.error(
@@ -393,13 +426,32 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json(
-      {
-        error: error instanceof Error ? error.message : 'Internal server error',
-      },
+      { error: 'チャットの処理に失敗しました。時間をおいて、もう一度お試しください。' },
       { status: 500 }
     );
   }
 }
+
+async function safelyReleaseFreeDailyQuota(params: {
+  supabase: ReturnType<typeof createAdminClient>;
+  userId: string;
+  reservation: FreeDailyQuotaReservation;
+}) {
+  if (!params.reservation.reservedNow) return;
+
+  try {
+    await releaseFreeDailyQuota({
+      supabaseAdmin: params.supabase,
+      userId: params.userId,
+      requestId: params.reservation.requestId,
+      day: params.reservation.day,
+      limit: params.reservation.limit,
+    });
+  } catch (releaseError) {
+    console.error('Free coaching quota release failed:', releaseError);
+  }
+}
+
 
 function withAttachmentTimeout<T>(promise: Promise<T>, timeoutMs: number) {
   let timeoutId: ReturnType<typeof setTimeout>;

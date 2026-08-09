@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
 
   const id = typeof body.id === 'string' ? body.id : '';
   const sessionId = typeof body.sessionId === 'string' ? body.sessionId : '';
-  const role = body.role === 'user' || body.role === 'assistant' ? body.role : '';
+  const role = body.role === 'user' ? body.role : '';
   const content = typeof body.content === 'string' ? body.content : '';
 
   if (
@@ -50,7 +50,7 @@ export async function POST(request: NextRequest) {
     !content.trim()
   ) {
     return NextResponse.json(
-      { error: 'Valid id, sessionId, role, and content are required' },
+      { error: 'Valid user message id, sessionId, and content are required' },
       { status: 400 }
     );
   }
@@ -93,10 +93,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('POST /api/chat/messages error:', error);
     return NextResponse.json(
-      {
-        error:
-          error instanceof Error ? error.message : 'Chat message persistence failed',
-      },
+      { error: 'メッセージを保存できませんでした。もう一度お試しください。' },
       { status: 500 }
     );
   }
