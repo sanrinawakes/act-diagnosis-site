@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { deflateSync } from 'node:zlib';
 import { createClient } from '@supabase/supabase-js';
+import { deleteTestAuthUser } from './lib/test-account-cleanup.mjs';
 
 const args = new Map(
   process.argv.slice(2).map((arg) => {
@@ -559,7 +560,7 @@ async function runApiContractChecks() {
     diagnosisCode: 'MGA-3',
     stream: true,
   });
-  const unauthorized = await fetch(`${baseUrl}/api/chat`, {
+  const originlessUnauthorized = await fetch(`${baseUrl}/api/chat`, {
     method: 'POST',
     headers: {
       ...vercelProtectionHeaders,
@@ -567,7 +568,28 @@ async function runApiContractChecks() {
     },
     body: validBody,
   });
-  addCheck(checks, 'API防御: 認証なしは401', unauthorized.status === 401, String(unauthorized.status));
+  addCheck(
+    checks,
+    'API防御: Originなし・認証なしは403',
+    originlessUnauthorized.status === 403,
+    String(originlessUnauthorized.status)
+  );
+
+  const unauthorized = await fetch(`${baseUrl}/api/chat`, {
+    method: 'POST',
+    headers: {
+      ...vercelProtectionHeaders,
+      'Content-Type': 'application/json',
+      Origin: new URL(baseUrl).origin,
+    },
+    body: validBody,
+  });
+  addCheck(
+    checks,
+    'API防御: 許可Origin・認証なしは401',
+    unauthorized.status === 401,
+    String(unauthorized.status)
+  );
 
   const emptyMessages = await authenticatedJsonRequest({ messages: [] });
   addCheck(checks, 'API防御: 空メッセージは400', emptyMessages.status === 400, String(emptyMessages.status));
@@ -2524,9 +2546,14 @@ async function cleanup() {
     }
   }
   if (userId) {
-    const { error } = await admin.auth.admin.deleteUser(userId);
-    if (error) {
-      console.error(`Failed to delete quality test user: ${error.message}`);
+    try {
+      await deleteTestAuthUser({
+        admin,
+        userId,
+        label: 'Quality test',
+      });
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : String(error));
       process.exitCode = 1;
       return;
     }

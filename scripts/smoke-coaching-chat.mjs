@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { randomUUID } from 'node:crypto';
+import { deleteTestAuthUser } from './lib/test-account-cleanup.mjs';
 
 const args = new Map(
   process.argv.slice(2).map((arg) => {
@@ -1153,19 +1154,10 @@ async function cleanup() {
   }
 
   for (const userId of createdUserIds) {
-    const { error } = await admin.auth.admin.deleteUser(userId);
-    if (error) {
-      console.error(`Failed to delete smoke test auth user: ${error.message}`);
-      process.exitCode = 1;
-      continue;
-    }
-    const { data: deletedUserCheck, error: deletedUserCheckError } =
-      await admin.auth.admin.getUserById(userId);
-    if (
-      deletedUserCheck?.user ||
-      (deletedUserCheckError && deletedUserCheckError.status !== 404)
-    ) {
-      console.error('Smoke test auth-user cleanup verification failed');
+    try {
+      await deleteTestAuthUser({ admin, userId, label: 'Smoke test' });
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : String(error));
       process.exitCode = 1;
     }
   }
