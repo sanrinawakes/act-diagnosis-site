@@ -1,4 +1,5 @@
 import { getGenAI } from '@/lib/openai';
+import { typeNames } from '@/data/type-names';
 import {
   stripAttachmentMarkdown,
   type InlineImageAttachment,
@@ -75,6 +76,7 @@ const HISTORY_MESSAGE_CHAR_LIMIT = 700;
 const API_HISTORY_LIMIT = 24;
 const API_HISTORY_CHAR_LIMIT = 700;
 const API_LAST_USER_CHAR_LIMIT = 2500;
+const ACT_TYPE_CODE_PATTERN = /\b([SMP][VMG][AME])(?:-?([1-6]))?\b/g;
 const COACHING_DOMAIN_CONTEXT_PATTERN =
   /家計簿|収支|赤字|黒字|予算|固定費|変動費|食費|生活費|お金|返金|収入|支出|講座|占い|後悔|メンタル|ケア|仕事|職場|業務|会社|上司|同僚|会議|企画|顧客|夫|妻|主人|家事|家族|親|子ども|パートナー/;
 // Leave enough time for a verified provider fallback to finish before the
@@ -3675,6 +3677,21 @@ export function buildFinalVerifiedQualityFallback(
     }
   }
 
+  const diagnosisExplanationFallback = buildDiagnosisExplanationFallback(
+    lastUserText,
+    historyMessages
+  );
+  if (diagnosisExplanationFallback) {
+    const diagnosisAssessment = assessCoachingResponseQuality({
+      text: diagnosisExplanationFallback,
+      lastUserText,
+      historyMessages,
+    });
+    if (diagnosisAssessment.issues.length === 0) {
+      return diagnosisExplanationFallback;
+    }
+  }
+
   const incomeCourseFallback = buildIncomeCourseFallback(
     lastUserText,
     historyMessages
@@ -3996,6 +4013,75 @@ function buildSubstantiveShortFallback(lastUserText: string) {
   }
 
   return '';
+}
+
+function buildDiagnosisExplanationFallback(
+  lastUserText: string,
+  historyMessages: CoachingChatMessage[]
+) {
+  if (!requestsDiagnosisExplanation(lastUserText)) return '';
+
+  const normalizedLastUserText = lastUserText.normalize('NFKC');
+  const currentDiagnosis =
+    [...historyMessages]
+      .reverse()
+      .map((message) => extractActDiagnosisCodes(message.content)[0] || '')
+      .find(Boolean) || extractActDiagnosisCodes(lastUserText)[0] || '';
+  const currentType = currentDiagnosis.slice(0, 3);
+  const previousDiagnoses = extractActDiagnosisCodes(lastUserText).filter(
+    (diagnosis) => diagnosis !== currentDiagnosis
+  );
+  const previousTypeLabel =
+    previousDiagnoses.length > 0
+      ? previousDiagnoses
+          .map((diagnosis) => {
+            const type = diagnosis.slice(0, 3);
+            return typeNames[type]
+              ? `${diagnosis}（${typeNames[type]}）`
+              : diagnosis;
+          })
+          .join('や')
+      : 'これまでのタイプ';
+  const currentTypeLabel = currentDiagnosis
+    ? typeNames[currentType]
+      ? `${currentDiagnosis}（${typeNames[currentType]}）`
+      : currentDiagnosis
+    : '現在のタイプ';
+  const recentUserContext = historyMessages
+    .filter((message) => message.role === 'user')
+    .slice(-8)
+    .map((message) => stripAttachmentMarkdown(message.content).normalize('NFKC'))
+    .join('\n');
+  const jobSearchShiftContext =
+    /パートを辞め|仕事を探/.test(recentUserContext) &&
+    /生活スタイル|生活パターン|シフト/.test(recentUserContext);
+
+  if (
+    /(変化|変わっ|なった|移った)/.test(normalizedLastUserText) &&
+    /(特徴|行動|気をつけ|教えて|特色)/.test(normalizedLastUserText) &&
+    currentType
+  ) {
+    const changeSummary = jobSearchShiftContext
+      ? `${previousTypeLabel}が出やすかった時より、今の${currentTypeLabel}では、周囲に合わせることより、自分の生活を崩さない条件を先に決める動きが強く出ています。始めたばかりのパートを辞めて仕事を探し直す中で、生活スタイルを大きく変えないことや、シフトが生活パターンに合うことを最優先にしている点が、その変化として表れています。`
+      : `${previousTypeLabel}が出やすかった時より、今の${currentTypeLabel}では、理想や周囲の期待より、今の生活に合う条件を現実的に見て判断する比重が強くなっています。`;
+    return `${changeSummary}\n\n${currentDiagnosis}の特徴的な行動は、応募や面接の前に勤務時間、生活への影響、無理なく続けられる条件を先に確かめて、合わない求人を早い段階で外すことです。気をつける点は、条件が合うかどうかに意識が集まりすぎて、実際の業務量や職場の人間関係の確認が後回しになりやすいことです。求人を見る時は、シフト条件に加えて、任される作業量と急な変更の有無も一緒に確認してください。`;
+  }
+
+  return '';
+}
+
+function extractActDiagnosisCodes(text: string) {
+  const normalized = text.normalize('NFKC').toUpperCase();
+  return [...normalized.matchAll(ACT_TYPE_CODE_PATTERN)].reduce<string[]>(
+    (codes, match) => {
+      const code = match[1];
+      const level = match[2] || '';
+      const diagnosis = `${code}${level}`;
+      if (!codes.includes(diagnosis)) codes.push(diagnosis);
+      return codes;
+    },
+    []
+  );
 }
 
 function buildContextualDissatisfactionFallback(
