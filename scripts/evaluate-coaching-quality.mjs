@@ -2180,6 +2180,7 @@ function evaluateConversations(conversations) {
     parallelTurns.every(
       (turn) =>
         !/今できる最小の行動/.test(turn.message) &&
+        !/その(?:一|1|ひと)つの(?:こと|もの)/.test(turn.message) &&
         /水|窓|カーテン|呼吸|メモ|紙|ノート|机|予定|タスク|TODO|着替|ログイン|画面|ページ|ファイル|アプリ|ブラウザ|開(?:く|いて)|(?:\d+|一|ひと)(?:杯|回|分|行|文|つ)/i.test(
           turn.message
         )
