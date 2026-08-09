@@ -3064,6 +3064,19 @@ describe('normalizeCoachingOutput', () => {
     expect(result).not.toContain('明日以降');
   });
 
+  it('肯定の「お引き受けできます」を拒否文と誤認しない', () => {
+    const result = normalizeCoachingOutput(
+      '「あいにく本日は手一杯でして、明日以降の着手でもよかったらお引き受けできますが、いかがでしょうか。」',
+      '本当に相談したいのは、明日また急な依頼をされた時に、角を立てずに断る一言です。一つだけ提案してください。'
+    );
+
+    expect(result).toBe(
+      '「ありがとうございます。ただ、今は手一杯のため、今回はお引き受けできません。」'
+    );
+    expect(result).not.toContain('明日以降');
+    expect(result).not.toContain('お引き受けできます');
+  });
+
   it('「最初の一言」は説明や追加質問を除いて引用文一つだけにする', () => {
     const result = normalizeCoachingOutput(
       [
