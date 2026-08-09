@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { randomUUID } from 'node:crypto';
 
 const args = new Map(
   process.argv.slice(2).map((arg) => {
@@ -26,12 +27,15 @@ const vercelProtectionHeaders = {
     : {}),
 };
 
-const supabase =
-  process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+const admin =
+  supabaseUrl && supabaseServiceRoleKey
     ? createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL,
-        process.env.SUPABASE_SERVICE_ROLE_KEY,
-        { auth: { persistSession: false } }
+        supabaseUrl,
+        supabaseServiceRoleKey,
+        { auth: { persistSession: false, autoRefreshToken: false } }
       )
     : null;
 
@@ -40,9 +44,13 @@ const shouldRunUrgentSafety = mode === 'all' || mode === 'safety';
 const shouldRunLongHistory = mode === 'all' || mode === 'long';
 const shouldRunConcurrency = mode === 'all' || mode === 'concurrent';
 const createdEmails = [];
+const createdUserIds = [];
+const accessTokensByEmail = new Map();
 const results = [];
 
 try {
+  assertAuthenticationEnvironment();
+
   if (shouldRunNormal) {
     results.push(...(await runNormalConversation()));
   }
@@ -101,7 +109,9 @@ async function runLongHistoryConversation() {
   createdEmails.push(email);
   const messages = [];
 
-  for (let index = 0; index < 218; index += 1) {
+  // Stay within the 100-message request boundary while still exceeding the
+  // 24-message model-history window that this scenario is meant to exercise.
+  for (let index = 0; index < 49; index += 1) {
     messages.push({ role: 'user', content: buildFiller(index) });
     messages.push({
       role: 'assistant',
@@ -118,7 +128,7 @@ async function runLongHistoryConversation() {
     email,
     diagnosisCode: 'SMM-1',
     messages,
-    label: 'long-history-437',
+    label: 'long-history-99',
     expectedModelName: 'local-long-history-action',
     expectedFinishReason: 'LOCAL_LONG_HISTORY_ACTION',
   });
@@ -221,6 +231,7 @@ async function sendStreamRequest({
   expectedFinishReason = 'STOP',
   requiredResponseFragments = [],
 }) {
+  const accessToken = await getOrCreateAccessToken(email);
   const body = { email, diagnosisCode, messages, stream: true };
   const payloadBytes = Buffer.byteLength(JSON.stringify(body));
   const startedAt = Date.now();
@@ -228,6 +239,7 @@ async function sendStreamRequest({
     method: 'POST',
     headers: {
       ...vercelProtectionHeaders,
+      Authorization: `Bearer ${accessToken}`,
       'Content-Type': 'application/json',
       Accept: 'application/x-ndjson',
     },
@@ -565,7 +577,7 @@ function assertResults(results) {
     }
     if (result.label === 'urgent-safety') continue;
     if (
-      ['normal-3', 'long-history-437'].includes(result.label) &&
+      ['normal-3', 'long-history-99'].includes(result.label) &&
       /今できる最小の行動を一つだけ決めて/.test(result.message)
     ) {
       throw new Error(
@@ -905,7 +917,7 @@ function assertResults(results) {
       );
     }
     if (
-      result.label === 'long-history-437' &&
+      result.label === 'long-history-99' &&
       !(
         /SNS|投稿|発信|仕事|職場|タスク/.test(result.message) &&
         /書|投稿|発信|メモ|資料|タスク|予定|着手|連絡|相談|伝|確認|整理/.test(
@@ -918,7 +930,7 @@ function assertResults(results) {
       );
     }
     if (
-      result.label === 'long-history-437' &&
+      result.label === 'long-history-99' &&
       /(?:SNSの)?アプリ.{0,32}(?:見えない|隠|移動|削除|閉じ)|通知.{0,16}(?:切|オフ)/.test(
         result.message
       )
@@ -1116,30 +1128,128 @@ function requestsExplicitClosingQuestionInSmoke(text) {
 }
 
 async function cleanup() {
-  if (!supabase || createdEmails.length === 0) return;
+  if (!admin || createdEmails.length === 0) return;
 
-  const { error: deleteError } = await supabase
+  const { error: deleteError } = await admin
     .from('free_users')
     .delete()
     .in('email', createdEmails);
   if (deleteError) {
     console.error(`Failed to delete smoke test users: ${deleteError.message}`);
     process.exitCode = 1;
-    return;
+  } else {
+    const { count, error: verifyError } = await admin
+      .from('free_users')
+      .select('id', { count: 'exact', head: true })
+      .in('email', createdEmails);
+    if (verifyError || count !== 0) {
+      console.error(
+        `Smoke test cleanup verification failed: ${
+          verifyError?.message || `free_users=${count}`
+        }`
+      );
+      process.exitCode = 1;
+    }
   }
 
-  const { count, error: verifyError } = await supabase
-    .from('free_users')
+  for (const userId of createdUserIds) {
+    const { error } = await admin.auth.admin.deleteUser(userId);
+    if (error) {
+      console.error(`Failed to delete smoke test auth user: ${error.message}`);
+      process.exitCode = 1;
+      continue;
+    }
+    const { data: deletedUserCheck, error: deletedUserCheckError } =
+      await admin.auth.admin.getUserById(userId);
+    if (
+      deletedUserCheck?.user ||
+      (deletedUserCheckError && deletedUserCheckError.status !== 404)
+    ) {
+      console.error('Smoke test auth-user cleanup verification failed');
+      process.exitCode = 1;
+    }
+  }
+
+  const { count: profileCount, error: profileVerifyError } = await admin
+    .from('profiles')
     .select('id', { count: 'exact', head: true })
     .in('email', createdEmails);
-  if (verifyError || count !== 0) {
+  const { count: quotaCount, error: quotaVerifyError } = createdUserIds.length
+    ? await admin
+        .from('free_coaching_daily_usage')
+        .select('request_id', { count: 'exact', head: true })
+        .in('user_id', createdUserIds)
+    : { count: 0, error: null };
+  if (
+    profileVerifyError ||
+    quotaVerifyError ||
+    profileCount !== 0 ||
+    quotaCount !== 0
+  ) {
     console.error(
-      `Smoke test cleanup verification failed: ${
-        verifyError?.message || `free_users=${count}`
+      `Smoke test account cleanup verification failed: ${
+        profileVerifyError?.message ||
+        quotaVerifyError?.message ||
+        `profiles=${profileCount}, quota=${quotaCount}`
       }`
     );
     process.exitCode = 1;
   }
+}
+
+function assertAuthenticationEnvironment() {
+  const missing = [];
+  if (!supabaseUrl) missing.push('NEXT_PUBLIC_SUPABASE_URL');
+  if (!supabaseAnonKey) missing.push('NEXT_PUBLIC_SUPABASE_ANON_KEY');
+  if (!supabaseServiceRoleKey) missing.push('SUPABASE_SERVICE_ROLE_KEY');
+  if (!admin || missing.length > 0) {
+    throw new Error(
+      `Authenticated smoke test requires: ${missing.join(', ')}`
+    );
+  }
+}
+
+async function getOrCreateAccessToken(email) {
+  const cached = accessTokensByEmail.get(email);
+  if (cached) return cached;
+
+  const password = `Smoke-${randomUUID()}-9a!`;
+  const { data, error } = await admin.auth.admin.createUser({
+    email,
+    password,
+    email_confirm: true,
+    user_metadata: { display_name: 'Codexスモークテスト' },
+  });
+  if (error || !data.user) {
+    throw new Error(`Failed to create smoke test auth user: ${error?.message}`);
+  }
+  createdUserIds.push(data.user.id);
+
+  const { error: profileError } = await admin.from('profiles').upsert({
+    id: data.user.id,
+    email,
+    display_name: 'Codexスモークテスト',
+    role: 'member',
+    is_active: true,
+    subscription_status: 'none',
+  });
+  if (profileError) {
+    throw new Error(
+      `Failed to create smoke test profile: ${profileError.message}`
+    );
+  }
+
+  const authClient = createClient(supabaseUrl, supabaseAnonKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  const { data: signInData, error: signInError } =
+    await authClient.auth.signInWithPassword({ email, password });
+  const accessToken = signInData.session?.access_token;
+  if (signInError || !accessToken) {
+    throw new Error(`Failed to sign in smoke test user: ${signInError?.message}`);
+  }
+  accessTokensByEmail.set(email, accessToken);
+  return accessToken;
 }
 
 function parseEventLine(line) {

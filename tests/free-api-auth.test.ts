@@ -28,6 +28,21 @@ function createRequest(path: string, body: Record<string, unknown>) {
   });
 }
 
+function createBearerRequest(
+  path: string,
+  body: Record<string, unknown>,
+  token = 'test-access-token'
+) {
+  return new NextRequest(`https://acti.example.test${path}`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${token}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+}
+
 describe('free API authentication', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -50,6 +65,23 @@ describe('free API authentication', () => {
     );
 
     expect(response.status).toBe(401);
+    expect(mocks.createClient).not.toHaveBeenCalled();
+  });
+
+  it('rejects an originless free-chat request without checking cookie auth', async () => {
+    const response = await postFreeChat(
+      createBearerRequest(
+        '/api/free/chat',
+        {
+          email: 'someone@example.test',
+          messages: [{ role: 'user', content: '相談です' }],
+        },
+        ''
+      )
+    );
+
+    expect(response.status).toBe(403);
+    expect(mocks.createServerClient).not.toHaveBeenCalled();
     expect(mocks.createClient).not.toHaveBeenCalled();
   });
 
@@ -86,5 +118,24 @@ describe('free API authentication', () => {
 
     expect(response.status).toBe(403);
     expect(mocks.createClient).not.toHaveBeenCalled();
+  });
+
+  it('authenticates an originless automation request with its bearer token', async () => {
+    const getUser = vi.fn().mockResolvedValue({
+      data: { user: { id: 'user-1', email: 'member@example.test' } },
+      error: null,
+    });
+    mocks.createClient.mockReturnValue({ auth: { getUser } });
+
+    const response = await postFreeChat(
+      createBearerRequest('/api/free/chat', {
+        email: 'other@example.test',
+        messages: [{ role: 'user', content: '相談です' }],
+      })
+    );
+
+    expect(response.status).toBe(403);
+    expect(mocks.createServerClient).not.toHaveBeenCalled();
+    expect(getUser).toHaveBeenCalledWith('test-access-token');
   });
 });

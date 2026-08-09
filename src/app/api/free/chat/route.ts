@@ -41,6 +41,7 @@ export const runtime = 'nodejs';
 export const maxDuration = 60;
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 const DIAGNOSIS_CODE_PATTERN = /^[A-Z]{3}-[1-6]$/;
 
@@ -114,9 +115,15 @@ ${coachingConversationPriorityPrompt}`;
 export async function POST(request: NextRequest) {
   const requestStartedAt = Date.now();
   const requestId = randomUUID();
+  const authHeader = request.headers.get('Authorization');
+  const token = authHeader?.startsWith('Bearer ')
+    ? authHeader.replace('Bearer ', '')
+    : '';
 
   try {
-    if (!hasAllowedRequestOrigin(request)) {
+    // Browser requests use the login cookie. Bearer auth remains supported for
+    // automated tests and non-browser clients.
+    if (!token && !hasAllowedRequestOrigin(request)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
     const body = (await request.json()) as RequestBody;
@@ -138,11 +145,17 @@ export async function POST(request: NextRequest) {
     ) {
       return NextResponse.json({ error: 'Invalid diagnosis code' }, { status: 400 });
     }
-    const authClient = await createServerClient();
+    const authClient = token
+      ? createClient(supabaseUrl, supabaseAnonKey, {
+          global: { headers: { Authorization: `Bearer ${token}` } },
+        })
+      : await createServerClient();
     const {
       data: { user },
       error: authError,
-    } = await authClient.auth.getUser();
+    } = await (token
+      ? authClient.auth.getUser(token)
+      : authClient.auth.getUser());
     if (authError || !user?.email) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
