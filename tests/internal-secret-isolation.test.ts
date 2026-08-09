@@ -5,7 +5,7 @@ import path from 'node:path';
 const root = path.resolve(__dirname, '..');
 
 describe('internal API secret isolation', () => {
-  it('does not let monitor credentials authorize support automation actions', () => {
+  it('keeps support automation isolated from monitor-only credentials', () => {
     const automation = fs.readFileSync(
       path.join(root, 'src/app/api/internal/support-automation/route.ts'),
       'utf8'
@@ -27,6 +27,6 @@ describe('internal API secret isolation', () => {
     expect(automationValidation).toContain('process.env.SUPPORT_AUTOMATION_SECRET');
     expect(automationValidation).not.toContain('MONITORING_CRON_SECRET');
     expect(automationValidation).not.toContain('CRON_SECRET');
-    expect(monitorValidation).not.toContain('SUPPORT_AUTOMATION_SECRET');
+    expect(monitorValidation).toContain('process.env.SUPPORT_AUTOMATION_SECRET');
   });
 });

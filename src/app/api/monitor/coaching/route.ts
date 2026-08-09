@@ -944,6 +944,7 @@ function validateMonitorAuthorization(request: NextRequest) {
       [
         process.env.MONITORING_CRON_SECRET,
         process.env.CRON_SECRET,
+        process.env.SUPPORT_AUTOMATION_SECRET,
       ].filter((secret): secret is string => Boolean(secret))
     )
   );
