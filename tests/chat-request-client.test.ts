@@ -181,6 +181,21 @@ describe('connectChatWithRecovery', () => {
 
 describe('getUserFacingChatError', () => {
   it.each([
+    'AIの応答が途中で切れました。入力内容は保存されています。もう一度お試しください。',
+    'AIの応答データが途中で壊れました。入力内容は保存されています。もう一度お試しください。',
+    'AIから空の応答が返されました。入力内容は保存されています。もう一度お試しください。',
+  ])('shows fixed retry guidance for a known stream failure: %s', (message) => {
+    expect(
+      getUserFacingChatError(
+        new ChatStreamReadError(message, {
+          retryable: false,
+          hadStreamData: true,
+        })
+      )
+    ).toBe(message);
+  });
+
+  it.each([
     new TypeError('Failed to fetch'),
     new TypeError('Load failed'),
     new Error('NetworkError when attempting to fetch resource.'),
@@ -195,6 +210,16 @@ describe('getUserFacingChatError', () => {
       '診断情報を確認できませんでした。画面を再読み込みして、もう一度お試しください。'
     );
     expect(getUserFacingChatError(new Error('SUPABASE_INTERNAL_DETAIL'))).toBe(
+      'メッセージを送信できませんでした。画面を再読み込みして、もう一度お試しください。'
+    );
+    expect(
+      getUserFacingChatError(
+        new ChatStreamReadError('SUPABASE_INTERNAL_DETAIL', {
+          retryable: false,
+          hadStreamData: true,
+        })
+      )
+    ).toBe(
       'メッセージを送信できませんでした。画面を再読み込みして、もう一度お試しください。'
     );
   });

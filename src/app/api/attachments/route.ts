@@ -2,7 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { uploadImageAttachments } from '@/lib/server-attachments';
 import { createServerClient } from '@/lib/supabase-server';
-import { ATTACHMENT_BUCKET, SIGNED_URL_EXPIRES_IN } from '@/lib/attachments';
+import {
+  ATTACHMENT_BUCKET,
+  isSafeAttachmentPath,
+  SIGNED_URL_EXPIRES_IN,
+} from '@/lib/attachments';
 import { hasAllowedRequestOrigin } from '@/lib/request-origin';
 
 export const runtime = 'nodejs';
@@ -145,15 +149,6 @@ function withTimeout<T>(promise: PromiseLike<T>, timeoutMs: number): Promise<T> 
 
   return Promise.race([Promise.resolve(promise), timeout]).finally(() =>
     clearTimeout(timeoutId)
-  );
-}
-
-function isSafeAttachmentPath(path: string) {
-  return (
-    path.length > 0 &&
-    path.length <= 600 &&
-    !path.includes('..') &&
-    /^(?:chat|support)\/[A-Za-z0-9_\-/]+$/.test(path)
   );
 }
 

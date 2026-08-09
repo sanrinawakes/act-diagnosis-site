@@ -6,6 +6,11 @@ const RECOVERABLE_STREAM_ERROR_PATTERNS = [
   /AIの応答データが途中で壊れました/u,
   /AIから空の応答が返されました/u,
 ] as const;
+const SAFE_STREAM_ERROR_GUIDANCE = [
+  'AIの応答が途中で切れました。入力内容は保存されています。もう一度お試しください。',
+  'AIの応答データが途中で壊れました。入力内容は保存されています。もう一度お試しください。',
+  'AIから空の応答が返されました。入力内容は保存されています。もう一度お試しください。',
+] as const;
 
 type ConnectChatParams = {
   body: Record<string, unknown>;
@@ -122,6 +127,13 @@ export function isRecoverableChatStreamError(error: unknown) {
 export function getUserFacingChatError(error: unknown) {
   if (!(error instanceof Error) || !error.message) {
     return 'メッセージを送信できませんでした。画面を再読み込みして、もう一度お試しください。';
+  }
+
+  if (error instanceof ChatStreamReadError) {
+    const safeGuidance = SAFE_STREAM_ERROR_GUIDANCE.find(
+      (message) => message === error.message
+    );
+    if (safeGuidance) return safeGuidance;
   }
 
   if (

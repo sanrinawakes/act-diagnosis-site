@@ -82,6 +82,29 @@ export function buildAttachmentViewUrl(path: string) {
   return `/api/attachments?path=${encodeURIComponent(path)}`;
 }
 
+export function isSafeAttachmentPath(path: string) {
+  if (
+    path.length === 0 ||
+    path.length > 600 ||
+    path.includes('..') ||
+    path.includes('\\')
+  ) {
+    return false;
+  }
+
+  const segments = path.split('/');
+  if (!['chat', 'support'].includes(segments[0]) || segments.length < 4) {
+    return false;
+  }
+
+  return segments.slice(1).every(
+    (segment) =>
+      segment.length > 0 &&
+      segment !== '.' &&
+      !/[\u0000-\u001F\u007F]/u.test(segment)
+  );
+}
+
 export function appendAttachmentMarkdown(content: string, attachments: StoredAttachment[]) {
   return `${content.trim()}${formatAttachmentMarkdown(attachments)}`.trim();
 }
