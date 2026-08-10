@@ -42,6 +42,8 @@ const BUSINESS_GROWTH_INTENT =
   /(?:コンサル(?:して|してほしい|して下さい|してください)?|売上(?:を|げ)?|月商|月収|年商|稼(?:ぐ|げる|ぎたい)|収益|利益|集客|予約数|成約率|単価|導線|ブランディング|事業計画|事業戦略|経営相談)/i;
 const BUSINESS_GROWTH_OBJECT =
   /(?:コンセプト|サロン|店舗|お店|商品|サービス|講座|メニュー|予約サイト|instagram|インスタ(?:グラム)?|line公式|line|公式line|プロフィール欄|ブランド|屋号|告知)/i;
+const BUSINESS_STARTUP_REQUEST =
+  /(?:起業|開業|独立).{0,40}(?:やり方|始め方|進め方|方法|全部教えて|教えてほしい|教えてください|コンサル|売上|稼(?:ぐ|げる))/i;
 const WRITING_OBJECT =
   /(?:文章|原稿|作文|レポート|論文|スピーチ|乾杯(?:の)?挨拶|挨拶文|祝辞|プロフィール文|自己紹介文|メール(?:文)?|メッセージ文|台本|記事)/i;
 const TRANSLATION_INTENT =
@@ -168,6 +170,10 @@ function classifyDirectRequest(text: string): ScopeClassification | null {
     return blocked('marketing_content', 'business_growth_consulting_request');
   }
 
+  if (BUSINESS_STARTUP_REQUEST.test(text)) {
+    return blocked('marketing_content', 'business_growth_consulting_request');
+  }
+
   if (
     RESEARCH_INTENT.test(text) &&
     (EXTERNAL_RESEARCH_OBJECT.test(text) || !COACHING_CONTEXT.test(text))
@@ -210,6 +216,7 @@ function normalizeForScope(value: string) {
     .normalize('NFKC')
     .toLowerCase()
     .replace(/\r\n/g, '\n')
+    .replace(/【入力中】/g, ' ')
     .trim();
 }
 
