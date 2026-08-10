@@ -2697,6 +2697,16 @@ export function normalizeCoachingOutput(
     return '今日はゆっくり休んでください。';
   }
 
+  const substantivePatternFallback =
+    buildSubstantiveShortFallback(lastUserText);
+  if (
+    substantivePatternFallback &&
+    /大ジャンプ|最初の一歩\s*[=＝]\s*ゴール|壁打ち/.test(lastUserText) &&
+    /実際に起きたことと、次に困る場面を分け/.test(text)
+  ) {
+    return substantivePatternFallback;
+  }
+
   const requiresClosingQuestion = requestsExplicitClosingQuestion(lastUserText);
   const avoidsForcedMove = shouldAvoidForcedCoachingMove(
     lastUserText,
@@ -3512,6 +3522,14 @@ function buildSafeQualityFallback(
       historyMessages
     );
 
+  if (
+    substantiveFallback &&
+    /大ジャンプ|最初の一歩\s*[=＝]\s*ゴール|壁打ち/.test(lastUserText) &&
+    /実際に起きたことと、次に困る場面を分け/.test(withoutGenericClosing)
+  ) {
+    return substantiveFallback;
+  }
+
   if (clarificationCorrectionFallback) {
     return clarificationCorrectionFallback;
   }
@@ -3978,6 +3996,13 @@ function buildSilentAnswerFallback(
 }
 
 function buildSubstantiveShortFallback(lastUserText: string) {
+  if (
+    /大ジャンプ|最初の一歩\s*[=＝]\s*ゴール|壁打ち/.test(lastUserText) &&
+    /望んでしま|指摘され/.test(lastUserText)
+  ) {
+    return '最初の一歩を踏み出す前に、いきなり結果まで取りに行こうとして止まってしまうのですね。今必要なのは気合いを足すことではなく、一度に終わらせようとしている場面を一つに絞ることです。\n\n次の壁打ちの前に、最後に止められた一件だけを書き出し、「今回ここまでやれば十分」と言える到達点を一文で決めてください。';
+  }
+
   if (
     /追求|確認|確かめ/.test(lastUserText) &&
     /でき(?:る|そう)|思います/.test(lastUserText)
