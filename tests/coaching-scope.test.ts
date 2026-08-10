@@ -82,6 +82,20 @@ describe('classifyCoachingScope', () => {
     expect(result.matchedRule).toBe('business_growth_consulting_request');
   });
 
+  it('blocks an in-progress startup how-to request before it falls back to ambiguous', () => {
+    const result = classifyCoachingScope({
+      messages: [
+        userMessage(
+          '【入力中】自分は本当にこれから01で起業するんだけどそのやり方とか最初からどうやったらこういうマインドで起業したらいいよとかそういうの全部教えてくれた'
+        ),
+      ],
+    });
+
+    expect(result.decision).toBe('blocked');
+    expect(result.category).toBe('marketing_content');
+    expect(result.matchedRule).toBe('business_growth_consulting_request');
+  });
+
   it.each(['もっと魅力的にして', '別案もください', '3案ください']) (
     'inherits a prior blocked purpose for a short follow-up: %s',
     (followup) => {
