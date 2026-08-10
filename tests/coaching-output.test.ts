@@ -5420,6 +5420,31 @@ describe('normalizeCoachingOutput', () => {
     expect(assessment.issues).toContain('vague_action_target');
   });
 
+  it('どうすればよいかという相談を根拠のない二択へ変換しない', () => {
+    const lastUserText =
+      '父の家系のカルマと自分の蟲が一致した場合、どうすればよいですか？';
+    const historyMessages = [
+      {
+        role: 'user' as const,
+        content:
+          '2024年の7月17日に母が入院し、10月17日に老人ホームに入所しました。それから2年間一人です。58歳、月収26万、貯蓄無し。最近寂しく感じます。',
+      },
+    ];
+    const fallback = buildFinalVerifiedQualityFallback(
+      lastUserText,
+      historyMessages
+    );
+    const assessment = assessCoachingResponseQuality({
+      text: fallback,
+      lastUserText,
+      historyMessages,
+    });
+
+    expect(fallback).toContain('その一致を感じた直後に起きた出来事を');
+    expect(fallback).not.toContain('どちらを選べば');
+    expect(assessment.issues).toEqual([]);
+  });
+
   it('スマホをしまって景色を見る二つの行動を一つ扱いにしない', () => {
     const assessment = assessCoachingResponseQuality({
       text: '明日は、仕事が終わったらスマートフォンをカバンにしまい、5分間だけ外の景色を眺めてください。',

@@ -5704,11 +5704,38 @@ function buildClosingCoachingQuestion(
   if (/仕事|職場|業務|会社|タスク|働/.test(lastUserText)) {
     return '明日ひとつだけ状況を動かすなら、何から始めますか？';
   }
-  if (/迷|決め|選|どちら|どうすれば|どうしたら/.test(lastUserText)) {
+  if (/迷|決め|選|どちら/.test(lastUserText)) {
     return 'どちらを選べば、あとで自分に正直だったと思えそうですか？';
+  }
+  if (/どうすれば|どうしたら/.test(lastUserText)) {
+    return buildConcreteHowToQuestion(lastUserText, historyMessages);
   }
 
   return '';
+}
+
+function buildConcreteHowToQuestion(
+  lastUserText: string,
+  historyMessages: CoachingChatMessage[] = []
+) {
+  const userContext = [
+    ...historyMessages
+      .filter((message) => message.role === 'user')
+      .map((message) => stripAttachmentMarkdown(message.content)),
+    lastUserText,
+  ].join('\n');
+
+  if (/カルマ|因縁|蟲|一致/.test(userContext)) {
+    return 'その一致を感じた直後に起きた出来事を、一つだけ書き出してください。';
+  }
+  if (/夫|妻|家族|親|子ども|友人|同僚|上司|相手|関係/.test(userContext)) {
+    return '最後に困った場面で、相手がしたことを一つだけ書き出してください。';
+  }
+  if (/仕事|職場|業務|会社|タスク|働/.test(userContext)) {
+    return '仕事で、いちばん対応に困っている出来事を一つだけ書き出してください。';
+  }
+
+  return 'そのことで最後に困った出来事を、一つだけ書き出してください。';
 }
 
 function buildNoQuestionFallback(
