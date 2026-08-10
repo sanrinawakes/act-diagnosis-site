@@ -5274,6 +5274,40 @@ describe('normalizeCoachingOutput', () => {
     expect(fallback).not.toMatch(/構成案|大まかな流れ|メモに書き出/);
   });
 
+  it('最初の一歩を一気にゴール化する相談では具体的な一場面へ戻す', () => {
+    const lastUserText =
+      'どうしても大ジャンプを望んでしまいます。「最初の一歩＝ゴール」みたいに。壁打ちでいつも指摘されます。';
+    const historyMessages = [
+      {
+        role: 'user' as const,
+        content: '母との面会、推しを見る時間。',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          'お母様との面会と、推しを見る時間が、今の俊彦さんにとって心からほっとできる大切な時間なのですね。\n\nこの半年間は、変化を急ぐことよりも、面会と推しの時間を最優先にして、自分の心にたくさんの安心を注いであげませんか。',
+      },
+    ];
+
+    const fallback = buildFinalVerifiedQualityFallback(
+      lastUserText,
+      historyMessages
+    );
+    const assessment = assessCoachingResponseQuality({
+      text: fallback,
+      lastUserText,
+      historyMessages,
+    });
+
+    expect(fallback).toContain(
+      '一度に終わらせようとしている場面を一つに絞る'
+    );
+    expect(fallback).toContain(
+      '次の壁打ちの前に、最後に止められた一件だけを書き出し、「今回ここまでやれば十分」と言える到達点を一文で決めてください。'
+    );
+    expect(assessment.issues).not.toContain('vague_action_target');
+  });
+
   it('仕事内容が不明な相談へ極小作業とPC起動を作らない', () => {
     const assessment = assessCoachingResponseQuality({
       text: '完璧に仕上げる必要はありません。\n\nまずは1分でできる極小の作業だけで、明日の着手は成功です。その最初の1歩として、明日の何時頃にパソコンを開くかだけ、今決めてみませんか。',
