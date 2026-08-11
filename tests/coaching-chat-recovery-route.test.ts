@@ -16,6 +16,10 @@ const state = vi.hoisted(() => ({
   >(),
   usageRequestIds: new Set<string>(),
   quotaRequestIds: new Set<string>(),
+  sessionActivity: {
+    last_message_at: null as string | null,
+    message_count: 0,
+  },
 }));
 
 vi.mock('@supabase/supabase-js', () => ({
@@ -81,6 +85,10 @@ describe('POST /api/chat connection recovery', () => {
     ]);
     state.usageRequestIds = new Set();
     state.quotaRequestIds = new Set();
+    state.sessionActivity = {
+      last_message_at: null,
+      message_count: 0,
+    };
 
     state.createServerClient.mockResolvedValue({
       auth: {
@@ -190,6 +198,8 @@ describe('POST /api/chat connection recovery', () => {
       role: 'assistant',
       content: ANSWER,
     });
+    expect(state.sessionActivity.message_count).toBe(2);
+    expect(typeof state.sessionActivity.last_message_at).toBe('string');
   });
 
   it('releases a new reservation when non-stream response saving fails', async () => {
@@ -371,10 +381,15 @@ function createProfilesQuery() {
 
 function createChatSessionsQuery() {
   const filters: Record<string, unknown> = {};
+  let updateValues: Record<string, unknown> | null = null;
   const chain = {
     select: () => chain,
     eq: (column: string, value: unknown) => {
       filters[column] = value;
+      return chain;
+    },
+    update: (values: Record<string, unknown>) => {
+      updateValues = values;
       return chain;
     },
     maybeSingle: async () => ({
@@ -384,6 +399,25 @@ function createChatSessionsQuery() {
           : null,
       error: null,
     }),
+    then: undefined,
+  };
+  const originalEq = chain.eq;
+  chain.eq = (column: string, value: unknown) => {
+    filters[column] = value;
+    if (updateValues && column === 'id' && value === SESSION_ID) {
+      state.sessionActivity = {
+        last_message_at:
+          typeof updateValues.last_message_at === 'string'
+            ? updateValues.last_message_at
+            : state.sessionActivity.last_message_at,
+        message_count:
+          typeof updateValues.message_count === 'number'
+            ? updateValues.message_count
+            : state.sessionActivity.message_count,
+      };
+      return Promise.resolve({ error: null }) as never;
+    }
+    return originalEq(column, value);
   };
   return chain;
 }
