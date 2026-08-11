@@ -87,6 +87,32 @@ interface RequestBody {
   assistantMessageId?: string;
 }
 
+async function syncChatSessionActivity(params: {
+  supabaseAdmin: SupabaseClient;
+  sessionId: string;
+  totalStoredMessages: number | null;
+}) {
+  const updateData: {
+    last_message_at: string;
+    message_count?: number;
+  } = {
+    last_message_at: new Date().toISOString(),
+  };
+
+  if (typeof params.totalStoredMessages === 'number') {
+    updateData.message_count = Math.max(1, params.totalStoredMessages + 1);
+  }
+
+  const { error } = await params.supabaseAdmin
+    .from('chat_sessions')
+    .update(updateData)
+    .eq('id', params.sessionId);
+
+  if (error) {
+    throw new Error(`CHAT_SESSION_ACTIVITY_UPDATE_FAILED: ${error.message}`);
+  }
+}
+
 export async function POST(request: NextRequest) {
   const requestStartedAt = Date.now();
   const requestId = randomUUID();
@@ -415,6 +441,11 @@ export async function POST(request: NextRequest) {
           marker: responseMarker,
           message: COACHING_SCOPE_GUIDANCE,
         });
+        await syncChatSessionActivity({
+          supabaseAdmin,
+          sessionId: recovery.sessionId,
+          totalStoredMessages: null,
+        });
       }
       const remaining =
         profile.role === 'admin'
@@ -652,6 +683,11 @@ export async function POST(request: NextRequest) {
           assistantMessageId: recovery.assistantMessageId,
           marker: responseMarker,
           message: completion.message,
+        });
+        await syncChatSessionActivity({
+          supabaseAdmin,
+          sessionId: recovery.sessionId,
+          totalStoredMessages: sessionContext.totalStoredMessages,
         });
         await persistResponseGateQualityIncidents({
           supabaseAdmin,

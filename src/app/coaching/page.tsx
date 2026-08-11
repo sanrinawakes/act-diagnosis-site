@@ -1309,15 +1309,8 @@ function CoachingContent() {
           CHAT_PERSIST_TIMEOUT_MS,
           'セッション情報の更新に時間がかかりすぎました。'
         );
-      } catch (persistErr) {
-        console.error('Failed to persist assistant message or session update:', persistErr);
-        reportClientChatFailure({
-          stage: 'save_response',
-          sessionId: activeSessionId,
-          elapsedMs: Date.now() - sendStartedAt,
-          hadPartialResponse: Boolean(assistantContent.trim()),
-          error: persistErr,
-        });
+      } catch (activityErr) {
+        console.warn('Failed to refresh session activity in browser:', activityErr);
       }
 
       // Refresh sidebar to update preview/count. Do not block the send button on sidebar refresh.
@@ -1371,15 +1364,8 @@ function CoachingContent() {
           'セッション情報の更新に時間がかかりすぎました。'
         );
         fetchSidebarSessions(sidebarSearch, sidebarTab, sidebarPage);
-      } catch (saveErr) {
-        console.error('Failed to persist fallback message:', saveErr);
-        reportClientChatFailure({
-          stage: 'save_response',
-          sessionId: activeSessionId,
-          elapsedMs: Date.now() - sendStartedAt,
-          hadPartialResponse: Boolean(assistantContent.trim()),
-          error: saveErr,
-        });
+      } catch (activityErr) {
+        console.warn('Failed to refresh session activity in browser:', activityErr);
       }
     } finally {
       sendInFlightRef.current = false;
