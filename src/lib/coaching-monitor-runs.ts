@@ -63,6 +63,11 @@ export type RecentAcceptedMonitorFailureAlert = {
   resendId: string | null;
 };
 
+export type ActiveCoachingMonitorRun = {
+  id: string;
+  checkedAt: string;
+};
+
 export type CoachingMonitorRunRecord = {
   id: string;
   status: MonitorRunStatus;
@@ -300,6 +305,59 @@ export async function updateCoachingMonitorAlertDelivery(
       `coaching monitor alert persistence failed: ${error.message}`
     );
   }
+}
+
+export async function findRecentRunningCoachingMonitorRun(
+  supabaseAdmin: SupabaseClient,
+  params: {
+    checkedAt: string;
+    cooldownMs?: number;
+  }
+): Promise<ActiveCoachingMonitorRun | null> {
+  const checkedAtMs = new Date(params.checkedAt).getTime();
+  if (!Number.isFinite(checkedAtMs)) {
+    throw new Error(
+      'coaching monitor active-run lookup failed: invalid checkedAt'
+    );
+  }
+
+  const cooldownMs = Math.max(
+    0,
+    params.cooldownMs ?? COACHING_MONITOR_STALE_AFTER_MS
+  );
+  const cutoff = new Date(checkedAtMs - cooldownMs).toISOString();
+
+  let response;
+  try {
+    response = await supabaseAdmin
+      .from('coaching_monitor_runs')
+      .select('id, checked_at')
+      .eq('monitor_path', COACHING_MONITOR_PATH)
+      .eq('status', 'running')
+      .gte('checked_at', cutoff)
+      .lt('checked_at', params.checkedAt)
+      .order('checked_at', { ascending: true })
+      .limit(1)
+      .abortSignal(AbortSignal.timeout(MONITOR_PERSISTENCE_TIMEOUT_MS))
+      .maybeSingle();
+  } catch (error) {
+    throw new Error(
+      `coaching monitor active-run lookup failed: ${getErrorMessage(error)}`
+    );
+  }
+
+  if (response.error) {
+    throw new Error(
+      `coaching monitor active-run lookup failed: ${response.error.message}`
+    );
+  }
+
+  if (!response.data) return null;
+
+  return {
+    id: String(response.data.id),
+    checkedAt: String(response.data.checked_at),
+  };
 }
 
 export async function findRecentAcceptedMonitorFailureAlert(
