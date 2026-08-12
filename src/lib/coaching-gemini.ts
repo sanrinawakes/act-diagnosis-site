@@ -3679,6 +3679,22 @@ export function buildFinalVerifiedQualityFallback(
   lastUserText: string,
   historyMessages: CoachingChatMessage[]
 ): string {
+  const reflectiveFeedbackFallback =
+    buildReflectiveFeedbackFallback(
+      lastUserText,
+      historyMessages
+    );
+  if (reflectiveFeedbackFallback) {
+    const reflectiveAssessment = assessCoachingResponseQuality({
+      text: reflectiveFeedbackFallback,
+      lastUserText,
+      historyMessages,
+    });
+    if (reflectiveAssessment.issues.length === 0) {
+      return reflectiveFeedbackFallback;
+    }
+  }
+
   const clarificationCorrectionFallback =
     buildClarificationCorrectionFallback(
       lastUserText,
@@ -5549,7 +5565,7 @@ function wasAssistantMoveAlreadyUsed(
 
 function requestsConcreteSuggestion(text: string) {
   return (
-    /提案(?:して|してください|してほしい|を(?:ください|お願い|求め))|方法|やり方|行動|一歩|できること|何をすれば|どうすれば|どうしたら/.test(
+    /提案(?:して|してください|してほしい|を(?:ください|お願い|求め))|方法|やり方|行動|できること|何をすれば|どうすれば|どうしたら|(?:次|最初|明日|具体的)の一歩|一歩(?:を|だけ|として|は)/.test(
       text
     ) ||
     /着手(?:する|の)?(?:方法|仕方|ため|コツ)|着手したい|着手するには/.test(
@@ -6946,6 +6962,47 @@ function buildBriefAcknowledgementFallback(
   }
 
   return '';
+}
+
+function buildReflectiveFeedbackFallback(
+  lastUserText: string,
+  historyMessages: CoachingChatMessage[]
+) {
+  const normalized = stripAttachmentMarkdown(lastUserText)
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (
+    normalized.length < 60 ||
+    /[？?]/.test(normalized)
+  ) {
+    return '';
+  }
+
+  const recentContext = [
+    ...historyMessages.slice(-4).map((message) => message.content),
+    lastUserText,
+  ]
+    .map((content) => stripAttachmentMarkdown(content))
+    .join('\n');
+  const discussesResponseStyle =
+    /回答|返し方|アドバイス|励まし|違和感|相談ではありません/.test(
+      normalized
+    ) ||
+    (/一般的/.test(normalized) &&
+      /現実的/.test(normalized) &&
+      /不快感|理解しました|納得/.test(normalized)) ||
+    /回答の仕方|返し方|違和感|一般的なアドバイス|決まりきった励まし/.test(
+      recentContext
+    );
+  const readsAsFeedback =
+    /ありがとう|ありがとうございます|納得|理解しました|心配/.test(
+      normalized
+    ) && !/どうすれば|どうしたら|教えて|聞かせて/.test(normalized);
+  if (!discussesResponseStyle || !readsAsFeedback) {
+    return '';
+  }
+
+  return '一般的な励ましが心地よかったことと、現実的な助言には少し痛みがあったことが伝わってきます。やわらかく受け取れる言葉も必要だった一方で、変わるには耳が痛い整理も避けられないと、ご自身で整理できています。\n\nこの共有は新しい相談ではなく、今後の返し方を見直すための大事な手がかりとして扱います。心地よかった点と引っかかった点がまた出てきた時は、その場で感じた言葉をそのまま伝えてもらえれば十分です。';
 }
 
 function buildIncomeCourseFallback(
