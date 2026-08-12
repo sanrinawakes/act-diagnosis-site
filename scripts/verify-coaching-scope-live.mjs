@@ -23,6 +23,10 @@ const scopeGuidance =
 const runId = `${Date.now()}-${randomUUID().slice(0, 8)}`;
 const email = `codex-scope-live-${runId}@example.com`;
 const password = `Scope-${randomUUID()}-9a!`;
+const testAccessStartedAt = new Date().toISOString();
+const testAccessExpiresAt = new Date(
+  Date.now() + 30 * 24 * 60 * 60 * 1000
+).toISOString();
 const requestHeaders = {
   'Content-Type': 'application/json',
   Accept: 'application/x-ndjson',
@@ -183,6 +187,8 @@ async function createTestMember() {
     is_active: true,
     subscription_status: 'active',
     subscribed_at: new Date().toISOString(),
+    awakes_access_started_at: testAccessStartedAt,
+    awakes_access_expires_at: testAccessExpiresAt,
     chat_count_month: 0,
     chat_month_start: getJapanMonthStartKey(),
   });
