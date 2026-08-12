@@ -14,6 +14,8 @@ const mocks = vi.hoisted(() => ({
   usageInsert: vi.fn(),
   quotaRpc: vi.fn(),
   profileCount: 9,
+  accessExpiresAt: '2099-12-31T00:00:00.000Z',
+  paidTestCredits: 0,
 }));
 
 vi.mock('@supabase/supabase-js', () => ({
@@ -49,6 +51,8 @@ describe('POST /api/chat scope guard', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.profileCount = 9;
+    mocks.accessExpiresAt = '2099-12-31T00:00:00.000Z';
+    mocks.paidTestCredits = 0;
 
     mocks.createServerClient.mockResolvedValue({
       auth: {
@@ -86,7 +90,8 @@ describe('POST /api/chat scope guard', () => {
                     role: 'member',
                     subscription_status: 'active',
                     is_active: true,
-                    paid_test_credits: 0,
+                    paid_test_credits: mocks.paidTestCredits,
+                    awakes_access_expires_at: mocks.accessExpiresAt,
                   },
                   error: null,
                 }),
@@ -152,6 +157,20 @@ describe('POST /api/chat scope guard', () => {
         },
       });
     });
+  });
+
+  it('rejects an expired AWAKES member before quota or AI, even with a paid diagnosis credit', async () => {
+    mocks.accessExpiresAt = '2020-01-01T00:00:00.000Z';
+    mocks.paidTestCredits = 1;
+
+    const response = await POST(createAllowedRequest(true));
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({
+      error: 'AWAKES会員期限または利用権限を確認できません。',
+    });
+    expect(mocks.quotaRpc).not.toHaveBeenCalled();
+    expect(mocks.generateCoachingText).not.toHaveBeenCalled();
   });
 
   it('records and returns a blocked stream without calling an AI provider', async () => {

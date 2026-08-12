@@ -2,9 +2,11 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { usePathname } from 'next/navigation';
 import { createClient } from '@/lib/supabase';
 import { restoreSessionFromCookie } from '@/lib/restore-session';
 import { withAuthTimeout } from '@/lib/auth-flow';
+import { hasCoachingAccess, hasPaidDiagnosisAccess } from '@/lib/coaching-access';
 
 const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -14,6 +16,7 @@ const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
  */
 export function useSubscriptionGuard() {
   const router = useRouter();
+  const pathname = usePathname();
   const supabase = createClient();
   const [loading, setLoading] = useState(true);
   const [allowed, setAllowed] = useState(false);
@@ -47,7 +50,7 @@ export function useSubscriptionGuard() {
         let { data: profile, error } = await withAuthTimeout(
           supabase
             .from('profiles')
-            .select('subscription_status, is_active, role, paid_test_credits')
+            .select('subscription_status, is_active, role, paid_test_credits, awakes_access_expires_at')
             .eq('id', user.id)
             .single(),
           '会員状態の確認に時間がかかりすぎました。'
@@ -58,7 +61,7 @@ export function useSubscriptionGuard() {
           const retry = await withAuthTimeout(
             supabase
               .from('profiles')
-              .select('subscription_status, is_active, role, paid_test_credits')
+              .select('subscription_status, is_active, role, paid_test_credits, awakes_access_expires_at')
               .eq('id', user.id)
               .single(),
             '会員状態の再確認に時間がかかりすぎました。'
@@ -74,24 +77,17 @@ export function useSubscriptionGuard() {
           return;
         }
 
-        // Admins always have access
-        if (profile?.role === 'admin') {
-          setAllowed(true);
-          setLoading(false);
-          return;
-        }
-
-        // Check if user has active subscription OR paid test credits
-        const hasActiveSubscription = profile?.subscription_status === 'active' && profile?.is_active;
-        const hasPaidTestCredits = (profile?.paid_test_credits || 0) > 0;
-
-        if (!hasActiveSubscription && !hasPaidTestCredits) {
+        const hasAccess = pathname.startsWith('/coaching')
+          ? hasCoachingAccess(profile)
+          : hasPaidDiagnosisAccess(profile);
+        if (!hasAccess) {
           setLoading(false);
           router.push('/subscription-required');
           return;
         }
 
-        // User has active subscription or paid test credits
+        // Coaching requires a current AWAKES term. Paid diagnosis credits are
+        // accepted only on diagnosis/results routes.
         setAllowed(true);
         setLoading(false);
       } catch (err) {
@@ -102,7 +98,7 @@ export function useSubscriptionGuard() {
     };
 
     checkSubscription();
-  }, [router, supabase]);
+  }, [pathname, router, supabase]);
 
   return { loading, allowed };
 }

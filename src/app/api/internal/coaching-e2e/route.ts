@@ -239,6 +239,10 @@ async function createTestSession(
     is_active: true,
     subscription_status: 'active',
     subscribed_at: new Date().toISOString(),
+    awakes_access_started_at: new Date().toISOString(),
+    awakes_access_expires_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+    awakes_access_updated_at: new Date().toISOString(),
+    awakes_access_source: 'internal-e2e',
     chat_count_month: 0,
     chat_month_start: getJapanMonthStartKey(),
   });

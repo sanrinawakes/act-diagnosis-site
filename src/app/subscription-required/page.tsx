@@ -40,6 +40,8 @@ export default function SubscriptionRequired() {
         return 'Awakesオンラインスクールの会員ステータスが「退会済み」になっています。';
       case 'payment_failed':
         return 'Awakesオンラインスクールの決済に問題が発生しています。';
+      case 'expired':
+        return 'AWAKESの会員利用期間が終了しています。更新完了後に再びご利用いただけます。';
       case 'none':
       default:
         return 'このサイトを利用するには、Awakesオンラインスクールの有料会員である必要があります。';
@@ -90,6 +92,8 @@ export default function SubscriptionRequired() {
                           className={`font-medium ${
                             subscriptionStatus === 'active'
                               ? 'text-green-600'
+                              : subscriptionStatus === 'expired'
+                              ? 'text-gray-600'
                               : subscriptionStatus === 'cancelled'
                               ? 'text-red-600'
                               : 'text-yellow-600'
@@ -97,6 +101,8 @@ export default function SubscriptionRequired() {
                         >
                           {subscriptionStatus === 'active'
                             ? '有効'
+                            : subscriptionStatus === 'expired'
+                            ? '期限切れ'
                             : subscriptionStatus === 'cancelled'
                             ? '退会済み'
                             : subscriptionStatus === 'payment_failed'

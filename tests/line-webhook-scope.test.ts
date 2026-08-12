@@ -29,4 +29,15 @@ describe('LINE webhook cost and scope guard', () => {
     expect(source).toContain('buildMonthlyQuotaError(MONTHLY_COACHING_LIMIT)');
     expect(source).toContain('releaseMonthlyQuota({');
   });
+
+  it('never creates a LINE profile and requires a current AWAKES entitlement before using AI', () => {
+    const accessIndex = source.indexOf('if (!profile || !hasCoachingAccess(profile))');
+    const providerIndex = source.indexOf('const aiResponse = await generateCoachingResponse');
+
+    expect(source).not.toContain('auth.admin.createUser');
+    expect(source).not.toContain('@line.placeholder');
+    expect(source).toContain('awakes_access_expires_at');
+    expect(accessIndex).toBeGreaterThan(-1);
+    expect(providerIndex).toBeGreaterThan(accessIndex);
+  });
 });

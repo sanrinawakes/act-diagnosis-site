@@ -5,6 +5,10 @@
     {
       "path": "/api/monitor/coaching",
       "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/cron/awakes-access",
+      "schedule": "*/10 * * * *"
     }
   ]
 }

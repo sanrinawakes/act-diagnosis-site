@@ -345,6 +345,8 @@ export default function UserManagement() {
                                 className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
                                   (user as any).subscription_status === 'active'
                                     ? 'bg-emerald-100 text-emerald-800'
+                                    : (user as any).subscription_status === 'expired'
+                                    ? 'bg-gray-100 text-gray-800'
                                     : (user as any).subscription_status === 'cancelled'
                                     ? 'bg-red-100 text-red-800'
                                     : (user as any).subscription_status === 'payment_failed'
@@ -354,6 +356,8 @@ export default function UserManagement() {
                               >
                                 {(user as any).subscription_status === 'active'
                                   ? '有料会員'
+                                  : (user as any).subscription_status === 'expired'
+                                  ? '期限切れ'
                                   : (user as any).subscription_status === 'cancelled'
                                   ? '退会済み'
                                   : (user as any).subscription_status === 'payment_failed'

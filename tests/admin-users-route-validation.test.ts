@@ -15,5 +15,7 @@ describe('admin users route validation', () => {
     expect(route).toContain("typeof is_active !== 'boolean'");
     expect(route).toContain('PROFILE_ID_PATTERN.test(user_id)');
     expect(route).toContain('function isRecord');
+    expect(route).toContain("select('awakes_access_expires_at')");
+    expect(route).toContain('Date.parse(entitlement.awakes_access_expires_at) <= Date.now()');
   });
 });

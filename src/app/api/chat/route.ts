@@ -49,6 +49,7 @@ import {
   type MonthlyQuotaReservation,
 } from '@/lib/coaching-quota';
 import { hasAllowedRequestOrigin } from '@/lib/request-origin';
+import { hasCoachingAccess } from '@/lib/coaching-access';
 
 export const runtime = 'nodejs';
 // Vercel関数のデフォルト打ち切り(Hobby 10s)を延長し、Gemini生成の途中切断を防ぐ
@@ -208,7 +209,7 @@ export async function POST(request: NextRequest) {
       const profileResult = await withStageTimeout(
         supabaseAdmin
           .from('profiles')
-          .select('chat_count_month, chat_month_start, role, subscription_status, is_active, paid_test_credits')
+          .select('chat_count_month, chat_month_start, role, subscription_status, is_active, paid_test_credits, awakes_access_expires_at')
           .eq('id', user.id)
           .single(),
         PROFILE_TIMEOUT_MS,
@@ -237,16 +238,11 @@ export async function POST(request: NextRequest) {
 
     // 有料機能ガード（middleware.ts / useSubscriptionGuard.ts と同条件）。
     // 通常UIはmiddlewareで弾かれるが、APIを直接叩く経路の防御。
-    if (profile && profile.role !== 'admin') {
-      const hasActiveSubscription =
-        profile.subscription_status === 'active' && profile.is_active;
-      const hasPaidTestCredits = (profile.paid_test_credits || 0) > 0;
-      if (!hasActiveSubscription && !hasPaidTestCredits) {
-        return NextResponse.json(
-          { error: '有料会員のみご利用いただけます。' },
-          { status: 403 }
-        );
-      }
+    if (!hasCoachingAccess(profile)) {
+      return NextResponse.json(
+        { error: 'AWAKES会員期限または利用権限を確認できません。' },
+        { status: 403 }
+      );
     }
 
     const monthlyQuota = getMonthlyQuotaState(profile);

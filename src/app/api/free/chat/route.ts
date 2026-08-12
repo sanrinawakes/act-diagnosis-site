@@ -36,6 +36,7 @@ import {
   createScopeBlockedStream,
 } from '@/lib/coaching-scope';
 import { hasAllowedRequestOrigin } from '@/lib/request-origin';
+import { isFormerAwakesMemberWithoutAccess } from '@/lib/coaching-access';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -167,6 +168,23 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
+    const supabase = createAdminClient();
+    const { data: accessProfile, error: accessProfileError } = await supabase
+      .from('profiles')
+      .select('role, subscription_status, is_active, awakes_access_started_at, awakes_access_expires_at')
+      .eq('id', user.id)
+      .maybeSingle();
+    if (accessProfileError) {
+      console.error('Free coaching AWAKES access lookup failed');
+      return NextResponse.json({ error: '会員情報を確認できません。' }, { status: 503 });
+    }
+    if (isFormerAwakesMemberWithoutAccess(accessProfile)) {
+      return NextResponse.json(
+        { error: 'AWAKESの会員利用期間が終了しているため、AIコーチングは利用できません。' },
+        { status: 403 }
+      );
+    }
+
     if (!messages || messages.length === 0) {
       return NextResponse.json(
         { error: 'No messages provided' },
@@ -227,7 +245,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: attachmentError }, { status: 400 });
     }
 
-    const supabase = createAdminClient();
     const attachmentStartedAt = Date.now();
     let inlineAttachments;
     try {

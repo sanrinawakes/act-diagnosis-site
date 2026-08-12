@@ -16,11 +16,12 @@ describe('member import authorization', () => {
     expect(source).toContain('const importedEmails = new Set<string>()');
   });
 
-  it('records pending entitlements without activating an existing account by email match', () => {
-    expect(source).toContain(".from('pending_activations')");
+  it('requires a verified start date and renewal cycle for every imported term', () => {
+    expect(source).toContain("p_event_type: 'legacy_import'");
+    expect(source).toContain('p_occurred_at: member.startedAt');
+    expect(source).toContain('p_renewal_cycle: member.renewalCycle');
     expect(source).not.toContain(".from('profiles')");
     expect(source).not.toContain("subscription_status: 'active'");
-    expect(source).not.toContain('activated_existing');
   });
 
   it('does not reset a consumed entitlement when the same email is imported again', () => {

@@ -182,7 +182,7 @@ export async function PATCH(request: NextRequest) {
       updateData.role = role;
     }
     if (body.subscription_status !== undefined) {
-      const validStatuses = ['none', 'active', 'cancelled', 'payment_failed'];
+      const validStatuses = ['none', 'active', 'expired', 'cancelled', 'payment_failed'];
       if (
         typeof body.subscription_status !== 'string' ||
         !validStatuses.includes(body.subscription_status)
@@ -190,8 +190,23 @@ export async function PATCH(request: NextRequest) {
         return NextResponse.json({ error: '無効な会員ステータスです' }, { status: 400 });
       }
       updateData.subscription_status = body.subscription_status;
-      // activeに変更する場合はsubscribed_atも設定
+      // A manual status change must never invent or extend an AWAKES term.
       if (body.subscription_status === 'active') {
+        const { data: entitlement, error: entitlementError } = await adminClient
+          .from('profiles')
+          .select('awakes_access_expires_at')
+          .eq('id', user_id)
+          .single();
+        if (
+          entitlementError ||
+          !entitlement?.awakes_access_expires_at ||
+          Date.parse(entitlement.awakes_access_expires_at) <= Date.now()
+        ) {
+          return NextResponse.json(
+            { error: '期限内のAWAKES会員情報がないため有効化できません' },
+            { status: 409 }
+          );
+        }
         updateData.subscribed_at = new Date().toISOString();
         updateData.is_active = true;
       }

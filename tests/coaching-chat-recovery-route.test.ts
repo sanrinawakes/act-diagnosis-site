@@ -369,6 +369,7 @@ function createProfilesQuery() {
                 subscription_status: 'active',
                 is_active: true,
                 paid_test_credits: 0,
+                awakes_access_expires_at: '2099-12-31T00:00:00.000Z',
               },
               error: null,
             }),
