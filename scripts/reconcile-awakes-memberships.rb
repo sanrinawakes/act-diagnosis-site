@@ -143,6 +143,7 @@ def call_rpc(base_url, service_key, function_name, payload)
   request['apikey'] = service_key
   request['Authorization'] = "Bearer #{service_key}"
   request['Content-Type'] = 'application/json'
+  request['Accept-Encoding'] = 'identity'
   request.body = JSON.generate(payload)
   response = Net::HTTP.start(uri.host, uri.port, use_ssl: uri.scheme == 'https') do |http|
     http.open_timeout = 10
