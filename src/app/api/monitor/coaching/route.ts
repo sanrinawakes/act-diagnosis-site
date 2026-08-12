@@ -39,6 +39,7 @@ const MONITOR_CHAT_TIMEOUT_MS = Math.max(
   5000,
   Math.min(45000, maxTotalMs + 5000)
 );
+const MONITOR_CONCURRENCY_WINDOW_MS = 2 * 60 * 1000;
 
 type MonitorResult = {
   status: number;
@@ -104,6 +105,29 @@ export async function GET(request: NextRequest) {
     const authError = validateMonitorAuthorization(request);
     if (authError) {
       return NextResponse.json({ error: authError }, { status: 401 });
+    }
+
+    const activeMonitorRun = await findActiveCoachingMonitorRun(supabaseAdmin);
+    if (activeMonitorRun) {
+      console.warn(
+        JSON.stringify({
+          event: 'coaching_monitor_skipped_concurrent',
+          route: '/api/monitor/coaching',
+          monitorPath: COACHING_MONITOR_PATH,
+          activeMonitorRunId: activeMonitorRun.id,
+          activeCheckedAt: activeMonitorRun.checkedAt,
+        })
+      );
+      return NextResponse.json(
+        {
+          ok: true,
+          skipped: true,
+          reason: 'concurrent_monitor_running',
+          activeMonitorRunId: activeMonitorRun.id,
+          activeCheckedAt: activeMonitorRun.checkedAt,
+        },
+        { headers: { 'Cache-Control': 'no-store' } }
+      );
     }
 
     await persistCoachingMonitorRun(
@@ -976,6 +1000,49 @@ function getBaseUrl(request: NextRequest) {
   if (process.env.NEXT_PUBLIC_SITE_URL) return process.env.NEXT_PUBLIC_SITE_URL;
   if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
   return requestOrigin;
+}
+
+async function findActiveCoachingMonitorRun(supabaseAdmin: SupabaseClient): Promise<{
+  id: string;
+  checkedAt: string;
+} | null> {
+  const cutoff = new Date(
+    Date.now() - MONITOR_CONCURRENCY_WINDOW_MS
+  ).toISOString();
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('coaching_monitor_runs')
+      .select('id, checked_at')
+      .eq('status', 'running')
+      .gt('checked_at', cutoff)
+      .order('checked_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) {
+      console.error(
+        JSON.stringify({
+          event: 'coaching_monitor_concurrency_lookup_failed',
+          route: '/api/monitor/coaching',
+          error: error.message,
+        })
+      );
+      return null;
+    }
+    if (!data) return null;
+    return {
+      id: String(data.id),
+      checkedAt: String(data.checked_at),
+    };
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        event: 'coaching_monitor_concurrency_lookup_failed',
+        route: '/api/monitor/coaching',
+        error: error instanceof Error ? error.message : String(error),
+      })
+    );
+    return null;
+  }
 }
 
 function withMonitorTimeout<T>(

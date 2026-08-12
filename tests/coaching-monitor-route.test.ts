@@ -4,6 +4,7 @@ import { NextRequest } from 'next/server';
 const mocks = vi.hoisted(() => ({
   createSupabaseClient: vi.fn(),
   createSsrClient: vi.fn(),
+  activeRunningMonitor: vi.fn(),
   persistMonitorRun: vi.fn(),
   recoverStaleRuns: vi.fn(),
   findRecentAcceptedFailureAlert: vi.fn(),
@@ -108,6 +109,7 @@ describe('GET /api/monitor/coaching maintenance isolation', () => {
       }
     );
     mocks.persistMonitorRun.mockResolvedValue('monitor-run-id');
+    mocks.activeRunningMonitor.mockReturnValue(null);
     mocks.findRecentAcceptedFailureAlert.mockResolvedValue(null);
     mocks.recoverStaleRuns.mockResolvedValue({
       runs: [],
@@ -265,6 +267,29 @@ describe('GET /api/monitor/coaching maintenance isolation', () => {
       staleRecoveryStatus: 'complete',
       staleRecoveryError: null,
     });
+    expect(mocks.sendAlert).not.toHaveBeenCalled();
+  });
+
+  it('skips duplicate execution while another monitor run is still active', async () => {
+    mocks.activeRunningMonitor.mockReturnValue({
+      id: 'existing-monitor-run',
+      checked_at: '2026-08-12T01:12:07.870Z',
+    });
+
+    const response = await GET(createMonitorRequest());
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toEqual({
+      ok: true,
+      skipped: true,
+      reason: 'concurrent_monitor_running',
+      activeMonitorRunId: 'existing-monitor-run',
+      activeCheckedAt: '2026-08-12T01:12:07.870Z',
+    });
+    expect(mocks.persistMonitorRun).not.toHaveBeenCalled();
+    expect(mocks.assertHealthy).not.toHaveBeenCalled();
+    expect(mocks.auditStoredQuality).not.toHaveBeenCalled();
     expect(mocks.sendAlert).not.toHaveBeenCalled();
   });
 
@@ -464,6 +489,34 @@ function createAdminClient() {
           delete() {
             return {
               eq: async () => ({ error: null }),
+            };
+          },
+        };
+      }
+      if (table === 'coaching_monitor_runs') {
+        return {
+          select() {
+            return {
+              eq() {
+                return {
+                  gt() {
+                    return {
+                      order() {
+                        return {
+                          limit() {
+                            return {
+                              maybeSingle: async () => ({
+                                data: mocks.activeRunningMonitor(),
+                                error: null,
+                              }),
+                            };
+                          },
+                        };
+                      },
+                    };
+                  },
+                };
+              },
             };
           },
         };
