@@ -38,6 +38,10 @@ const admin = createClient(supabaseUrl, serviceRoleKey, {
 const runId = `${Date.now()}-${randomUUID().slice(0, 8)}`;
 const email = `codex-quality-${runId}@example.com`;
 const password = `Quality-${randomUUID()}-9a!`;
+const testAccessStartedAt = new Date().toISOString();
+const testAccessExpiresAt = new Date(
+  Date.now() + 30 * 24 * 60 * 60 * 1000
+).toISOString();
 const createdSessionIds = [];
 let userId = null;
 let accessToken = null;
@@ -164,6 +168,8 @@ async function createTestMember() {
     is_active: true,
     subscription_status: 'active',
     subscribed_at: new Date().toISOString(),
+    awakes_access_started_at: testAccessStartedAt,
+    awakes_access_expires_at: testAccessExpiresAt,
   });
   if (profileError) {
     throw new Error(`Failed to activate quality test user: ${profileError.message}`);

@@ -5210,6 +5210,26 @@ describe('normalizeCoachingOutput', () => {
     expect(fallback).not.toMatch(/下書き|1行|パソコン/);
   });
 
+  it('仕事内容が不明なのに入力作業を作る回答は不合格にする', () => {
+    const lastUserText = '仕事を完璧にしようとして着手できません。';
+    const rawText =
+      '仕事を完璧に仕上げようとするあまり、なかなか手をつけることができずに悩んでいるんですね。その真面目さゆえに、始めることへの心理的なハードルが高くなっている状態なのだと思います。\n\nまずは、明日どの仕事の入力から始めてみますか。';
+    const assessment = assessCoachingResponseQuality({
+      text: rawText,
+      lastUserText,
+    });
+    const fallback = buildFinalVerifiedQualityFallback(lastUserText, []);
+    const fallbackAssessment = assessCoachingResponseQuality({
+      text: fallback,
+      lastUserText,
+    });
+
+    expect(assessment.issues).toContain('ungrounded_task_assumption');
+    expect(fallbackAssessment.issues).toEqual([]);
+    expect(fallback).toMatch(/完璧|完成条件|条件/);
+    expect(fallback).not.toMatch(/入力/);
+  });
+
   it('仕事内容が不明な能力評価の不安へ関係者への共有を指示しない', () => {
     const assessment = assessCoachingResponseQuality({
       text: '失敗そのものより、周囲に能力がないと思われることが怖いのですね。明日は、着手して15分後に、関係者へ途中の内容を見せて確認してください。',

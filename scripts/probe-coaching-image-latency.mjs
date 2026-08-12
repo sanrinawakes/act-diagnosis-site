@@ -36,6 +36,10 @@ const admin = createClient(supabaseUrl, serviceRoleKey, {
 const runId = `${Date.now()}-${randomUUID().slice(0, 8)}`;
 const email = `codex-image-probe-${runId}@example.com`;
 const password = `Image-${randomUUID()}-9a!`;
+const testAccessStartedAt = new Date().toISOString();
+const testAccessExpiresAt = new Date(
+  Date.now() + 30 * 24 * 60 * 60 * 1000
+).toISOString();
 let userId = null;
 const attachmentPaths = [];
 
@@ -65,6 +69,8 @@ try {
     is_active: true,
     subscription_status: 'active',
     subscribed_at: new Date().toISOString(),
+    awakes_access_started_at: testAccessStartedAt,
+    awakes_access_expires_at: testAccessExpiresAt,
     chat_count_month: 0,
     chat_month_start: getJapanMonthStartKey(),
   });
