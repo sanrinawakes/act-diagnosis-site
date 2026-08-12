@@ -62,8 +62,48 @@ describe('POST /api/myasp/renewal', () => {
     const duplicate = await POST(request({ secret: 'renewal-secret', mail: 'm@example.test', event_id: 'x' }));
     expect(await duplicate.json()).toMatchObject({ action: 'already_applied' });
 
-    mocks.rpc.mockResolvedValueOnce({ data: [{ status: 'membership_missing', access_expires_at: null }], error: null });
-    const missing = await POST(request({ secret: 'renewal-secret', mail: 'm@example.test', event_id: 'y' }));
-    expect(missing.status).toBe(409);
+    mocks.rpc
+      .mockResolvedValueOnce({ data: [{ status: 'membership_missing', access_expires_at: null }], error: null })
+      .mockResolvedValueOnce({ data: [{ status: 'applied', access_expires_at: '2027-01-01T00:00:00.000Z' }], error: null });
+    const bootstrapped = await POST(request({ secret: 'renewal-secret', mail: 'm@example.test', event_id: 'y' }));
+    expect(bootstrapped.status).toBe(200);
+    expect(await bootstrapped.json()).toMatchObject({
+      action: 'renewed',
+      bootstrapped_from_renewal: true,
+      access_expires_at: '2027-01-01T00:00:00.000Z',
+    });
+    expect(mocks.rpc).toHaveBeenNthCalledWith(2, 'apply_awakes_membership_event', {
+      p_email: 'm@example.test',
+      p_event_type: 'renewal',
+      p_external_event_id: 'y',
+      p_occurred_at: expect.any(String),
+      p_renewal_cycle: 0,
+      p_source: 'myasp-renewal',
+    });
+    expect(mocks.rpc).toHaveBeenNthCalledWith(3, 'apply_awakes_membership_event', {
+      p_email: 'm@example.test',
+      p_event_type: 'initial',
+      p_external_event_id: 'y',
+      p_occurred_at: expect.any(String),
+      p_renewal_cycle: 0,
+      p_source: 'myasp-renewal',
+    });
+  });
+
+  it('keeps cancelled or payment-failed accounts closed during renewal bootstrap', async () => {
+    mocks.rpc
+      .mockResolvedValueOnce({ data: [{ status: 'membership_missing', access_expires_at: null }], error: null })
+      .mockResolvedValueOnce({ data: [{ status: 'account_not_eligible', access_expires_at: null }], error: null });
+
+    const response = await POST(request({
+      secret: 'renewal-secret',
+      mail: 'm@example.test',
+      event_id: 'z',
+    }));
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({
+      error: 'Account is not eligible for automatic activation',
+    });
   });
 });
