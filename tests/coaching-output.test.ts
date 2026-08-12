@@ -865,6 +865,40 @@ describe('ensureVerifiedCoachingResolution', () => {
     expect(result.text).not.toContain('という相談ですね');
   });
 
+  it('長文の感想共有とお礼を新しい相談へ戻さない', () => {
+    const historyMessages = [
+      {
+        role: 'user' as const,
+        content:
+          '以前と回答のしかたが違うので、なにか、変化があるのかとおもいました。',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          '以前と回答の仕方が変わり、戸惑わせてしまいましたね。\n\n実は、よりお一人おひとりの状況に寄り添い、具体的で現実に役立つお返事ができるよう、会話の仕組みを新しく整えました。以前に比べて、一般的なアドバイスや決まりきった励ましを減らし、今抱えている問題の整理や、次に試せる具体的な一歩を丁寧にお伝えする形に変わっています。\n\nもし、以前のやり取りのほうが話しやすかった点や、今の返し方で違和感がある部分があれば、ぜひ聞かせてもらえますか。',
+      },
+    ];
+    const lastUserText =
+      '一般的なアドバイスや決まりきった励ましのところに納得しました。わたしはそれを心地よいとかんじていたのかもしれません。現実的に考えるアドバイスが増えたのは、わたしの思考の欠点を表出させていて、そこをつつかれていることに少し不快感がでたのだと思います。ですが、それを改善することこそが変われる一歩だと理解しました。ありがとうございます。';
+
+    const fallback = buildFinalVerifiedQualityFallback(
+      lastUserText,
+      historyMessages
+    );
+    const assessment = assessCoachingResponseQuality({
+      text: fallback,
+      lastUserText,
+      historyMessages,
+    });
+
+    expect(fallback).toContain(
+      '一般的な励ましが心地よかったことと、現実的な助言には少し痛みがあったこと'
+    );
+    expect(fallback).toContain('この共有は新しい相談ではなく');
+    expect(fallback).not.toMatch(/次に困る場面|教えてください|何ですか\?|何ですか？/);
+    expect(assessment.issues).toEqual([]);
+  });
+
   it('最終日が終わった短い更新を古い恋愛文脈へ引き戻さない', () => {
     const historyMessages = [
       {
