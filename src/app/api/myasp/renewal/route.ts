@@ -14,6 +14,11 @@ function createAdminClient() {
   });
 }
 
+type MembershipEventResult = {
+  status?: string | null;
+  access_expires_at?: string | null;
+};
+
 export async function POST(request: NextRequest) {
   try {
     const body = await readWebhookBody(request);
@@ -38,26 +43,46 @@ export async function POST(request: NextRequest) {
       .trim()
       .slice(0, 100);
     const occurredAt = readOccurredAt(body.occurred_at || body.paid_at);
-    const { data, error } = await createAdminClient().rpc(
-      'apply_awakes_membership_event',
-      {
+    const adminClient = createAdminClient();
+    let result = await applyMembershipEvent(adminClient, {
+      p_email: email,
+      p_event_type: 'renewal',
+      p_external_event_id: externalEventId,
+      p_occurred_at: occurredAt,
+      // The database derives the next cycle atomically from each unique paid
+      // event. MyASP must not carry a manually updated year counter.
+      p_renewal_cycle: 0,
+      p_source: source,
+    });
+    let bootstrappedFromRenewal = false;
+
+    if (result?.status === 'membership_missing') {
+      console.warn(
+        'MyASP renewal bootstrapping missing initial membership via paid renewal'
+      );
+      result = await applyMembershipEvent(adminClient, {
         p_email: email,
-        p_event_type: 'renewal',
+        p_event_type: 'initial',
         p_external_event_id: externalEventId,
         p_occurred_at: occurredAt,
-        // The database derives the next cycle atomically from each unique paid
-        // event. MyASP must not carry a manually updated year counter.
         p_renewal_cycle: 0,
         p_source: source,
-      }
-    );
-    if (error) throw error;
+      });
+      bootstrappedFromRenewal = true;
+    }
 
-    const result = Array.isArray(data) ? data[0] : data;
     if (result?.status === 'membership_missing') {
-      console.error('MyASP renewal could not find an initial membership');
+      console.error('MyASP renewal could not create a missing membership');
       return NextResponse.json(
         { error: 'Initial membership is missing' },
+        { status: 409 }
+      );
+    }
+
+    if (result?.status === 'account_not_eligible') {
+      console.error('MyASP renewal did not reopen a cancelled entitlement');
+      return NextResponse.json(
+        { error: 'Account is not eligible for automatic activation' },
         { status: 409 }
       );
     }
@@ -66,11 +91,31 @@ export async function POST(request: NextRequest) {
       success: true,
       action: result?.status === 'duplicate' ? 'already_applied' : 'renewed',
       access_expires_at: result?.access_expires_at || null,
+      bootstrapped_from_renewal: bootstrappedFromRenewal,
     });
   } catch (error) {
     console.error('MyASP renewal webhook error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
+}
+
+async function applyMembershipEvent(
+  adminClient: ReturnType<typeof createAdminClient>,
+  payload: {
+    p_email: string;
+    p_event_type: 'initial' | 'renewal';
+    p_external_event_id: string;
+    p_occurred_at: string;
+    p_renewal_cycle: number;
+    p_source: string;
+  }
+) {
+  const { data, error } = await adminClient.rpc(
+    'apply_awakes_membership_event',
+    payload
+  );
+  if (error) throw error;
+  return (Array.isArray(data) ? data[0] : data) as MembershipEventResult;
 }
 
 async function readWebhookBody(request: NextRequest) {
