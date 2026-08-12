@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   createSupabaseClient: vi.fn(),
   createSsrClient: vi.fn(),
   persistMonitorRun: vi.fn(),
+  findRecentRunningMonitor: vi.fn(),
   recoverStaleRuns: vi.fn(),
   findRecentAcceptedFailureAlert: vi.fn(),
   updateAlertDelivery: vi.fn(),
@@ -32,6 +33,7 @@ vi.mock('../src/lib/coaching-monitor-runs', async (importOriginal) => {
   return {
     ...actual,
     persistCoachingMonitorRun: mocks.persistMonitorRun,
+    findRecentRunningCoachingMonitorRun: mocks.findRecentRunningMonitor,
     recoverStaleCoachingMonitorRuns: mocks.recoverStaleRuns,
     findRecentAcceptedMonitorFailureAlert:
       mocks.findRecentAcceptedFailureAlert,
@@ -108,6 +110,7 @@ describe('GET /api/monitor/coaching maintenance isolation', () => {
       }
     );
     mocks.persistMonitorRun.mockResolvedValue('monitor-run-id');
+    mocks.findRecentRunningMonitor.mockResolvedValue(null);
     mocks.findRecentAcceptedFailureAlert.mockResolvedValue(null);
     mocks.recoverStaleRuns.mockResolvedValue({
       runs: [],
@@ -247,6 +250,28 @@ describe('GET /api/monitor/coaching maintenance isolation', () => {
         }),
       })
     );
+  });
+
+  it('skips duplicate execution when another monitor run is still active', async () => {
+    mocks.findRecentRunningMonitor.mockResolvedValue({
+      id: 'active-monitor-run-id',
+      checkedAt: '2026-08-12T01:12:03.110Z',
+    });
+
+    const response = await GET(createMonitorRequest());
+    const body = await response.json();
+
+    expect(response.status).toBe(202);
+    expect(body).toMatchObject({
+      ok: true,
+      skipped: true,
+      activeMonitorRunId: 'active-monitor-run-id',
+      reason: 'another coaching monitor run is still active',
+    });
+    expect(mocks.persistMonitorRun).not.toHaveBeenCalled();
+    expect(mocks.assertHealthy).not.toHaveBeenCalled();
+    expect(mocks.sendAlert).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it('suppresses a transient maintenance timeout after the retry succeeds', async () => {

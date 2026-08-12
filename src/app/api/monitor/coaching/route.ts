@@ -6,6 +6,7 @@ import { sendCoachingAlert } from '@/lib/coaching-alerts';
 import {
   buildCoachingMonitorRunRecord,
   COACHING_MONITOR_PATH,
+  findRecentRunningCoachingMonitorRun,
   findRecentAcceptedMonitorFailureAlert,
   persistCoachingMonitorRun,
   recoverStaleCoachingMonitorRuns,
@@ -104,6 +105,36 @@ export async function GET(request: NextRequest) {
     const authError = validateMonitorAuthorization(request);
     if (authError) {
       return NextResponse.json({ error: authError }, { status: 401 });
+    }
+
+    const activeMonitorRun = await findRecentRunningCoachingMonitorRun(
+      supabaseAdmin,
+      { checkedAt }
+    );
+    if (activeMonitorRun) {
+      console.warn(
+        JSON.stringify({
+          event: 'coaching_monitor_duplicate_skipped',
+          route: '/api/monitor/coaching',
+          monitorPath: COACHING_MONITOR_PATH,
+          monitorRunId,
+          checkedAt,
+          activeMonitorRunId: activeMonitorRun.id,
+          activeCheckedAt: activeMonitorRun.checkedAt,
+        })
+      );
+      return NextResponse.json(
+        {
+          ok: true,
+          skipped: true,
+          checkedAt,
+          monitorRunId,
+          activeMonitorRunId: activeMonitorRun.id,
+          activeCheckedAt: activeMonitorRun.checkedAt,
+          reason: 'another coaching monitor run is still active',
+        },
+        { status: 202, headers: { 'Cache-Control': 'no-store' } }
+      );
     }
 
     await persistCoachingMonitorRun(
