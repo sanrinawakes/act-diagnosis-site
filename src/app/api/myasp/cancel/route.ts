@@ -16,9 +16,11 @@ function createAdminClient() {
 }
 
 /**
- * MyASP Cancellation / Payment Failure Webhook
+ * MyASP Cancellation Webhook
  *
- * Called when a user cancels their subscription or payment fails on MyASP.
+ * Called only when a user cancels their subscription on MyASP. Recurring
+ * payment failures use /api/myasp/payment-state so they can be restored by a
+ * later successful retry without being confused with an explicit cancellation.
  * - Finds user by email and deactivates their account
  *
  * MyASP sends POST with form data (application/x-www-form-urlencoded):
