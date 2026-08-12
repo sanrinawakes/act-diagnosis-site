@@ -41,6 +41,7 @@ import {
   type MonthlyQuotaReservation,
 } from '@/lib/coaching-quota';
 import { getJapanMonthStartKey } from '@/lib/japan-date';
+import { hasCoachingAccess } from '@/lib/coaching-access';
 
 export const runtime = 'nodejs';
 const MAX_LINE_MESSAGE_CHARS = 2000;
@@ -168,7 +169,7 @@ async function processEvent(event: LineWebhookEvent): Promise<void> {
   }
 
   let quotaReservation: MonthlyQuotaReservation | null = null;
-  let profile: { id: string; line_user_id: string } | null = null;
+  let profile: LineAccessProfile | null = null;
   let supabase: ReturnType<typeof createAdminClient> | null = null;
 
   try {
@@ -188,8 +189,17 @@ async function processEvent(event: LineWebhookEvent): Promise<void> {
       return;
     }
 
-    // 1. Find or create LINE-linked profile
-    profile = await getOrCreateLineProfile(supabase, userId);
+    // LINE must be linked to an ACTI account with a current AWAKES term. A
+    // follow or message event is never evidence of paid membership.
+    profile = await findLineProfile(supabase, userId);
+    if (!profile || !hasCoachingAccess(profile)) {
+      await replyMessage(replyToken, [
+        textMessage(
+          'このLINEアカウントでは、有効なAWAKES会員情報を確認できません。会員サイトのACTIをご利用ください。'
+        ),
+      ]);
+      return;
+    }
 
     // 2. Get or create active chat session for this LINE user
     const session = await getOrCreateChatSession(supabase, profile.id);
@@ -321,11 +331,6 @@ async function handleFollowEvent(event: LineWebhookEvent): Promise<void> {
   if (!userId) return;
 
   try {
-    const supabase = createAdminClient();
-
-    // Create profile for new LINE user
-    await getOrCreateLineProfile(supabase, userId);
-
     // Send welcome message
     await replyMessage(event.replyToken, [
       textMessage(
@@ -333,9 +338,9 @@ async function handleFollowEvent(event: LineWebhookEvent): Promise<void> {
 
 こちらはACT（Awakening Consciousness Type）診断に基づく、AIコーチングBotです。
 
-メッセージを送っていただければ、あなたのタイプに合わせたパーソナライズされたコーチングを提供します。
+ご利用には、有効なAWAKES会員情報とACTIアカウントへのLINE連携が必要です。
 
-まずは何でもお気軽に話しかけてください。`
+会員情報を確認できない場合は、会員サイトのACTIをご利用ください。`
       ),
     ]);
   } catch (error) {
@@ -344,63 +349,30 @@ async function handleFollowEvent(event: LineWebhookEvent): Promise<void> {
 }
 
 /**
- * Find or create a profile for a LINE user
- * Uses line_user_id column in profiles table
+ * Find a paid ACTI profile linked to this LINE user.
+ * Never create or activate a profile from an inbound LINE event.
  */
-async function getOrCreateLineProfile(
+type LineAccessProfile = {
+  id: string;
+  line_user_id: string;
+  role: string | null;
+  subscription_status: string | null;
+  is_active: boolean | null;
+  paid_test_credits: number | null;
+  awakes_access_expires_at: string | null;
+};
+
+async function findLineProfile(
   supabase: ReturnType<typeof createAdminClient>,
   lineUserId: string
-): Promise<{ id: string; line_user_id: string }> {
-  // First, try to find existing profile with this LINE user ID
-  const { data: existing } = await supabase
+): Promise<LineAccessProfile | null> {
+  const { data: existing, error } = await supabase
     .from('profiles')
-    .select('id, line_user_id')
+    .select('id, line_user_id, role, subscription_status, is_active, paid_test_credits, awakes_access_expires_at')
     .eq('line_user_id', lineUserId)
-    .single();
-
-  if (existing) {
-    return existing;
-  }
-
-  // Create a new profile for this LINE user
-  // Generate a deterministic UUID from the LINE user ID for the auth.users entry
-  // We use the service role to create users directly
-  const { data: authUser, error: authError } = await supabase.auth.admin.createUser({
-    email: `line_${lineUserId}@line.placeholder`,
-    email_confirm: true,
-    user_metadata: {
-      provider: 'line',
-      line_user_id: lineUserId,
-    },
-  });
-
-  if (authError) {
-    // If user already exists with this email, find them
-    if (authError.message?.includes('already been registered')) {
-      const { data: existingByEmail } = await supabase
-        .from('profiles')
-        .select('id, line_user_id')
-        .eq('line_user_id', lineUserId)
-        .single();
-
-      if (existingByEmail) {
-        return existingByEmail;
-      }
-    }
-    throw new Error(`Failed to create auth user: ${authError.message}`);
-  }
-
-  // Update the profile with LINE user ID
-  const { error: profileError } = await supabase
-    .from('profiles')
-    .update({ line_user_id: lineUserId })
-    .eq('id', authUser.user.id);
-
-  if (profileError) {
-    console.error('Failed to update profile with LINE user ID:', profileError);
-  }
-
-  return { id: authUser.user.id, line_user_id: lineUserId };
+    .maybeSingle();
+  if (error) throw error;
+  return existing as LineAccessProfile | null;
 }
 
 /**

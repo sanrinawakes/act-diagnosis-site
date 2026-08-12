@@ -8,6 +8,7 @@ import {
   normalizeSubscriptionClaimEmail,
   SUBSCRIPTION_CLAIM_MAX_ATTEMPTS,
 } from '@/lib/subscription-claim';
+import { hasActiveAwakesAccess } from '@/lib/coaching-access';
 
 export const runtime = 'nodejs';
 
@@ -104,7 +105,7 @@ async function requestClaimCode(params: { userId: string; awakesEmail: string })
   const admin = createAdminClient();
   const { data: profile, error: profileError } = await admin
     .from('profiles')
-    .select('subscription_status')
+    .select('subscription_status, is_active, awakes_access_expires_at')
     .eq('id', params.userId)
     .maybeSingle();
   if (profileError || !profile) {
@@ -114,7 +115,7 @@ async function requestClaimCode(params: { userId: string; awakesEmail: string })
       { status: 503 }
     );
   }
-  if (profile.subscription_status === 'active') {
+  if (hasActiveAwakesAccess(profile)) {
     return NextResponse.json({
       success: true,
       status: 'already_active',
@@ -124,7 +125,7 @@ async function requestClaimCode(params: { userId: string; awakesEmail: string })
 
   const { data: pending, error: pendingError } = await admin
     .from('pending_activations')
-    .select('email, activated')
+    .select('email, activated, access_expires_at')
     .eq('email', params.awakesEmail)
     .limit(1)
     .maybeSingle();
@@ -140,6 +141,8 @@ async function requestClaimCode(params: { userId: string; awakesEmail: string })
   if (
     !pending ||
     pending.activated ||
+    !pending.access_expires_at ||
+    Date.parse(pending.access_expires_at) <= Date.now() ||
     profile.subscription_status === 'cancelled' ||
     profile.subscription_status === 'payment_failed'
   ) {

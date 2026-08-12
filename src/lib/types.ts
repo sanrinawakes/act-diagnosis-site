@@ -15,7 +15,7 @@ export type ConsciousnessLevel = 1 | 2 | 3 | 4 | 5 | 6;
 /**
  * User profile
  */
-export type SubscriptionStatus = 'none' | 'active' | 'cancelled' | 'payment_failed';
+export type SubscriptionStatus = 'none' | 'active' | 'expired' | 'cancelled' | 'payment_failed';
 
 export interface Profile {
   id: string;
@@ -27,6 +27,11 @@ export interface Profile {
   subscription_status: SubscriptionStatus;
   subscribed_at: string | null;
   cancelled_at: string | null;
+  awakes_access_started_at: string | null;
+  awakes_access_expires_at: string | null;
+  awakes_access_updated_at: string | null;
+  awakes_access_source: string | null;
+  awakes_expired_at: string | null;
   paid_test_credits: number;
   referral_code_used: string | null;
   created_at: string;

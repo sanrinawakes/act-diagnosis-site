@@ -7,7 +7,7 @@ const mocks = vi.hoisted(() => {
   process.env.MEMBER_IMPORT_SECRET = 'member-import-test-secret';
   return {
     createClient: vi.fn(),
-    upsert: vi.fn(),
+    rpc: vi.fn(),
   };
 });
 
@@ -20,14 +20,9 @@ import { POST } from '../src/app/api/admin/import-members/route';
 describe('POST /api/admin/import-members', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.upsert.mockResolvedValue({ error: null });
+    mocks.rpc.mockResolvedValue({ data: [{ status: 'applied' }], error: null });
     mocks.createClient.mockReturnValue({
-      from(table: string) {
-        if (table !== 'pending_activations') {
-          throw new Error(`Unexpected table ${table}`);
-        }
-        return { upsert: mocks.upsert };
-      },
+      rpc: mocks.rpc,
     });
   });
 
@@ -37,7 +32,20 @@ describe('POST /api/admin/import-members', () => {
         method: 'POST',
         body: JSON.stringify({
           secret: 'member-import-test-secret',
-          emails: ['member@example.test', 'MEMBER@example.test'],
+          members: [
+            {
+              email: 'member@example.test',
+              started_at: '2026-01-01T00:00:00.000Z',
+              renewal_cycle: 0,
+              event_id: 'member-import-1',
+            },
+            {
+              email: 'MEMBER@example.test',
+              started_at: '2026-01-01T00:00:00.000Z',
+              renewal_cycle: 0,
+              event_id: 'member-import-duplicate',
+            },
+          ],
         }),
       })
     );
@@ -45,13 +53,41 @@ describe('POST /api/admin/import-members', () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
       success: true,
-      results: { imported: 1, skipped: 1, errors: 0 },
+      results: { imported: 1, blocked: 0, skipped: 1, errors: 0 },
     });
-    expect(mocks.upsert).toHaveBeenCalledTimes(1);
-    expect(mocks.upsert).toHaveBeenCalledWith(
-      { email: 'member@example.test', source: 'myasp_import' },
-      { onConflict: 'email' }
+    expect(mocks.rpc).toHaveBeenCalledTimes(1);
+    expect(mocks.rpc).toHaveBeenCalledWith('apply_awakes_membership_event', {
+      p_email: 'member@example.test',
+      p_event_type: 'legacy_import',
+      p_external_event_id: 'member-import-1',
+      p_occurred_at: '2026-01-01T00:00:00.000Z',
+      p_renewal_cycle: 0,
+      p_source: 'myasp_import',
+    });
+  });
+
+  it('reports but does not reactivate a cancelled legacy account', async () => {
+    mocks.rpc.mockResolvedValueOnce({
+      data: [{ status: 'account_not_eligible', access_expires_at: null }],
+      error: null,
+    });
+    const response = await POST(
+      new NextRequest('https://acti.example.test/api/admin/import-members', {
+        method: 'POST',
+        body: JSON.stringify({
+          secret: 'member-import-test-secret',
+          members: [{
+            email: 'member@example.test',
+            started_at: '2026-01-01T00:00:00.000Z',
+            renewal_cycle: 0,
+            event_id: 'member-import-1',
+          }],
+        }),
+      })
     );
+    expect(await response.json()).toMatchObject({
+      results: { imported: 0, blocked: 1, skipped: 0, errors: 0 },
+    });
   });
 
   it('rejects a caller without the dedicated secret before writing an entitlement', async () => {
@@ -60,12 +96,12 @@ describe('POST /api/admin/import-members', () => {
         method: 'POST',
         body: JSON.stringify({
           secret: 'wrong-secret',
-          emails: ['member@example.test'],
+          members: [{ email: 'member@example.test' }],
         }),
       })
     );
 
     expect(response.status).toBe(401);
-    expect(mocks.upsert).not.toHaveBeenCalled();
+    expect(mocks.rpc).not.toHaveBeenCalled();
   });
 });

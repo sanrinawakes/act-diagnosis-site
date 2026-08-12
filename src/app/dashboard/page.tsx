@@ -14,6 +14,7 @@ import {
   type CoachingNotice,
 } from '@/lib/site-settings';
 import { typeNames, levelNames } from '@/data/type-names';
+import { hasCoachingAccess, hasPaidDiagnosisAccess } from '@/lib/coaching-access';
 
 export default function DashboardPage() {
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -105,9 +106,10 @@ export default function DashboardPage() {
 
   // ユーザーの権限判定
   const isAdmin = profile?.role === 'admin';
-  const hasActiveSubscription = profile?.subscription_status === 'active' && profile?.is_active;
+  const hasAwakesAccess = hasCoachingAccess(profile);
+  const hasPaidContentAccess = hasPaidDiagnosisAccess(profile);
+  const hasActiveSubscription = !isAdmin && hasAwakesAccess;
   const hasPaidTestCredits = (profile?.paid_test_credits || 0) > 0;
-  const isPaidUser = isAdmin || hasActiveSubscription || hasPaidTestCredits;
   const hasUsedReferralCode = !!profile?.referral_code_used;
 
   const handleReferralSubmit = async (e: React.FormEvent) => {
@@ -200,7 +202,7 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {isPaidUser && coachingNotice && (
+          {hasAwakesAccess && coachingNotice && (
             <CoachingNoticeBanner
               title={coachingNotice.title}
               body={coachingNotice.body}
@@ -280,7 +282,7 @@ export default function DashboardPage() {
                 >
                   無料診断を受ける（15問）
                 </Link>
-                {isPaidUser && (
+                {hasPaidContentAccess && (
                   <Link
                     href="/diagnosis"
                     className="inline-block px-8 py-3 bg-gradient-to-r from-pink-500 to-pink-600 hover:from-pink-600 hover:to-pink-700 text-white font-semibold rounded-lg transition-all"
@@ -354,7 +356,7 @@ export default function DashboardPage() {
               <p className="text-gray-600 text-sm mt-1">意識レベルの簡易チェック</p>
             </Link>
 
-            {isPaidUser ? (
+            {hasPaidContentAccess ? (
               <Link
                 href="/diagnosis"
                 className="bg-white/70 border border-pink-200/50 rounded-xl p-5 hover:border-pink-300 transition-all group"

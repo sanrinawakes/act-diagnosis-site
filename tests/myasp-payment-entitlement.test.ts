@@ -11,7 +11,8 @@ const paymentSource = fs.readFileSync(
 describe('MyASP payment entitlement handling', () => {
   it('records payment entitlement without creating an account, sending a password, or activating an email match', () => {
     expect(paymentSource).toContain("action: 'pending_verification'");
-    expect(paymentSource).toContain(".from('pending_activations')");
+    expect(paymentSource).toContain("p_event_type: 'initial'");
+    expect(paymentSource).toContain("'apply_awakes_membership_event'");
     expect(paymentSource).not.toContain('auth.admin.createUser');
     expect(paymentSource).not.toContain('sendWelcomeEmail');
     expect(paymentSource).not.toContain("subscription_status: 'active'");

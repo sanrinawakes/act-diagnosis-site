@@ -73,24 +73,46 @@ export async function POST(request: NextRequest) {
 
     const adminClient = createAdminClient();
 
-    // Keep the entitlement pending. Do not overwrite an already-consumed
-    // record when MyASP retries the same payment webhook.
-    const { error: pendingError } = await adminClient
-      .from('pending_activations')
-      .upsert(
-        { email, source: 'myasp' },
-        { onConflict: 'email' }
-      );
-    if (pendingError) {
-      console.error('MyASP payment entitlement save failed:', pendingError);
-      throw pendingError;
+    const source = (body.source || body.scenario_id || 'myasp-initial')
+      .trim()
+      .slice(0, 100);
+    const externalEventId = (
+      body.event_id || body.order_id || body.item_user_id || `initial:${email}`
+    )
+      .trim()
+      .slice(0, 200);
+    const occurredAt = readOccurredAt(body.occurred_at || body.paid_at);
+    const { data, error: membershipError } = await adminClient.rpc(
+      'apply_awakes_membership_event',
+      {
+        p_email: email,
+        p_event_type: 'initial',
+        p_external_event_id: externalEventId,
+        p_occurred_at: occurredAt,
+        p_renewal_cycle: 0,
+        p_source: source,
+      }
+    );
+    if (membershipError) {
+      console.error('MyASP payment entitlement save failed:', membershipError);
+      throw membershipError;
     }
 
     console.log('MyASP payment entitlement recorded');
 
+    const result = Array.isArray(data) ? data[0] : data;
+    if (result?.status === 'account_not_eligible') {
+      console.error('MyASP payment did not reopen a cancelled entitlement');
+      return NextResponse.json(
+        { error: 'Account is not eligible for automatic activation' },
+        { status: 409 }
+      );
+    }
+
     return NextResponse.json({
       success: true,
       action: 'pending_verification',
+      event_status: result?.status || 'applied',
       message: 'Payment entitlement recorded',
     });
   } catch (error) {
@@ -100,4 +122,10 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
+}
+
+function readOccurredAt(raw: string | undefined) {
+  if (!raw) return new Date().toISOString();
+  const parsed = Date.parse(raw);
+  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : new Date().toISOString();
 }

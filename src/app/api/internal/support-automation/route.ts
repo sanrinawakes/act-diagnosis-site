@@ -24,6 +24,7 @@ import {
 import { extractSupportInboundCustomerMessages } from '@/lib/support-inbound';
 import { deliverSupportDecisionRequest } from '@/lib/server/support-decision-email';
 import { deliverSupportReply } from '@/lib/server/support-email';
+import { hasCoachingAccess } from '@/lib/coaching-access';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -968,7 +969,7 @@ async function enrichTicketContext(
   let profileQuery = client
     .from('profiles')
     .select(
-      'id,email,display_name,role,is_active,subscription_status,subscribed_at,cancelled_at,paid_test_credits,chat_count_month,chat_month_start'
+      'id,email,display_name,role,is_active,subscription_status,subscribed_at,cancelled_at,paid_test_credits,awakes_access_started_at,awakes_access_expires_at,awakes_access_source,chat_count_month,chat_month_start'
     )
     .limit(1);
   profileQuery = ticket.user_id
@@ -1276,7 +1277,7 @@ async function verifyAccountResolution(
 ) {
   let query = client
     .from('profiles')
-    .select('id,is_active,subscription_status,paid_test_credits')
+    .select('id,is_active,subscription_status,paid_test_credits,awakes_access_expires_at,role')
     .limit(1);
   query = ticket.user_id
     ? query.eq('id', ticket.user_id)
@@ -1285,10 +1286,7 @@ async function verifyAccountResolution(
   if (error) throw error;
 
   const profile = data?.[0];
-  const hasAccess =
-    profile?.is_active === true &&
-    (profile.subscription_status === 'active' ||
-      Number(profile.paid_test_credits || 0) > 0);
+  const hasAccess = hasCoachingAccess(profile);
   return hasAccess
     ? ''
     : '本番profilesで利用権限の復旧を確認できません';

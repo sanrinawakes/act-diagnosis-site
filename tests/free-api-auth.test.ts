@@ -138,4 +138,43 @@ describe('free API authentication', () => {
     expect(mocks.createServerClient).not.toHaveBeenCalled();
     expect(getUser).toHaveBeenCalledWith('test-access-token');
   });
+
+  it('does not let an expired AWAKES account fall back to the free coaching API', async () => {
+    mocks.createServerClient.mockResolvedValue({
+      auth: {
+        getUser: vi.fn().mockResolvedValue({
+          data: { user: { id: 'user-1', email: 'member@example.test' } },
+          error: null,
+        }),
+      },
+    });
+    mocks.createClient.mockReturnValue({
+      from: vi.fn(() => ({
+        select: () => ({
+          eq: () => ({
+            maybeSingle: vi.fn().mockResolvedValue({
+              data: {
+                role: 'member',
+                subscription_status: 'expired',
+                is_active: false,
+                awakes_access_started_at: '2025-01-01T00:00:00.000Z',
+                awakes_access_expires_at: '2026-01-01T00:00:00.000Z',
+              },
+              error: null,
+            }),
+          }),
+        }),
+      })),
+    });
+
+    const response = await postFreeChat(createRequest('/api/free/chat', {
+      email: 'member@example.test',
+      messages: [{ role: 'user', content: '相談です' }],
+    }));
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({
+      error: 'AWAKESの会員利用期間が終了しているため、AIコーチングは利用できません。',
+    });
+  });
 });

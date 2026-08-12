@@ -71,7 +71,11 @@ describe('POST /api/claim-subscription', () => {
       error: null,
     });
     mocks.pendingMaybeSingle.mockResolvedValue({
-      data: { email: EMAIL, activated: false },
+      data: {
+        email: EMAIL,
+        activated: false,
+        access_expires_at: '2099-12-31T00:00:00.000Z',
+      },
       error: null,
     });
     mocks.challengeUpsert.mockResolvedValue({ error: null });

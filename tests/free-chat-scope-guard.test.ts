@@ -21,4 +21,13 @@ describe('free chat scope guard', () => {
     expect(source).toContain('COACHING_SCOPE_GUIDANCE');
     expect(source).toContain("finishReason: 'SCOPE_BLOCKED'");
   });
+
+  it('checks former-member status before any free quota or AI work', () => {
+    const accessIndex = source.indexOf('isFormerAwakesMemberWithoutAccess(accessProfile)');
+    const quotaIndex = source.indexOf('let quotaReservation');
+    const providerIndex = source.indexOf('const result = await generateCoachingText');
+    expect(accessIndex).toBeGreaterThan(-1);
+    expect(quotaIndex).toBeGreaterThan(accessIndex);
+    expect(providerIndex).toBeGreaterThan(accessIndex);
+  });
 });

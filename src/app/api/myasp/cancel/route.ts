@@ -82,6 +82,15 @@ export async function POST(request: NextRequest) {
       throw pendingDeleteError;
     }
 
+    const { error: membershipCancelError } = await adminClient
+      .from('awakes_memberships')
+      .update({ status: 'cancelled', updated_at: new Date().toISOString() })
+      .eq('email', email);
+    if (membershipCancelError) {
+      console.error('Cancel webhook membership update failed:', membershipCancelError);
+      throw membershipCancelError;
+    }
+
     // Find user by email
     const { data: profile, error: findError } = await adminClient
       .from('profiles')

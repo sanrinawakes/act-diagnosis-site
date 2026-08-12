@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => {
   return {
     createClient: vi.fn(),
     removePending: vi.fn(),
+    cancelMembership: vi.fn(),
     findPrimaryProfile: vi.fn(),
     findMyaspProfile: vi.fn(),
     deactivateProfile: vi.fn(),
@@ -40,6 +41,14 @@ function configureClient(primaryProfile: Profile | null) {
         return {
           delete() {
             return { eq: mocks.removePending };
+          },
+        };
+      }
+
+      if (table === 'awakes_memberships') {
+        return {
+          update() {
+            return { eq: mocks.cancelMembership };
           },
         };
       }
@@ -98,6 +107,7 @@ describe('POST /api/myasp/cancel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.removePending.mockResolvedValue({ error: null });
+    mocks.cancelMembership.mockResolvedValue({ error: null });
     mocks.deactivateProfile.mockResolvedValue({ data: null, error: null });
     mocks.sendDeactivationEmail.mockResolvedValue({ success: true });
   });

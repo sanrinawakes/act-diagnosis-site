@@ -1,6 +1,7 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+import { hasCoachingAccess, hasPaidDiagnosisAccess } from '@/lib/coaching-access';
 
 // Routes that require active subscription (paid member)
 const PROTECTED_ROUTES = ['/diagnosis', '/results', '/coaching'];
@@ -75,20 +76,14 @@ export async function middleware(request: NextRequest) {
     // Check subscription status from profile
     const { data: profile } = await supabase
       .from('profiles')
-      .select('subscription_status, is_active, role, paid_test_credits')
+      .select('subscription_status, is_active, role, paid_test_credits, awakes_access_expires_at')
       .eq('id', user.id)
       .single();
 
-    // Admins always have access
-    if (profile?.role === 'admin') {
-      return response;
-    }
-
-    // Check if user has active subscription OR paid test credits
-    const hasActiveSubscription = profile?.subscription_status === 'active' && profile?.is_active;
-    const hasPaidTestCredits = (profile?.paid_test_credits || 0) > 0;
-
-    if (!hasActiveSubscription && !hasPaidTestCredits) {
+    const hasAccess = pathname.startsWith('/coaching')
+      ? hasCoachingAccess(profile)
+      : hasPaidDiagnosisAccess(profile);
+    if (!hasAccess) {
       return NextResponse.redirect(
         new URL('/subscription-required', request.url)
       );
