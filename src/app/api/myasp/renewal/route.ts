@@ -28,17 +28,12 @@ export async function POST(request: NextRequest) {
     const externalEventId = (
       body.event_id || body.order_id || body.item_user_id || ''
     ).trim();
-    const renewalCycle = Number(body.renewal_cycle);
     if (!email || !email.includes('@')) {
       return NextResponse.json({ error: 'Email (mail) is required' }, { status: 400 });
     }
     if (!externalEventId || externalEventId.length > 200) {
       return NextResponse.json({ error: 'event_id is required' }, { status: 400 });
     }
-    if (!Number.isInteger(renewalCycle) || renewalCycle < 1 || renewalCycle > 100) {
-      return NextResponse.json({ error: 'renewal_cycle must be a positive integer' }, { status: 400 });
-    }
-
     const source = (body.source || body.scenario_id || 'myasp-renewal')
       .trim()
       .slice(0, 100);
@@ -50,7 +45,9 @@ export async function POST(request: NextRequest) {
         p_event_type: 'renewal',
         p_external_event_id: externalEventId,
         p_occurred_at: occurredAt,
-        p_renewal_cycle: renewalCycle,
+        // The database derives the next cycle atomically from each unique paid
+        // event. MyASP must not carry a manually updated year counter.
+        p_renewal_cycle: 0,
         p_source: source,
       }
     );
