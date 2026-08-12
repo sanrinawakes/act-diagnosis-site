@@ -5,6 +5,7 @@ export type CoachingAccessProfile = {
   paid_test_credits?: number | null;
   awakes_access_started_at?: string | null;
   awakes_access_expires_at?: string | null;
+  is_internal_coaching_monitor?: boolean | null;
 };
 
 export function hasActiveAwakesAccess(
@@ -37,6 +38,17 @@ export function hasPaidDiagnosisAccess(
   return (
     hasCoachingAccess(profile, now) ||
     (profile?.paid_test_credits || 0) > 0
+  );
+}
+
+export function hasInternalCoachingMonitorAccess(
+  profile: CoachingAccessProfile | null | undefined
+) {
+  return (
+    profile?.role === 'member' &&
+    profile.is_internal_coaching_monitor === true &&
+    profile.subscription_status === 'active' &&
+    profile.is_active === true
   );
 }
 

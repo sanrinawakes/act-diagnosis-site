@@ -450,7 +450,7 @@ function createAdminClient() {
                       role: 'member',
                       subscription_status: 'active',
                       is_active: true,
-                      awakes_access_expires_at: '2099-12-31T00:00:00.000Z',
+                      is_internal_coaching_monitor: true,
                     },
                     error: null,
                   }),

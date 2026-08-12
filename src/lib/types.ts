@@ -32,6 +32,7 @@ export interface Profile {
   awakes_access_updated_at: string | null;
   awakes_access_source: string | null;
   awakes_expired_at: string | null;
+  is_internal_coaching_monitor: boolean;
   paid_test_credits: number;
   referral_code_used: string | null;
   created_at: string;

@@ -20,7 +20,7 @@ import {
 } from '@/lib/coaching-session-memory';
 import { getJapanMonthStartKey } from '@/lib/japan-date';
 import { auditRecentStoredCoachingResponses } from '@/lib/coaching-quality-incidents';
-import { hasActiveAwakesAccess } from '@/lib/coaching-access';
+import { hasInternalCoachingMonitorAccess } from '@/lib/coaching-access';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -538,7 +538,7 @@ async function runPaidCoachingMonitor(params: {
     const { data: profile, error: profileError } = await withMonitorTimeout(
       params.supabaseAdmin
         .from('profiles')
-        .select('role, subscription_status, is_active, awakes_access_expires_at')
+        .select('role, subscription_status, is_active, is_internal_coaching_monitor')
         .eq('id', userId)
         .single(),
       MONITOR_STAGE_TIMEOUT_MS,
@@ -550,8 +550,7 @@ async function runPaidCoachingMonitor(params: {
       );
     }
     if (
-      profile.role !== 'member' ||
-      !hasActiveAwakesAccess(profile)
+      !hasInternalCoachingMonitorAccess(profile)
     ) {
       throw new Error('paid monitor profile is not an active paid member');
     }
