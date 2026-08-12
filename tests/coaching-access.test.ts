@@ -4,6 +4,7 @@ import {
   hasCoachingAccess,
   hasPaidDiagnosisAccess,
   isFormerAwakesMemberWithoutAccess,
+  hasInternalCoachingMonitorAccess,
 } from '../src/lib/coaching-access';
 
 const now = new Date('2026-08-12T00:00:00.000Z');
@@ -16,6 +17,19 @@ describe('AWAKES coaching access', () => {
     expect(hasActiveAwakesAccess({ ...base, awakes_access_expires_at: null }, now)).toBe(false);
     expect(hasActiveAwakesAccess({ ...base, awakes_access_expires_at: 'not-a-date' }, now)).toBe(false);
     expect(hasActiveAwakesAccess({ ...base, is_active: false, awakes_access_expires_at: '2026-09-01T00:00:00.000Z' }, now)).toBe(false);
+  });
+
+  it('allows only the explicit active member monitor flag as an internal exception', () => {
+    const monitor = {
+      role: 'member',
+      is_internal_coaching_monitor: true,
+      subscription_status: 'active',
+      is_active: true,
+    };
+    expect(hasInternalCoachingMonitorAccess(monitor)).toBe(true);
+    expect(hasCoachingAccess(monitor, now)).toBe(false);
+    expect(hasInternalCoachingMonitorAccess({ ...monitor, role: 'admin' })).toBe(false);
+    expect(hasInternalCoachingMonitorAccess({ ...monitor, is_active: false })).toBe(false);
   });
 
   it('allows admins but never lets a diagnosis credit unlock coaching', () => {
