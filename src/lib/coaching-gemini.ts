@@ -2703,6 +2703,17 @@ export function normalizeCoachingOutput(
     return '今日はゆっくり休んでください。';
   }
 
+  if (
+    /仕事|職場|業務|会社|タスク/.test(lastUserText) &&
+    /落ち込/.test(lastUserText) &&
+    /整理を手伝/.test(lastUserText) &&
+    /(?:何が起きたのかを言葉にする|頭の中の負担を減らす|心が引っかかっている(?:具体的な)?出来事)/.test(
+      text
+    )
+  ) {
+    return '仕事のことで少し落ち込んでいるのですね。原因を決めつけず、まず落ち込むきっかけになった出来事を一つ確認します。\n\n仕事で、今いちばん気になっている出来事は何ですか？';
+  }
+
   const substantivePatternFallback =
     buildSubstantiveShortFallback(lastUserText);
   if (
@@ -3712,6 +3723,14 @@ export function buildFinalVerifiedQualityFallback(
   lastUserText: string,
   historyMessages: CoachingChatMessage[]
 ): string {
+  if (
+    /仕事|職場|業務|会社|タスク/.test(lastUserText) &&
+    /落ち込/.test(lastUserText) &&
+    /整理を手伝/.test(lastUserText)
+  ) {
+    return '仕事のことで少し落ち込んでいるのですね。原因を決めつけず、まず落ち込むきっかけになった出来事を一つ確認します。\n\n仕事で、今いちばん気になっている出来事は何ですか？';
+  }
+
   const reflectiveFeedbackFallback =
     buildReflectiveFeedbackFallback(
       lastUserText,
