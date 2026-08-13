@@ -744,6 +744,83 @@ describe('ensureVerifiedCoachingResolution', () => {
     );
   });
 
+  it('途中解約の質問へ「どういう意味？」と返された時は契約確認へ戻す', () => {
+    const historyMessages = [
+      {
+        role: 'user' as const,
+        content: 'AWAKESって途中でやめられるの？',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          '「AWAKESって途中でやめられるの」という相談ですね。\n\nまだ書かれていない原因を推測せず、実際に起きたことと、次に困る場面を分けると、具体的な対応を選びやすくなります。',
+      },
+    ];
+    const result = ensureVerifiedCoachingResolution({
+      resolution: {
+        text: '「お金が少ない。もっと欲しい。普通に暮らしたい。欲しいものを買いたい AWAKESって途中でやめら…」という相談ですね。',
+        usage: { prompt_tokens: 16, completion_tokens: 12, total_tokens: 28 },
+        modelName: 'local-quality-fallback',
+        provider: 'local',
+        repairAttempted: true,
+        repairAccepted: true,
+        initialIssues: ['too_short', 'latest_user_echo'],
+        finalIssues: ['too_short', 'latest_user_echo'],
+      },
+      lastUserText: 'どういう意味？',
+      historyMessages,
+      preserveUsage: true,
+    });
+
+    expect(result.finalIssues).toEqual([]);
+    expect(result.text).toContain('AWAKES');
+    expect(result.text).toContain('止める時の条件');
+    expect(result.text).not.toContain('という相談ですね');
+  });
+
+  it('毎月払いの補足へ直前の不満を繰り返さず次回更新日の確認へ進める', () => {
+    const historyMessages = [
+      {
+        role: 'user' as const,
+        content: 'AWAKESって途中でやめられるの？',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          'AWAKESを途中でやめられるかは、まず支払いが毎月更新かどうかで確認する内容が変わります。',
+      },
+      {
+        role: 'user' as const,
+        content: 'いちいち確認しないで言葉の通りに解釈して？',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          '大変失礼いたしました。お言葉の通りに受け止め、余計な確認を挟まずに直接お答えします。\n\nAWAKESを途中でやめられるかどうかは、あなたが契約した際の規約や、決済方法によって手続きが異なります。\n\n今、どのような方法で支払いをされていますか。',
+      },
+    ];
+    const result = ensureVerifiedCoachingResolution({
+      resolution: {
+        text: '「いちいち確認しないで言葉の通りに解釈して」という相談ですね。',
+        usage: { prompt_tokens: 17, completion_tokens: 9, total_tokens: 26 },
+        modelName: 'local-quality-fallback',
+        provider: 'local',
+        repairAttempted: true,
+        repairAccepted: true,
+        initialIssues: ['too_short', 'latest_user_echo'],
+        finalIssues: ['too_short', 'latest_user_echo'],
+      },
+      lastUserText: '毎月分払ってる',
+      historyMessages,
+      preserveUsage: true,
+    });
+
+    expect(result.finalIssues).toEqual([]);
+    expect(result.text).toContain('毎月');
+    expect(result.text).toContain('次回');
+    expect(result.text).not.toContain('いちいち確認しないで');
+  });
+
   it('元交際相手を連想した長い会話でも安全停止ではなく具体的な返答へ補正する', () => {
     const historyMessages = [
       {

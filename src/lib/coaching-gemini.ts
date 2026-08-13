@@ -3463,6 +3463,22 @@ function buildSafeQualityFallback(
   historyMessages: CoachingChatMessage[],
   issues: CoachingQualityIssue[] = []
 ) {
+  const subscriptionCancellationFallback =
+    buildSubscriptionCancellationFallback(
+      lastUserText,
+      historyMessages
+    );
+  if (
+    subscriptionCancellationFallback &&
+    (issues.includes('too_short') ||
+      issues.includes('latest_user_echo') ||
+      issues.includes('fragmented_expression') ||
+      issues.includes('ungrounded_task_assumption') ||
+      issues.includes('dissatisfaction_unanswered'))
+  ) {
+    return subscriptionCancellationFallback;
+  }
+
   const withoutGenericClosing = candidateText
     .split(/\n{2,}/)
     .filter(
@@ -3538,6 +3554,17 @@ function buildSafeQualityFallback(
 
   if (clarificationCorrectionFallback) {
     return clarificationCorrectionFallback;
+  }
+
+  if (
+    subscriptionCancellationFallback &&
+    (issues.includes('too_short') ||
+      issues.includes('latest_user_echo') ||
+      issues.includes('fragmented_expression') ||
+      issues.includes('ungrounded_task_assumption') ||
+      issues.includes('dissatisfaction_unanswered'))
+  ) {
+    return subscriptionCancellationFallback;
   }
 
   if (
@@ -3730,6 +3757,22 @@ export function buildFinalVerifiedQualityFallback(
     });
     if (relationshipAssessment.issues.length === 0) {
       return relationshipClarificationFallback;
+    }
+  }
+
+  const subscriptionCancellationFallback =
+    buildSubscriptionCancellationFallback(
+      lastUserText,
+      historyMessages
+    );
+  if (subscriptionCancellationFallback) {
+    const subscriptionAssessment = assessCoachingResponseQuality({
+      text: subscriptionCancellationFallback,
+      lastUserText,
+      historyMessages,
+    });
+    if (subscriptionAssessment.issues.length === 0) {
+      return subscriptionCancellationFallback;
     }
   }
 
@@ -4388,6 +4431,48 @@ function buildClarificationCorrectionFallback(
   }
 
   return `わかりました。「${clippedPreviousExcerpt}」は新しい相談ではなく、直前の問いへの答えだったのですね。\n\nその答えを踏まえて次に整理したい点がどこか、一つだけ教えてください。`;
+}
+
+function buildSubscriptionCancellationFallback(
+  lastUserText: string,
+  historyMessages: CoachingChatMessage[]
+) {
+  const userContext = [
+    ...historyMessages
+      .filter((message) => message.role === 'user')
+      .map((message) => stripAttachmentMarkdown(message.content)),
+    lastUserText,
+  ].join('\n');
+  const mentionsService =
+    /AWAKES|講座|会員サイト|会員ページ|申込メール|案内メール/.test(
+      userContext
+    );
+  const asksToStopOrCancel =
+    /途中でやめ|やめられる|やめたい|解約|退会|止められる|止めたい/.test(
+      userContext
+    );
+  if (!mentionsService || !asksToStopOrCancel) {
+    return '';
+  }
+
+  const paysMonthly =
+    /毎月(?:分)?払って|毎月払い|月々|月額|継続課金|引き落とし/.test(
+      userContext
+    );
+  const needsDirectCorrection =
+    reportsResponseDissatisfaction(lastUserText) ||
+    reportsClarificationCorrection(lastUserText);
+  const serviceLabel = /AWAKES/.test(userContext) ? 'AWAKES' : 'その講座';
+
+  if (paysMonthly) {
+    return `${serviceLabel}が毎月払いなら、途中でやめられるかは次回更新までに停止できる形かどうかで決まります。今の情報で見るべき軸は、毎月更新か、次回の引き落としはいつか、止める条件は何かの三つです。\n\nまずは、次回の引き落とし日と、止める時の条件を確認してください。`;
+  }
+
+  if (needsDirectCorrection) {
+    return `${serviceLabel}を途中でやめられるかは、気持ちの問題ではなく契約の形で決まります。毎月更新なら次回更新までに止められる形かを見て、回数や期間が決まった契約なら残り回数や残り期間の条件を見る必要があります。\n\nまずは、支払いが毎月更新かどうかと、止める時の条件を確認してください。`;
+  }
+
+  return '';
 }
 
 function buildHouseholdRepeatedRequestFallback(
@@ -5447,7 +5532,7 @@ function explicitlyRejectsPreviousCoachingMove(text: string) {
 }
 
 function reportsResponseDissatisfaction(text: string) {
-  return /^(?:[？?]+)$|わからないから聞いて|それを聞いている|質問ばかり|同じ質問|答えになっていない|納得(?:できない|いかない)|何を言いたいのかわから|ちゃんと答えて|何の話|^(?:(?:これ|それ)は)?どういう(?:こと|事)[。！？!?]*$|^相手とは[。！？!?]*$|意味(?:が)?(?:不明|わから)|話が(?:違|ずれ)|前の返答.{0,20}(?:わか(?:ら|り)|短|意味)|前(?:の|より).{0,20}(?:方が|ほうが).{0,20}(?:的確|良かった|よかった)|頭が悪くな/.test(
+  return /^(?:[？?]+)$|わからないから聞いて|それを聞いている|質問ばかり|同じ質問|答えになっていない|納得(?:できない|いかない)|何を言いたいのかわから|ちゃんと答えて|何の話|^(?:(?:これ|それ)は)?どういう(?:こと|事|意味)[。！？!?]*$|いちいち確認しないで|言葉の通りに解釈して|^相手とは[。！？!?]*$|意味(?:が)?(?:不明|わから)|話が(?:違|ずれ)|前の返答.{0,20}(?:わか(?:ら|り)|短|意味)|前(?:の|より).{0,20}(?:方が|ほうが).{0,20}(?:的確|良かった|よかった)|頭が悪くな/.test(
     text
   );
 }
