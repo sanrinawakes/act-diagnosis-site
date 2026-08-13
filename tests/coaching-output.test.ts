@@ -701,6 +701,49 @@ describe('ensureVerifiedCoachingResolution', () => {
     expect(result.text).not.toContain('「結局どうしたらいい？」という相談ですね。');
   });
 
+  it('疑問符だけの聞き返しでも短い修復案をそのまま採用しない', () => {
+    const historyMessages = [
+      {
+        role: 'user' as const,
+        content:
+          '世界いやそうとしていたところ。それをあらわしたうたが以前から大好きです。和訳をしり感動しました。',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          '周囲から誤解され、孤独な状況に置かれていたとき、あなたはどのようにして自分の心を守り、今日まで進んでこられたのでしょうか。',
+      },
+      {
+        role: 'user' as const,
+        content:
+          '心の病気になりかけましたが、わたしは自身を変えることに取り組みました。わたしの在り方を考え直すきっかけをくれたのはYouTubeからの情報とメンターでした。',
+      },
+    ];
+    const result = ensureVerifiedCoachingResolution({
+      resolution: {
+        text: 'まだ書かれていない原因を推測せず、実際に起きたことと、次に困る場面を分けると、具体的な対応を選びやすくなります。',
+        usage: { prompt_tokens: 18, completion_tokens: 14, total_tokens: 32 },
+        modelName: 'local-quality-fallback',
+        provider: 'local',
+        repairAttempted: true,
+        repairAccepted: true,
+        initialIssues: ['fragmented_expression'],
+        finalIssues: ['too_short'],
+      },
+      lastUserText: '？',
+      historyMessages,
+      preserveUsage: true,
+    });
+
+    expect(result.modelName).toBe('local-quality-fallback');
+    expect(result.finalIssues).toEqual([]);
+    expect(result.text).toContain('前の返答');
+    expect(result.text).toContain('心の病気');
+    expect(result.text).not.toBe(
+      'まだ書かれていない原因を推測せず、実際に起きたことと、次に困る場面を分けると、具体的な対応を選びやすくなります。'
+    );
+  });
+
   it('元交際相手を連想した長い会話でも安全停止ではなく具体的な返答へ補正する', () => {
     const historyMessages = [
       {
