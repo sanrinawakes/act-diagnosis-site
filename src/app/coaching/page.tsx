@@ -36,6 +36,7 @@ import {
   COACHING_HISTORY_RETRY_DELAYS_MS,
   retryClientRead,
 } from '@/lib/coaching-history';
+import { buildFallbackCoachingApiMessages } from '@/lib/coaching-api-messages';
 interface Message {
   id: string;
   role: 'user' | 'assistant';
@@ -930,10 +931,13 @@ function CoachingContent() {
     fallbackMessages: Message[],
     onFailure?: (error: unknown) => void
   ): Promise<Array<{ role: 'user' | 'assistant'; content: string }>> => {
-    const fallback = fallbackMessages.map((message) => ({
-      role: message.role,
-      content: message.content,
-    }));
+    const fallback = buildFallbackCoachingApiMessages(
+      fallbackMessages.map((message) => ({
+        role: message.role,
+        content: message.content,
+      })),
+      CHAT_API_MESSAGE_LIMIT
+    );
 
     try {
       const { data, error } = await withTimeout(
