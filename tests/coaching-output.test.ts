@@ -701,6 +701,50 @@ describe('ensureVerifiedCoachingResolution', () => {
     expect(result.text).not.toContain('「結局どうしたらいい？」という相談ですね。');
   });
 
+  it('短い追記の前に新しい長文メモがある時は古い別話題へ戻らない', () => {
+    const historyMessages = [
+      {
+        role: 'user' as const,
+        content: 'カード会社の残高を確認するしかない気がします。',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          '残高を確認して、次の引き落とし額を正確に把握することが先ですね。',
+      },
+      {
+        role: 'user' as const,
+        content:
+          '8月15日の気付き\n① 事実: いつの間にか浪費している\n② 違和感: 抑止が効かない時がある\n③ 学び: 使い方の分岐点を探したい',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          '浪費につながる分岐点を見つけるには、最後に使った場面を一つ具体的に見る必要があります。',
+      },
+    ];
+    const result = ensureVerifiedCoachingResolution({
+      resolution: {
+        text: '「カード会社の残高を確認するしかない気がします。気付かない間に使っていた」という相談ですね。',
+        usage: { prompt_tokens: 18, completion_tokens: 8, total_tokens: 26 },
+        modelName: 'gemini-3.5-flash',
+        provider: 'gemini',
+        repairAttempted: true,
+        repairAccepted: true,
+        initialIssues: ['context_mismatch', 'latest_user_echo', 'too_short'],
+        finalIssues: ['context_mismatch', 'latest_user_echo', 'too_short'],
+      },
+      lastUserText: '気付かない間に使っていた',
+      historyMessages,
+      preserveUsage: true,
+    });
+
+    expect(result.finalIssues).toEqual([]);
+    expect(result.text).toContain('浪費');
+    expect(result.text).not.toContain('カード会社');
+    expect(result.text).not.toContain('残高');
+  });
+
   it('疑問符だけの聞き返しでも短い修復案をそのまま採用しない', () => {
     const historyMessages = [
       {
