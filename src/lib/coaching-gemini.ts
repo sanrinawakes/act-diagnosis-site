@@ -4081,6 +4081,13 @@ function buildSilentAnswerFallback(
 
 function buildSubstantiveShortFallback(lastUserText: string) {
   if (
+    /浪費/.test(lastUserText) &&
+    /抑止|分岐点|気付かない|気づかない/.test(lastUserText)
+  ) {
+    return '気付かない間に浪費してしまい、止めたいのに抑止が効かない場面があるのですね。今必要なのは性格を責めることではなく、浪費に入る直前の分岐点を一つ特定することです。\n\n最後に予定外の出費をした直前に、どこで、何を見て、どんな気分だったかを一件だけ書いてください。';
+  }
+
+  if (
     /大ジャンプ|最初の一歩\s*[=＝]\s*ゴール|壁打ち/.test(lastUserText) &&
     /望んでしま|指摘され/.test(lastUserText)
   ) {
@@ -5560,12 +5567,15 @@ function selectRelevantFallbackSource(
   lastUserText: string,
   historyMessages: CoachingChatMessage[]
 ) {
+  const currentTopicPattern =
+    /家計簿|収支|赤字|黒字|予算|固定費|変動費|食費|生活費|仕事|職場|業務|会社|上司|同僚|会議|企画|顧客|夫|妻|主人|家事|家族|親|子ども|パートナー|お金|収入|講座|スピリチュアル|瞑想|解放|不安|後悔/;
   const cleanCurrent = stripAttachmentMarkdown(lastUserText)
     .replace(/\s+/g, ' ')
     .trim();
   const currentIsSubstantive =
-    cleanCurrent.length >= 12 &&
-    !reportsResponseDissatisfaction(cleanCurrent);
+    (cleanCurrent.length >= 18 || currentTopicPattern.test(cleanCurrent)) &&
+    !reportsResponseDissatisfaction(cleanCurrent) &&
+    !shouldAvoidForcedCoachingMove(lastUserText, historyMessages);
   if (currentIsSubstantive) return lastUserText;
 
   const previousUserTexts = [...historyMessages]
@@ -5583,17 +5593,31 @@ function selectRelevantFallbackSource(
       );
     });
   const immediatePrevious = previousUserTexts[0] || '';
-  const currentTopicPattern =
-    /家計簿|収支|赤字|黒字|予算|固定費|変動費|食費|生活費|仕事|職場|業務|会社|上司|同僚|会議|企画|顧客|夫|妻|主人|家事|家族|親|子ども|パートナー|お金|収入|講座|スピリチュアル|瞑想|解放|不安|後悔/;
-  if (currentTopicPattern.test(immediatePrevious)) {
-    return immediatePrevious;
-  }
-
   const earlierTopical = previousUserTexts
     .slice(1, 4)
     .find((content) => currentTopicPattern.test(content));
-  if (immediatePrevious && earlierTopical) {
+  if (
+    immediatePrevious &&
+    earlierTopical &&
+    !currentTopicPattern.test(immediatePrevious) &&
+    /何度も|毎回|それでも|返事だけ|行動は変わら|結局|続いて|同じ/.test(
+      immediatePrevious
+    )
+  ) {
     return `${earlierTopical}\n${immediatePrevious}`;
+  }
+  const recentMeaningfulContext = previousUserTexts.find((content) => {
+    const clean = stripAttachmentMarkdown(content)
+      .replace(/\s+/g, ' ')
+      .trim();
+    return (
+      currentTopicPattern.test(content) ||
+      clean.length >= 18 ||
+      /[\n①-⑳ⓐ-ⓩ]/.test(content)
+    );
+  });
+  if (recentMeaningfulContext) {
+    return recentMeaningfulContext;
   }
 
   return immediatePrevious || lastUserText;
