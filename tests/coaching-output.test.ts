@@ -5672,6 +5672,73 @@ describe('normalizeCoachingOutput', () => {
     expect(assessment.issues).toContain('vague_action_target');
   });
 
+  it('夫婦間の反応を聞かれた本番事故文脈でも最終フォールバックが質問の言い換えに戻らない', () => {
+    const lastUserText =
+      'じゃどういう反応がいい？じゃ間違った行動をしていてもふーん謝らないんだねって去ったほうがいいってこと。';
+    const historyMessages = [
+      {
+        role: 'user' as const,
+        content:
+          '夫と衝突あった。ピンを投げて返したことを「悪いと思わない」指摘すると逆ギレ。全部未熟な向こうの感情処理の問題だとわかっているけれどすごくもやるし苛つく。このもやりはなに？',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          '「夫と衝突あった」という相談ですね。相手の気持ちを推測するより、実際に起きたことと、相手に変えてほしい行動を分けると、話し合う内容が明確になります。その相手に、まずどの行動を変えてほしいですか？',
+      },
+      {
+        role: 'user' as const,
+        content:
+          '悪いと認めろと思うけど、相手は防衛強いし全部私のせいにする',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          '「悪いと認めさせたい」と思うのは当然の感情です。しかし、防衛が強く他責的な相手に非を認めさせようとすればするほど、相手はさらに逆ギレし、あなたを攻撃する言葉を重ねてきます。',
+      },
+      {
+        role: 'user' as const,
+        content:
+          'わかるけど例えば物を投げてはいけない指摘して逆ギレで悪いと思ってないと言われたら腹立たない？お前頭おかしいだろと言いたくなる',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          'あなたのその怒りは、自分の尊厳と安全を守るための極めて正常な反応です。',
+      },
+    ];
+
+    const fallback = buildFinalVerifiedQualityFallback(
+      lastUserText,
+      historyMessages
+    );
+    const assessment = assessCoachingResponseQuality({
+      text: fallback,
+      lastUserText,
+      historyMessages,
+    });
+
+    expect(assessment.issues).toEqual([]);
+    expect(fallback).not.toMatch(/という相談ですね。?\s*$/);
+    expect(fallback).not.toMatch(/実際に起きたことと、次に困る場面を分ける/);
+    expect(fallback).toContain('物を投げるのはやめてください');
+  });
+
+  it('漠然とした成長相談の本番事故文脈でも最終フォールバックが対象不明の一般論に逃げない', () => {
+    const lastUserText = '今のレベルから上がるには何をすれば良いですか';
+    const fallback = buildFinalVerifiedQualityFallback(lastUserText, []);
+    const assessment = assessCoachingResponseQuality({
+      text: fallback,
+      lastUserText,
+      historyMessages: [],
+    });
+
+    expect(assessment.issues).toEqual([]);
+    expect(fallback).not.toMatch(/実際に起きたことと、次に困る場面/);
+    expect(fallback).not.toMatch(/具体的な対応を選びやすく/);
+    expect(fallback).toMatch(/今より上げたい対象|仕事|人間関係|生活/);
+  });
+
   it('どうすればよいかという相談を根拠のない二択へ変換しない', () => {
     const lastUserText =
       '父の家系のカルマと自分の蟲が一致した場合、どうすればよいですか？';

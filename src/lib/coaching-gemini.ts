@@ -3821,6 +3821,13 @@ export function buildFinalVerifiedQualityFallback(
     }
   }
 
+  if (
+    /今のレベル/.test(lastUserText) &&
+    /上がる|上げる/.test(lastUserText)
+  ) {
+    return '今のレベルを上げたいと思っていても、何を上げたいのかが広いままだと、次の行動が決まりません。まずは対象を一つに絞ることが先です。\n\nまず、紙に「仕事」「人間関係」「生活習慣」の中で今いちばん上げたいものを一つだけ書いてください。';
+  }
+
   const directSubstantiveFallback =
     buildSubstantiveShortFallback(lastUserText);
   if (directSubstantiveFallback) {
@@ -3926,7 +3933,7 @@ export function buildFinalVerifiedQualityFallback(
     .filter(Boolean)
     .join('\n');
   const contextualCommunicationFallback =
-    /責め(?:る|ない)|落ち着いて(?:話|伝)|喧嘩|言い方|最初の一言/.test(
+    /責め(?:る|ない)|落ち着いて(?:話|伝)|喧嘩|言い方|最初の一言|どういう反応|どんな反応|返し方|返事/.test(
       fallbackSourceText
     ) &&
     /話|伝|言葉|一言|言い方|会議|提案|家事|夫|妻|相手/.test(
@@ -4176,6 +4183,13 @@ function buildSubstantiveShortFallback(lastUserText: string) {
     requestsConcreteSuggestion(lastUserText)
   ) {
     return '仕事で少し疲れているのですね。\n\n明日は、仕事の前に5分間だけ休んでください。';
+  }
+
+  if (
+    /今のレベル/.test(lastUserText) &&
+    /上がる|上げる/.test(lastUserText)
+  ) {
+    return '今のレベルを上げたいなら、先に対象を一つに絞る必要があります。\n\nまず、紙に「仕事」「人間関係」「生活習慣」の中で今いちばん上げたいものを一つだけ書いてください。';
   }
 
   if (
@@ -5947,6 +5961,19 @@ function buildNoQuestionFallback(
     );
   }
 
+  if (
+    /(?:どういう|どんな)(?:反応|返し方|返事|言い方)|最初に何て言えば|どう返せば/.test(
+      lastUserText
+    ) &&
+    /夫|妻|家族|相手/.test(userContext)
+  ) {
+    return buildDirectWordingFallback(
+      lastUserText,
+      userContext,
+      historyMessages
+    );
+  }
+
   if (shouldAvoidForcedCoachingMove(lastUserText, historyMessages)) {
     return buildRejectedMoveFallback(lastUserText, historyMessages);
   }
@@ -6043,6 +6070,14 @@ function buildHouseholdDirectWording(
   lastUserText: string,
   historyMessages: CoachingChatMessage[] = []
 ) {
+  if (
+    /(?:どういう|どんな)(?:反応|返し方|返事|言い方)|謝らないんだね|どう返せば/.test(
+      lastUserText
+    )
+  ) {
+    return '「謝るかどうかの言い合いを続けたいわけではないです。物を投げるのはやめてください。これ以上続けるなら、私はここで話を終えて離れます。」';
+  }
+
   const previousAssistantText =
     [...historyMessages]
       .reverse()
@@ -6524,7 +6559,7 @@ function requestsDirectWording(text: string) {
     return false;
   }
 
-  return /最初の一言|断(?:る|りたい|り方)[^。！？\n]{0,24}(?:一言|言い方|文面|返事|言葉|文章)|(?:一言|言い方|文面|返事|言葉|文章)[^。！？\n]{0,28}(?:教えて|提案して|考えて|作って|示して|どうすれば|どうしたら)|(?:教えて|提案して|考えて|作って|示して)[^。！？\n]{0,28}(?:一言|言い方|文面|返事|言葉|文章)|(?:どんな|どういう)文章[^。！？\n]{0,28}(?:にしたら|にすれば|が良い|がいい|がよい|なら良い|ならいい|ならよい)|(?:どう|何と|なんて)(?:言|伝え)(?:え|たら|れば|る|う)/.test(
+  return /最初の一言|断(?:る|りたい|り方)[^。！？\n]{0,24}(?:一言|言い方|文面|返事|言葉|文章)|(?:一言|言い方|文面|返事|言葉|文章)[^。！？\n]{0,28}(?:教えて|提案して|考えて|作って|示して|どうすれば|どうしたら)|(?:教えて|提案して|考えて|作って|示して)[^。！？\n]{0,28}(?:一言|言い方|文面|返事|言葉|文章)|(?:どんな|どういう)(?:文章|反応|返し方|返事|言い方)[^。！？\n]{0,28}(?:にしたら|にすれば|が良い|がいい|がよい|なら良い|ならいい|ならよい)|(?:どう|何と|なんて)(?:言|伝え)(?:え|たら|れば|る|う)|どう返せば/.test(
     text
   );
 }
