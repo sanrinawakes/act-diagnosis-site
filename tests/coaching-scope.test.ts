@@ -51,6 +51,7 @@ describe('classifyCoachingScope', () => {
     'この感情の原因を一緒に調べてほしい',
     '母との関係で悩んでいます。昨日の会話を聞いてください',
     '転職するか今の仕事を続けるか迷っています',
+    '宿泊についての文章も書いてほしい。子どもが望んでいないものを強制しろとは言っていないと主張したい',
   ])('allows coaching and personal communication: %s', (content) => {
     const result = classifyCoachingScope({ messages: [userMessage(content)] });
     expect(result.decision).toBe('allowed');
