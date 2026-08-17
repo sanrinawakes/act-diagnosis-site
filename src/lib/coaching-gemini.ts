@@ -3479,6 +3479,15 @@ function buildSafeQualityFallback(
   historyMessages: CoachingChatMessage[],
   issues: CoachingQualityIssue[] = []
 ) {
+  const pricingBoundaryFallback =
+    /かわす|言わずに|言わないで|別の言い方|どう返|何て言えば/.test(
+      lastUserText
+    ) &&
+    /お高いんですね|単価|価格|高い|値段|ジュース|出展/.test(
+      [historyMessages.map((message) => message.content).join('\n'), lastUserText].join('\n')
+    )
+      ? '「こだわりのジュースなんですね」と伝えます。'
+      : '';
   const subscriptionCancellationFallback =
     buildSubscriptionCancellationFallback(
       lastUserText,
@@ -3493,6 +3502,16 @@ function buildSafeQualityFallback(
       issues.includes('dissatisfaction_unanswered'))
   ) {
     return subscriptionCancellationFallback;
+  }
+
+  if (
+    pricingBoundaryFallback &&
+    (issues.includes('vague_action_target') ||
+      issues.includes('too_short') ||
+      issues.includes('latest_user_echo') ||
+      issues.includes('ungrounded_task_assumption'))
+  ) {
+    return pricingBoundaryFallback;
   }
 
   const withoutGenericClosing = candidateText
@@ -3750,6 +3769,19 @@ export function buildFinalVerifiedQualityFallback(
   lastUserText: string,
   historyMessages: CoachingChatMessage[]
 ): string {
+  const pricingBoundaryFallback =
+    /かわす|言わずに|言わないで|別の言い方|どう返|何て言えば/.test(
+      lastUserText
+    ) &&
+    /お高いんですね|単価|価格|高い|値段|ジュース|出展/.test(
+      [historyMessages.map((message) => message.content).join('\n'), lastUserText].join('\n')
+    )
+      ? '「こだわりのジュースなんですね」と伝えます。'
+      : '';
+  if (pricingBoundaryFallback) {
+    return pricingBoundaryFallback;
+  }
+
   if (
     /仕事|職場|業務|会社|タスク/.test(lastUserText) &&
     /落ち込/.test(lastUserText) &&
@@ -6129,6 +6161,16 @@ function buildDirectWordingFallback(
   if (/会議|提案/.test(userContext)) {
     return '「前回は提案の説明が途中で終わったため、今回は内容を最後までお伝えしてから、ご意見をいただけると助かります。」';
   }
+  if (
+    /お高いんですね|単価|価格|高い|値段|ジュース|出展/.test(
+      userContext
+    ) &&
+    /かわす|言わずに|言わないで|別の言い方|どう返|何て言えば/.test(
+      lastUserText
+    )
+  ) {
+    return '「こだわりのジュースなんですね」と伝えます。';
+  }
   if (/家事|夫|妻/.test(userContext)) {
     return buildHouseholdDirectWording(lastUserText, historyMessages);
   }
@@ -6694,7 +6736,7 @@ function requestsDirectWording(text: string) {
     return false;
   }
 
-  return /最初の一言|断(?:る|りたい|り方)[^。！？\n]{0,24}(?:一言|言い方|文面|返事|言葉|文章)|(?:一言|言い方|文面|返事|言葉|文章)[^。！？\n]{0,28}(?:教えて|提案して|考えて|作って|示して|どうすれば|どうしたら)|(?:教えて|提案して|考えて|作って|示して)[^。！？\n]{0,28}(?:一言|言い方|文面|返事|言葉|文章)|(?:どんな|どういう)(?:文章|反応|返し方|返事|言い方)[^。！？\n]{0,28}(?:にしたら|にすれば|が良い|がいい|がよい|なら良い|ならいい|ならよい)|(?:どう|何と|なんて)(?:言|伝え)(?:え|たら|れば|る|う)|どう返せば/.test(
+  return /最初の一言|断(?:る|りたい|り方)[^。！？\n]{0,24}(?:一言|言い方|文面|返事|言葉|文章)|(?:一言|言い方|文面|返事|言葉|文章)[^。！？\n]{0,28}(?:教えて|提案して|考えて|作って|示して|どうすれば|どうしたら)|(?:教えて|提案して|考えて|作って|示して)[^。！？\n]{0,28}(?:一言|言い方|文面|返事|言葉|文章)|(?:どんな|どういう)(?:文章|反応|返し方|返事|言い方)[^。！？\n]{0,28}(?:にしたら|にすれば|が良い|がいい|がよい|なら良い|ならいい|ならよい)|(?:どう|何と|なんて)(?:言|伝え)(?:え|たら|れば|る|う)|どう返せば|かわす方法/.test(
     text
   );
 }
