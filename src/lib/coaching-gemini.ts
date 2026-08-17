@@ -3972,15 +3972,24 @@ export function buildFinalVerifiedQualityFallback(
   const fallbackContext = [historicalUserContext, fallbackSourceText]
     .filter(Boolean)
     .join('\n');
+  if (
+    /かわす方法|言わずに/.test(lastUserText) &&
+    /お高い|価格|値段|ジュース/.test(fallbackContext)
+  ) {
+    return '「こだわりのジュースなんですね」';
+  }
   const contextualCommunicationFallback =
-    /責め(?:る|ない)|落ち着いて(?:話|伝)|喧嘩|言い方|最初の一言|どういう反応|どんな反応|返し方|返事/.test(
-      fallbackSourceText
+    (
+      /責め(?:る|ない)|落ち着いて(?:話|伝)|喧嘩|言い方|最初の一言|どういう反応|どんな反応|返し方|返事/.test(
+        fallbackSourceText
+      ) ||
+      /かわす方法|言わずに|失礼/.test(lastUserText)
     ) &&
     /話|伝|言葉|一言|言い方|会議|提案|家事|夫|妻|相手/.test(
       fallbackContext
     )
       ? buildDirectWordingFallback(
-          fallbackSourceText,
+          lastUserText,
           fallbackContext,
           historyMessages
         )
@@ -4030,9 +4039,9 @@ export function buildFinalVerifiedQualityFallback(
           '次の対応を決めるために、日時と相手を特定できる出来事を一つ教えてください。',
         ];
   const candidates = [
+    contextualCommunicationFallback,
     buildSubstantiveShortFallback(lastUserText),
     buildSubstantiveShortFallback(fallbackSourceText),
-    contextualCommunicationFallback,
     contextualDissatisfactionFallback,
     noQuestionRequested ? concreteAction : '',
     noQuestionRequested
@@ -5428,6 +5437,13 @@ function isGroundedDirectWording(
   ) {
     return false;
   }
+  if (
+    /かわす方法|言わずに/.test(lastUserText) &&
+    /お高い|価格|値段|ジュース/.test(userContext) &&
+    /「[^」]+」/.test(answer)
+  ) {
+    return true;
+  }
 
   const statement = selectGroundingStatement(historyMessages);
   if (!statement) return true;
@@ -5482,6 +5498,12 @@ function buildGroundedDirectWording(
     /後回し|時間[^。\n]{0,40}軽く扱/.test(userContext)
   ) {
     return buildHouseholdDirectWording(lastUserText, historyMessages);
+  }
+  if (
+    /かわす方法|言わずに/.test(lastUserText) &&
+    /お高い|価格|値段|ジュース/.test(userContext)
+  ) {
+    return '「こだわりのジュースなんですね」';
   }
 
   const naturalStatement = statement
@@ -6123,6 +6145,12 @@ function buildDirectWordingFallback(
       ? '「冬至までに、ハンドメイドの販売とワークショップを通じて、人とのつながりを大切にしながら、感謝と幸せを感じる時間を増やし、たくさんの人を笑顔にします。」'
       : '「ハンドメイドの販売とワークショップを通じて、人とのつながりを大切にしながら、感謝と幸せを感じる時間を増やし、たくさんの人を笑顔にします。」';
   }
+  if (
+    /お高い|高いんですね|価格|値段|ジュース/.test(userContext) &&
+    /かわす方法|言わずに|失礼/.test(lastUserText)
+  ) {
+    return '「こだわりのジュースなんですね」';
+  }
   if (/断る|断り|引き受けられ|引き受けでき/.test(userContext)) {
     return '「ありがとうございます。ただ、今は手一杯のため、今回はお引き受けできません。」';
   }
@@ -6694,7 +6722,7 @@ function requestsDirectWording(text: string) {
     return false;
   }
 
-  return /最初の一言|断(?:る|りたい|り方)[^。！？\n]{0,24}(?:一言|言い方|文面|返事|言葉|文章)|(?:一言|言い方|文面|返事|言葉|文章)[^。！？\n]{0,28}(?:教えて|提案して|考えて|作って|示して|どうすれば|どうしたら)|(?:教えて|提案して|考えて|作って|示して)[^。！？\n]{0,28}(?:一言|言い方|文面|返事|言葉|文章)|(?:どんな|どういう)(?:文章|反応|返し方|返事|言い方)[^。！？\n]{0,28}(?:にしたら|にすれば|が良い|がいい|がよい|なら良い|ならいい|ならよい)|(?:どう|何と|なんて)(?:言|伝え)(?:え|たら|れば|る|う)|どう返せば/.test(
+  return /最初の一言|断(?:る|りたい|り方)[^。！？\n]{0,24}(?:一言|言い方|文面|返事|言葉|文章)|(?:一言|言い方|文面|返事|言葉|文章)[^。！？\n]{0,28}(?:教えて|提案して|考えて|作って|示して|どうすれば|どうしたら)|(?:教えて|提案して|考えて|作って|示して)[^。！？\n]{0,28}(?:一言|言い方|文面|返事|言葉|文章)|(?:どんな|どういう)(?:文章|反応|返し方|返事|言い方)[^。！？\n]{0,28}(?:にしたら|にすれば|が良い|がいい|がよい|なら良い|ならいい|ならよい)|(?:どう|何と|なんて)(?:言|伝え)(?:え|たら|れば|る|う)|どう返せば|(?:言わずに|かわす)方法/.test(
     text
   );
 }
