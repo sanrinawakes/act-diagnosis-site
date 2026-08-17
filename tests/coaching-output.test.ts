@@ -822,6 +822,45 @@ describe('ensureVerifiedCoachingResolution', () => {
     expect(result.text).not.toContain('という相談ですね');
   });
 
+  it('価格の話題をかわしたい相談で汎用整理文へ逃がさない', () => {
+    const historyMessages = [
+      {
+        role: 'user' as const,
+        content:
+          'お世話になってる人が、単価をあげたことが深層心理で許せないみたいだ。あとその人が所属してるコミュニティも深層心理では嫌いみたい。',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          '相手は良かれと思って勧めているため、真っ向から思想を否定する必要はありません。',
+      },
+      {
+        role: 'user' as const,
+        content:
+          'それなら、言えそう。昨日も、400円でジュースを出展したと聞いて、結構お高いんですね、と思わず言ってしまった。相手は気分を害していた。',
+      },
+    ];
+    const result = ensureVerifiedCoachingResolution({
+      resolution: {
+        text: '「お高いんですね、と言わずにかわす方法はあったのだろうか」という相談ですね。\n\nまだ書かれていない原因を推測せず、実際に起きたことと、次に困る場面を分けると、具体的な対応を選びやすくなります。',
+        usage: { prompt_tokens: 12, completion_tokens: 9, total_tokens: 21 },
+        modelName: 'local-quality-fallback',
+        provider: 'local',
+        repairAttempted: true,
+        repairAccepted: true,
+        initialIssues: ['vague_action_target'],
+        finalIssues: ['vague_action_target'],
+      },
+      lastUserText: 'お高いんですね、と言わずにかわす方法はあったのだろうか？',
+      historyMessages,
+      preserveUsage: true,
+    });
+
+    expect(result.finalIssues).toEqual([]);
+    expect(result.text).toContain('こだわりのジュースなんですね');
+    expect(result.text).not.toContain('まだ書かれていない原因を推測せず');
+  });
+
   it('毎月払いの補足へ直前の不満を繰り返さず次回更新日の確認へ進める', () => {
     const historyMessages = [
       {
