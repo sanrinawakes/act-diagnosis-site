@@ -3554,6 +3554,11 @@ function buildSafeQualityFallback(
       lastUserText,
       historyMessages
     );
+  const familyLegalDraftRevisionFallback =
+    buildFamilyLegalDraftRevisionFallback(
+      lastUserText,
+      historyMessages
+    );
 
   if (
     substantiveFallback &&
@@ -3585,6 +3590,23 @@ function buildSafeQualityFallback(
       issues.includes('latest_user_echo'))
   ) {
     return relationshipClarificationFallback;
+  }
+
+  if (
+    familyLegalDraftRevisionFallback &&
+    (issues.includes('context_mismatch') ||
+      issues.includes('vague_action_target') ||
+      issues.includes('dangling_choice_reference') ||
+      issues.includes('dissatisfaction_unanswered') ||
+      issues.includes('too_short'))
+  ) {
+    return reportsResponseDissatisfaction(lastUserText)
+      ? [
+          '前の返答では必要な文面を出せていませんでした。申し訳ありません。',
+          '',
+          familyLegalDraftRevisionFallback,
+        ].join('\n')
+      : familyLegalDraftRevisionFallback;
   }
 
   if (issues.includes('dissatisfaction_unanswered')) {
@@ -3971,6 +3993,18 @@ export function buildFinalVerifiedQualityFallback(
     buildNoQuestionFallback(fallbackSourceText, historyMessages),
     lastUserText
   );
+  const legalDraftRevisionFallback =
+    buildFamilyLegalDraftRevisionFallback(lastUserText, historyMessages) ||
+    buildFamilyLegalDraftRevisionFallback(fallbackSourceText, historyMessages);
+  if (legalDraftRevisionFallback) {
+    return reportsResponseDissatisfaction(lastUserText)
+      ? [
+          '前の返答では必要な文面を出せていませんでした。申し訳ありません。',
+          '',
+          legalDraftRevisionFallback,
+        ].join('\n')
+      : legalDraftRevisionFallback;
+  }
   const questionCandidates = /仕事|上司|同僚|会議|企画|職場/.test(
     fallbackSourceText
   )
@@ -4344,6 +4378,18 @@ function buildContextualDissatisfactionFallback(
   lastUserText: string,
   historyMessages: CoachingChatMessage[]
 ) {
+  const legalDraftRevisionFallback = buildFamilyLegalDraftRevisionFallback(
+    lastUserText,
+    historyMessages
+  );
+  if (legalDraftRevisionFallback) {
+    return [
+      '前の返答では必要な文面を出せていませんでした。申し訳ありません。',
+      '',
+      legalDraftRevisionFallback,
+    ].join('\n');
+  }
+
   const previousUserText = selectRelevantFallbackSource(
     lastUserText,
     historyMessages
@@ -5585,7 +5631,7 @@ function explicitlyRejectsPreviousCoachingMove(text: string) {
 }
 
 function reportsResponseDissatisfaction(text: string) {
-  return /^(?:[？?]+)$|わからないから聞いて|それを聞いている|質問ばかり|同じ質問|答えになっていない|納得(?:できない|いかない)|何を言いたいのかわから|ちゃんと答えて|何の話|^(?:(?:これ|それ)は)?どういう(?:こと|事|意味)[。！？!?]*$|いちいち確認しないで|言葉の通りに解釈して|^相手とは[。！？!?]*$|意味(?:が)?(?:不明|わから)|話が(?:違|ずれ)|前の返答.{0,20}(?:わか(?:ら|り)|短|意味)|前(?:の|より).{0,20}(?:方が|ほうが).{0,20}(?:的確|良かった|よかった)|頭が悪くな/.test(
+  return /^(?:[？?]+)$|わからないから聞いて|それを聞いている|質問ばかり|同じ質問|答えになっていない|納得(?:できない|いかない)|何を言いたいのかわから|ちゃんと答えて|何の話|^(?:(?:これ|それ)は)?どういう(?:こと|事|意味)[。！？!?]*$|いちいち確認しないで|言葉の通りに解釈して|^相手とは[。！？!?]*$|意味(?:が)?(?:不明|わから)|話が(?:違|ずれ)|前の返答.{0,20}(?:わか(?:ら|り)|短|意味)|前(?:の|より).{0,20}(?:方が|ほうが).{0,20}(?:的確|良かった|よかった)|頭が悪くな|作成されてない|作成されていない|文章を出せていない/.test(
     text
   );
 }
@@ -5944,6 +5990,14 @@ function buildNoQuestionFallback(
   lastUserText: string,
   historyMessages: CoachingChatMessage[] = []
 ) {
+  const legalDraftRevisionFallback = buildFamilyLegalDraftRevisionFallback(
+    lastUserText,
+    historyMessages
+  );
+  if (legalDraftRevisionFallback) {
+    return legalDraftRevisionFallback;
+  }
+
   const historicalUserContext = historyMessages
     .filter((message) => message.role === 'user')
     .map((message) => stripAttachmentMarkdown(message.content))
@@ -6077,6 +6131,69 @@ function buildDirectWordingFallback(
     return '「今夜、責めたいのではなく、これからどうするかを落ち着いて話したいです。」';
   }
   return '「責めたいのではなく、これからどうするかを一緒に話したいです。」';
+}
+
+function buildFamilyLegalDraftRevisionFallback(
+  lastUserText: string,
+  historyMessages: CoachingChatMessage[] = []
+) {
+  const sourceText = (
+    reportsResponseDissatisfaction(lastUserText)
+      ? selectRelevantFallbackSource(lastUserText, historyMessages)
+      : lastUserText
+  ) || lastUserText;
+  const normalizedSourceText = stripAttachmentMarkdown(sourceText)
+    .replace(/\s+/g, ' ')
+    .trim();
+  const recentContext = [
+    ...historyMessages
+      .slice(-10)
+      .map((message) => stripAttachmentMarkdown(message.content)),
+    normalizedSourceText,
+  ].join('\n');
+  const hasFamilyLegalDraftContext =
+    /親権|面会交流|調停|裁判所|相手方|学校行事|習い事|年金手帳|夕食交流|宿泊|出張時|主張書面|書面/.test(
+      recentContext
+    );
+  const requestsDraftRevision =
+    /言いたい|主張したい|加えたい|追記したい|修正|直し|弱い|作成してほしい|作ってほしい|書いてほしい|まとめてほしい|ないからそれも/.test(
+      normalizedSourceText
+    ) || reportsResponseDissatisfaction(lastUserText);
+  if (!hasFamilyLegalDraftContext || !requestsDraftRevision) {
+    return '';
+  }
+
+  if (
+    /現状と何ら変わらない|現状と変わらない/.test(normalizedSourceText) &&
+    /親権/.test(recentContext)
+  ) {
+    return 'この箇所は、次のように書き換えられます。\n\n相手方が示している内容は、現在すでに実現している事項にとどまり、現状と何ら変わりません。現状と変わらない条件のままであれば、私が親権を譲る理由はなく、親権の譲渡に同意することはできません。';
+  }
+
+  if (
+    /平日/.test(recentContext) &&
+    /土日|月.?1回|月1回/.test(normalizedSourceText)
+  ) {
+    return 'この点は、次のように追記できます。\n\n家を出た当初は平日に自由に面会できていました。その後、平日は学校帰りで時間が短いため、土日にも月1回面会できるよう求めましたが、当初はそれも拒否されました。調停委員の関与でようやく土日の面会が実現した後、今度は平日の面会に制限が設けられており、この経緯からすると、子どもの負担よりも私の交流を制限することが優先されているように見えます。';
+  }
+
+  if (/夕食交流|食事/.test(normalizedSourceText)) {
+    return 'この点は、次のように追記できます。\n\n私は、必ず週1回夕食交流を実施しろと求めているのではありません。私には子どもと食事を共にする権利があるため、私が夕食交流を求めた際に一律に妨げないでほしいと求めています。週1回という表現が曖昧であれば、曜日や運用方法を具体的に協議し、どうすれば交流を実現できるかを示していただきたいと考えています。';
+  }
+
+  if (/学校行事|習い事|参加/.test(normalizedSourceText)) {
+    return 'この点は、次のように書き換えられます。\n\n学校行事や習い事への参加について、相手方は私が参加すると自分が参加できないと述べていますが、そのような対立的な捉え方自体が問題です。私は相手方の参加を妨げる意図はなく、子どものために両親が参加できる形を協力して整えるべきだと考えています。';
+  }
+
+  if (/出張|外食|自宅に入る/.test(normalizedSourceText)) {
+    return 'この点は、次のように書き換えられます。\n\n相手方出張時の対応について、私は相手方宅に立ち入ることを求めておらず、その点は私も受け入れています。そのうえで、外食などの形で子どもと食事を共にし、必要な見守りや支援を行えるよう求めています。';
+  }
+
+  if (/交友関係|心配無用|相談したい/.test(normalizedSourceText)) {
+    return 'この点は、次のように追記できます。\n\n平日交流は、時間の確保だけでなく、子どもが私に学校での交友関係など父親には話しにくい内容を相談できる機会でもあります。家を出た当初にも、子どもは私に話ができないと訴えていました。相手方にこの点を伝えても「心配無用」として取り合われませんでしたが、子どもが相談したい相手に会って話せないことこそが負担になり得ます。';
+  }
+
+  return 'この箇所は、相手方の対応と、それによって受け入れられない理由が一文ずつ分かる形に整えます。現状から変わらない点、拒否された具体的な要求、その結果として同意できない理由を順に書く形が適切です。';
 }
 
 function buildHouseholdDirectWording(

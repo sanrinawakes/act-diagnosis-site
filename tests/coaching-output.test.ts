@@ -5764,6 +5764,71 @@ describe('normalizeCoachingOutput', () => {
     expect(assessment.issues).toEqual([]);
   });
 
+  it('親権書面の修正依頼を資料の見出し作成へ逸らさない', () => {
+    const historyMessages = [
+      {
+        role: 'user' as const,
+        content:
+          'あくまで私は対立姿勢ではないこと、バッドカルマを生みたくないこと。調和をもとに話し合いをしたいことが前提である。そのうえで、私の主張は以下の通り。',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          '主張書面（回答）\n\n２．親権譲渡の前提条件について\n相手方は最低月１回の面会交流や年金手帳の返還に応じる姿勢を示されていますが、これらは親権を譲るか否かに関わらず当然に行われるべき事柄です。',
+      },
+    ];
+    const lastUserText =
+      'これについては、今もそうだから現状と何ら変わらないということを言いたい。現状と変わらないのに親権を譲ることはできないということが言いたいの。';
+
+    const fallback = buildFinalVerifiedQualityFallback(
+      lastUserText,
+      historyMessages
+    );
+    const assessment = assessCoachingResponseQuality({
+      text: fallback,
+      lastUserText,
+      historyMessages,
+    });
+
+    expect(fallback).toContain('現状と何ら変わりません');
+    expect(fallback).toContain('親権の譲渡に同意することはできません');
+    expect(fallback).not.toContain('最初の見出し');
+    expect(fallback).not.toContain('明日の朝');
+    expect(assessment.issues).toEqual([]);
+  });
+
+  it('文面未提示への不満を無関係な二択質問へ逃がさない', () => {
+    const historyMessages = [
+      {
+        role: 'user' as const,
+        content:
+          '平日夕食交流についての文がないからそれも作成してほしい。前回も伝えているが必ず週１回食事をさせろということではない。私にはその権利があると言うこと。したがって私が食事の要求をしたときに妨害をしてこないでほしいということを言いたい。',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          '平日交流の重要性について、子どもの精神的なケアの観点から以下の文章を作成しました。',
+      },
+    ];
+    const lastUserText = '作成されてないよ？';
+
+    const fallback = buildFinalVerifiedQualityFallback(
+      lastUserText,
+      historyMessages
+    );
+    const assessment = assessCoachingResponseQuality({
+      text: fallback,
+      lastUserText,
+      historyMessages,
+    });
+
+    expect(fallback).toContain('前の返答では必要な文面を出せていませんでした');
+    expect(fallback).toContain('夕食交流');
+    expect(fallback).toContain('妨げないでほしい');
+    expect(fallback).not.toContain('どちらを選べば');
+    expect(assessment.issues).toEqual([]);
+  });
+
   it('スマホをしまって景色を見る二つの行動を一つ扱いにしない', () => {
     const assessment = assessCoachingResponseQuality({
       text: '明日は、仕事が終わったらスマートフォンをカバンにしまい、5分間だけ外の景色を眺めてください。',
