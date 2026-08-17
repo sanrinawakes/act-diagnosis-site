@@ -72,6 +72,10 @@ const FAMILY_LEGAL_DOCUMENT_ACTION =
   /(?:文章|文書|書面|主張|作(?:成|って)|書いて|まとめて|修正して|直して|書き直して)/i;
 const CONTINUATION_REQUEST =
   /(?:続き|もう一度|もう一回|もっと|もう少し|短く|長く|詳しく|具体的|魅力的|やわらかく|強め|女性向け|男性向け|初心者向け|別案|別の案|別パターン|ほかにも|他にも|修正して|直して|書き直して|変えて|同じように|それでお願い|これでお願い|\d+案)/i;
+const FAMILY_LEGAL_DRAFT_CONTEXT =
+  /(?:親権|面会交流|調停|裁判所|相手方|学校行事|習い事|年金手帳|夕食交流|宿泊|出張時|監護|主張書面|書面|平日交流|外食)/i;
+const FAMILY_LEGAL_DRAFT_REQUEST =
+  /(?:文章|文書|書面|主張|追記|修正|直し|書いて|作って|作成|まとめて|言いたい|加えたい)/i;
 
 export function classifyCoachingScope(params: {
   messages: CoachingChatMessage[];
@@ -95,6 +99,14 @@ export function classifyCoachingScope(params: {
   };
 
   const normalizedLatest = normalizeForScope(latest);
+  if (isFamilyLegalDraftingRequest(normalizedLatest, messages)) {
+    return {
+      decision: 'allowed',
+      category: 'coaching',
+      matchedRule: 'family_legal_drafting_context',
+      ...metadata,
+    };
+  }
   const direct = classifyDirectRequest(normalizedLatest);
   if (direct) return { ...direct, ...metadata };
 
@@ -233,6 +245,21 @@ function isFamilyLegalDraftRequest(text: string) {
 
 function isContinuationRequest(text: string) {
   return text.length <= 120 && CONTINUATION_REQUEST.test(text);
+}
+
+function isFamilyLegalDraftingRequest(
+  latestText: string,
+  messages: CoachingChatMessage[]
+) {
+  const recentContext = messages
+    .slice(-6)
+    .map((message) => message.content)
+    .join('\n');
+
+  return (
+    FAMILY_LEGAL_DRAFT_CONTEXT.test(recentContext) &&
+    FAMILY_LEGAL_DRAFT_REQUEST.test(latestText)
+  );
 }
 
 function normalizeForScope(value: string) {

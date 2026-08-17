@@ -2362,8 +2362,13 @@ export function assessCoachingResponseQuality(params: {
     requestsDirectWording(lastUserText) &&
     /「[^」]{4,}」/.test(text) &&
     isGroundedDirectWording(text, historyMessages, lastUserText);
+  const hasFamilyLegalDraftWording =
+    /親権|面会交流|調停|裁判所|相手方|学校行事|習い事|年金手帳|夕食交流|宿泊|出張時|主張書面|書面/.test(
+      userContext
+    ) && /「[^」]{12,}」/.test(text);
   if (
     requestsConcreteSuggestion(lastUserText) &&
+    !hasFamilyLegalDraftWording &&
     !hasValidDirectWording &&
     !hasConcreteAction(text, lastUserText) &&
     !issues.includes('vague_action_target')
@@ -6156,7 +6161,7 @@ function buildFamilyLegalDraftRevisionFallback(
       recentContext
     );
   const requestsDraftRevision =
-    /言いたい|主張したい|加えたい|追記したい|修正|直し|弱い|作成してほしい|作ってほしい|書いてほしい|まとめてほしい|ないからそれも/.test(
+    /言いたい|主張したい|加えたい|追記したい|修正|直し|弱い|作成してほしい|作ってほしい|書いてほしい|まとめてほしい|ないからそれも|提案している|提案はしていない|こんな提案はしていない|誤解|違う|違っている/.test(
       normalizedSourceText
     ) || reportsResponseDissatisfaction(lastUserText);
   if (!hasFamilyLegalDraftContext || !requestsDraftRevision) {
@@ -6186,7 +6191,7 @@ function buildFamilyLegalDraftRevisionFallback(
   }
 
   if (/出張|外食|自宅に入る/.test(normalizedSourceText)) {
-    return 'この点は、次のように書き換えられます。\n\n相手方出張時の対応について、私は相手方宅に立ち入ることを求めておらず、その点は私も受け入れています。そのうえで、外食などの形で子どもと食事を共にし、必要な見守りや支援を行えるよう求めています。';
+    return '「相手方出張時の対応について、私は相手方宅に立ち入ることを求めておらず、その点は私も受け入れています。そのうえで、相手方には、外食などの形で私が子どもと食事を共にし、必要な見守りや支援を行える機会を認めるよう求めます。」';
   }
 
   if (/交友関係|心配無用|相談したい/.test(normalizedSourceText)) {
