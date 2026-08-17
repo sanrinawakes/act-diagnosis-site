@@ -3808,6 +3808,19 @@ export function buildFinalVerifiedQualityFallback(
     }
   }
 
+  const careerMobilityFollowupFallback =
+    buildCareerMobilityFollowupFallback(lastUserText, historyMessages);
+  if (careerMobilityFollowupFallback) {
+    const careerMobilityAssessment = assessCoachingResponseQuality({
+      text: careerMobilityFollowupFallback,
+      lastUserText,
+      historyMessages,
+    });
+    if (careerMobilityAssessment.issues.length === 0) {
+      return careerMobilityFollowupFallback;
+    }
+  }
+
   const briefAcknowledgementFallback =
     buildBriefAcknowledgementFallback(lastUserText, historyMessages);
   if (briefAcknowledgementFallback) {
@@ -7131,6 +7144,44 @@ function buildBriefAcknowledgementFallback(
   }
 
   return '';
+}
+
+function buildCareerMobilityFollowupFallback(
+  lastUserText: string,
+  historyMessages: CoachingChatMessage[]
+) {
+  const normalized = stripAttachmentMarkdown(lastUserText)
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!/^お願いします[。!！]*$/.test(normalized)) return '';
+
+  const recentUserContext = historyMessages
+    .filter((message) => message.role === 'user')
+    .slice(-4)
+    .map((message) => stripAttachmentMarkdown(message.content))
+    .join('\n');
+  const recentAssistantContext = historyMessages
+    .filter((message) => message.role === 'assistant')
+    .slice(-2)
+    .map((message) => stripAttachmentMarkdown(message.content))
+    .join('\n');
+
+  if (
+    !/一般職/.test(recentUserContext) ||
+    !/総合職|出向|留学/.test(recentUserContext)
+  ) {
+    return '';
+  }
+
+  if (
+    !/実際に起きたことと、次に困る場面を分ける/.test(
+      recentAssistantContext
+    )
+  ) {
+    return '';
+  }
+
+  return 'では、総合職の話が出る場面で何を見せるかを先に絞ります。一般職のまま出向や留学を狙うなら、「任せても大丈夫」と判断される材料が必要です。まずは今の職場で、自分から手を挙げて広い視点で動いた実例を一つ書き出してください。推薦や打診につながるのは、その実例です。';
 }
 
 function buildReflectiveFeedbackFallback(

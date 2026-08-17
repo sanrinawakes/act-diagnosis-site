@@ -5803,6 +5803,48 @@ describe('normalizeCoachingOutput', () => {
     expect(result.text).not.toMatch(/[？?]|どうぞ/);
   });
 
+  it('キャリア相談でお願いしますと返された後も一文の汎用整理文で終わらない', () => {
+    const lastUserText = 'お願いします';
+    const historyMessages = [
+      {
+        role: 'assistant' as const,
+        content:
+          'こんにちは！ACTIのコーチングへようこそ。\n\nあなたのタイプコード「MGE-3」に基づいて、パーソナライズされたコーチングを提供します。\n\n次のテーマについてお話しすることができます：\n・自己理解 - あなたのタイプの強みと課題\n・行動パターン - 日常での行動傾向\n・人間関係 - 対人スキルの向上\n・キャリア - 仕事での活躍方法\n・パーソナルグロース - 成長のステップ\n\n何について詳しく知りたいですか？',
+      },
+      {
+        role: 'user' as const,
+        content:
+          '一般職ですが、あえて総合職で話があるかどうかのグループ本社出向、留学を狙っています',
+      },
+      {
+        role: 'user' as const,
+        content: '何かアドバイスありますか',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          '「一般職ですが、あえて総合職で話があるかどうかのグループ本社出向、留学を狙っています」という相談ですね。\n\nまだ書かれていない原因を推測せず、実際に起きたことと、次に困る場面を分けると、具体的な対応を選びやすくなります。今の情報だけで原因や相手の意図を決めつけず、確認できる出来事から整理します。',
+      },
+    ];
+
+    const fallback = buildFinalVerifiedQualityFallback(
+      lastUserText,
+      historyMessages
+    );
+    const assessment = assessCoachingResponseQuality({
+      text: fallback,
+      lastUserText,
+      historyMessages,
+    });
+
+    expect(assessment.issues).toEqual([]);
+    expect(fallback).toContain('一般職のまま出向や留学を狙うなら');
+    expect(fallback).toContain('実例を一つ書き出してください');
+    expect(fallback).not.toBe(
+      'まだ書かれていない原因を推測せず、実際に起きたことと、次に困る場面を分けると、具体的な対応を選びやすくなります。'
+    );
+  });
+
   it('支払わない事実を「払えない」に変えず、未申告の感情も足さない', () => {
     const result = normalizeCoachingOutput(
       '全額払ってほしいと伝えても行動に移してもらえないのは、本当にやりきれない気持ちになりますね。言葉が届いていない、あるいは軽く流されている状態です。\n\nご主人は、家賃を全額払えない理由を説明していますか？',
