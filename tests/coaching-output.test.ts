@@ -5829,6 +5829,34 @@ describe('normalizeCoachingOutput', () => {
     expect(assessment.issues).toEqual([]);
   });
 
+  it('相手方出張時の訂正依頼を曖昧な整理質問へ戻さない', () => {
+    const historyMessages = [
+      {
+        role: 'assistant' as const,
+        content:
+          '相手方出張時の監護についても、私は子どもを連れ出すのではなく、子どもが住み慣れた自宅で過ごせるよう、私が赴いて食事の用意や監護を行うと提案しています。',
+      },
+    ];
+    const lastUserText =
+      'これに対しては私はこんな提案はしていない。相手方は私が家に入ることを拒絶しているし、それは私も受け入れている。だから外食だったりを提案している。';
+
+    const fallback = buildFinalVerifiedQualityFallback(
+      lastUserText,
+      historyMessages
+    );
+    const assessment = assessCoachingResponseQuality({
+      text: fallback,
+      lastUserText,
+      historyMessages,
+    });
+
+    expect(fallback).toContain('「');
+    expect(fallback).toContain('相手方宅に立ち入ることを求めておらず');
+    expect(fallback).toContain('外食などの形で私が子どもと食事を共にし');
+    expect(fallback).not.toContain('相手に変えてほしい行動');
+    expect(assessment.issues).toEqual([]);
+  });
+
   it('スマホをしまって景色を見る二つの行動を一つ扱いにしない', () => {
     const assessment = assessCoachingResponseQuality({
       text: '明日は、仕事が終わったらスマートフォンをカバンにしまい、5分間だけ外の景色を眺めてください。',

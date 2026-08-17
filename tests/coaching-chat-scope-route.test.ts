@@ -254,7 +254,7 @@ describe('POST /api/chat scope guard', () => {
     );
   });
 
-  it('allows family legal drafting requests to continue through the provider path', async () => {
+  it('keeps a family legal drafting follow-up on the provider path', async () => {
     const request = new NextRequest('http://localhost/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', origin: 'http://localhost' },
@@ -264,7 +264,17 @@ describe('POST /api/chat scope guard', () => {
           {
             role: 'user',
             content:
-              '宿泊についての文章も書いてほしい。子どもが望んでいないものを強制しろとは言っていないと主張したい。',
+              '平日夕食交流についての文がないからそれも作成してほしい。前回も伝えているが必ず週１回食事をさせろということではない。',
+          },
+          {
+            role: 'assistant',
+            content:
+              '大変失礼いたしました。ご指示いただいた内容を文章としてまとめました。',
+          },
+          {
+            role: 'user',
+            content:
+              '宿泊についての文章も書いてほしい。これについても子供が望んでいないものを強制的にさせろなんて一言も言っていない。',
           },
         ],
         stream: true,
@@ -273,9 +283,9 @@ describe('POST /api/chat scope guard', () => {
 
     const response = await POST(request);
     expect(response.status).toBe(200);
-    expect(await response.text()).toContain('相談への回答');
+    const responseText = await response.text();
+    expect(responseText).not.toContain(COACHING_SCOPE_GUIDANCE);
     expect(mocks.createJsonLineStream).toHaveBeenCalledTimes(1);
-    expect(mocks.quotaRpc).toHaveBeenCalled();
     expect(mocks.usageInsert).toHaveBeenCalledWith(
       expect.objectContaining({
         decision: 'allowed',

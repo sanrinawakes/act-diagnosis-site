@@ -52,10 +52,32 @@ describe('classifyCoachingScope', () => {
     '母との関係で悩んでいます。昨日の会話を聞いてください',
     '転職するか今の仕事を続けるか迷っています',
     '宿泊についての文章も書いてほしい。子どもが望んでいないものを強制しろとは言っていないと主張したい',
+    '宿泊についての文章も書いてほしい。これについても子供が望んでいないものを強制的にさせろなんて一言も言っていない。',
   ])('allows coaching and personal communication: %s', (content) => {
     const result = classifyCoachingScope({ messages: [userMessage(content)] });
     expect(result.decision).toBe('allowed');
     expect(result.category).toBe('coaching');
+  });
+
+  it('allows family legal draft revisions inside an ongoing custody discussion', () => {
+    const result = classifyCoachingScope({
+      messages: [
+        userMessage(
+          '平日夕食交流についての文がないからそれも作成してほしい。前回も伝えているが必ず週１回食事をさせろということではない。'
+        ),
+        {
+          role: 'assistant',
+          content: '大変失礼いたしました。ご指示いただいた内容を文章としてまとめました。',
+        },
+        userMessage(
+          '宿泊についての文章も書いてほしい。これについても子供が望んでいないものを強制的にさせろなんて一言も言っていない。'
+        ),
+      ],
+    });
+
+    expect(result.decision).toBe('allowed');
+    expect(result.category).toBe('coaching');
+    expect(result.matchedRule).toBe('family_legal_drafting_context');
   });
 
   it('blocks marketing even when the user labels it as a personal consultation', () => {
