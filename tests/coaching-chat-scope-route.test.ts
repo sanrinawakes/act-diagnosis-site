@@ -254,6 +254,37 @@ describe('POST /api/chat scope guard', () => {
     );
   });
 
+  it('allows family legal drafting requests to continue through the provider path', async () => {
+    const request = new NextRequest('http://localhost/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', origin: 'http://localhost' },
+      body: JSON.stringify({
+        sessionId: SESSION_ID,
+        messages: [
+          {
+            role: 'user',
+            content:
+              '宿泊についての文章も書いてほしい。子どもが望んでいないものを強制しろとは言っていないと主張したい。',
+          },
+        ],
+        stream: true,
+      }),
+    });
+
+    const response = await POST(request);
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain('相談への回答');
+    expect(mocks.createJsonLineStream).toHaveBeenCalledTimes(1);
+    expect(mocks.quotaRpc).toHaveBeenCalled();
+    expect(mocks.usageInsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        decision: 'allowed',
+        category: 'coaching',
+        provider_requested: true,
+      })
+    );
+  });
+
   it('blocks business-growth consulting before the provider path runs', async () => {
     const request = new NextRequest('http://localhost/api/chat', {
       method: 'POST',

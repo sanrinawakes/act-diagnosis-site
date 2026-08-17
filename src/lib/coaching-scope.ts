@@ -66,6 +66,10 @@ const PERSONAL_COMMUNICATION =
   /(?:line|メール|メッセージ|手紙|返信|返事|伝え方|言い方|話し方|会話|謝り|断り|お願いする|気持ちを伝え)/i;
 const PERSONAL_EMOTION =
   /(?:気持ち|本音|悩み|不安|怖|つら|辛|悲し|怒り|傷つ|迷い|葛藤|関係|仲直り|謝り|断りたい)/i;
+const FAMILY_LEGAL_DOCUMENT_CONTEXT =
+  /(?:親権|面会交流|宿泊|監護|調停|裁判所|相手方|学校行事|習い事|年金手帳|夕食交流|出張時|権利)/i;
+const FAMILY_LEGAL_DOCUMENT_ACTION =
+  /(?:文章|文書|書面|主張|作(?:成|って)|書いて|まとめて|修正して|直して|書き直して)/i;
 const CONTINUATION_REQUEST =
   /(?:続き|もう一度|もう一回|もっと|もう少し|短く|長く|詳しく|具体的|魅力的|やわらかく|強め|女性向け|男性向け|初心者向け|別案|別の案|別パターン|ほかにも|他にも|修正して|直して|書き直して|変えて|同じように|それでお願い|これでお願い|\d+案)/i;
 
@@ -162,6 +166,10 @@ function classifyDirectRequest(text: string): ScopeClassification | null {
     return blocked('programming', 'programming_request');
   }
 
+  if (isFamilyLegalDraftRequest(text)) {
+    return allowed('coaching', 'family_legal_document_request');
+  }
+
   if (MARKETING_OBJECT.test(text) && CONTENT_CREATION_ACTION.test(text)) {
     return blocked('marketing_content', 'marketing_content_request');
   }
@@ -199,10 +207,26 @@ function blocked(
   return { decision: 'blocked', category, matchedRule };
 }
 
+function allowed(
+  category: Extract<CoachingScopeCategory, 'coaching' | 'conversation_followup'>,
+  matchedRule: string
+): ScopeClassification {
+  return { decision: 'allowed', category, matchedRule };
+}
+
 function isPersonalCommunicationRequest(text: string) {
   return (
     PERSONAL_RELATIONSHIP.test(text) &&
     (PERSONAL_COMMUNICATION.test(text) || PERSONAL_EMOTION.test(text)) &&
+    !MARKETING_OBJECT.test(text)
+  );
+}
+
+function isFamilyLegalDraftRequest(text: string) {
+  return (
+    PERSONAL_RELATIONSHIP.test(text) &&
+    FAMILY_LEGAL_DOCUMENT_CONTEXT.test(text) &&
+    FAMILY_LEGAL_DOCUMENT_ACTION.test(text) &&
     !MARKETING_OBJECT.test(text)
   );
 }
