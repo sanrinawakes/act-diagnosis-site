@@ -7165,10 +7165,14 @@ function buildCareerMobilityFollowupFallback(
     .slice(-2)
     .map((message) => stripAttachmentMarkdown(message.content))
     .join('\n');
+  const recentCareerContext = [
+    recentUserContext,
+    recentAssistantContext,
+  ].join('\n');
 
   if (
-    !/一般職/.test(recentUserContext) ||
-    !/総合職|出向|留学/.test(recentUserContext)
+    !/一般職/.test(recentCareerContext) ||
+    !/総合職|出向|留学/.test(recentCareerContext)
   ) {
     return '';
   }

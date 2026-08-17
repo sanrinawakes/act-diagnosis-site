@@ -5845,6 +5845,36 @@ describe('normalizeCoachingOutput', () => {
     );
   });
 
+  it('元の相談文が履歴から落ちても直前の引用からキャリア継続文脈を復元する', () => {
+    const lastUserText = 'お願いします';
+    const historyMessages = [
+      {
+        role: 'user' as const,
+        content: '何かアドバイスありますか',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          '「一般職ですが、あえて総合職で話があるかどうかのグループ本社出向、留学を狙っています」という相談ですね。\n\nまだ書かれていない原因を推測せず、実際に起きたことと、次に困る場面を分けると、具体的な対応を選びやすくなります。今の情報だけで原因や相手の意図を決めつけず、確認できる出来事から整理します。',
+      },
+    ];
+
+    const fallback = buildFinalVerifiedQualityFallback(
+      lastUserText,
+      historyMessages
+    );
+    const assessment = assessCoachingResponseQuality({
+      text: fallback,
+      lastUserText,
+      historyMessages,
+    });
+
+    expect(assessment.issues).toEqual([]);
+    expect(fallback).toContain('一般職のまま出向や留学を狙うなら');
+    expect(fallback).toContain('実例を一つ書き出してください');
+    expect(fallback).not.toContain('「何かアドバイスありますか」という相談ですね。');
+  });
+
   it('支払わない事実を「払えない」に変えず、未申告の感情も足さない', () => {
     const result = normalizeCoachingOutput(
       '全額払ってほしいと伝えても行動に移してもらえないのは、本当にやりきれない気持ちになりますね。言葉が届いていない、あるいは軽く流されている状態です。\n\nご主人は、家賃を全額払えない理由を説明していますか？',
