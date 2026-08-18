@@ -101,7 +101,8 @@ export async function GET(request: NextRequest) {
     if (search) {
       const { data: searchResults, error: searchError } = await supabase
         .from('chat_messages')
-        .select('session_id')
+        .select('session_id, chat_sessions!inner(id)')
+        .eq('chat_sessions.user_id', user.id)
         .ilike('content', `%${search}%`);
 
       if (searchError) throw searchError;
