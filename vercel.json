@@ -4,7 +4,7 @@
   "crons": [
     {
       "path": "/api/monitor/coaching",
-      "schedule": "*/10 * * * *"
+      "schedule": "0 */6 * * *"
     },
     {
       "path": "/api/cron/awakes-access",

@@ -36,7 +36,10 @@ const maxFirstChunkMs = Number(
 const MONITOR_STAGE_TIMEOUT_MS = 10000;
 const MONITOR_MEMORY_REFRESH_TIMEOUT_MS = 12000;
 const MONITOR_MEMORY_POLL_MS = 500;
-const MONITOR_HISTORY_PAIRS = 40;
+// The production monitor only needs to cross the 24-message memory boundary.
+// Keeping 40 pairs here caused every ten-minute run to insert and cascade-delete
+// 81 messages, producing avoidable WAL and Disk IO on the database.
+const MONITOR_HISTORY_PAIRS = 13;
 const MONITOR_CHAT_TIMEOUT_MS = Math.max(
   5000,
   Math.min(45000, maxTotalMs + 5000)
@@ -631,7 +634,6 @@ async function runPaidCoachingMonitor(params: {
     // Historical assistant turns are a server-owned fixture. The final user
     // turn is written with the member session so this still verifies the RLS
     // path a browser uses to save an actual consultation.
-    const historySeedStartedAt = Date.now();
     const { error: historySeedError } = await withMonitorTimeout(
       params.supabaseAdmin.from('chat_messages').insert(historyRows),
       MONITOR_STAGE_TIMEOUT_MS,
