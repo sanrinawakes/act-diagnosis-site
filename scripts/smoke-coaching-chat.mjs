@@ -47,6 +47,8 @@ const shouldRunConcurrency = mode === 'all' || mode === 'concurrent';
 const createdEmails = [];
 const createdUserIds = [];
 const accessTokensByEmail = new Map();
+const sessionIdsByEmail = new Map();
+const createdSessionIds = [];
 const results = [];
 
 try {
@@ -233,16 +235,19 @@ async function sendStreamRequest({
   requiredResponseFragments = [],
 }) {
   const accessToken = await getOrCreateAccessToken(email);
-  const body = { email, diagnosisCode, messages, stream: true };
+  const sessionId = await getOrCreateSessionId(email);
+  const body = { sessionId, diagnosisCode, messages, stream: true };
   const payloadBytes = Buffer.byteLength(JSON.stringify(body));
+  await resetSessionHistory(sessionId, messages);
   const startedAt = Date.now();
-  const response = await fetch(`${baseUrl}/api/free/chat`, {
+  const response = await fetch(`${baseUrl}/api/chat`, {
     method: 'POST',
     headers: {
       ...vercelProtectionHeaders,
       Authorization: `Bearer ${accessToken}`,
       'Content-Type': 'application/json',
       Accept: 'application/x-ndjson',
+      Origin: new URL(baseUrl).origin,
     },
     body: JSON.stringify(body),
   });
@@ -1131,6 +1136,19 @@ function requestsExplicitClosingQuestionInSmoke(text) {
 async function cleanup() {
   if (!admin || createdEmails.length === 0) return;
 
+  if (createdSessionIds.length > 0) {
+    const { error: sessionDeleteError } = await admin
+      .from('chat_sessions')
+      .delete()
+      .in('id', createdSessionIds);
+    if (sessionDeleteError) {
+      console.error(
+        `Failed to delete smoke test sessions: ${sessionDeleteError.message}`
+      );
+      process.exitCode = 1;
+    }
+  }
+
   const { error: deleteError } = await admin
     .from('free_users')
     .delete()
@@ -1172,17 +1190,26 @@ async function cleanup() {
         .select('request_id', { count: 'exact', head: true })
         .in('user_id', createdUserIds)
     : { count: 0, error: null };
+  const { count: sessionCount, error: sessionVerifyError } = createdUserIds.length
+    ? await admin
+        .from('chat_sessions')
+        .select('id', { count: 'exact', head: true })
+        .in('user_id', createdUserIds)
+    : { count: 0, error: null };
   if (
     profileVerifyError ||
+    sessionVerifyError ||
     quotaVerifyError ||
     profileCount !== 0 ||
+    sessionCount !== 0 ||
     quotaCount !== 0
   ) {
     console.error(
       `Smoke test account cleanup verification failed: ${
         profileVerifyError?.message ||
+        sessionVerifyError?.message ||
         quotaVerifyError?.message ||
-        `profiles=${profileCount}, quota=${quotaCount}`
+        `profiles=${profileCount}, sessions=${sessionCount}, quota=${quotaCount}`
       }`
     );
     process.exitCode = 1;
@@ -1223,7 +1250,12 @@ async function getOrCreateAccessToken(email) {
     display_name: 'Codexスモークテスト',
     role: 'member',
     is_active: true,
-    subscription_status: 'none',
+    subscription_status: 'active',
+    subscribed_at: new Date().toISOString(),
+    awakes_access_started_at: new Date().toISOString(),
+    awakes_access_expires_at: new Date(
+      Date.now() + 24 * 60 * 60 * 1000
+    ).toISOString(),
   });
   if (profileError) {
     throw new Error(
@@ -1242,6 +1274,63 @@ async function getOrCreateAccessToken(email) {
   }
   accessTokensByEmail.set(email, accessToken);
   return accessToken;
+}
+
+async function getOrCreateSessionId(email) {
+  const cached = sessionIdsByEmail.get(email);
+  if (cached) return cached;
+
+  const userIndex = createdEmails.indexOf(email);
+  const userId = userIndex >= 0 ? createdUserIds[userIndex] : null;
+  if (!userId) {
+    throw new Error(`Smoke test session user missing for ${email}`);
+  }
+
+  const { data, error } = await admin
+    .from('chat_sessions')
+    .insert({
+      user_id: userId,
+      title: `Codexスモークテスト ${email}`,
+    })
+    .select('id')
+    .single();
+  if (error || !data?.id) {
+    throw new Error(
+      `Failed to create smoke test session: ${error?.message || 'missing id'}`
+    );
+  }
+
+  sessionIdsByEmail.set(email, data.id);
+  createdSessionIds.push(data.id);
+  return data.id;
+}
+
+async function resetSessionHistory(sessionId, messages) {
+  const { error: deleteError } = await admin
+    .from('chat_messages')
+    .delete()
+    .eq('session_id', sessionId);
+  if (deleteError) {
+    throw new Error(
+      `Failed to clear smoke test history: ${deleteError.message}`
+    );
+  }
+
+  if (messages.length === 0) return;
+
+  const rows = messages.map((message) => ({
+    session_id: sessionId,
+    role: message.role,
+    content: message.content,
+  }));
+  const { error: insertError } = await admin
+    .from('chat_messages')
+    .insert(rows);
+  if (insertError) {
+    throw new Error(
+      `Failed to seed smoke test history: ${insertError.message}`
+    );
+  }
 }
 
 function parseEventLine(line) {
