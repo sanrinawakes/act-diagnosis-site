@@ -1941,6 +1941,25 @@ describe('assessCoachingResponseQuality', () => {
     expect(result.issues).toContain('ungrounded_categorization');
   });
 
+  it('オプチャへ入るか迷う相談で参照先のない「どちら」を具体化する', () => {
+    const lastUserText =
+      'なので、入らない選択をしている。2200人のところだけ在籍してる。今週、ディクシャウィークだから。私は私なりの方法でディクシャを送ってるんだけど、2200人のオプチャでやり方の質問がとびかい、それならこちらへどうぞ、お答えします、と学びを深めてる方がご自身のオプチャへ誘導された。そこへはーいと入ればいいのかもしれないけど、ちょっと盗み見の感覚になってしまい、入ってない';
+    const normalized = normalizeCoachingOutput(
+      '「なので、入らない選択をしている。2200人のところだけ在籍してる。今週、ディクシャウィークだから…」という相談ですね。\n\nどちらを選べば、あとで自分に正直だったと思えそうですか？',
+      lastUserText,
+      []
+    );
+    const assessment = assessCoachingResponseQuality({
+      text: normalized,
+      lastUserText,
+      historyMessages: [],
+    });
+
+    expect(assessment.issues).toEqual([]);
+    expect(normalized).not.toContain('どちらを選べば');
+    expect(normalized).toMatch(/困りそう|場面/);
+  });
+
   it('利用者が挙げていない自己評価と他者評価の分類を不合格にする', () => {
     const result = assessCoachingResponseQuality({
       text:

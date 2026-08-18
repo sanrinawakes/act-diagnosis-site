@@ -2748,6 +2748,10 @@ export function normalizeCoachingOutput(
       : requestsNoFollowUpQuestion(lastUserText) || avoidsForcedMove
         ? 0
         : 1;
+  const contextualClosingQuestion = buildClosingCoachingQuestion(
+    lastUserText,
+    historyMessages
+  );
   const safeText = rewriteInvalidatingAdvice(
     text,
     lastUserText,
@@ -2814,6 +2818,11 @@ export function normalizeCoachingOutput(
     .replace(/いらっしゃるのですね/g, 'いるんですね')
     .replace(/いらっしゃる/g, 'いる')
     .replace(/迷われている/g, '迷っている')
+    .replace(
+      /どちらを選べば、あとで自分に正直だったと思えそうですか？/g,
+      contextualClosingQuestion ||
+        'どちらを選べば、あとで自分に正直だったと思えそうですか？'
+    )
     .replace(/上司の方/g, '上司')
     .replace(
       /(?:これまでの)?[「『]?[^。！？?\n]{0,80}[」』]?(?:という)?(?:お話|話|内容)をすべて踏まえていますので[、,]?どうぞ[。]?/g,
@@ -6010,6 +6019,13 @@ function buildClosingCoachingQuestion(
   }
   if (/仕事|職場|業務|会社|タスク|働/.test(lastUserText)) {
     return '明日ひとつだけ状況を動かすなら、何から始めますか？';
+  }
+  if (
+    /(?:オプチャ|オープンチャット|コミュニティ)/.test(lastUserText) &&
+    /入(?:る|って)/.test(lastUserText) &&
+    /入らない|入ってない/.test(lastUserText)
+  ) {
+    return 'そのオプチャに入った後で、いちばん困りそうだと感じる場面を一つだけ書くと、どの場面ですか？';
   }
   if (/迷|決め|選|どちら/.test(lastUserText)) {
     return 'どちらを選べば、あとで自分に正直だったと思えそうですか？';
