@@ -27,6 +27,7 @@ describe('POST /api/internal/support-automation quality incidents', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it('claims an open semantic quality incident atomically', async () => {
@@ -117,6 +118,63 @@ describe('POST /api/internal/support-automation quality incidents', () => {
       error: 'Quality incident is owned by another automation run',
     });
   });
+
+  it('resolves a technical fix when GitHub check-runs times out but checks HTML proves success', async () => {
+    const client = createIncidentClient({
+      status: 'in_progress',
+      claimed_run_id: RUN_ID,
+      claimed_at: '2026-08-17T23:40:31.719Z',
+      updated_at: '2026-08-17T23:40:31.719Z',
+    });
+    mocks.createClient.mockReturnValue(client);
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ sha: 'a78e38c74411d0481783d525047cafb46419fd3b' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      )
+      .mockRejectedValueOnce(new Error('The operation was aborted due to timeout'))
+      .mockRejectedValueOnce(new Error('The operation was aborted due to timeout'))
+      .mockResolvedValueOnce(
+        new Response(
+          '<html><span data-favicon-override="https://github.githubassets.com/favicons/favicon-success.svg"></span><a href="/actions/runs/1/job/2"><span>unit-and-build</span></a><check-steps data-job-status="completed"><check-step data-conclusion="success"></check-step></check-steps></html>',
+          { status: 200, headers: { 'Content-Type': 'text/html' } }
+        )
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await POST(
+      qualityRequest({
+        action: 'quality_resolve',
+        quality_incident_id: INCIDENT_ID,
+        run_id: RUN_ID,
+        resolution_kind: 'technical_fix',
+        resolution_note:
+          '価格の言い換え相談で汎用文へ逃げていたため、具体的な言い換え文を返す分岐へ修正した。',
+        evidence: {
+          productionCommit: 'a78e38c74411d0481783d525047cafb46419fd3b',
+          productionDeploymentId: 'dpl_6jGkg4Xjz1ffgb3n6HBQpfSkoNYX',
+          monitorSuccesses: 6,
+          observationMinutes: 21.9,
+          releaseGatePassed: true,
+        },
+      })
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.quality_incident).toMatchObject({
+      status: 'resolved',
+      resolution_kind: 'technical_fix',
+    });
+    expect(client.updates.at(-1)).toMatchObject({
+      status: 'resolved',
+      resolution_kind: 'technical_fix',
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
 });
 
 function createIncidentClient(
@@ -144,37 +202,84 @@ function createIncidentClient(
   return {
     updates,
     from(table: string) {
-      if (table !== 'coaching_quality_incidents') {
-        throw new Error(`Unexpected table: ${table}`);
+      if (table === 'coaching_quality_incidents') {
+        return {
+          select() {
+            return {
+              eq() {
+                return {
+                  single: async () => ({ data: incident, error: null }),
+                };
+              },
+            };
+          },
+          update(values: Record<string, unknown>) {
+            updates.push(values);
+            const chain = {
+              eq() {
+                return chain;
+              },
+              select() {
+                return {
+                  maybeSingle: async () => {
+                    incident = { ...incident, ...values };
+                    return { data: incident, error: null };
+                  },
+                };
+              },
+            };
+            return chain;
+          },
+        };
       }
-      return {
-        select() {
-          return {
-            eq() {
-              return {
-                single: async () => ({ data: incident, error: null }),
-              };
-            },
-          };
-        },
-        update(values: Record<string, unknown>) {
-          updates.push(values);
-          const chain = {
-            eq() {
-              return chain;
-            },
-            select() {
-              return {
-                maybeSingle: async () => {
-                  incident = { ...incident, ...values };
-                  return { data: incident, error: null };
-                },
-              };
-            },
-          };
-          return chain;
-        },
-      };
+      if (table === 'coaching_monitor_runs') {
+        return {
+          select() {
+            return {
+              order() {
+                return {
+                  limit: async () => ({
+                    data: [
+                      {
+                        status: 'success',
+                        checked_at: '2026-08-17T23:46:43.440Z',
+                        deployment_commit: 'a78e38c74411d0481783d525047cafb46419fd3b',
+                        deployment_id: 'dpl_6jGkg4Xjz1ffgb3n6HBQpfSkoNYX',
+                        http_status: 200,
+                        completion_status: 'complete',
+                        finalization_status: 'complete',
+                        error: null,
+                      },
+                      {
+                        status: 'success',
+                        checked_at: '2026-08-17T23:34:43.440Z',
+                        deployment_commit: 'a78e38c74411d0481783d525047cafb46419fd3b',
+                        deployment_id: 'dpl_6jGkg4Xjz1ffgb3n6HBQpfSkoNYX',
+                        http_status: 200,
+                        completion_status: 'complete',
+                        finalization_status: 'complete',
+                        error: null,
+                      },
+                      {
+                        status: 'success',
+                        checked_at: '2026-08-17T23:24:43.440Z',
+                        deployment_commit: 'a78e38c74411d0481783d525047cafb46419fd3b',
+                        deployment_id: 'dpl_6jGkg4Xjz1ffgb3n6HBQpfSkoNYX',
+                        http_status: 200,
+                        completion_status: 'complete',
+                        finalization_status: 'complete',
+                        error: null,
+                      },
+                    ],
+                    error: null,
+                  }),
+                };
+              },
+            };
+          },
+        };
+      }
+      throw new Error(`Unexpected table: ${table}`);
     },
   };
 }
