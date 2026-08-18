@@ -81,6 +81,11 @@ on conflict (id) do nothing;
 -- Create indexes for performance
 create index if not exists idx_diagnosis_results_user_id on public.diagnosis_results(user_id);
 create index if not exists idx_chat_messages_session_id on public.chat_messages(session_id);
+create index if not exists idx_chat_messages_session_role_created
+  on public.chat_messages(session_id, role, created_at desc);
+create index if not exists idx_chat_messages_assistant_created_id
+  on public.chat_messages(created_at desc, id desc)
+  where role = 'assistant';
 create index if not exists idx_chat_sessions_user_id on public.chat_sessions(user_id);
 create index if not exists idx_support_tickets_status_updated_at
   on public.support_tickets(status, updated_at desc);

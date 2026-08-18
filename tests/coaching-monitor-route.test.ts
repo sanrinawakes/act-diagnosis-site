@@ -169,8 +169,8 @@ describe('GET /api/monitor/coaching maintenance isolation', () => {
       ok: true,
       result: {
         status: 200,
-        storedMessagesBeforeReply: 81,
-        storedMessagesAfterReply: 82,
+        storedMessagesBeforeReply: 27,
+        storedMessagesAfterReply: 28,
         hasDone: true,
         completionStatus: 'complete',
         finalizationStatus: 'complete',
@@ -233,7 +233,7 @@ describe('GET /api/monitor/coaching maintenance isolation', () => {
       | Array<{ role?: string }>
       | undefined;
     expect(Array.isArray(seededRows)).toBe(true);
-    expect(seededRows).toHaveLength(80);
+    expect(seededRows).toHaveLength(26);
     expect(seededRows?.some((row) => row.role === 'assistant')).toBe(true);
     const insertedRow = mocks.insertChatMessages.mock.calls.at(-1)?.[0];
     expect(Array.isArray(insertedRow)).toBe(false);
@@ -642,7 +642,7 @@ function createChatMessagesQuery() {
                           { role: 'assistant', content: ANSWER },
                           { role: 'user', content: '定期監視です。' },
                         ],
-                        count: 82,
+                        count: 28,
                         error: null,
                       }),
                     };

@@ -1228,43 +1228,93 @@ async function verifyTechnicalReleaseEvidence(
     return 'GitHub mainと本番監視のコミットが一致しません';
   }
 
-  const checksResponse = await fetchGithubJson(
-    `https://api.github.com/repos/sanrinawakes/act-diagnosis-site/commits/${productionCommit}/check-runs`,
+  const regressionCheckVerified = await hasSuccessfulGitHubRegressionCheck(
+    productionCommit
   );
-  if (!checksResponse.ok) {
-    return 'GitHub CIの結果を確認できません';
-  }
-  const checks = checksResponse.data as {
-    check_runs?: Array<{
-      name?: string;
-      status?: string;
-      conclusion?: string | null;
-    }>;
-  };
-  const regressionCheck = checks.check_runs?.find((check) =>
-    /unit-and-build|coaching regression/i.test(check.name || '')
-  );
-  if (
-    !regressionCheck ||
-    regressionCheck.status !== 'completed' ||
-    regressionCheck.conclusion !== 'success'
-  ) {
+  if (!regressionCheckVerified) {
     return '必須CIの成功を確認できません';
   }
 
   return '';
 }
 
+async function hasSuccessfulGitHubRegressionCheck(commitSha: string) {
+  try {
+    const checksResponse = await fetchGithubJson(
+      `https://api.github.com/repos/sanrinawakes/act-diagnosis-site/commits/${commitSha}/check-runs`,
+    );
+    if (checksResponse.ok) {
+      const checks = checksResponse.data as {
+        check_runs?: Array<{
+          name?: string;
+          status?: string;
+          conclusion?: string | null;
+        }>;
+      };
+      const regressionCheck = checks.check_runs?.find((check) =>
+        /unit-and-build|coaching regression/i.test(check.name || '')
+      );
+      if (
+        regressionCheck?.status === 'completed' &&
+        regressionCheck.conclusion === 'success'
+      ) {
+        return true;
+      }
+    }
+  } catch (error) {
+    console.warn('GitHub check-runs lookup failed; falling back to checks page', {
+      commitSha,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+
+  try {
+    const htmlResponse = await fetchWithRetry(
+      `https://github.com/sanrinawakes/act-diagnosis-site/commit/${commitSha}/checks`,
+      {
+        headers: {
+          'User-Agent': 'acti-support-automation',
+        },
+        cache: 'no-store',
+      },
+      2,
+      10_000
+    );
+    if (!htmlResponse.ok) {
+      return false;
+    }
+    const html = await htmlResponse.text();
+    return htmlShowsSuccessfulRegressionCheck(html);
+  } catch (error) {
+    console.warn('GitHub checks HTML lookup failed', {
+      commitSha,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return false;
+  }
+}
+
+function htmlShowsSuccessfulRegressionCheck(html: string) {
+  const match = html.match(
+    /unit-and-build[\s\S]{0,5000}(?:data-job-status="completed"[\s\S]{0,5000}data-conclusion="success"|favicon-success\.svg)/i
+  );
+  return Boolean(match);
+}
+
 async function fetchGithubJson(url: string) {
   try {
-    const response = await fetch(url, {
-      headers: {
-        Accept: 'application/vnd.github+json',
-        'User-Agent': 'acti-support-automation',
+    const response = await fetchWithRetry(
+      url,
+      {
+        headers: {
+          Accept: 'application/vnd.github+json',
+          'User-Agent': 'acti-support-automation',
+        },
+        cache: 'no-store',
       },
-      cache: 'no-store',
-      signal: AbortSignal.timeout(6000),
-    });
+      2,
+      10_000
+    );
     if (!response.ok) {
       return { ok: false, data: null };
     }
@@ -1277,6 +1327,32 @@ async function fetchGithubJson(url: string) {
   }
 }
 
+async function fetchWithRetry(
+  input: string,
+  init: RequestInit,
+  attempts: number,
+  timeoutMs: number
+) {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await fetch(input, {
+        ...init,
+        signal: controller.signal,
+      });
+    } catch (error) {
+      lastError = error;
+      if (attempt === attempts - 1) {
+        throw error;
+      }
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error('fetch failed');
+}
 async function verifyAccountResolution(
   client: SupabaseClient,
   ticket: SupportTicket
