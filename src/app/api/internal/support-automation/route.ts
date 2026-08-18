@@ -1217,40 +1217,24 @@ async function verifyTechnicalReleaseEvidence(
     return '本番DBで20分以上の連続監視成功を確認できません';
   }
 
-  const githubResponse = await fetch(
-    'https://api.github.com/repos/sanrinawakes/act-diagnosis-site/commits/main',
-    {
-      headers: {
-        Accept: 'application/vnd.github+json',
-        'User-Agent': 'acti-support-automation',
-      },
-      cache: 'no-store',
-      signal: AbortSignal.timeout(6000),
-    }
+  const githubResponse = await fetchGithubJson(
+    'https://api.github.com/repos/sanrinawakes/act-diagnosis-site/commits/main'
   );
   if (!githubResponse.ok) {
     return 'GitHub mainの本番コミットを確認できません';
   }
-  const mainCommit = (await githubResponse.json()) as { sha?: string };
+  const mainCommit = githubResponse.data as { sha?: string };
   if (mainCommit.sha !== productionCommit) {
     return 'GitHub mainと本番監視のコミットが一致しません';
   }
 
-  const checksResponse = await fetch(
+  const checksResponse = await fetchGithubJson(
     `https://api.github.com/repos/sanrinawakes/act-diagnosis-site/commits/${productionCommit}/check-runs`,
-    {
-      headers: {
-        Accept: 'application/vnd.github+json',
-        'User-Agent': 'acti-support-automation',
-      },
-      cache: 'no-store',
-      signal: AbortSignal.timeout(6000),
-    }
   );
   if (!checksResponse.ok) {
     return 'GitHub CIの結果を確認できません';
   }
-  const checks = (await checksResponse.json()) as {
+  const checks = checksResponse.data as {
     check_runs?: Array<{
       name?: string;
       status?: string;
@@ -1269,6 +1253,28 @@ async function verifyTechnicalReleaseEvidence(
   }
 
   return '';
+}
+
+async function fetchGithubJson(url: string) {
+  try {
+    const response = await fetch(url, {
+      headers: {
+        Accept: 'application/vnd.github+json',
+        'User-Agent': 'acti-support-automation',
+      },
+      cache: 'no-store',
+      signal: AbortSignal.timeout(6000),
+    });
+    if (!response.ok) {
+      return { ok: false, data: null };
+    }
+    return {
+      ok: true,
+      data: (await response.json()) as unknown,
+    };
+  } catch {
+    return { ok: false, data: null };
+  }
 }
 
 async function verifyAccountResolution(
