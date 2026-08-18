@@ -1217,22 +1217,13 @@ async function verifyTechnicalReleaseEvidence(
     return '本番DBで20分以上の連続監視成功を確認できません';
   }
 
-  const githubResponse = await fetchWithRetry(
-    'https://api.github.com/repos/sanrinawakes/act-diagnosis-site/commits/main',
-    {
-      headers: {
-        Accept: 'application/vnd.github+json',
-        'User-Agent': 'acti-support-automation',
-      },
-      cache: 'no-store',
-    },
-    2,
-    10_000
+  const githubResponse = await fetchGithubJson(
+    'https://api.github.com/repos/sanrinawakes/act-diagnosis-site/commits/main'
   );
   if (!githubResponse.ok) {
     return 'GitHub mainの本番コミットを確認できません';
   }
-  const mainCommit = (await githubResponse.json()) as { sha?: string };
+  const mainCommit = githubResponse.data as { sha?: string };
   if (mainCommit.sha !== productionCommit) {
     return 'GitHub mainと本番監視のコミットが一致しません';
   }
@@ -1249,20 +1240,11 @@ async function verifyTechnicalReleaseEvidence(
 
 async function hasSuccessfulGitHubRegressionCheck(commitSha: string) {
   try {
-    const checksResponse = await fetchWithRetry(
+    const checksResponse = await fetchGithubJson(
       `https://api.github.com/repos/sanrinawakes/act-diagnosis-site/commits/${commitSha}/check-runs`,
-      {
-        headers: {
-          Accept: 'application/vnd.github+json',
-          'User-Agent': 'acti-support-automation',
-        },
-        cache: 'no-store',
-      },
-      2,
-      10_000
     );
     if (checksResponse.ok) {
-      const checks = (await checksResponse.json()) as {
+      const checks = checksResponse.data as {
         check_runs?: Array<{
           name?: string;
           status?: string;
@@ -1319,6 +1301,32 @@ function htmlShowsSuccessfulRegressionCheck(html: string) {
   return Boolean(match);
 }
 
+async function fetchGithubJson(url: string) {
+  try {
+    const response = await fetchWithRetry(
+      url,
+      {
+        headers: {
+          Accept: 'application/vnd.github+json',
+          'User-Agent': 'acti-support-automation',
+        },
+        cache: 'no-store',
+      },
+      2,
+      10_000
+    );
+    if (!response.ok) {
+      return { ok: false, data: null };
+    }
+    return {
+      ok: true,
+      data: (await response.json()) as unknown,
+    };
+  } catch {
+    return { ok: false, data: null };
+  }
+}
+
 async function fetchWithRetry(
   input: string,
   init: RequestInit,
@@ -1345,7 +1353,6 @@ async function fetchWithRetry(
   }
   throw lastError instanceof Error ? lastError : new Error('fetch failed');
 }
-
 async function verifyAccountResolution(
   client: SupabaseClient,
   ticket: SupportTicket
