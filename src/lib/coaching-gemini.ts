@@ -1708,10 +1708,61 @@ export function buildIncompleteGenerationRecoveryResponse(
   return buildClosingCoachingQuestion(lastUserText, historyMessages);
 }
 
+const COACHING_THEME_SELECTION_RESPONSES: Record<string, string> = {
+  '自己理解 - あなたのタイプの強みと課題':
+    '自己理解では、周囲の空気や相手の反応を先に見ながら動けることが強みになりやすいです。一方で、人に合わせることを優先しすぎると、自分が本当に望んでいることを後回しにしやすくなります。\n\n最近「本当はこうしたかったのに遠慮してやめたこと」があれば、それが今の課題をつかむ手がかりになります。思い当たる場面はありますか？',
+  '行動パターン - 日常での行動傾向':
+    '行動パターンを見ると、相手の反応や場の空気を見てから動けるのは強みです。ただ、その分だけ自分の負担に気づくのが遅れ、気が進まないことも引き受けやすくなります。\n\n最近、気が進まないのに引き受けた場面が一つあれば、そこに今の行動パターンがよく出ています。何がありましたか？',
+  '人間関係 - 対人スキルの向上':
+    '人間関係では、相手を立てながら場を穏やかに保てることが強みになりやすいです。ただ、我慢が続くと本音を出す前に疲れがたまり、急に距離を取りたくなる形で出やすくなります。\n\n最近、言いたいことを飲み込んだ場面があれば、その時に本当は何を伝えたかったですか？',
+  'キャリア - 仕事での活躍方法':
+    '仕事では、周囲の動きを見ながら支える役割で力を発揮しやすいです。ただ、相手を優先しすぎると、自分の判断や希望を出す場面で遠慮が強くなりがちです。\n\n今の仕事で、続けたい役割と減らしたい負担を一つずつ挙げると方向が見えやすくなります。まず何を続けたいですか？',
+  'パーソナルグロース - 成長のステップ':
+    '成長のステップでは、周囲に合わせる力を残したまま、自分の希望も同じ重さで扱う練習が大切です。大きく変えるより、日常の小さな選択で自分の意思を先に確認する方が続きやすいです。\n\n今日の中で、人に合わせず自分で決めたいことを一つ挙げるとしたら何ですか？',
+};
+
+function normalizeThemeSelectionText(text: string) {
+  return stripAttachmentMarkdown(text)
+    .replace(/^[・•\-\s]+/u, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function buildThemeSelectionResponse(
+  lastUserText: string,
+  historyMessages: CoachingChatMessage[] = []
+) {
+  const normalizedSelection = normalizeThemeSelectionText(lastUserText);
+  const template =
+    COACHING_THEME_SELECTION_RESPONSES[normalizedSelection] || '';
+  if (!template) return '';
+
+  const hasThemeMenuContext = historyMessages.some(
+    (message) =>
+      message.role === 'assistant' &&
+      /何について詳しく知りたいですか？/.test(message.content) &&
+      /自己理解 - あなたのタイプの強みと課題/.test(message.content) &&
+      /行動パターン - 日常での行動傾向/.test(message.content)
+  );
+
+  return hasThemeMenuContext ? template : '';
+}
+
 function buildImmediateCoachingResponse(
   text: string,
   historyMessages: CoachingChatMessage[] = []
 ) {
+  const themeSelectionResponse = buildThemeSelectionResponse(
+    text,
+    historyMessages
+  );
+  if (themeSelectionResponse) {
+    return {
+      text: themeSelectionResponse,
+      modelName: 'local-theme-selection',
+      finishReason: 'LOCAL_THEME_SELECTION',
+    };
+  }
   const urgentSafetyResponse = buildUrgentSafetyResponse(text);
   if (urgentSafetyResponse) {
     return {
@@ -3778,6 +3829,13 @@ export function buildFinalVerifiedQualityFallback(
   lastUserText: string,
   historyMessages: CoachingChatMessage[]
 ): string {
+  const themeSelectionResponse = buildThemeSelectionResponse(
+    lastUserText,
+    historyMessages
+  );
+  if (themeSelectionResponse) {
+    return themeSelectionResponse;
+  }
   const pricingBoundaryFallback =
     /かわす|言わずに|言わないで|別の言い方|どう返|何て言えば/.test(
       lastUserText
@@ -6065,6 +6123,13 @@ function buildNoQuestionFallback(
   lastUserText: string,
   historyMessages: CoachingChatMessage[] = []
 ) {
+  const themeSelectionResponse = buildThemeSelectionResponse(
+    lastUserText,
+    historyMessages
+  );
+  if (themeSelectionResponse) {
+    return themeSelectionResponse;
+  }
   const legalDraftRevisionFallback = buildFamilyLegalDraftRevisionFallback(
     lastUserText,
     historyMessages

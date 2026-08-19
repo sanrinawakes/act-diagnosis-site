@@ -6018,6 +6018,36 @@ describe('normalizeCoachingOutput', () => {
     );
   });
 
+  it('テーマ選択ラベルだけが送られた時も汎用整理文ではなく具体応答を返す', async () => {
+    const result = await generateCoachingText({
+      systemPrompt: 'test',
+      historyMessages: [
+        {
+          role: 'assistant' as const,
+          content:
+            'こんにちは！ACTIのコーチングへようこそ。\n\nあなたのタイプコード「SMM-3」に基づいて、パーソナライズされたコーチングを提供します。\n\n次のテーマについてお話しすることができます：\n・自己理解 - あなたのタイプの強みと課題\n・行動パターン - 日常での行動傾向\n・人間関係 - 対人スキルの向上\n・キャリア - 仕事での活躍方法\n・パーソナルグロース - 成長のステップ\n\n何について詳しく知りたいですか？',
+        },
+        {
+          role: 'user' as const,
+          content: '自己理解 - あなたのタイプの強みと課題',
+        },
+        {
+          role: 'assistant' as const,
+          content:
+            'ACTIの自己理解セッションへようこそ。自分の強みや課題について整理し、日々の生活や仕事に活かしていくためのお手伝いをいたします。\n\nあなたは周囲の状況や場の空気を細やかに察知し、関係性を穏やかに整えることが得意な一面をお持ちではないでしょうか。この調和を重んじる姿勢は大きな強みですが、一方で周りに合わせることを優先しすぎて、自分の本音や本当にやりたい選択を後回しにしてしまうことが課題になる場合もあります。',
+        },
+      ],
+      lastUserParts: [{ text: '行動パターン - 日常での行動傾向' }],
+    });
+
+    expect(result.modelName).toBe('local-theme-selection');
+    expect(result.qualityFinalIssues).toEqual([]);
+    expect(result.text).toContain('気が進まないのに引き受けた場面');
+    expect(result.text).not.toContain(
+      'まだ書かれていない原因を推測せず、実際に起きたことと、次に困る場面を分けると、具体的な対応を選びやすくなります。'
+    );
+  });
+
   it('元の相談文が履歴から落ちても直前の引用からキャリア継続文脈を復元する', () => {
     const lastUserText = 'お願いします';
     const historyMessages = [
