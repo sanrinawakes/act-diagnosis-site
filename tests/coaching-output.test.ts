@@ -240,6 +240,59 @@ describe('final verified quality fallback', () => {
     ).toEqual([]);
   });
 
+  it('聞き直しの後に同じ質問を繰り返された本番事故文脈でも内容のある返答へ戻す', () => {
+    const lastUserText =
+      '記事ごと削除することは、どのくらいの意識レベルの人がする対処方法ですか？';
+    const historyMessages = [
+      {
+        role: 'user' as const,
+        content:
+          'AWAKSのグループページで商標登録の記念グッズアンケートの記事がありました。コメントにアンケートに答えたけれど、コンテンツを充実させてもらった方が嬉しいと本音で書いたのですが、数日経ったら記事ごと削除されていました。無視されたようでとても悲しかったです。運営側の考えもわからないままだし🥹何がいけなかったのでしょうか？',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          '運営側が記事ごと削除した理由としては、アンケートの趣旨と異なる意見が集まるのを避けたかったり、記念ムードに水を差されたと感じて過剰に反応してしまったりした可能性が考えられます。',
+      },
+      {
+        role: 'user' as const,
+        content:
+          '何がいけなかったのだろうというのは、質問としてあげたのと、悲しみはもうすでに薄れています。ちなみに記事ごと削除するというのは、どのくらいの意識レベルの対処方法ですか？',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          '「何がいけなかったのだろうというのは、質問としてあげたのと、悲しみはもうすでに薄れています。 ちな…」という相談ですね。',
+      },
+      {
+        role: 'user' as const,
+        content:
+          '回答として書いたのですが、上手く伝わらなかったみたいですね。記事ごと削除するというのは、どのくらいの意識レベルの人がする対処方法ですか？',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          '「回答として書いたのですが、上手く伝わらなかったみたいですね。 記事ごと削除するというのは、どのく…」という相談ですね。',
+      },
+    ];
+
+    const fallback = buildFinalVerifiedQualityFallback(
+      lastUserText,
+      historyMessages
+    );
+    const assessment = assessCoachingResponseQuality({
+      text: fallback,
+      lastUserText,
+      historyMessages,
+    });
+
+    expect(assessment.issues).toEqual([]);
+    expect(fallback).toContain('記事ごと削除する対応');
+    expect(fallback).toContain('体裁');
+    expect(fallback).not.toContain('という相談ですね');
+    expect(fallback).not.toContain('何がいけなかった');
+  });
+
   it('お金の後悔相談でも別話題へ逸れず具体策で閉じる', () => {
     const lastUserText =
       'お金のことで後悔が二つあります。占いにはまり１６５万円使ってしまったこと。そして昨年申し込んで続かなかったセールス口座１００万円。本当にもったいなかった。これが残っていれば、今頃あれもできたかもしれない。これも買えたかもしれないとまたぐるぐるよぎってしまいます。そろそろ区切りをつけたい。どうしたら気持ちの整理がつくでしょうか？';
