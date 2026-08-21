@@ -3905,6 +3905,21 @@ export function buildFinalVerifiedQualityFallback(
     }
   }
 
+  const deletedPostLevelFallback = buildDeletedPostLevelFallback(
+    lastUserText,
+    historyMessages
+  );
+  if (deletedPostLevelFallback) {
+    const deletedPostAssessment = assessCoachingResponseQuality({
+      text: deletedPostLevelFallback,
+      lastUserText,
+      historyMessages,
+    });
+    if (deletedPostAssessment.issues.length === 0) {
+      return deletedPostLevelFallback;
+    }
+  }
+
   const subscriptionCancellationFallback =
     buildSubscriptionCancellationFallback(
       lastUserText,
@@ -4604,6 +4619,26 @@ function buildRelationshipClarificationFallback(
   }
 
   return '彼に確かめること自体はできそうなのですね。今は気持ちを推測し続けるより、先に確認する言葉を一つに絞る段階です。\n\n次に彼へ聞くなら、「結婚しようと言ってくれた気持ちは今も本気なのか」と一文だけ確かめてください。';
+}
+
+function buildDeletedPostLevelFallback(
+  lastUserText: string,
+  historyMessages: CoachingChatMessage[]
+) {
+  const userContext = [
+    ...historyMessages
+      .filter((message) => message.role === 'user')
+      .map((message) => stripAttachmentMarkdown(message.content)),
+    lastUserText,
+  ].join('\n');
+  if (
+    !/記事ごと削除|削除されて/.test(userContext) ||
+    !/意識レベル/.test(lastUserText)
+  ) {
+    return '';
+  }
+
+  return '記事ごと削除する対応は、対話を続けることより、その場の体裁や運営側の都合を守ることを優先した防衛的な動きです。意識レベルを断定するより、不都合な意見を残さず消す方向を選んだ行動として見る方が確実です。\n\n対処方法としては、そのコミュニティに本音をそのまま書き続けるか、書く内容を限定するか、距離を置くかを分けて考えることです。今日やるなら、この三つのうち今の自分に合うものを一つだけ決めてください。';
 }
 
 function buildClarificationCorrectionFallback(
