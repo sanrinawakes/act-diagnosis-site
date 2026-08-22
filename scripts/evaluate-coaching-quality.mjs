@@ -294,6 +294,8 @@ async function runRejectedSuggestionScenario() {
       {
         content:
           'わからないから聞いています。質問を返さず、今までと違う対応を具体的に答えてください。',
+        expectedModelName: 'local-topic-recovery',
+        expectedFinishReason: 'LOCAL_TOPIC_RECOVERY',
       },
     ],
   });
@@ -979,6 +981,8 @@ async function runConversation({ name, diagnosisCode, inputs }) {
       messages,
       attachments: input.attachments || [],
       label: `${name}-${index + 1}`,
+      expectedModelName: input.expectedModelName,
+      expectedFinishReason: input.expectedFinishReason,
     });
 
     messages.push({ role: 'assistant', content: result.message });
@@ -1015,6 +1019,8 @@ async function sendStreamRequest({
   messages,
   attachments,
   label,
+  expectedModelName = '',
+  expectedFinishReason = 'STOP',
 }) {
   const body = {
     sessionId,
@@ -1107,6 +1113,8 @@ async function sendStreamRequest({
     qualityFinalIssues: Array.isArray(donePayload?.qualityFinalIssues)
       ? donePayload.qualityFinalIssues
       : [],
+    expectedModelName,
+    expectedFinishReason,
     usage: donePayload?.usage || {},
     outputChars: message.length,
     questionMarks: countQuestionMarks(message),
@@ -1199,6 +1207,8 @@ function evaluateConversations(conversations) {
 
   allTurns.forEach((turn) => {
     const localExpectation = getLocalTurnExpectation(turn.label);
+    const expectedFinishReason =
+      turn.expectedFinishReason || localExpectation.finishReason;
     const minimumOutputChars =
       turn.label.startsWith('inline-image') ||
       turn.label.startsWith('three-large-images') ||
@@ -1216,8 +1226,8 @@ function evaluateConversations(conversations) {
     addCheck(
       checks,
       `${turn.label}: 生成が正常終了`,
-      turn.finishReason === localExpectation.finishReason,
-      `${turn.finishReason} (expected ${localExpectation.finishReason})`
+      turn.finishReason === expectedFinishReason,
+      `${turn.finishReason} (expected ${expectedFinishReason})`
     );
     addCheck(
       checks,
@@ -1229,6 +1239,7 @@ function evaluateConversations(conversations) {
       turn.label.startsWith('inline-image') ||
       turn.label.startsWith('three-large-images');
     const expectedModel =
+      turn.expectedModelName ||
       localExpectation.modelName ||
       (isImageTurn ? expectedImageModel : expectedTextModel);
     if (expectedModel) {
