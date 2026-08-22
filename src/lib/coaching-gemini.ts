@@ -1811,6 +1811,17 @@ function buildImmediateCoachingResponse(
       };
     }
   }
+  const scheduleTemplateFollowup = buildScheduleTemplateFollowupFallback(
+    text,
+    historyMessages
+  );
+  if (scheduleTemplateFollowup) {
+    return {
+      text: scheduleTemplateFollowup,
+      modelName: 'local-schedule-template',
+      finishReason: 'LOCAL_SCHEDULE_TEMPLATE',
+    };
+  }
   if (
     historyMessages.some((message) => message.role === 'assistant') &&
     (reportsResponseDissatisfaction(text) ||
@@ -3959,6 +3970,19 @@ export function buildFinalVerifiedQualityFallback(
     });
     if (careerMobilityAssessment.issues.length === 0) {
       return careerMobilityFollowupFallback;
+    }
+  }
+
+  const scheduleTemplateFollowupFallback =
+    buildScheduleTemplateFollowupFallback(lastUserText, historyMessages);
+  if (scheduleTemplateFollowupFallback) {
+    const scheduleTemplateAssessment = assessCoachingResponseQuality({
+      text: scheduleTemplateFollowupFallback,
+      lastUserText,
+      historyMessages,
+    });
+    if (scheduleTemplateAssessment.issues.length === 0) {
+      return scheduleTemplateFollowupFallback;
     }
   }
 
@@ -7535,6 +7559,40 @@ function buildCareerMobilityFollowupFallback(
   }
 
   return 'では、総合職の話が出る場面で何を見せるかを先に絞ります。一般職のまま出向や留学を狙うなら、「任せても大丈夫」と判断される材料が必要です。まずは今の職場で、自分から手を挙げて広い視点で動いた実例を一つ書き出してください。推薦や打診につながるのは、その実例です。';
+}
+
+function buildScheduleTemplateFollowupFallback(
+  lastUserText: string,
+  historyMessages: CoachingChatMessage[]
+) {
+  const normalized = stripAttachmentMarkdown(lastUserText)
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!/^お願いします[。!！]*$/.test(normalized)) return '';
+
+  const recentUserContext = historyMessages
+    .filter((message) => message.role === 'user')
+    .slice(-4)
+    .map((message) => stripAttachmentMarkdown(message.content))
+    .join('\n');
+  const recentAssistantContext = historyMessages
+    .filter((message) => message.role === 'assistant')
+    .slice(-3)
+    .map((message) => stripAttachmentMarkdown(message.content))
+    .join('\n');
+  const recentContext = [recentUserContext, recentAssistantContext].join('\n');
+
+  if (
+    !/仕事のお願い|日程確認/.test(recentContext) ||
+    !/テンプレート/.test(recentAssistantContext) ||
+    !/そのままコピーして使える|一緒に作ってみませんか/.test(
+      recentAssistantContext
+    )
+  ) {
+    return '';
+  }
+
+  return '仕事のお願いで日程確認を送る時は、まずこの文面で十分です。日時だけ書き換えて使ってください。\n\n「いつもお世話になっております。〇〇の〇〇です。本日は、仕事のお願いに関する日程確認でご連絡しました。〇月〇日（〇）〇時から進める予定ですが、ご都合はいかがでしょうか。ご都合が合わない場合は、別の候補日時をお知らせいただけますと助かります。よろしくお願いいたします。」';
 }
 
 function buildReflectiveFeedbackFallback(

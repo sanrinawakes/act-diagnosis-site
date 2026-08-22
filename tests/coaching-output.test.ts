@@ -6228,6 +6228,59 @@ describe('normalizeCoachingOutput', () => {
     expect(fallback).not.toContain('「何かアドバイスありますか」という相談ですね。');
   });
 
+  it('日程確認テンプレートを作る流れでお願いしますと返された後も具体文面へ進む', async () => {
+    const historyMessages = [
+      {
+        role: 'user' as const,
+        content:
+          'SVA-1です。\n考え過ぎの癖を無くしたいのですが何から始めれば良いですか',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          '考え過ぎてしまう癖をなくしたいのですね。\n\nこの癖を和らげるために、まずは「頭の中にある言葉をすべて紙に書き出すこと」から始めてみませんか。頭の中だけで整理しようとすると、同じ考えが何度もループしやすくなります。',
+      },
+      {
+        role: 'user' as const,
+        content:
+          '仕事が思うように進まない。分からないことに関して悩み過ぎる。完璧を求め過ぎているらしい。メールや電話でも相手に失礼のないようにどう伝えれば良いか悩み送信、発信するまでに時間がかかってしまう。',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          '仕事が思うように進まない時、特にメールや電話で「失礼がないか」と悩みすぎて発信が遅れてしまうのですね。\n\n完璧を求めて時間がかかる状況を和らげるために、まずは「相手への配慮（マナー）」と「伝えるべき用件（事実）」を分けて整理することをお勧めします。例えば、メールの挨拶や結びといったマナー部分はあらかじめ定型文として登録しておき、毎回悩む範囲を「用件を伝えること」だけに絞り込むと、発信への心理的ハードルが下がります。\n\n直近で、特に作成や発信に時間がかかってしまったのは、具体的にどのような用件の連絡でしたか。',
+      },
+      {
+        role: 'user' as const,
+        content: '仕事のお願い。\n日程確認など',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          '仕事の依頼や日程確認は、相手の都合を左右するため、失礼がないようにと特に気を遣いますよね。\n\nこの場合、毎回ゼロから文章を考えると悩みすぎてしまうため、自分用の「依頼・日程確認テンプレート」を一つ作っておくのが効果的です。例えば、日程確認であれば「〇〇の件について、以下の候補日のうちご都合の良いお日にちはございますでしょうか」という型を決めておき、日付だけを書き換えて送る仕組みにします。\n\nまずは、よく使う「日程確認」の連絡について、そのままコピーして使えるテンプレートをここで一緒に作ってみませんか。',
+      },
+    ];
+
+    const result = await generateCoachingText({
+      systemPrompt: 'test',
+      historyMessages,
+      lastUserParts: [{ text: 'お願いします' }],
+    });
+    const assessment = assessCoachingResponseQuality({
+      text: result.text,
+      lastUserText: 'お願いします',
+      historyMessages,
+    });
+
+    expect(assessment.issues).toEqual([]);
+    expect(result.modelName).toBe('local-schedule-template');
+    expect(result.text).toContain('仕事のお願いで日程確認を送る時は、まずこの文面で十分です');
+    expect(result.text).toContain('仕事のお願いに関する日程確認でご連絡しました');
+    expect(result.text).toContain('別の候補日時をお知らせいただけますと助かります');
+    expect(result.text).not.toContain('という相談ですね');
+    expect(result.text).not.toMatch(/実際に起きたことと、次に困る場面/);
+  });
+
   it('支払わない事実を「払えない」に変えず、未申告の感情も足さない', () => {
     const result = normalizeCoachingOutput(
       '全額払ってほしいと伝えても行動に移してもらえないのは、本当にやりきれない気持ちになりますね。言葉が届いていない、あるいは軽く流されている状態です。\n\nご主人は、家賃を全額払えない理由を説明していますか？',
