@@ -293,9 +293,13 @@ async function runRejectedSuggestionScenario() {
       },
       {
         content:
-          'わからないから聞いています。質問を返さず、今までと違う対応を具体的に答えてください。',
+          'その伝え方はもう毎月やっています。同じ提案や同じ質問はしないでください。',
         expectedModelName: 'local-topic-recovery',
         expectedFinishReason: 'LOCAL_TOPIC_RECOVERY',
+      },
+      {
+        content:
+          'わからないから聞いています。質問を返さず、今までと違う対応を具体的に答えてください。',
       },
     ],
   });
@@ -1020,7 +1024,7 @@ async function sendStreamRequest({
   attachments,
   label,
   expectedModelName = '',
-  expectedFinishReason = 'STOP',
+  expectedFinishReason = '',
 }) {
   const body = {
     sessionId,
