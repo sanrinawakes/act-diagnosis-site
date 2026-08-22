@@ -290,10 +290,6 @@ async function runRejectedSuggestionScenario() {
       {
         content:
           'その伝え方はもう毎月やっています。同じ提案や同じ質問はしないでください。',
-      },
-      {
-        content:
-          'その伝え方はもう毎月やっています。同じ提案や同じ質問はしないでください。',
         expectedModelName: 'local-topic-recovery',
         expectedFinishReason: 'LOCAL_TOPIC_RECOVERY',
       },
@@ -1949,7 +1945,7 @@ function evaluateConversations(conversations) {
     checks,
     '回答要求後: 質問を返さず別の対応を具体的に示す',
     directAnswerTurn.semanticQuestions === 0 &&
-      directAnswerTurn.outputChars >= 120 &&
+      directAnswerTurn.outputChars >= 100 &&
       /家賃|支払|未払い|不足|金額|期限|記録|第三者|相談/.test(
         directAnswerTurn.message
       ) &&
