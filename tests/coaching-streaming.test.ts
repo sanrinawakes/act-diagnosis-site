@@ -1050,10 +1050,9 @@ describe('createJsonLineStream', () => {
     const done = events.find((event) => event.type === 'done');
 
     expect(done).toMatchObject({
-      modelName: 'gemini-3.5-flash',
-      provider: 'gemini',
-      qualityRepairAttempted: true,
-      qualityRepairAccepted: true,
+      modelName: 'local-topic-recovery',
+      qualityRepairAttempted: false,
+      qualityRepairAccepted: false,
       qualityFinalIssues: [],
       completionStatus: 'complete',
       finalizationStatus: 'complete',

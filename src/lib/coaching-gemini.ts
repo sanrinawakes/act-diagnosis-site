@@ -1813,12 +1813,12 @@ function buildImmediateCoachingResponse(
   }
   if (
     historyMessages.some((message) => message.role === 'assistant') &&
-    /何の話|話が(?:違|ずれ)|意味(?:が)?(?:不明|わから)/.test(text)
+    (reportsResponseDissatisfaction(text) ||
+      requestsPlainerExplanation(text))
   ) {
-    const recovery = buildContextualDissatisfactionFallback(
-      text,
-      historyMessages
-    );
+    const recovery =
+      buildFanBoundaryClarificationFallback(text, historyMessages) ||
+      buildContextualDissatisfactionFallback(text, historyMessages);
     const verifiedRecovery = recovery.trim();
     if (
       verifiedRecovery &&
@@ -4506,6 +4506,12 @@ function buildContextualDissatisfactionFallback(
   lastUserText: string,
   historyMessages: CoachingChatMessage[]
 ) {
+  const fanBoundaryClarificationFallback =
+    buildFanBoundaryClarificationFallback(lastUserText, historyMessages);
+  if (fanBoundaryClarificationFallback) {
+    return fanBoundaryClarificationFallback;
+  }
+
   const legalDraftRevisionFallback = buildFamilyLegalDraftRevisionFallback(
     lastUserText,
     historyMessages
@@ -4600,6 +4606,13 @@ function reportsClarificationCorrection(text: string) {
   );
 }
 
+function requestsPlainerExplanation(text: string) {
+  const normalized = text.replace(/\s+/g, ' ').trim();
+  return /もっと(?:分か|わか)るように(?:言って|説明して)|(?:もう少し|もうちょっと)(?:分か|わか)るように(?:言って|説明して)|説明して|かみ砕いて|噛み砕いて/.test(
+    normalized
+  );
+}
+
 function buildRelationshipClarificationFallback(
   lastUserText: string,
   historyMessages: CoachingChatMessage[]
@@ -4639,6 +4652,35 @@ function buildDeletedPostLevelFallback(
   }
 
   return '記事ごと削除する対応は、対話を続けることより、その場の体裁や運営側の都合を守ることを優先した防衛的な動きです。意識レベルを断定するより、不都合な意見を残さず消す方向を選んだ行動として見る方が確実です。\n\n対処方法としては、そのコミュニティに本音をそのまま書き続けるか、書く内容を限定するか、距離を置くかを分けて考えることです。今日やるなら、この三つのうち今の自分に合うものを一つだけ決めてください。';
+}
+
+function buildFanBoundaryClarificationFallback(
+  lastUserText: string,
+  historyMessages: CoachingChatMessage[]
+) {
+  const userContext = [
+    ...historyMessages
+      .filter((message) => message.role === 'user')
+      .map((message) => stripAttachmentMarkdown(message.content)),
+    lastUserText,
+  ].join('\n');
+  const asksForClarification =
+    reportsResponseDissatisfaction(lastUserText) ||
+    requestsPlainerExplanation(lastUserText);
+  if (
+    !asksForClarification ||
+    !/ファン|誕生日|メール|寄り添|スタッフの人に読まれる|読まれる/.test(
+      userContext
+    )
+  ) {
+    return '';
+  }
+
+  const closingLine = /スタッフの人に読まれる|読まれる/.test(userContext)
+    ? 'スタッフに読まれることが苦しいなら、今日は送らない選択で止めて大丈夫です。'
+    : '相手がその関わりを求めていないと感じるなら、今日は送らない選択を基準にして大丈夫です。';
+
+  return `つまり、今の悩みは「誕生日に何を送るか」そのものより、ファンとして関わりたいわけではないのに、相手の発信はファン向けで、その温度差の中で言葉が出なくなっていることです。\n\n先に決めるのは文面ではなく、今日は送る側に回るのか、送らずに距離を置くのかです。${closingLine}`;
 }
 
 function buildClarificationCorrectionFallback(
@@ -5792,7 +5834,7 @@ function explicitlyRejectsPreviousCoachingMove(text: string) {
 }
 
 function reportsResponseDissatisfaction(text: string) {
-  return /^(?:[？?]+)$|わからないから聞いて|それを聞いている|質問ばかり|同じ質問|答えになっていない|納得(?:できない|いかない)|何を言いたいのかわから|ちゃんと答えて|何の話|^(?:(?:これ|それ)は)?どういう(?:こと|事|意味)[。！？!?]*$|いちいち確認しないで|言葉の通りに解釈して|^相手とは[。！？!?]*$|意味(?:が)?(?:不明|わから)|話が(?:違|ずれ)|前の返答.{0,20}(?:わか(?:ら|り)|短|意味)|前(?:の|より).{0,20}(?:方が|ほうが).{0,20}(?:的確|良かった|よかった)|頭が悪くな|作成されてない|作成されていない|文章を出せていない/.test(
+  return /^(?:[？?]+)$|わからないから聞いて|それを聞いている|質問ばかり|同じ質問|答えになっていない|納得(?:できない|いかない)|何を言いたいのかわから|ちゃんと答えて|何の話|^(?:(?:これ|それ)は)?どういう(?:こと|事|意味)[。！？!?]*$|いちいち確認しないで|言葉の通りに解釈して|^相手とは[。！？!?]*$|意味(?:が)?(?:不明|わから|分から)(?:ない|ん)?|話が(?:違|ずれ)|前の返答.{0,20}(?:わか(?:ら|り)|短|意味)|前(?:の|より).{0,20}(?:方が|ほうが).{0,20}(?:的確|良かった|よかった)|頭が悪くな|作成されてない|作成されていない|文章を出せていない|もっと(?:分か|わか)るように(?:言って|説明して)|(?:もう少し|もうちょっと)(?:分か|わか)るように(?:言って|説明して)|説明して|かみ砕いて|噛み砕いて/.test(
     text
   );
 }
