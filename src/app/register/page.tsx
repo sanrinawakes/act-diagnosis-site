@@ -3,7 +3,6 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { createClient } from '@/lib/supabase';
 import { useI18n } from '@/lib/i18n';
 import { normalizeAuthRedirect } from '@/lib/auth-flow';
 
@@ -16,7 +15,6 @@ export default function RegisterPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [socialLoading, setSocialLoading] = useState<string | null>(null);
   const router = useRouter();
-  const supabase = createClient();
   const { t } = useI18n();
 
   const handleRegister = async (e: React.FormEvent) => {
@@ -26,36 +24,23 @@ export default function RegisterPage() {
     setIsLoading(true);
 
     try {
-      // Sign up user
-      const { data: authData, error: signUpError } = await supabase.auth.signUp({
-        email,
-        password,
+      const response = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email,
+          password,
+          displayName,
+        }),
       });
 
-      if (signUpError) {
-        if (signUpError.message.includes('already registered')) {
-          setError('このメールアドレスは既に登録されています');
-        } else {
-          setError(signUpError.message);
-        }
+      const result = await response.json();
+
+      if (!response.ok) {
+        setError(result.error || '登録に失敗しました');
         return;
-      }
-
-      if (!authData.user) {
-        setError('ユーザーの作成に失敗しました');
-        return;
-      }
-
-      // Update profile with display name
-      if (displayName) {
-        const { error: profileError } = await supabase
-          .from('profiles')
-          .update({ display_name: displayName })
-          .eq('id', authData.user.id);
-
-        if (profileError) {
-          console.error('Profile update error:', profileError);
-        }
       }
 
       setSuccess(true);
@@ -66,7 +51,7 @@ export default function RegisterPage() {
       // Redirect to login after a short delay
       setTimeout(() => {
         router.push('/login');
-      }, 2000);
+      }, 3000);
     } catch (err) {
       setError('登録に失敗しました');
       console.error('Register error:', err);
@@ -80,6 +65,8 @@ export default function RegisterPage() {
     setError('');
 
     try {
+      const { createClient } = await import('@/lib/supabase');
+      const supabase = createClient();
       const redirectTo = `${window.location.origin}/api/auth/callback?next=${encodeURIComponent(normalizeAuthRedirect('/dashboard'))}`;
 
       const oauthOptions: { redirectTo: string; queryParams?: Record<string, string> } = {
@@ -128,7 +115,7 @@ export default function RegisterPage() {
           {/* Success Message */}
           {success && (
             <div className="mb-6 p-4 bg-green-100 border border-green-400 rounded-lg">
-              <p className="text-green-700 text-sm">確認メールを送信しました。メールのリンクをクリックしてアカウントを有効化してください。</p>
+              <p className="text-green-700 text-sm">アカウントを作成しました。確認メールを待たずに、ログイン画面からログインできます。</p>
             </div>
           )}
 
