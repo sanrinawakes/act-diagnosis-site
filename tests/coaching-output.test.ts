@@ -4012,6 +4012,7 @@ describe('normalizeCoachingOutput', () => {
     expect(prompt).toContain('「当然です」「無理もありません」');
     expect(prompt).toContain('どの場面でその感情になったかを聞き直さない');
     expect(prompt).toContain('進行宣言を質問前へ足さない');
+    expect(prompt).toContain('「話していきましょう」');
     expect(prompt).toContain('一言や言い方を求めていない段階では');
     expect(COACHING_RESPONSE_SPEED_INSTRUCTION).toContain(
       '「気持ちを受け止めます」「状況を受け止めます」'

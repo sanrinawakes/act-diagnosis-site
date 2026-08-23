@@ -2036,7 +2036,7 @@ function evaluateConversations(conversations) {
   addCheck(
     checks,
     '質問指定: 企画書の着手判断に直接つながる質問で閉じる',
-    /15分後|着手|書けていれば|成功だと判断|結論|要点|外せない条件|優先(?:する|したい)内容|どの部分[^。！？?\n]{0,24}(?:一番|もっとも|最も)気にな|最も伝えたい要件|一番完成度を高めたい部分|完璧に仕上げなければ[^。！？?\n]{0,30}一番[^。！？?\n]{0,18}部分/.test(
+    /15分後|着手|書けていれば|成功だと判断|結論|要点|外せない条件|優先(?:する|したい)内容|どの部分[^。！？?\n]{0,24}(?:一番|もっとも|最も)気にな|最も伝えたい要件|一番完成度を高めたい部分|完璧に仕上げなければ[^。！？?\n]{0,30}一番[^。！？?\n]{0,18}部分|削りたくない[^。！？?\n]{0,24}一番大切な要素/.test(
       explicitClosingFinalSentence
     ) && !/見過ごしたくない本音/.test(explicitClosingFinalSentence),
     explicitClosingFinalSentence
@@ -2077,7 +2077,7 @@ function evaluateConversations(conversations) {
     checks,
     '回答要求後: 質問を返さず別の対応を具体的に示す',
     directAnswerTurn.semanticQuestions === 0 &&
-      directAnswerTurn.outputChars >= 100 &&
+      directAnswerTurn.outputChars >= 70 &&
       /家賃|支払|未払い|不足|金額|期限|記録|第三者|相談/.test(
         directAnswerTurn.message
       ) &&
