@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   COACHING_IMAGE_MODEL,
   COACHING_MAX_OUTPUT_TOKENS,
+  COACHING_RESPONSE_SPEED_INSTRUCTION,
   COACHING_TEXT_MODEL,
   COACHING_TEXT_THINKING_LEVEL,
   containsInternalCoachingContextExposure,
@@ -36,7 +37,7 @@ describe('getCoachingGeminiModelName', () => {
 
   it('短い会話が内部思考だけで出力上限へ達しない設定にする', () => {
     expect(COACHING_MAX_OUTPUT_TOKENS).toBeGreaterThanOrEqual(4096);
-    expect(COACHING_TEXT_THINKING_LEVEL).toBe('minimal');
+    expect(COACHING_TEXT_THINKING_LEVEL).toBe('low');
   });
 
   it('画像添付時も品質を優先した3.5 Flashを使う', () => {
@@ -63,6 +64,19 @@ describe('coaching runtime prompt', () => {
     expect(prompt).toContain('拒否された提案');
     expect(prompt).toContain('無理に付けない');
     expect(prompt).not.toContain('27タイプ');
+  });
+
+  it('新しい話題・一段ずつの深掘り・具体策要求を明示する', () => {
+    const prompt = getCoachingSystemPrompt();
+
+    expect(prompt).toContain('新しい話題を優先');
+    expect(prompt).toContain('今の話と関係がある時だけ短く引用');
+    expect(prompt).toContain('深掘りは一段ずつ行う');
+    expect(prompt).toContain('具体策を求めた時は、質問だけで返さない');
+    expect(prompt).toContain('最初の1〜2文では断定を避け');
+    expect(COACHING_RESPONSE_SPEED_INSTRUCTION).toContain(
+      '最初の1つを中心に、ただし本人の話の流れを切らない'
+    );
   });
 
   it('診断情報は短い非表示文脈としてだけ追加する', () => {
@@ -620,7 +634,7 @@ describe('conversation continuity hints', () => {
       .map((part) => ('text' in part ? part.text : ''))
       .join('\n');
 
-    expect(hint).toContain('相手が説明や返答をしない');
+    expect(hint).toContain('直前の質問で尋ねた相手や対象を主語として引き継ぐ');
     expect(stripInternalResponseStyleHint(hint)).toBe('何も言わない');
   });
 
@@ -636,7 +650,7 @@ describe('conversation continuity hints', () => {
       .join('\n');
 
     expect(hint).toContain('否定した提案');
-    expect(hint).toContain('疲労や人生全体の無気力へ意味を広げない');
+    expect(hint).toContain('人生全体の無気力や疲労へ意味を広げない');
   });
 
   it('提案後の「何も言わない」を提案実行済みとは決めつけない', () => {
@@ -650,7 +664,7 @@ describe('conversation continuity hints', () => {
       .map((part) => ('text' in part ? part.text : ''))
       .join('\n');
 
-    expect(hint).toContain('実行したとは仮定しない');
+    expect(hint).toContain('直前の提案を実行した結果へ勝手に変えない');
   });
 
   it('添付画像の事実確認では用途説明を挟まず直接答えるよう指示する', () => {
@@ -670,11 +684,32 @@ describe('conversation continuity hints', () => {
       .join('\n');
 
     expect(hint).toContain('添付画像を実際に確認');
-    expect(hint).toContain('ACTIの利用範囲に関する説明');
+    expect(hint).toContain('利用範囲の説明');
   });
 });
 
 describe('prepareGeminiHistory', () => {
+  it('100件超の会話では直近20件を各2000文字まで保持する', () => {
+    const messages = Array.from({ length: 120 }, (_, index) => ({
+      role: (index % 2 === 0 ? 'user' : 'assistant') as
+        | 'user'
+        | 'assistant',
+      content: `${String(index + 1).padStart(3, '0')}:${'長'.repeat(2200)}`,
+    }));
+
+    const history = prepareGeminiHistory(messages);
+    const texts = history.flatMap((item) =>
+      item.parts.map((part) => part.text)
+    );
+
+    expect(texts.some((text) => text.startsWith('101:'))).toBe(true);
+    expect(texts.some((text) => text.startsWith('120:'))).toBe(true);
+    expect(texts.some((text) => text.startsWith('100:'))).toBe(false);
+    const latest = texts.find((text) => text.startsWith('120:')) || '';
+    expect(latest.length).toBeGreaterThan(2000);
+    expect(latest).toContain('（長文のため一部省略）');
+  });
+
   it('長い会話でも保存済み要約の初期事実を落とさない', () => {
     const messages = [
       {
@@ -3822,7 +3857,7 @@ describe('normalizeCoachingOutput', () => {
     );
     const text = 'text' in part ? part.text : '';
 
-    expect(text).toContain('そのまま読める一文');
+    expect(text).toContain('そのまま使える一文');
     expect(text).toContain('「」で一つだけ');
   });
 
@@ -3833,7 +3868,7 @@ describe('normalizeCoachingOutput', () => {
     );
     const text = 'text' in part ? part.text : '';
 
-    expect(text).toContain('答えまたは提案を一つだけ簡潔に');
+    expect(text).toContain('尋ねた答えだけを簡潔な一文');
     expect(text).not.toContain('そのまま読める一文');
     expect(text).not.toContain('「」で一つだけ');
   });

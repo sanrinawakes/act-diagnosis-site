@@ -4,8 +4,15 @@ import {
   type CoachingChatMessage,
 } from '@/lib/coaching-gemini';
 import { stripAttachmentMarkdown } from '@/lib/attachments';
+import {
+  generateCoachingSessionMemoryStructure,
+  renderCoachingSessionMemoryStructure,
+  type CoachingSessionMemoryStructure,
+} from '@/lib/coaching-session-memory-generator';
 
-export const COACHING_SESSION_MEMORY_PREFIX = 'ACTI_SESSION_MEMORY_V1';
+export const COACHING_SESSION_MEMORY_PREFIX = 'ACTI_SESSION_MEMORY_V2';
+export const LEGACY_COACHING_SESSION_MEMORY_PREFIX =
+  'ACTI_SESSION_MEMORY_V1';
 export const COACHING_RECENT_MESSAGE_LIMIT = 24;
 const MEMORY_DELTA_OVERLAP = 8;
 const CONTEXT_MESSAGE_LIMIT =
@@ -27,12 +34,23 @@ const CONTEXT_DOMAIN_PATTERNS = {
   future: /5年後|将来|未来|目標|なりたい/,
 } as const;
 
-type MemoryPayload = {
+type MemoryPayloadV1 = {
   version: 1;
   generatedAt: string;
   coveredMessageCount: number;
   summary: string;
 };
+
+type MemoryPayloadV2 = {
+  version: 2;
+  generatedAt: string;
+  coveredMessageCount: number;
+  summary: string;
+  structured: CoachingSessionMemoryStructure | null;
+  generator: 'llm' | 'deterministic-v1-fallback';
+};
+
+type MemoryPayload = MemoryPayloadV1 | MemoryPayloadV2;
 
 type StoredMessage = {
   id?: string;
@@ -100,7 +118,7 @@ export async function buildCoachingSessionContext(params: {
         .select('id, content, created_at')
         .eq('session_id', params.sessionId)
         .eq('role', 'system')
-        .like('content', `${COACHING_SESSION_MEMORY_PREFIX}%`)
+        .like('content', 'ACTI_SESSION_MEMORY_V%')
         .order('created_at', { ascending: false })
         .limit(1),
       params.supabaseAdmin
@@ -159,10 +177,10 @@ export async function buildCoachingSessionContext(params: {
         deltaStartIndex >= 0 &&
         deltaEndIndex > deltaStartIndex &&
         deltaEndIndex <= loadedMessages.length;
-      let preparedMemory: MemoryPayload | null = null;
+      let preparedRefresh: PreparedMemoryRefresh | null = null;
 
       if (hasCompleteDelta) {
-        preparedMemory = buildMemoryPayload({
+        preparedRefresh = prepareMemoryRefresh({
           previousMemory: latestMemory,
           sourceMessages: loadedMessages.slice(
             deltaStartIndex,
@@ -172,7 +190,7 @@ export async function buildCoachingSessionContext(params: {
           targetCoveredCount,
         });
       } else {
-        preparedMemory = await createMemory({
+        preparedRefresh = await loadMemoryRefreshSource({
           supabaseAdmin: params.supabaseAdmin,
           sessionId: params.sessionId,
           previousMemory: latestMemory,
@@ -180,44 +198,52 @@ export async function buildCoachingSessionContext(params: {
         });
       }
 
-      if (preparedMemory) {
-        activeMemory = preparedMemory;
+      if (preparedRefresh) {
+        activeMemory = preparedRefresh.fallbackMemory;
       }
 
       const refreshMemory = async () => {
         try {
-          if ((!latestMemory || !hasCompleteDelta) && preparedMemory) {
-            await storeMemory({
-              supabaseAdmin: params.supabaseAdmin,
-              sessionId: params.sessionId!,
-              memoryRowId: memoryResult.data?.[0]?.id || null,
-              memory: preparedMemory,
-            });
-            return;
-          }
-
-          await createAndStoreMemory({
+          if (!preparedRefresh) return null;
+          const refreshedMemory = await generateMemoryPayload(
+            preparedRefresh
+          );
+          const stored = await storeMemory({
             supabaseAdmin: params.supabaseAdmin,
             sessionId: params.sessionId!,
             memoryRowId: memoryResult.data?.[0]?.id || null,
-            previousMemory: latestMemory,
-            targetCoveredCount,
+            memory: refreshedMemory,
           });
+          return stored ? refreshedMemory : null;
         } catch (error) {
-          console.error('Failed to refresh coaching session memory:', error);
+          console.error(
+            JSON.stringify({
+              event: 'coaching_session_memory_refresh_failed',
+              errorCode: safeErrorCode(error),
+            })
+          );
+          return null;
         }
       };
 
       if (params.scheduleMemoryRefresh) {
         try {
-          params.scheduleMemoryRefresh(refreshMemory);
+          params.scheduleMemoryRefresh(async () => {
+            await refreshMemory();
+          });
           memoryRefreshScheduled = true;
         } catch (error) {
-          console.error('Failed to schedule coaching session memory:', error);
+          console.error(
+            JSON.stringify({
+              event: 'coaching_session_memory_schedule_failed',
+              errorCode: safeErrorCode(error),
+            })
+          );
         }
       } else {
-        await refreshMemory();
-        memoryRefreshed = Boolean(preparedMemory);
+        const refreshedMemory = await refreshMemory();
+        if (refreshedMemory) activeMemory = refreshedMemory;
+        memoryRefreshed = Boolean(refreshedMemory);
       }
     }
 
@@ -277,7 +303,12 @@ export async function buildCoachingSessionContext(params: {
       memoryCoveredMessages: activeMemory.coveredMessageCount,
     };
   } catch (error) {
-    console.error('Failed to build coaching session context:', error);
+    console.error(
+      JSON.stringify({
+        event: 'coaching_session_context_build_failed',
+        errorCode: safeErrorCode(error),
+      })
+    );
     return {
       messages: fallback,
       totalStoredMessages: null,
@@ -389,32 +420,20 @@ export function shouldPreferRequestOnlyContext(params: {
   return ![...requestDomains].some((domain) => storedDomains.has(domain));
 }
 
-async function createAndStoreMemory(params: {
-  supabaseAdmin: SupabaseClient;
-  sessionId: string;
-  memoryRowId: string | null;
+type PreparedMemoryRefresh = {
   previousMemory: MemoryPayload | null;
+  sourceMessages: CoachingChatMessage[];
+  omittedEarlierMessages: number;
   targetCoveredCount: number;
-}) {
-  const memory = await createMemory(params);
-  if (!memory) return params.previousMemory;
+  fallbackMemory: MemoryPayloadV2;
+};
 
-  await storeMemory({
-    supabaseAdmin: params.supabaseAdmin,
-    sessionId: params.sessionId,
-    memoryRowId: params.memoryRowId,
-    memory,
-  });
-
-  return memory;
-}
-
-async function createMemory(params: {
+async function loadMemoryRefreshSource(params: {
   supabaseAdmin: SupabaseClient;
   sessionId: string;
   previousMemory: MemoryPayload | null;
   targetCoveredCount: number;
-}) {
+}): Promise<PreparedMemoryRefresh | null> {
   const refreshSignal = AbortSignal.timeout(SESSION_MEMORY_REFRESH_TIMEOUT_MS);
   const startIndex = Math.max(
     0,
@@ -432,12 +451,17 @@ async function createMemory(params: {
     .abortSignal(refreshSignal);
 
   if (error) {
-    console.error('Failed to load messages for session memory:', error);
+    console.error(
+      JSON.stringify({
+        event: 'coaching_session_memory_source_load_failed',
+        errorCode: safeErrorCode(error),
+      })
+    );
     return null;
   }
 
   const sourceMessages = toCoachingMessages((data || []) as StoredMessage[]);
-  return buildMemoryPayload({
+  return prepareMemoryRefresh({
     previousMemory: params.previousMemory,
     sourceMessages,
     omittedEarlierMessages: startIndex,
@@ -445,14 +469,52 @@ async function createMemory(params: {
   });
 }
 
-function buildMemoryPayload(params: {
+function prepareMemoryRefresh(params: {
   previousMemory: MemoryPayload | null;
   sourceMessages: CoachingChatMessage[];
   omittedEarlierMessages: number;
   targetCoveredCount: number;
-}): MemoryPayload {
+}): PreparedMemoryRefresh {
   return {
-    version: 1,
+    ...params,
+    fallbackMemory: buildDeterministicMemoryPayload(params),
+  };
+}
+
+async function generateMemoryPayload(
+  prepared: PreparedMemoryRefresh
+): Promise<MemoryPayloadV2> {
+  const structured = await generateCoachingSessionMemoryStructure({
+    previousSummary: prepared.previousMemory?.summary || '',
+    sourceMessages: prepared.sourceMessages,
+    timeoutMs: SESSION_MEMORY_REFRESH_TIMEOUT_MS,
+  });
+  if (!structured) return prepared.fallbackMemory;
+
+  const summary = clipText(
+    renderCoachingSessionMemoryStructure(structured),
+    SUMMARY_CHAR_LIMIT
+  );
+  if (!summary) return prepared.fallbackMemory;
+
+  return {
+    version: 2,
+    generatedAt: new Date().toISOString(),
+    coveredMessageCount: prepared.targetCoveredCount,
+    summary,
+    structured,
+    generator: 'llm',
+  };
+}
+
+function buildDeterministicMemoryPayload(params: {
+  previousMemory: MemoryPayload | null;
+  sourceMessages: CoachingChatMessage[];
+  omittedEarlierMessages: number;
+  targetCoveredCount: number;
+}): MemoryPayloadV2 {
+  return {
+    version: 2,
     generatedAt: new Date().toISOString(),
     coveredMessageCount: params.targetCoveredCount,
     summary: buildDeterministicSummary({
@@ -460,7 +522,34 @@ function buildMemoryPayload(params: {
       sourceMessages: params.sourceMessages,
       omittedEarlierMessages: params.omittedEarlierMessages,
     }),
+    structured: null,
+    generator: 'deterministic-v1-fallback',
   };
+}
+
+function isValidV2MemoryPayload(
+  payload: Partial<MemoryPayloadV2>
+): payload is MemoryPayloadV2 {
+  return (
+    payload.version === 2 &&
+    typeof payload.generatedAt === 'string' &&
+    typeof payload.summary === 'string' &&
+    typeof payload.coveredMessageCount === 'number' &&
+    (payload.structured === null || typeof payload.structured === 'object') &&
+    (payload.generator === 'llm' ||
+      payload.generator === 'deterministic-v1-fallback')
+  );
+}
+
+function isValidV1MemoryPayload(
+  payload: Partial<MemoryPayloadV1>
+): payload is MemoryPayloadV1 {
+  return (
+    payload.version === 1 &&
+    typeof payload.generatedAt === 'string' &&
+    typeof payload.summary === 'string' &&
+    typeof payload.coveredMessageCount === 'number'
+  );
 }
 
 async function storeMemory(params: {
@@ -487,9 +576,24 @@ async function storeMemory(params: {
       }).abortSignal(refreshSignal);
 
   if (storeError) {
-    console.error('Failed to store coaching session memory:', storeError);
+    console.error(
+      JSON.stringify({
+        event: 'coaching_session_memory_store_failed',
+        errorCode: safeErrorCode(storeError),
+      })
+    );
     return false;
   }
+
+  console.info(
+    JSON.stringify({
+      event: 'coaching_session_memory_refreshed',
+      version: params.memory.version,
+      generator:
+        params.memory.version === 2 ? params.memory.generator : 'legacy-v1',
+      coveredMessageCount: params.memory.coveredMessageCount,
+    })
+  );
 
   return true;
 }
@@ -556,23 +660,32 @@ function normalizePreviousSummary(summary: string) {
 }
 
 function serializeMemoryPayload(memory: MemoryPayload) {
-  return `${COACHING_SESSION_MEMORY_PREFIX}\n${JSON.stringify(memory)}`;
+  const prefix =
+    memory.version === 2
+      ? COACHING_SESSION_MEMORY_PREFIX
+      : LEGACY_COACHING_SESSION_MEMORY_PREFIX;
+  return `${prefix}\n${JSON.stringify(memory)}`;
 }
 
 function parseMemoryPayload(content?: string | null): MemoryPayload | null {
-  if (!content?.startsWith(COACHING_SESSION_MEMORY_PREFIX)) return null;
+  if (!content) return null;
+  const isV2 = content.startsWith(COACHING_SESSION_MEMORY_PREFIX);
+  const isV1 = content.startsWith(LEGACY_COACHING_SESSION_MEMORY_PREFIX);
+  if (!isV2 && !isV1) return null;
 
   try {
-    const json = content.slice(COACHING_SESSION_MEMORY_PREFIX.length).trim();
+    const prefix = isV2
+      ? COACHING_SESSION_MEMORY_PREFIX
+      : LEGACY_COACHING_SESSION_MEMORY_PREFIX;
+    const json = content.slice(prefix.length).trim();
     const payload = JSON.parse(json) as Partial<MemoryPayload>;
-    if (
-      payload.version !== 1 ||
-      typeof payload.summary !== 'string' ||
-      typeof payload.coveredMessageCount !== 'number'
-    ) {
-      return null;
+    if (isV2 && isValidV2MemoryPayload(payload as Partial<MemoryPayloadV2>)) {
+      return payload as MemoryPayloadV2;
     }
-    return payload as MemoryPayload;
+    if (isV1 && isValidV1MemoryPayload(payload as Partial<MemoryPayloadV1>)) {
+      return payload as MemoryPayloadV1;
+    }
+    return null;
   } catch {
     return null;
   }
@@ -620,4 +733,16 @@ function uniqueByValue(values: string[]) {
     seen.add(key);
     return true;
   });
+}
+
+function safeErrorCode(error: unknown) {
+  if (
+    error &&
+    typeof error === 'object' &&
+    'code' in error &&
+    typeof error.code === 'string'
+  ) {
+    return error.code.slice(0, 80);
+  }
+  return error instanceof Error ? error.name : 'unknown';
 }

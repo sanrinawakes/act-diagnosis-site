@@ -66,7 +66,7 @@ const ROUNDS = Math.max(
   Math.min(5, Number(process.env.COACHING_BENCHMARK_ROUNDS || 1))
 );
 
-const CANDIDATES: Candidate[] = [
+const BASE_CANDIDATES: Candidate[] = [
   {
     id: 'gemini-flash',
     provider: 'gemini',
@@ -95,6 +95,27 @@ const CANDIDATES: Candidate[] = [
     model: process.env.COACHING_ANTHROPIC_BALANCED_MODEL || 'claude-sonnet-5',
   },
 ];
+const additionalGeminiModels = (
+  process.env.COACHING_BENCHMARK_ADDITIONAL_GEMINI_MODELS || ''
+)
+  .split(',')
+  .map((model) => model.trim())
+  .filter(Boolean)
+  .map((model) => ({
+    id: `gemini-${model.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}`,
+    provider: 'gemini' as const,
+    model,
+  }));
+const requestedCandidateIds = new Set(
+  (process.env.COACHING_BENCHMARK_CANDIDATES || '')
+    .split(',')
+    .map((candidateId) => candidateId.trim())
+    .filter(Boolean)
+);
+const CANDIDATES: Candidate[] = [...BASE_CANDIDATES, ...additionalGeminiModels].filter(
+  (candidate) =>
+    requestedCandidateIds.size === 0 || requestedCandidateIds.has(candidate.id)
+);
 
 const SCENARIOS: Scenario[] = [
   {
@@ -178,6 +199,144 @@ const SCENARIOS: Scenario[] = [
       },
     ],
   },
+  {
+    id: 'long-continuity-three-turn-reference',
+    diagnosisCode: 'MGA-3',
+    messages: [
+      { role: 'user', content: '新しい企画の説明資料を作っています。' },
+      {
+        role: 'assistant',
+        content: '新しい企画の説明資料を作っているのですね。',
+      },
+      { role: 'user', content: '対象は初めてサービスを使う人です。' },
+      {
+        role: 'assistant',
+        content: '初めて使う人が対象なのですね。',
+      },
+      { role: 'user', content: '専門用語を減らしたいです。' },
+      {
+        role: 'assistant',
+        content: '専門用語を減らして伝わりやすくしたいのですね。',
+      },
+      { role: 'user', content: '説明する順番にも迷っています。' },
+      {
+        role: 'assistant',
+        content: '内容だけでなく、説明する順番にも迷っているのですね。',
+      },
+      { role: 'user', content: '一枚目には利用目的を書く予定です。' },
+      {
+        role: 'assistant',
+        content: '一枚目に利用目的を書く予定なのですね。',
+      },
+      { role: 'user', content: '二枚目には利用手順を書く予定です。' },
+      {
+        role: 'assistant',
+        content: '二枚目には利用手順を書く予定なのですね。',
+      },
+      {
+        role: 'user',
+        content: '担当者から、資料は火曜午前10時までと言われました。',
+      },
+      {
+        role: 'assistant',
+        content: '締切は火曜午前10時なのですね。',
+      },
+      { role: 'user', content: '今日は一枚目から直そうと思います。' },
+      {
+        role: 'assistant',
+        content: '今日は一枚目から直す予定なのですね。',
+      },
+      { role: 'user', content: '目的の説明が長くなりすぎています。' },
+      {
+        role: 'assistant',
+        content: '一枚目の目的説明が長くなりすぎているのですね。',
+      },
+      {
+        role: 'user',
+        content:
+          '3回前に伝えた締切時刻も踏まえて、今日最初に直す箇所を一つだけ、質問なしで答えてください。',
+      },
+    ],
+  },
+  {
+    id: 'fact-to-one-feeling-question',
+    diagnosisCode: 'SVM-3',
+    messages: [
+      {
+        role: 'user',
+        content:
+          '来月から勤務開始が一時間早くなります。通勤には四十分かかり、朝食準備も私が担当しています。',
+      },
+    ],
+  },
+  {
+    id: 'explicit-deeper-question',
+    diagnosisCode: 'SVA-3',
+    messages: [
+      { role: 'user', content: '新しい役割を引き受けるか迷っています。' },
+      {
+        role: 'assistant',
+        content: '新しい役割を引き受けるか迷っているのですね。',
+      },
+      {
+        role: 'user',
+        content: '条件の一覧より、自分がなぜ迷うのかを話したいです。',
+      },
+      {
+        role: 'assistant',
+        content: '条件の比較より、迷いの理由を話したいのですね。',
+      },
+      {
+        role: 'user',
+        content: '定型的な整理ではなく、もう少し深く聞いてほしいです。',
+      },
+    ],
+  },
+  {
+    id: 'short-reply-continuation',
+    diagnosisCode: 'MME-3',
+    messages: [
+      {
+        role: 'user',
+        content: '友人に断りたい予定があるのに、返事を先延ばしにしています。',
+      },
+      {
+        role: 'assistant',
+        content: '断りたい予定への返事を先延ばしにしているのですね。',
+      },
+      { role: 'user', content: '断ると関係が悪くなる気がします。' },
+      {
+        role: 'assistant',
+        content: '断った後の友人との関係が悪くなることを心配しているのですね。',
+      },
+      { role: 'user', content: 'そうかも。' },
+    ],
+  },
+  {
+    id: 'topic-switch-fact-insight-action',
+    diagnosisCode: 'MGE-3',
+    messages: [
+      { role: 'user', content: '仕事の締切が重なり、優先順位を決めたいです。' },
+      {
+        role: 'assistant',
+        content: '重なった仕事の締切から優先順位を決めたいのですね。',
+      },
+      { role: 'user', content: '仕事の整理はできました。今度は家での相談です。' },
+      {
+        role: 'assistant',
+        content: '仕事の整理は終わり、ここからは家庭の相談なのですね。',
+      },
+      {
+        role: 'user',
+        content: '家族に朝の準備を頼んでも、返事だけで動いてくれません。',
+      },
+      {
+        role: 'assistant',
+        content: '家族に朝の準備を頼んでも、返事だけで行動につながらないのですね。',
+      },
+      { role: 'user', content: '明日からどう対応すればいいですか？' },
+    ],
+  },
 ];
 
 describe.skipIf(!SHOULD_RUN)('coaching provider benchmark', () => {
@@ -232,7 +391,10 @@ describe.skipIf(!SHOULD_RUN)('coaching provider benchmark', () => {
       console.info(`PROVIDER_BENCHMARK_REPORT=${REPORT_PATH}`);
       console.info(`PROVIDER_BENCHMARK_SUMMARY=${JSON.stringify(summary)}`);
 
-      for (const provider of ['gemini', 'openai', 'anthropic'] as const) {
+      const requestedProviders = [
+        ...new Set(CANDIDATES.map((candidate) => candidate.provider)),
+      ];
+      for (const provider of requestedProviders) {
         expect(
           results.some(
             (result) => result.provider === provider && result.error === null

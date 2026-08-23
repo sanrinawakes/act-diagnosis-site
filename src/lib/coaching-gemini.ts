@@ -6,6 +6,20 @@ import {
 } from '@/lib/attachments';
 import { sendCoachingAlert } from '@/lib/coaching-alerts';
 import { COACHING_SCOPE_GUIDANCE } from '@/lib/coaching-scope';
+import {
+  getCoachingOutputPipelineConfig,
+  type CoachingOutputPipelineMode,
+} from '@/lib/coaching-output-pipeline-mode';
+import {
+  COACHING_IMAGE_MODEL,
+  COACHING_IMAGE_TEMPERATURE,
+  COACHING_IMAGE_THINKING_LEVEL,
+  COACHING_IMAGE_TOP_P,
+  DEFAULT_COACHING_TEXT_MODEL,
+  DEFAULT_COACHING_TEXT_THINKING_LEVEL,
+  GEMINI_IMAGE_TIMEOUT_MS,
+  getCoachingTextModelConfig,
+} from '@/lib/coaching-model-config';
 
 export interface CoachingChatMessage {
   role: 'user' | 'assistant';
@@ -56,6 +70,8 @@ export interface CoachingTelemetry {
   preStreamMs?: number;
   attachmentMs?: number;
   accountLookupMs?: number;
+  pipelineMode?: CoachingOutputPipelineMode;
+  sessionCorrelationId?: string | null;
 }
 
 type GeminiRole = 'user' | 'model';
@@ -69,20 +85,18 @@ type GeminiHistoryItem = {
   parts: GeminiTextPart[];
 };
 
-const RECENT_HISTORY_LIMIT = 12;
+const RECENT_HISTORY_LIMIT = 20;
 const SUMMARY_CHAR_LIMIT = 1800;
 const MEMORY_HISTORY_CHAR_LIMIT = 1800;
-const HISTORY_MESSAGE_CHAR_LIMIT = 700;
-const API_HISTORY_LIMIT = 24;
-const API_HISTORY_CHAR_LIMIT = 700;
+const HISTORY_MESSAGE_CHAR_LIMIT = 2000;
+const API_HISTORY_LIMIT = 32;
+const API_HISTORY_CHAR_LIMIT = 2000;
 const API_LAST_USER_CHAR_LIMIT = 2500;
 const ACT_TYPE_CODE_PATTERN = /\b([SMP][VMG][AME])(?:-?([1-6]))?\b/g;
 const COACHING_DOMAIN_CONTEXT_PATTERN =
   /家計簿|収支|赤字|黒字|予算|固定費|変動費|食費|生活費|お金|返金|収入|支出|講座|占い|後悔|メンタル|ケア|仕事|職場|業務|会社|上司|同僚|会議|企画|顧客|夫|妻|主人|家事|家族|親|子ども|パートナー/;
-// Leave enough time for a verified provider fallback to finish before the
-// 10-second first-response monitor threshold.
-const GEMINI_TEXT_TIMEOUT_MS = 6500;
-const GEMINI_IMAGE_TIMEOUT_MS = 20000;
+// Provider and finalization timeouts remain bounded independently so the
+// request stays below the route's 60-second runtime limit.
 const GEMINI_FINALIZE_TIMEOUT_MS = 4000;
 const QUALITY_REPAIR_TIMEOUT_MS = 7000;
 const EXTERNAL_FALLBACK_TIMEOUT_MS = 10000;
@@ -91,10 +105,11 @@ const LONG_HISTORY_FALLBACK_HEDGE_DELAY_MS = 250;
 const GEMINI_RETRY_DELAYS_MS = [300];
 const ALERT_SLOW_RESPONSE_MS = 10000;
 const ALERT_THROTTLE_MS = 5 * 60 * 1000;
-export const COACHING_TEXT_MODEL = 'gemini-3.5-flash';
-export const COACHING_IMAGE_MODEL = 'gemini-3.5-flash';
+export const COACHING_TEXT_MODEL = DEFAULT_COACHING_TEXT_MODEL;
+export { COACHING_IMAGE_MODEL };
 export const COACHING_MAX_OUTPUT_TOKENS = 4096;
-export const COACHING_TEXT_THINKING_LEVEL = 'minimal';
+export const COACHING_TEXT_THINKING_LEVEL =
+  DEFAULT_COACHING_TEXT_THINKING_LEVEL;
 const PARTIAL_STREAM_TIMEOUT_NOTICE =
   '\n\n（応答処理に時間がかかったため、ここで一度区切っています。続きが必要な場合は、「続き」と入力するとここから再開できます。）';
 export const COACHING_RESPONSE_SPEED_INSTRUCTION = [
@@ -106,10 +121,29 @@ export const COACHING_RESPONSE_SPEED_INSTRUCTION = [
   `- 利用範囲外の依頼を検出した場合は、依頼内容へ回答せず、次の案内だけを返してください。「${COACHING_SCOPE_GUIDANCE}」`,
   '',
   '## 応答速度と安定性のための追加ルール',
-  '- 通常の返答は220〜420字を目安にし、短い相づちだけ・質問だけ・一文だけで終わらせない。',
-  '- 質問が複数ある場合は、すべてを一度に深掘りせず、最初の1つを中心に返す。',
-  '- 長い前置き、網羅的な一覧、同じタイプ説明の繰り返しを避ける。ただし通常相談では、受け止め、1つの見立て、次の問いまたは具体策を入れる。',
+  '- 220〜420字は、説明が必要な通常相談での上限目安であり、埋めるべき目標ではない。新しい事実が一つ追加された時、短い返答を受けた時、深掘りの質問を求められた時、一つの答えを求められた時は、会話を一段進めるために必要な長さで短く返す。',
+  '- 質問が複数ある場合は、すべてを一度に深掘りせず、最初の1つを中心に、ただし本人の話の流れを切らないように返す。',
+  '- 長い前置き、網羅的な一覧、同じタイプ説明の繰り返しを避ける。診断情報や一般論から本人の感情・動機・価値観を補わず、本人が話した事実だけを使う。',
+  '- 本人が書いていない感情、動機、物、人物、作業を足さない。相手側の行動を本人側の不足へ言い換えない。',
+  '- 履歴にあるAI自身の推測は事実ではない。本人が明確に認めていない心理説明を引き継がず、最新の本人の訂正・拒否・感情を優先する。',
+  '- 次の一手は質問一つ、または具体的な提案一つのどちらかにする。質問を置く返答には行動提案を足さず、提案を置く返答には確認質問を足さない。本人が両方を明示的に求めた場合だけ例外とする。',
+  '- 本人が深掘りの質問を求めた時は、謝罪や一般論を付けず、直前までに本人が話した対象へ直接つながる具体的な質問一つだけを返す。',
   '- 直前の提案を拒否された時は、その提案や同じ意味の質問を繰り返さず、別の見立てまたは選択肢を示す。',
+  '- 具体策を求められた時は質問を返さず、直前までの人物・作業・決めた言葉に直接つながる一動作を答える。',
+  '- 「ご自身」「教えていただけますか」「お見受けします」「という事実があるのですね」を使わず、自然な「あなた」「教えてください」「感じているんですね」で話す。',
+  '- 本人の発言を受け止める文では、「作成されている」「迷われている」のような接客敬語へ変えず、本人が使った「作っている」「迷っている」を自然な常体のまま使う。',
+  '- 本人が「行動を一つ提案し、最後に質問を一つ」と両方を明示した場合は、提案一つの後に質問一つを必ず置く。どちらかを省略しない。',
+  '- 一つの質問へ二択を入れず、「AとBのどちらですか」「言葉や内容」「作業や関係性」と聞かない。答えてほしい対象を一つにする。',
+  '- 同じ名詞や優先順位の語を一文の中で必要なく重ねない。',
+  '- 本人が書いていない感情や因果を共感として補わない。',
+  '- 本人が明言した感情を、近い別の感情へ言い換えたり追加したりしない。本人の感情を評価する表現も足さない。',
+  '- 「気持ちを受け止めます」「状況を受け止めます」のようにAI側の姿勢を宣言しない。本人が話した感情や事実を一文でそのまま拾う。',
+  '- 具体的な出来事と感情を本人がすでに述べた後は、どの場面でその感情になったかを聞き直さない。相手に変えてほしい行動、または次に守りたい現実を一つ尋ねる。',
+  '- ユーザーが一言や言い方を求めていない段階では、引用文や伝え方を先回りして提案しない。今の発言に直接つながる質問または整理で一段だけ進める。',
+  '- 質問で閉じる返答には、「一つずつ確認していきましょう」「整理していきましょう」「話していきましょう」のような進行宣言を質問前へ足さない。質問一つで会話を進める。',
+  '- 返答本文では「〜していきましょう」という進行宣言を使わない。本人の発言へ直接つながる理解または一問から始める。',
+  '- 具体的な提案の前に「方法があります」「提案があります」と予告しない。実行する一文を直接示す。',
+  '- 支払い、契約、法的手続きなど生活への影響が大きい相談では、条件や合意を確認せず、支払い停止、契約変更、名義変更などの高影響の手続きを提案しない。確認できる事実と合意を整理し、必要なら公的・専門窓口への相談を案内する。',
   '- 質問や行動提案が会話を前へ進めない時は、無理に付け足さず、具体的な理解と役に立つ整理で自然に閉じる。',
 ].join('\n');
 
@@ -118,22 +152,25 @@ const alertLastSentAt = new Map<string, number>();
 export function getCoachingGeminiModelName(parts: GeminiPart[]) {
   return parts.some((part) => 'inlineData' in part)
     ? COACHING_IMAGE_MODEL
-    : COACHING_TEXT_MODEL;
+    : getCoachingTextModelConfig().model;
 }
 
 export function getCoachingGeminiModel(
   systemPrompt: string,
-  modelName = COACHING_TEXT_MODEL,
+  modelName = getCoachingTextModelConfig().model,
   isImageRequest = false
 ) {
+  const textConfig = getCoachingTextModelConfig();
   const generationConfig = {
-    temperature: 0.2,
-    topP: 0.8,
+    temperature: isImageRequest
+      ? COACHING_IMAGE_TEMPERATURE
+      : textConfig.temperature,
+    topP: isImageRequest ? COACHING_IMAGE_TOP_P : textConfig.topP,
     maxOutputTokens: COACHING_MAX_OUTPUT_TOKENS,
     thinkingConfig: {
       thinkingLevel: isImageRequest
-        ? 'minimal'
-        : COACHING_TEXT_THINKING_LEVEL,
+        ? COACHING_IMAGE_THINKING_LEVEL
+        : textConfig.thinkingLevel,
     },
   };
 
@@ -286,22 +323,63 @@ export function buildGeminiParts(
 
 function buildResponseStyleHint(text: string, hasAttachments = false) {
   if (hasAttachments && requestsFactualShortAnswer(text)) {
-    return '【内部応答形式】添付画像を実際に確認し、ユーザーが尋ねた色・枚数・文字・状態だけを直接答えてください。ACTIの利用範囲に関する説明、追加質問、コーチング提案は付けないでください。';
+    return '【内部応答形式】添付画像を実際に確認し、ユーザーが尋ねた事実だけを直接答えてください。利用範囲の説明、背景説明、追加質問、コーチング提案は付けないでください。';
+  }
+
+  if (requestsFactualShortAnswer(text)) {
+    return '【内部応答形式】会話履歴に保存されている事実から、ユーザーが尋ねた答えだけを簡潔な一文で返してください。質問文の言い換え、背景説明、提案、追加質問は付けないでください。';
   }
 
   if (requestsDirectWording(text)) {
-    return '【内部応答形式】直近の会話を読み直し、ユーザーが明言した具体的な事実・感情・希望を少なくとも一つ含めて、そのまま読める一文を「」で一つだけ返してください。「少し話したいことがある」「今いいですか」のような許可取りだけの一般的な文、補足説明、追加質問は付けないでください。';
+    return '【内部応答形式】直近の会話を読み直し、ユーザーが明言した具体的な事実・感情・希望を含む、そのまま使える一文を「」で一つだけ返してください。本人が話していない時刻、期限、事情、感情を足さず、補足説明や追加質問も付けないでください。';
+  }
+
+  if (
+    requestsExplicitClosingQuestion(text) &&
+    /方法|提案|行動|一歩|できること|どうすれば|どうしたら/.test(text)
+  ) {
+    return '【内部応答形式】ユーザーが明示的に求めた具体的な提案を一つ示し、その後に判断を深める質問を一つだけ置いてください。提案と質問はいずれも、直近の相談対象と指定された時機を保持し、別案、二択、一般論を足さないでください。';
   }
 
   if (requestsSingleAnswerFormat(text)) {
-    return '【内部応答形式】ユーザーの指定を優先し、答えまたは提案を一つだけ簡潔に返してください。補足の提案や確認質問は付けず、答えた時点で終了してください。';
+    return '【内部応答形式】ユーザーの指定を優先し、確認できている会話の事実に直接つながる答えまたは提案を一つだけ、一段落で簡潔に返してください。一つの提案へ複数の動作や別案を詰め込まず、履歴にない人物、物、場所、時刻、期限、作業名を足さないでください。補足説明や確認質問は付けず、答えた時点で終了してください。';
+  }
+
+  if (isFactualLifeChangeWithoutExplicitRequest(text)) {
+    return '【内部応答形式】本人が追加した事実を一文で短く受け止めた後、その変化を本人がどう感じているか、具体的な質問一つだけで尋ねてください。本人がまだ話していない負担、感情、解決策を先回りせず、二択や追加提案も付けないでください。';
   }
 
   if (requestsRestWithoutQuestions(text)) {
-    return '【内部応答形式】今は掘り下げず、疲れを短く受け止めて、休んでよいと伝えてください。質問や追加の提案は付けないでください。';
+    return '【内部応答形式】本人が明言した疲れや休みたい意思だけを短く受け止め、休んでよいと二文以内で伝えてください。状態や原因を広げず、別の提案、再開案内、質問は付けないでください。';
   }
 
   return '';
+}
+
+function isFactualLifeChangeWithoutExplicitRequest(text: string) {
+  const hasExplicitRequest =
+    /[？?]|(?:どうすれば|どうしたら|教えて|答えて|提案して|考えて|聞いてほしい|相談したい|助けて)/.test(
+      text
+    );
+  const alreadyNamesFeeling =
+    /腹が立|怒|嫌|悲し|不安|怖|つら|しんど|疲れ|戸惑|困|負担に感じ|うれし|嬉し|楽し/.test(
+      text
+    );
+  const describesLifeChange =
+    /勤務|始業|通勤|家事|育児|介護|引っ越|転居|家族|夫|妻|子ども|子供|親|生活時間|勤務時間/.test(
+      text
+    );
+  const isPracticalTaskUpdate =
+    /資料|企画書|原稿|ファイル|スライド|会議資料|締切|タスク|作業/.test(
+      text
+    );
+
+  return (
+    !hasExplicitRequest &&
+    !alreadyNamesFeeling &&
+    describesLifeChange &&
+    !isPracticalTaskUpdate
+  );
 }
 
 function buildConversationContinuityHint(
@@ -326,39 +404,54 @@ function buildConversationContinuityHint(
     );
   const answersWithSilence =
     isShortContinuation && /^何も(?:言わない|答えない)[。！!？?]*$/.test(normalized);
+  const tentativeAgreement =
+    isShortContinuation &&
+    /^(?:うん|はい|そう|そうかも|たぶん|かもしれない)(?:です|だと思います)?[。！!？?]*$/.test(
+      normalized
+    );
 
-  if (!rejectsPreviousMove && !asksCoachToAnswer && !answersWithSilence) {
+  if (
+    !rejectsPreviousMove &&
+    !asksCoachToAnswer &&
+    !answersWithSilence &&
+    !tentativeAgreement
+  ) {
     return '';
   }
 
   const instructions = [
     '【内部会話継続指示】',
     `直前のコーチ発言: ${truncateForApiPrompt(previousAssistant, 500)}`,
-    '- 最新発言は、直前の質問または提案に対する回答として解釈する。',
-    '- ユーザーが否定した提案や、すでに実行済みだと言った提案を言い換えて繰り返さない。',
-    '- ユーザーへ同じ判断を質問で返さず、これまでの事実からコーチ側の見立てと別の選択肢を示す。',
-    '- 返答は、具体的な理解、役に立つ新しい整理、必要な場合だけ次の一手の順に書く。',
+    '- 最新発言を、直前までの人物・出来事と直前の質問または提案につながる返答として解釈する。',
+    '- ユーザーが否定した提案や、すでに実行済みだと話した提案を言い換えて繰り返さない。',
+    '- AI自身が以前に補った心理や推測を事実として引き継がず、最新の本人の発言で会話を一段だけ進める。',
   ];
 
   if (answersWithSilence) {
-    if (hasAnyCoachingQuestion(previousAssistant)) {
-      instructions.push(
-        '- 「何も言わない」はユーザー本人が話したくないという意味に変えず、直前の質問で尋ねた相手が説明や返答をしないという回答として扱う。'
-      );
-    } else {
-      instructions.push(
-        '- 直前の提案をユーザーが実行したとは仮定しない。「何も言わない」は、それ以前から話している相手が説明や返答をしないという補足として扱う。'
-      );
-    }
-  }
-  if (rejectsPreviousMove) {
     instructions.push(
-      '- 「できない」「やりたくない」は直前の提案への拒否として扱い、疲労や人生全体の無気力へ意味を広げない。'
+      '- 短い沈黙の返答では、直前の質問で尋ねた相手や対象を主語として引き継ぐ。ユーザー本人が話したくないという意味や、直前の提案を実行した結果へ勝手に変えない。',
+      '- 新たに分かった「相手から説明や返答がない」という事実を短く受け止めた後、直前と同じ内容を聞き直さず、その事実の影響または次に確認したい一点を質問一つだけで尋ねる。'
     );
   }
+
+  if (tentativeAgreement) {
+    instructions.push(
+      '- 短い同意は直前の内容への暫定的な回答として扱い、本人が話していない過去、原因、感情まで肯定した証拠にしない。',
+      '- 直前と同じ質問を言い換えて繰り返さず、同じ相談対象に直接つながる具体的な質問一つだけで一段深める。'
+    );
+  }
+
+  if (rejectsPreviousMove) {
+    instructions.push(
+      '- 拒否は直前の提案への拒否として扱い、人生全体の無気力や疲労へ意味を広げない。',
+      '- 拒否された案を外し、確認済みの事実から別の見立てまたは別の選択肢を一つだけ示す。'
+    );
+  }
+
   if (asksCoachToAnswer) {
     instructions.push(
-      '- 今回は追加質問より先に、コーチとしての具体的な答えを示す。'
+      '- 今回は追加質問を返さず、確認済みの事実に直接つながる具体的な答えを一つだけ示す。',
+      '- 回答を予告する進行宣言、相談先や別案の列挙、本人が話していない条件の追加をしない。'
     );
   }
 
@@ -394,10 +487,15 @@ export async function generateCoachingText(params: {
   historyMessages: CoachingChatMessage[];
   lastUserParts: GeminiPart[];
 }) {
+  const pipelineConfig = getCoachingOutputPipelineConfig();
   const lastUserText = extractTextFromParts(params.lastUserParts);
   const immediateResponse = buildImmediateCoachingResponse(
     lastUserText,
-    params.historyMessages
+    params.historyMessages,
+    {
+      allowNonSafetyResponses:
+        pipelineConfig.allowNonSafetyImmediateResponses,
+    }
   );
   if (immediateResponse) {
     return {
@@ -580,6 +678,7 @@ export function createJsonLineStream(params: {
 }) {
   const encoder = new TextEncoder();
   const modelName = getCoachingGeminiModelName(params.lastUserParts);
+  const pipelineConfig = getCoachingOutputPipelineConfig();
   let deliveryOpen = true;
 
   return new ReadableStream<Uint8Array>({
@@ -637,7 +736,11 @@ export function createJsonLineStream(params: {
         const lastUserText = extractTextFromParts(params.lastUserParts);
         const immediateResponse = buildImmediateCoachingResponse(
           lastUserText,
-          params.historyMessages
+          params.historyMessages,
+          {
+            allowNonSafetyResponses:
+              pipelineConfig.allowNonSafetyImmediateResponses,
+          }
         );
         if (immediateResponse) {
           fullText = immediateResponse.text;
@@ -657,6 +760,7 @@ export function createJsonLineStream(params: {
             elapsedMs: Date.now() - startedAt,
             firstChunkMs,
             generationFirstChunkMs,
+            ttftMs: null,
             finalizationStatus: finalization.status,
             finalizationMs: finalization.elapsedMs,
             finalizationError: finalization.error,
@@ -823,6 +927,7 @@ export function createJsonLineStream(params: {
           elapsedMs: Date.now() - startedAt,
           firstChunkMs,
           generationFirstChunkMs,
+          ttftMs: generationFirstChunkMs,
           finalizationStatus: finalization.status,
           finalizationMs: finalization.elapsedMs,
           finalizationError: finalization.error,
@@ -905,6 +1010,10 @@ export function createJsonLineStream(params: {
               elapsedMs: Date.now() - startedAt,
               firstChunkMs,
               generationFirstChunkMs,
+              ttftMs:
+                generationFirstChunkMs ??
+                externalFallback.firstChunkMs ??
+                null,
               finalizationStatus: finalization.status,
               finalizationMs: finalization.elapsedMs,
               finalizationError: finalization.error,
@@ -937,6 +1046,68 @@ export function createJsonLineStream(params: {
 
         if (fullText.trim()) {
           const partialRawText = trimToNaturalContinuationBoundary(fullText);
+          if (!pipelineConfig.applySemanticNormalization) {
+            const observedPartial = resolveObservedCoachingResponseQuality({
+              rawText: isTimeout
+                ? `${partialRawText}${PARTIAL_STREAM_TIMEOUT_NOTICE}`
+                : partialRawText,
+              historyMessages: params.historyMessages,
+              lastUserText: fallbackUserText,
+              usage: {},
+              modelName,
+              provider: 'gemini',
+            });
+            const verifiedObservedPartial = ensureVerifiedCoachingResolution({
+              resolution: observedPartial,
+              lastUserText: fallbackUserText,
+              historyMessages: params.historyMessages,
+              preserveUsage: true,
+            });
+            fullText = verifiedObservedPartial.text;
+            if (!emittedText) writeVerifiedChunk(fullText);
+            const finalization = await resolveDonePayload(params.onDone, {}, {
+              message: fullText,
+              completionStatus: 'partial',
+              modelName: verifiedObservedPartial.modelName,
+              provider: verifiedObservedPartial.provider,
+              qualityInitialIssues: verifiedObservedPartial.initialIssues,
+              qualityFinalIssues: verifiedObservedPartial.finalIssues,
+              qualitySafetyHold: verifiedObservedPartial.qualitySafetyHold,
+              chargeable: verifiedObservedPartial.chargeable,
+            });
+            logChatTelemetry('partial_done', params.telemetry, {
+              modelName: verifiedObservedPartial.modelName,
+              provider: verifiedObservedPartial.provider,
+              completionStatus: 'partial',
+              elapsedMs: Date.now() - startedAt,
+              firstChunkMs,
+              generationFirstChunkMs,
+              ttftMs: generationFirstChunkMs,
+              finalizationStatus: finalization.status,
+              finalizationMs: finalization.elapsedMs,
+              finalizationError: finalization.error,
+              outputChars: fullText.length,
+              qualityInitialIssues: verifiedObservedPartial.initialIssues,
+              qualityObservedIssues: verifiedObservedPartial.initialIssues,
+              qualityFinalIssues: verifiedObservedPartial.finalIssues,
+              qualitySafetyHold: verifiedObservedPartial.qualitySafetyHold,
+              error: getErrorMessage(error),
+            });
+            write({
+              type: 'done',
+              modelName: verifiedObservedPartial.modelName,
+              provider: verifiedObservedPartial.provider,
+              completionStatus: 'partial',
+              finalizationStatus: finalization.status,
+              message: fullText,
+              qualityInitialIssues: verifiedObservedPartial.initialIssues,
+              qualityFinalIssues: verifiedObservedPartial.finalIssues,
+              qualitySafetyHold: verifiedObservedPartial.qualitySafetyHold,
+              usage: {},
+              ...finalization.payload,
+            });
+            return;
+          }
           const partialRawQuality = assessCoachingResponseQuality({
             text: partialRawText,
             lastUserText: fallbackUserText,
@@ -1011,6 +1182,7 @@ export function createJsonLineStream(params: {
             elapsedMs: Date.now() - startedAt,
             firstChunkMs,
             generationFirstChunkMs,
+            ttftMs: generationFirstChunkMs,
             finalizationStatus: finalization.status,
             finalizationMs: finalization.elapsedMs,
             finalizationError: finalization.error,
@@ -1080,6 +1252,7 @@ export function createJsonLineStream(params: {
           elapsedMs: Date.now() - startedAt,
           firstChunkMs,
           generationFirstChunkMs,
+          ttftMs: generationFirstChunkMs,
           finalizationStatus: finalization.status,
           finalizationMs: finalization.elapsedMs,
           finalizationError: finalization.error,
@@ -1204,6 +1377,9 @@ function logChatTelemetry(
   const payload = {
     event: `chat_stream_${status}`,
     ...telemetry,
+    pipelineMode: getCoachingOutputPipelineConfig().mode,
+    qualityObservedIssues:
+      details.qualityObservedIssues ?? details.qualityInitialIssues ?? [],
     ...details,
   };
 
@@ -1750,19 +1926,9 @@ function buildThemeSelectionResponse(
 
 function buildImmediateCoachingResponse(
   text: string,
-  historyMessages: CoachingChatMessage[] = []
+  historyMessages: CoachingChatMessage[] = [],
+  options: { allowNonSafetyResponses?: boolean } = {}
 ) {
-  const themeSelectionResponse = buildThemeSelectionResponse(
-    text,
-    historyMessages
-  );
-  if (themeSelectionResponse) {
-    return {
-      text: themeSelectionResponse,
-      modelName: 'local-theme-selection',
-      finishReason: 'LOCAL_THEME_SELECTION',
-    };
-  }
   const urgentSafetyResponse = buildUrgentSafetyResponse(text);
   if (urgentSafetyResponse) {
     return {
@@ -1776,6 +1942,19 @@ function buildImmediateCoachingResponse(
       text: 'その内容は公開できません。代わりに、今抱えている悩みや目標について一緒に考えます。今いちばん相談したいことは何ですか？',
       modelName: 'local-guard',
       finishReason: 'LOCAL_PROMPT_GUARD',
+    };
+  }
+  if (options.allowNonSafetyResponses === false) return null;
+
+  const themeSelectionResponse = buildThemeSelectionResponse(
+    text,
+    historyMessages
+  );
+  if (themeSelectionResponse) {
+    return {
+      text: themeSelectionResponse,
+      modelName: 'local-theme-selection',
+      finishReason: 'LOCAL_THEME_SELECTION',
     };
   }
   if (requestsShortRestResponse(text)) {
@@ -1880,7 +2059,9 @@ function buildImmediateCoachingResponse(
 }
 
 function getGeminiTimeoutMs(isImageRequest: boolean) {
-  return isImageRequest ? GEMINI_IMAGE_TIMEOUT_MS : GEMINI_TEXT_TIMEOUT_MS;
+  return isImageRequest
+    ? GEMINI_IMAGE_TIMEOUT_MS
+    : getCoachingTextModelConfig().timeoutMs;
 }
 
 export function containsProtectedInternalContent(text: string) {
@@ -2555,7 +2736,7 @@ export function assessCoachingResponseQuality(params: {
 
 function hasUnsafeHighImpactAdvice(text: string) {
   const unilateralHighImpactChange =
-    /強制的|一切(?:やめ|払わ)|一切[^。！？?\n]{0,24}(?:手をつけず|放置)|すべてストップ|支払いを止め|補填(?:するの)?をやめ|生活費[^。！？?\n]{0,40}(?:全て|すべて)[^。！？?\n]{0,24}(?:止め|やめ|ストップ)|管理会社[^。！？?\n]{0,100}変更手続きを進め|(?:家賃|引き落とし)[^。！？?\n]{0,100}(?:口座|名義)[^。！？?\n]{0,60}(?:変更|移す)|(?:口座|名義)[^。！？?\n]{0,80}(?:夫|妻|相手)[^。！？?\n]{0,40}(?:変更|移す)/.test(
+    /強制的|一切(?:やめ|払わ)|一切[^。！？?\n]{0,24}(?:手をつけず|放置)|すべてストップ|支払いを止め|補填(?:するの)?を(?:やめ|止め)|生活費[^。！？?\n]{0,40}(?:全て|すべて)[^。！？?\n]{0,24}(?:止め|やめ|ストップ)|管理会社[^。！？?\n]{0,100}変更手続きを進め|(?:家賃|引き落とし)[^。！？?\n]{0,100}(?:口座|名義)[^。！？?\n]{0,60}(?:変更|移す)|(?:口座|名義)[^。！？?\n]{0,80}(?:夫|妻|相手)[^。！？?\n]{0,40}(?:変更|移す)|(?:夫|妻|相手|パートナー|ご主人|奥様)(?:の)?口座[^。！？?\n]{0,120}(?:家賃|引き落とし|引落)[^。！？?\n]{0,120}(?:手続き|設定)[^。！？?\n]{0,32}(?:変更|切り替|変え)/.test(
       text
     );
   const spendsSharedOrOtherPersonsFunds =
@@ -2762,11 +2943,11 @@ export function normalizeCoachingOutput(
       historyMessages,
     })
       ? recovered
-      : buildCustomerSafeLocalFallback(lastUserText);
+      : buildCustomerSafeLocalFallback(lastUserText, historyMessages);
   }
 
   if (containsProtectedInternalContent(text)) {
-    return buildCustomerSafeLocalFallback(lastUserText);
+    return buildCustomerSafeLocalFallback(lastUserText, historyMessages);
   }
 
   if (requestsShortRestResponse(lastUserText)) {
@@ -3242,6 +3423,140 @@ type CoachingQualityResolution = {
   chargeable?: boolean;
 };
 
+export function minimallySanitizeCoachingOutput(text: string) {
+  return cleanupTrailingMarkdown(
+    text
+      .replace(/^```(?:markdown|text)?\s*/i, '')
+      .replace(/\s*```$/i, '')
+      .replace(/^#{1,6}\s+/gm, '')
+      .replace(/\*\*/g, '')
+  );
+}
+
+function resolveObservedCoachingResponseQuality(params: {
+  rawText: string;
+  historyMessages: CoachingChatMessage[];
+  lastUserText: string;
+  usage: CoachingUsage;
+  modelName: string;
+  provider?: string;
+}): CoachingQualityResolution {
+  const rawAssessment = assessCoachingResponseQuality({
+    text: params.rawText,
+    lastUserText: params.lastUserText,
+    historyMessages: params.historyMessages,
+  });
+  const deliveryText = minimallySanitizeCoachingOutput(params.rawText);
+  const deliveryAssessment = assessCoachingResponseQuality({
+    text: deliveryText,
+    lastUserText: params.lastUserText,
+    historyMessages: params.historyMessages,
+  });
+  const observedIssues = [
+    ...new Set([...rawAssessment.issues, ...deliveryAssessment.issues]),
+  ];
+  const urgentSafetyResponse = buildUrgentSafetyResponse(params.lastUserText);
+  const promptGuardResponse = requestsInternalPromptDisclosure(
+    params.lastUserText
+  )
+    ? 'その内容は公開できません。代わりに、今抱えている悩みや目標について一緒に考えます。今いちばん相談したいことは何ですか？'
+    : '';
+  const internalContextExposed =
+    containsInternalCoachingContextExposure(deliveryText) ||
+    containsProtectedInternalContent(deliveryText);
+  const unsafeAdvice = deliveryAssessment.issues.includes(
+    'unsafe_high_impact_advice'
+  );
+  const contextualSafetyText =
+    internalContextExposed || unsafeAdvice
+      ? hasPaymentObligationContext(
+          [
+            ...params.historyMessages
+              .filter((message) => message.role === 'user')
+              .map((message) => message.content),
+            params.lastUserText,
+          ].join('\n')
+        ) && reportsResponseDissatisfaction(params.lastUserText)
+        ? buildCustomerSafeLocalFallback(
+            params.lastUserText,
+            params.historyMessages
+          )
+        : buildFinalVerifiedQualityFallback(
+            params.lastUserText,
+            params.historyMessages
+          )
+      : '';
+  const contextualSafetyAssessment = contextualSafetyText
+    ? assessCoachingResponseQuality({
+        text: contextualSafetyText,
+        lastUserText: params.lastUserText,
+        historyMessages: params.historyMessages,
+      })
+    : null;
+  const verifiedContextualSafetyText =
+    contextualSafetyText &&
+    isCustomerSafeDeliveryText({
+      text: contextualSafetyText,
+      lastUserText: params.lastUserText,
+      historyMessages: params.historyMessages,
+      assessment: contextualSafetyAssessment || undefined,
+    })
+      ? contextualSafetyText
+      : '';
+
+  if (
+    urgentSafetyResponse ||
+    promptGuardResponse ||
+    internalContextExposed ||
+    unsafeAdvice
+  ) {
+    const safetyText =
+      urgentSafetyResponse ||
+      promptGuardResponse ||
+      verifiedContextualSafetyText ||
+      buildCustomerSafeLocalFallback(
+        params.lastUserText,
+        params.historyMessages
+      );
+    const safetyAssessment = assessCoachingResponseQuality({
+      text: safetyText,
+      lastUserText: params.lastUserText,
+      historyMessages: params.historyMessages,
+    });
+    return {
+      text: safetyText,
+      usage: params.usage,
+      modelName: urgentSafetyResponse
+        ? 'local-safety'
+        : promptGuardResponse
+          ? 'local-guard'
+          : 'local-output-safety-fallback',
+      provider: 'local',
+      repairAttempted: false,
+      repairAccepted: false,
+      initialIssues: observedIssues,
+      finalIssues: safetyAssessment.issues,
+      qualitySafetyHold: false,
+      chargeable: false,
+    };
+  }
+
+  return {
+    text: deliveryText,
+    usage: params.usage,
+    modelName: params.modelName,
+    provider: params.provider,
+    repairAttempted: false,
+    repairAccepted: false,
+    initialIssues: observedIssues,
+    // In observe/minimal mode these are observations, not response-gate
+    // failures. They stay in initialIssues/qualityObservedIssues telemetry.
+    finalIssues: [],
+    qualitySafetyHold: false,
+    chargeable: true,
+  };
+}
+
 async function resolveCoachingResponseQuality(params: {
   rawText: string;
   systemPrompt: string;
@@ -3253,6 +3568,17 @@ async function resolveCoachingResponseQuality(params: {
   allowRemoteRepair?: boolean;
 }) {
   const lastUserText = extractTextFromParts(params.lastUserParts);
+  const pipelineConfig = getCoachingOutputPipelineConfig();
+  if (!pipelineConfig.applySemanticNormalization) {
+    return resolveObservedCoachingResponseQuality({
+      rawText: params.rawText,
+      historyMessages: params.historyMessages,
+      lastUserText,
+      usage: params.usage,
+      modelName: params.modelName,
+      provider: params.provider,
+    });
+  }
   const rawAssessment = assessCoachingResponseQuality({
     text: params.rawText,
     lastUserText,
@@ -3304,7 +3630,7 @@ async function resolveCoachingResponseQuality(params: {
   let bestAssessment = initialAssessment;
 
   const repairedCandidate =
-    params.allowRemoteRepair === false
+    params.allowRemoteRepair === false || !pipelineConfig.applyQualityRepair
       ? null
       : await generateGeminiQualityRepair({
           candidateText: baseResolution.text,
@@ -3346,6 +3672,7 @@ async function resolveCoachingResponseQuality(params: {
 
   const repairAttempted = true;
   if (
+    pipelineConfig.applyQualityFallback &&
     bestAssessment.issues.some((issue) =>
       [
         'too_short',
@@ -3394,7 +3721,10 @@ async function resolveCoachingResponseQuality(params: {
     }
   }
 
-  if (bestAssessment.issues.length > 0) {
+  if (
+    pipelineConfig.applyQualityFallback &&
+    bestAssessment.issues.length > 0
+  ) {
     const verifiedFallback = buildFinalVerifiedQualityFallback(
       lastUserText,
       params.historyMessages
@@ -3466,14 +3796,15 @@ async function generateGeminiQualityRepair(params: {
   lastUserParts: GeminiPart[];
 }) {
   const lastUserText = extractTextFromParts(params.lastUserParts);
+  const textConfig = getCoachingTextModelConfig();
   const generationConfig = {
-    temperature: 0.25,
-    topP: 0.85,
+    temperature: textConfig.temperature,
+    topP: textConfig.topP,
     maxOutputTokens: 1024,
-    thinkingConfig: { thinkingLevel: COACHING_TEXT_THINKING_LEVEL },
+    thinkingConfig: { thinkingLevel: textConfig.thinkingLevel },
   };
   const model = getGenAI().getGenerativeModel({
-    model: COACHING_TEXT_MODEL,
+    model: textConfig.model,
     systemInstruction: [
       'あなたはACTI AIコーチの最終編集者です。',
       '会話履歴と最新発言を正確に読み、返答案の問題だけを直してください。',
@@ -4913,6 +5244,16 @@ export function ensureVerifiedCoachingResolution(params: {
 }) {
   const { resolution, lastUserText, historyMessages, preserveUsage = false } =
     params;
+  if (!getCoachingOutputPipelineConfig().applyVerifiedResolution) {
+    return resolveObservedCoachingResponseQuality({
+      rawText: resolution.text,
+      historyMessages,
+      lastUserText,
+      usage: preserveUsage ? resolution.usage : {},
+      modelName: resolution.modelName,
+      provider: resolution.provider,
+    });
+  }
   if (
     resolution.finalIssues.length === 0 &&
     isCustomerSafeDeliveryText({
@@ -4941,7 +5282,7 @@ export function ensureVerifiedCoachingResolution(params: {
     assessment: fallbackQuality,
   })
     ? fallbackText
-    : buildCustomerSafeLocalFallback(lastUserText);
+    : buildCustomerSafeLocalFallback(lastUserText, historyMessages);
   const safeFallbackQuality = assessCoachingResponseQuality({
     text: safeFallbackText,
     lastUserText,
@@ -4983,7 +5324,10 @@ function isCustomerSafeDeliveryText(params: {
   );
 }
 
-function buildCustomerSafeLocalFallback(lastUserText: string) {
+function buildCustomerSafeLocalFallback(
+  lastUserText: string,
+  historyMessages: CoachingChatMessage[] = []
+) {
   const urgentSafetyResponse = buildUrgentSafetyResponse(lastUserText);
   if (urgentSafetyResponse) return urgentSafetyResponse;
 
@@ -4991,15 +5335,32 @@ function buildCustomerSafeLocalFallback(lastUserText: string) {
     return 'その内容は公開できません。代わりに、今抱えている悩みや目標について一緒に考えます。今いちばん相談したいことは何ですか？';
   }
 
-  if (hasPaymentObligationContext(lastUserText)) {
+  const recentUserContext = historyMessages
+    .filter((message) => message.role === 'user')
+    .slice(-6)
+    .map((message) => stripAttachmentMarkdown(message.content))
+    .join('\n');
+  const knownContext = [recentUserContext, lastUserText]
+    .filter(Boolean)
+    .join('\n');
+
+  if (
+    hasPaymentObligationContext(knownContext) &&
+    (reportsResponseDissatisfaction(lastUserText) ||
+      requestsNoFollowUpQuestion(lastUserText))
+  ) {
+    return '支払いの不足や不履行が続いている場合は、確認できる契約・合意条件、支払実績、これまでの連絡を分けて整理してください。当事者間の連絡だけで解決しない場合は、その記録を示せる状態にして、内容に合う公的窓口や専門家へ相談してください。';
+  }
+
+  if (hasPaymentObligationContext(knownContext)) {
     return '支払いについては、相手の理由を推測する前に、決まっている金額、期限、実際の支払いを分けて確認することが大切です。まず、今月分について確認できている金額と期日を書き出してください。';
   }
 
-  if (hasRelationshipConflictContext(lastUserText)) {
+  if (hasRelationshipConflictContext(knownContext)) {
     return '人との関係で困っている時は、相手の気持ちを決めつけず、実際に起きたことと、変えてほしい行動を分けて考えると整理しやすくなります。最後に困った場面で、相手がしたことを一つだけ教えてください。';
   }
 
-  if (/仕事|職場|業務|会社|上司|同僚|会議|企画|顧客/.test(lastUserText)) {
+  if (/仕事|職場|業務|会社|上司|同僚|会議|企画|顧客/.test(knownContext)) {
     return '仕事のことで迷っている時は、仕事全体の結論を急がず、実際に困った場面と次に確認する点を分けると、具体的な対応を選びやすくなります。最後に困った仕事の場面で、誰が何を言ったかを一つだけ教えてください。';
   }
 
