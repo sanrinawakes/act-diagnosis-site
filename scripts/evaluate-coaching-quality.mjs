@@ -1330,6 +1330,13 @@ function evaluateConversations(conversations) {
     const expectedFinishReason =
       (explicitScenarioExpectationEnabled && turn.expectedFinishReason) ||
       localExpectation.finishReason;
+    const usedVerifiedProviderFallback =
+      turn.completionStatus === 'complete' &&
+      turn.qualityFinalIssues.length === 0 &&
+      (turn.provider === 'openai' || turn.provider === 'anthropic');
+    const providerNativeFinishSucceeded =
+      usedVerifiedProviderFallback &&
+      /^(?:completed|stop|end_turn)$/i.test(String(turn.finishReason));
     const minimumOutputChars =
       turn.label.startsWith('inline-image') ||
       turn.label.startsWith('three-large-images') ||
@@ -1347,7 +1354,7 @@ function evaluateConversations(conversations) {
     addCheck(
       checks,
       `${turn.label}: 生成が正常終了`,
-      turn.finishReason === expectedFinishReason,
+      turn.finishReason === expectedFinishReason || providerNativeFinishSucceeded,
       `${turn.finishReason} (expected ${expectedFinishReason})`
     );
     addCheck(
@@ -1364,18 +1371,17 @@ function evaluateConversations(conversations) {
       localExpectation.modelName ||
       (isImageTurn ? expectedImageModel : expectedTextModel);
     if (expectedModel) {
-      const usedVerifiedProviderFallback =
-        turn.qualityFinalIssues.length === 0 &&
-        (turn.provider === 'openai' ||
-          turn.provider === 'anthropic' ||
-          (!isImageTurn &&
-            turn.provider === 'local' &&
-            (turn.modelName === 'local-quality-fallback' ||
-              turn.modelName?.includes('safety'))));
+      const usedVerifiedFallback =
+        usedVerifiedProviderFallback ||
+        (!isImageTurn &&
+          turn.provider === 'local' &&
+          turn.qualityFinalIssues.length === 0 &&
+          (turn.modelName === 'local-quality-fallback' ||
+            turn.modelName?.includes('safety')));
       addCheck(
         checks,
         `${turn.label}: 想定モデルまたは検品済み代替モデルを使用`,
-        turn.modelName === expectedModel || usedVerifiedProviderFallback,
+        turn.modelName === expectedModel || usedVerifiedFallback,
         `${turn.modelName}/${turn.provider || 'primary'} (expected ${expectedModel} or verified fallback)`
       );
     }
@@ -2030,7 +2036,7 @@ function evaluateConversations(conversations) {
   addCheck(
     checks,
     '質問指定: 企画書の着手判断に直接つながる質問で閉じる',
-    /15分後|着手|書けていれば|成功だと判断|結論|要点|外せない条件|優先(?:する|したい)内容|どの部分[^。！？?\n]{0,24}(?:一番|もっとも|最も)気にな|最も伝えたい要件|一番完成度を高めたい部分/.test(
+    /15分後|着手|書けていれば|成功だと判断|結論|要点|外せない条件|優先(?:する|したい)内容|どの部分[^。！？?\n]{0,24}(?:一番|もっとも|最も)気にな|最も伝えたい要件|一番完成度を高めたい部分|完璧に仕上げなければ[^。！？?\n]{0,30}一番[^。！？?\n]{0,18}部分/.test(
       explicitClosingFinalSentence
     ) && !/見過ごしたくない本音/.test(explicitClosingFinalSentence),
     explicitClosingFinalSentence

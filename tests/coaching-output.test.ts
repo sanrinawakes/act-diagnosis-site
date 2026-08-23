@@ -4012,13 +4012,47 @@ describe('normalizeCoachingOutput', () => {
     expect(prompt).toContain('「当然です」「無理もありません」');
     expect(prompt).toContain('どの場面でその感情になったかを聞き直さない');
     expect(prompt).toContain('進行宣言を質問前へ足さない');
-    expect(prompt).toContain('感情を述べただけの段階で文面を先回りして提案せず');
+    expect(prompt).toContain('一言や言い方を求めていない段階では');
     expect(COACHING_RESPONSE_SPEED_INSTRUCTION).toContain(
       '「気持ちを受け止めます」「状況を受け止めます」'
     );
     expect(COACHING_RESPONSE_SPEED_INSTRUCTION).toContain(
       '「方法があります」「提案があります」と予告しない'
     );
+  });
+
+  it('感情的になりそうな不安には伝達と離席の二動作を指示しない', () => {
+    const [part] = buildGeminiParts(
+      'その言い方ならできそうですが、途中で感情的になりそうで不安です。',
+      []
+    );
+    const text = 'text' in part ? part.text : '';
+
+    expect(text).toContain('「5分だけ休憩したい」と伝える一動作');
+    expect(text).toContain('その場を離れる');
+    expect(text).toContain('二つ目の動作を足さない');
+    expect(text).toContain('質問は付けない');
+  });
+
+  it('回答要求後は方法の予告や複数の相談先をモデルへ求めない', () => {
+    const parts = buildGeminiParts(
+      'わからないから聞いています。質問を返さず、今までと違う対応を具体的に答えてください。',
+      [],
+      [
+        {
+          role: 'assistant',
+          content: '家賃の分担を、書面で確認してください。',
+        },
+      ]
+    );
+    const text = parts
+      .filter((part) => 'text' in part)
+      .map((part) => ('text' in part ? part.text : ''))
+      .join('\n');
+
+    expect(text).toContain('「方法があります」と予告せず');
+    expect(text).toContain('相談先や別案を複数並べず');
+    expect(text).toContain('対応を一つだけ示す');
   });
 
   it('長文末尾の断る一言も発言文の依頼として扱う', () => {
