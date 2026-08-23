@@ -2271,6 +2271,17 @@ export function assessCoachingResponseQuality(params: {
   ) {
     issues.push('context_mismatch');
   }
+  const explicitlySwitchesToRelationshipTopic =
+    /(?:^|[。！？\n])今は[^。！？\n]{0,24}(?:家庭|家族|夫婦|パートナー|夫|妻)[^。！？\n]{0,12}(?:相談|話)/.test(
+      lastUserText
+    );
+  if (
+    explicitlySwitchesToRelationshipTopic &&
+    !/仕事|職場|業務|会社|上司|同僚|会議|企画|顧客/.test(lastUserText) &&
+    /仕事|職場|業務|会社|上司|同僚|会議|企画|顧客/.test(text)
+  ) {
+    issues.push('context_mismatch');
+  }
   const contextRelevanceChecks = [
     {
       present:
@@ -3641,6 +3652,8 @@ function buildSafeQualityFallback(
       lastUserText,
       historyMessages
     );
+  const groundedHouseholdActionFallback =
+    buildGroundedHouseholdActionFallback(lastUserText);
   const familyLegalDraftRevisionFallback =
     buildFamilyLegalDraftRevisionFallback(
       lastUserText,
@@ -3677,6 +3690,15 @@ function buildSafeQualityFallback(
       issues.includes('latest_user_echo'))
   ) {
     return relationshipClarificationFallback;
+  }
+
+  if (
+    groundedHouseholdActionFallback &&
+    (issues.includes('context_mismatch') ||
+      issues.includes('vague_action_target') ||
+      issues.includes('too_short'))
+  ) {
+    return groundedHouseholdActionFallback;
   }
 
   if (
@@ -3905,6 +3927,19 @@ export function buildFinalVerifiedQualityFallback(
     });
     if (relationshipAssessment.issues.length === 0) {
       return relationshipClarificationFallback;
+    }
+  }
+
+  const groundedHouseholdActionFallback =
+    buildGroundedHouseholdActionFallback(lastUserText);
+  if (groundedHouseholdActionFallback) {
+    const householdActionAssessment = assessCoachingResponseQuality({
+      text: groundedHouseholdActionFallback,
+      lastUserText,
+      historyMessages,
+    });
+    if (householdActionAssessment.issues.length === 0) {
+      return groundedHouseholdActionFallback;
     }
   }
 
@@ -4802,6 +4837,24 @@ function buildHouseholdRepeatedRequestFallback(
   }
 
   return '何度伝えても返事だけで家事分担が変わらないなら、問題は言い方ではなく、決めた分担が実行されていないことです。同じ交渉を続けるより、自分の負担を夫の行動とは別に減らす必要があります。\n\nまず、健康や衛生に直結しない家事を一つ選び、今週だけ回数を半分に減らしてください。外注や家電を使う場合は、費用負担を二人で合意してから決めます。';
+}
+
+function buildGroundedHouseholdActionFallback(lastUserText: string) {
+  const normalized = stripAttachmentMarkdown(lastUserText)
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (
+    !hasRelationshipConflictContext(normalized) ||
+    !/家事|分担/.test(normalized) ||
+    !requestsConcreteSuggestion(normalized) ||
+    !/(?:理由|なぜ|何を)[^。！？\n]{0,40}(?:説明[^。！？\n]{0,16}(?:ない|なく|されない|がありません|はありません)|分から|わから|意味不明)/.test(
+      normalized
+    )
+  ) {
+    return '';
+  }
+
+  return '相手が家事をしない理由は、本人の説明がない限り判断できません。一方で、決めた家事が実行されていないことは確認できます。理由の推測と家事分担の問題を分け、まず担当する家事を一つだけ選び、実行期限と、難しい場合の返答期限を一文で伝えてください。';
 }
 
 function expandTooShortCoachingResponse(
@@ -6007,7 +6060,7 @@ function wasAssistantMoveAlreadyUsed(
 
 function requestsConcreteSuggestion(text: string) {
   return (
-    /提案(?:して|してください|してほしい|を(?:ください|お願い|求め))|方法|やり方|行動|できること|何をすれば|どうすれば|どうしたら|(?:次|最初|明日|具体的)の一歩|一歩(?:を|だけ|として|は)/.test(
+    /提案(?:して|してください|してほしい|を(?:ください|お願い|求め))|方法|やり方|行動|できること|何をすれば|どうすれば|どうしたら|どう[^。！？?\n]{1,16}(?:すれば|したら)(?:いい|よい|良い)?|(?:次|最初|明日|具体的)の一歩|一歩(?:を|だけ|として|は)/.test(
       text
     ) ||
     /着手(?:する|の)?(?:方法|仕方|ため|コツ)|着手したい|着手するには/.test(
