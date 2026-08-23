@@ -4117,6 +4117,7 @@ describe('normalizeCoachingOutput', () => {
 
     expect(text).toContain('「何が引っかかるか」を言い換えて聞き直さない');
     expect(text).toContain('守りたいもの');
+    expect(text).toContain('「一番大切にしておきたいもの」のような弱い言い換え');
     expect(text).toContain('質問一つだけ');
   });
 
@@ -4375,6 +4376,19 @@ describe('normalizeCoachingOutput', () => {
     expect(text).toContain('返事だけで動いてくれないのですね');
     expect(text).toContain('「状況が起きている」のような重複表現');
     expect(text).toContain('「どのように感じていますか」と質問一つだけ');
+  });
+
+  it('仕事から家庭へ話題を変えた時は出来事と状況を同時に聞かない', () => {
+    const [part] = buildGeminiParts(
+      '仕事の整理はできました。今度は家での相談です。',
+      []
+    );
+    const text = 'text' in part ? part.text : '';
+
+    expect(text).toContain('仕事の整理ができたのですね');
+    expect(text).toContain('家での相談で、今気になっている出来事を一つ教えてください');
+    expect(text).toContain('「出来事や状況」のように二つの回答対象を並べず');
+    expect(text).toContain('前の仕事へ話を戻したり');
   });
 
   it('締切が重なる優先順位相談は作業名と締切日の二項目を同時に聞かない', () => {
