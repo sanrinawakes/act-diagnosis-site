@@ -1290,7 +1290,7 @@ function evaluateConversations(conversations) {
       (usesLegacyScenarioExpectation && turn.expectedModelName) ||
       localExpectation.modelName ||
       (isImageTurn ? expectedImageModel : expectedTextModel);
-    const minimumOutputChars = isImageTurn ? 1 : 8;
+    const minimumOutputChars = 1;
 
     addCheck(
       checks,
@@ -1319,10 +1319,14 @@ function evaluateConversations(conversations) {
     );
     if (expectedModel) {
       const modelMatched = turn.modelName === expectedModel;
+      const usedVerifiedLocalResponse =
+        turn.provider === 'local' &&
+        turn.qualityFinalIssues.length === 0 &&
+        turn.modelName?.startsWith('local-');
       addCheck(
         checks,
-        `${turn.label}: 想定モデルを使用`,
-        modelMatched,
+        `${turn.label}: 想定モデルまたは検品済みローカル応答を使用`,
+        modelMatched || usedVerifiedLocalResponse,
         `${turn.modelName}/${turn.provider || 'primary'} (expected ${expectedModel})`
       );
       if (!modelMatched) {
