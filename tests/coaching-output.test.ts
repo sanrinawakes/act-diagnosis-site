@@ -105,7 +105,9 @@ describe('coaching runtime prompt', () => {
     expect(prompt).toContain('相談対象と関係のない白湯、水分補給、深呼吸、散歩、休憩へ逃げず');
     expect(prompt).toContain('本人側の不足へ言い換えない');
     expect(prompt).toContain('二つの回答対象を「や」でつながない');
-    expect(prompt).toContain('「最初の一歩」「小さな一段階」「着手すべき作業を書き出す」');
+    expect(prompt).toContain('資料、ファイル、指示書、今日の未完了作業が本人の話に出ていなければ発明しない');
+    expect(prompt).toContain('「最後まで共有できなかったので」と本人側の失敗に変えない');
+    expect(prompt).toContain('本人の「嫌」を「悲しい」に変えない');
     expect(prompt).toContain('言ってから立ち去るなど二動作をつなげない');
     expect(prompt).toContain('合計が一つを超えた場合は一つに減らしてから返す');
   });

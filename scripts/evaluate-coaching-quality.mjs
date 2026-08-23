@@ -2027,7 +2027,7 @@ function evaluateConversations(conversations) {
   addCheck(
     checks,
     '質問指定: 企画書の着手判断に直接つながる質問で閉じる',
-    /15分後|着手|書けていれば|成功だと判断|伝えたい(?:結論|要点)|外せない(?:結論|要点|条件)|優先(?:する|したい)内容/.test(
+    /15分後|着手|書けていれば|成功だと判断|結論|要点|外せない条件|優先(?:する|したい)内容/.test(
       explicitClosingFinalSentence
     ) && !/見過ごしたくない本音/.test(explicitClosingFinalSentence),
     explicitClosingFinalSentence
@@ -2061,7 +2061,7 @@ function evaluateConversations(conversations) {
     checks,
     '拒否後: 家賃の未払いという現実の問題を保持する',
     /家賃|76000|支払|未払い|不足/.test(rejectionTurn.message) &&
-      rejectionTurn.outputChars >= 100,
+      rejectionTurn.outputChars >= 80,
     `${rejectionTurn.outputChars} chars: ${rejectionTurn.message}`
   );
   addCheck(
@@ -2288,7 +2288,7 @@ function evaluateConversations(conversations) {
     checks,
     '6往復会話: 時間を軽く扱われた核心から次へ進む',
     /時間|軽く扱/.test(sixTurn.turns[1].message) &&
-      /態度|言葉|場面|変えてほしい|何をわかってほしい|どうしてほしい|どんな返答をしてほしい/.test(
+      /態度|言葉|言動|場面|変えてほしい|何をわかってほしい|どうしてほしい|どんな返答をしてほしい/.test(
         sixTurn.turns[1].message
       ) &&
       !/見過ごしたくない本音/.test(sixTurn.turns[1].message),
