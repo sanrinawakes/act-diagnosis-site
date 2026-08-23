@@ -64,6 +64,11 @@ try {
   conversations.push(await runMidSessionMemoryScenario());
   conversations.push(await runSessionMemoryScenario());
   conversations.push(await runSixTurnConversationScenario());
+  conversations.push(await runLongContinuityReferenceScenario());
+  conversations.push(await runFactToFeelingScenario());
+  conversations.push(await runDeeperQuestionScenario());
+  conversations.push(await runShortContinuationScenario());
+  conversations.push(await runTopicSwitchActionScenario());
   conversations.push(...(await runParallelBurstScenario()));
 
   const checks = [...apiContractChecks, ...evaluateConversations(conversations)];
@@ -418,21 +423,15 @@ async function runSessionMemoryScenario() {
   });
   await insertMessage(sessionId, 'assistant', result.message);
 
-  const { count: memoryRows, error: memoryError } = await admin
-    .from('chat_messages')
-    .select('id', { count: 'exact', head: true })
-    .eq('session_id', sessionId)
-    .eq('role', 'system')
-    .like('content', 'ACTI_SESSION_MEMORY_V1%');
-  if (memoryError) {
-    throw new Error(`Failed to inspect memory row: ${memoryError.message}`);
-  }
+  const memoryRow = await waitForMemoryRow(sessionId);
 
   return {
     name,
     diagnosisCode: 'MME-3',
     sessionId,
-    memoryRows: memoryRows || 0,
+    memoryRows: memoryRow ? 1 : 0,
+    memoryVersion: memoryRow?.version || null,
+    memoryGenerator: memoryRow?.generator || null,
     turns: [{ user: userContent, ...result }],
   };
 }
@@ -491,23 +490,15 @@ async function runMidSessionMemoryScenario() {
   });
   await insertMessage(sessionId, 'assistant', result.message);
 
-  const { count: memoryRows, error: memoryError } = await admin
-    .from('chat_messages')
-    .select('id', { count: 'exact', head: true })
-    .eq('session_id', sessionId)
-    .eq('role', 'system')
-    .like('content', 'ACTI_SESSION_MEMORY_V1%');
-  if (memoryError) {
-    throw new Error(
-      `Failed to inspect mid-memory row: ${memoryError.message}`
-    );
-  }
+  const memoryRow = await waitForMemoryRow(sessionId);
 
   return {
     name,
     diagnosisCode: 'MME-3',
     sessionId,
-    memoryRows: memoryRows || 0,
+    memoryRows: memoryRow ? 1 : 0,
+    memoryVersion: memoryRow?.version || null,
+    memoryGenerator: memoryRow?.generator || null,
     turns: [{ user: userContent, ...result }],
   };
 }
@@ -541,6 +532,78 @@ async function runSixTurnConversationScenario() {
         content:
           '話す直前にできることを、質問なしで一つだけ教えてください。',
       },
+    ],
+  });
+}
+
+async function runLongContinuityReferenceScenario() {
+  return runConversation({
+    name: 'long-continuity-three-turn-reference',
+    diagnosisCode: 'MGA-3',
+    inputs: [
+      { content: '新しい企画の説明資料を作っています。' },
+      { content: '対象は初めてサービスを使う人です。' },
+      { content: '専門用語を減らしたいです。' },
+      { content: '説明する順番にも迷っています。' },
+      { content: '一枚目には利用目的を書く予定です。' },
+      { content: '二枚目には利用手順を書く予定です。' },
+      { content: '担当者から、資料は火曜午前10時までと言われました。' },
+      { content: '今日は一枚目から直そうと思います。' },
+      { content: '目的の説明が長くなりすぎています。' },
+      {
+        content:
+          '3回前に伝えた締切時刻も踏まえて、今日最初に直す箇所を一つだけ、質問なしで答えてください。',
+      },
+    ],
+  });
+}
+
+async function runFactToFeelingScenario() {
+  return runConversation({
+    name: 'fact-to-one-feeling-question',
+    diagnosisCode: 'SVM-3',
+    inputs: [
+      {
+        content:
+          '来月から勤務開始が一時間早くなります。通勤には四十分かかり、朝食準備も私が担当しています。',
+      },
+    ],
+  });
+}
+
+async function runDeeperQuestionScenario() {
+  return runConversation({
+    name: 'explicit-deeper-question',
+    diagnosisCode: 'SVA-3',
+    inputs: [
+      { content: '新しい役割を引き受けるか迷っています。' },
+      { content: '条件の一覧より、自分がなぜ迷うのかを話したいです。' },
+      { content: '定型的な整理ではなく、もう少し深く聞いてほしいです。' },
+    ],
+  });
+}
+
+async function runShortContinuationScenario() {
+  return runConversation({
+    name: 'short-reply-continuation',
+    diagnosisCode: 'MME-3',
+    inputs: [
+      { content: '友人に断りたい予定があるのに、返事を先延ばしにしています。' },
+      { content: '断ると関係が悪くなる気がします。' },
+      { content: 'そうかも。' },
+    ],
+  });
+}
+
+async function runTopicSwitchActionScenario() {
+  return runConversation({
+    name: 'topic-switch-fact-insight-action',
+    diagnosisCode: 'MGE-3',
+    inputs: [
+      { content: '仕事の締切が重なり、優先順位を決めたいです。' },
+      { content: '仕事の整理はできました。今度は家での相談です。' },
+      { content: '家族に朝の準備を頼んでも、返事だけで動いてくれません。' },
+      { content: '明日からどう対応すればいいですか？' },
     ],
   });
 }
@@ -1011,6 +1074,39 @@ async function insertMessage(sessionId, role, content) {
     .from('chat_messages')
     .insert({ session_id: sessionId, role, content });
   if (error) throw new Error(`Failed to persist test message: ${error.message}`);
+}
+
+async function waitForMemoryRow(sessionId, timeoutMs = 12000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const { data, error } = await admin
+      .from('chat_messages')
+      .select('content')
+      .eq('session_id', sessionId)
+      .eq('role', 'system')
+      .like('content', 'ACTI_SESSION_MEMORY_V%')
+      .order('created_at', { ascending: false })
+      .limit(1);
+    if (error) {
+      throw new Error(`Failed to inspect memory row: ${error.message}`);
+    }
+    const content = data?.[0]?.content || '';
+    if (content) {
+      const prefix = content.split('\n', 1)[0];
+      let payload = null;
+      try {
+        payload = JSON.parse(content.slice(prefix.length).trim());
+      } catch {
+        payload = null;
+      }
+      return {
+        version: payload?.version || null,
+        generator: payload?.generator || null,
+      };
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  return null;
 }
 
 async function sendStreamRequest({
@@ -1990,6 +2086,12 @@ function evaluateConversations(conversations) {
       midMemory.turns[0].outputChars <= 30,
     midMemory.turns[0].message
   );
+  addCheck(
+    checks,
+    '有料版中期履歴: LLM要約V2を保存',
+    midMemory.memoryVersion === 2 && midMemory.memoryGenerator === 'llm',
+    `version=${midMemory.memoryVersion} generator=${midMemory.memoryGenerator}`
+  );
 
   const memory = findConversation(conversations, 'paid-session-memory');
   addCheck(
@@ -2005,6 +2107,78 @@ function evaluateConversations(conversations) {
       memory.turns[0].outputChars <= 30 &&
       !/^「[\s\S]*」$/.test(memory.turns[0].message.trim()) &&
       !/行動|始め|一緒に考え/.test(memory.turns[0].message)
+  );
+  addCheck(
+    checks,
+    '有料版長期履歴: LLM要約V2を保存',
+    memory.memoryVersion === 2 && memory.memoryGenerator === 'llm',
+    `version=${memory.memoryVersion} generator=${memory.memoryGenerator}`
+  );
+
+  const longContinuity = findConversation(
+    conversations,
+    'long-continuity-three-turn-reference'
+  );
+  const longContinuityFinal = longContinuity.turns.at(-1);
+  addCheck(
+    checks,
+    '10往復超: 3ターン前の火曜午前10時を参照',
+    /火曜|10時/.test(longContinuityFinal.message) &&
+      longContinuityFinal.semanticQuestions === 0,
+    longContinuityFinal.message
+  );
+
+  const factToFeeling = findConversation(
+    conversations,
+    'fact-to-one-feeling-question'
+  );
+  addCheck(
+    checks,
+    '事実のみ: 次の一段として気持ちを一つだけ尋ねる',
+    factToFeeling.turns[0].semanticQuestions === 1 &&
+      /気持ち|感じ|不安|戸惑|負担/.test(factToFeeling.turns[0].message),
+    factToFeeling.turns[0].message
+  );
+
+  const deeperQuestion = findConversation(
+    conversations,
+    'explicit-deeper-question'
+  );
+  const deeperFinal = deeperQuestion.turns.at(-1);
+  addCheck(
+    checks,
+    '深掘り要求: 迷いの中身へ具体的な一問を返す',
+    deeperFinal.semanticQuestions === 1 &&
+      /役割|引き受け|迷/.test(deeperFinal.message) &&
+      !/何かありますか|どう思いますか/.test(deeperFinal.message),
+    deeperFinal.message
+  );
+
+  const shortContinuation = findConversation(
+    conversations,
+    'short-reply-continuation'
+  );
+  const shortContinuationFinal = shortContinuation.turns.at(-1);
+  addCheck(
+    checks,
+    '短い返答: 友人への断りと関係悪化の流れを継続',
+    /友人|断|関係/.test(shortContinuationFinal.message) &&
+      hasClosingCoachingMove(shortContinuationFinal.message),
+    shortContinuationFinal.message
+  );
+
+  const topicSwitch = findConversation(
+    conversations,
+    'topic-switch-fact-insight-action'
+  );
+  const topicSwitchFinal = topicSwitch.turns.at(-1);
+  addCheck(
+    checks,
+    '話題切替: 家庭の事実・見立て・一手を優先',
+    /家族|朝|準備/.test(topicSwitchFinal.message) &&
+      /頼|動|担当|時間|一つ/.test(topicSwitchFinal.message) &&
+      !/仕事|締切/.test(topicSwitchFinal.message),
+    topicSwitchFinal.message
   );
 
   const sixTurn = findConversation(conversations, 'six-turn-paid-conversation');

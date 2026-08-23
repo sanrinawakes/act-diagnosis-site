@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   COACHING_IMAGE_MODEL,
   COACHING_MAX_OUTPUT_TOKENS,
@@ -26,6 +26,20 @@ import {
   getCoachingSystemPrompt,
   getContextualizedPrompt,
 } from '../src/data/coaching-system-prompt';
+
+const inheritedPipelineMode = process.env.COACHING_OUTPUT_PIPELINE_MODE;
+
+beforeEach(() => {
+  process.env.COACHING_OUTPUT_PIPELINE_MODE = 'legacy';
+});
+
+afterEach(() => {
+  if (inheritedPipelineMode === undefined) {
+    delete process.env.COACHING_OUTPUT_PIPELINE_MODE;
+  } else {
+    process.env.COACHING_OUTPUT_PIPELINE_MODE = inheritedPipelineMode;
+  }
+});
 
 describe('getCoachingGeminiModelName', () => {
   it('通常会話は会話品質を優先した3.5 Flashを使う', () => {

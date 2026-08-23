@@ -515,7 +515,7 @@ function createAdminClient() {
                                   maybeSingle: async () => ({
                                     data: {
                                       content:
-                                        'ACTI_SESSION_MEMORY_V1\n{"coveredMessageCount":57}',
+                                        'ACTI_SESSION_MEMORY_V2\n{"coveredMessageCount":57}',
                                     },
                                     error: null,
                                   }),
