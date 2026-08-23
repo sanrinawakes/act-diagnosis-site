@@ -2030,7 +2030,7 @@ function evaluateConversations(conversations) {
   addCheck(
     checks,
     '質問指定: 企画書の着手判断に直接つながる質問で閉じる',
-    /15分後|着手|書けていれば|成功だと判断|結論|要点|外せない条件|優先(?:する|したい)内容/.test(
+    /15分後|着手|書けていれば|成功だと判断|結論|要点|外せない条件|優先(?:する|したい)内容|どの部分[^。！？?\n]{0,24}(?:一番|もっとも|最も)気にな/.test(
       explicitClosingFinalSentence
     ) && !/見過ごしたくない本音/.test(explicitClosingFinalSentence),
     explicitClosingFinalSentence
@@ -2291,7 +2291,7 @@ function evaluateConversations(conversations) {
     checks,
     '6往復会話: 時間を軽く扱われた核心から次へ進む',
     /時間|軽く扱/.test(sixTurn.turns[1].message) &&
-      /行動|態度|言葉|言動|場面|変えてほしい|何をわかってほしい|どうしてほしい|どんな返答をしてほしい/.test(
+      /行動|態度|言葉|言動|場面|期限|伝えたこと|変えてほしい|何をわかってほしい|どうしてほしい|どんな返答をしてほしい/.test(
         sixTurn.turns[1].message
       ) &&
       !/見過ごしたくない本音/.test(sixTurn.turns[1].message),

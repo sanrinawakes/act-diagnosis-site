@@ -1697,6 +1697,53 @@ describe('assessCoachingResponseQuality', () => {
     expect(result.issues).toContain('unsafe_high_impact_advice');
   });
 
+  it('相手口座への引落変更を「方法があります」と提案する文型も止める', () => {
+    const text =
+      '相手の口座から家賃が全額自動引き落としされるように手続きを変更し、自分の口座からの補填を止める方法があります。';
+    const historyMessages = [
+      ...rentHistory,
+      {
+        role: 'assistant' as const,
+        content:
+          '家賃76,000円の分担と支払期限について、回答期限を付けた書面で合意を求めてください。',
+      },
+      {
+        role: 'user' as const,
+        content:
+          'その伝え方はもう毎月やっています。同じ提案や同じ質問はしないでください。',
+      },
+    ];
+    const quality = assessCoachingResponseQuality({
+      text,
+      lastUserText: '質問を返さず、今までと違う対応を具体的に答えてください。',
+      historyMessages,
+    });
+
+    expect(quality.issues).toContain('unsafe_high_impact_advice');
+
+    process.env.COACHING_OUTPUT_PIPELINE_MODE = 'minimal';
+    const result = ensureVerifiedCoachingResolution({
+      resolution: {
+        text,
+        usage: {},
+        modelName: 'gemini-3.7-flash',
+        provider: 'gemini',
+        repairAttempted: false,
+        repairAccepted: false,
+        initialIssues: quality.issues,
+        finalIssues: [],
+      },
+      lastUserText:
+        '質問を返さず、今までと違う対応を具体的に答えてください。',
+      historyMessages,
+    });
+
+    expect(result.modelName).toBe('local-output-safety-fallback');
+    expect(result.text).toContain('第三者同席');
+    expect(result.text).not.toMatch(/口座|補填を止め|[？?]/);
+    expect(result.finalIssues).toEqual([]);
+  });
+
   it('合意なく家族の小遣いや共通口座を使う提案を止める', () => {
     for (const text of [
       '夫が家事をしない場合は、家事代行の費用を夫の小遣いや共通口座から支払う形で進めてください。',
