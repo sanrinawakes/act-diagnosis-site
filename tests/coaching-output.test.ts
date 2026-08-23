@@ -4369,7 +4369,8 @@ describe('normalizeCoachingOutput', () => {
     expect(text).toContain('「方法があります」と予告せず');
     expect(text).toContain('相談先や別案を複数並べず');
     expect(text).toContain('対応を一つだけ示す');
-    expect(text).toContain('自治体の無料法律相談を一件予約');
+    expect(text).toContain('自治体の「無料法律相談」を一件予約');
+    expect(text).toContain('「無料の法律相談」と言い換えず');
     expect(text).toContain('別の相談先を並べず');
   });
 
@@ -4426,7 +4427,8 @@ describe('normalizeCoachingOutput', () => {
     );
     const text = 'text' in part ? part.text : '';
 
-    expect(text).toContain('頭の中で一度読み返す');
+    expect(text).toContain('頭の中で一度読み返してください');
+    expect(text).toContain('「最初の一言」を「という言葉」へ弱めず');
     expect(text).toContain('スマートフォンや紙など未提示の媒体を足さず');
     expect(text).toContain('「声に出さず復唱」のような不自然で重複した表現');
   });
