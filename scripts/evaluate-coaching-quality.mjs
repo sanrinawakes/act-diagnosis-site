@@ -2147,11 +2147,13 @@ function evaluateConversations(conversations) {
     checks,
     '回答要求後: 質問を返さず別の対応を具体的に示す',
     directAnswerTurn.semanticQuestions === 0 &&
-    directAnswerTurn.outputChars >= 45 &&
       /家賃|支払|未払い|不足|金額|期限|記録|第三者|相談/.test(
         directAnswerTurn.message
       ) &&
-      /無料法律相談/.test(directAnswerTurn.message) &&
+      /自治体[^。！？?\n]{0,24}無料法律相談[^。！？?\n]{0,24}(?:一件|1件)[^。！？?\n]{0,12}予約/.test(
+        directAnswerTurn.message
+      ) &&
+      /記録[^。！？?\n]{0,24}持参/.test(directAnswerTurn.message) &&
       !/女性相談|夫婦問題|別の相談|相談先.+(?:や|または|もしくは)/.test(
         directAnswerTurn.message
       ) &&

@@ -4092,7 +4092,9 @@ describe('normalizeCoachingOutput', () => {
     );
     const text = 'text' in part ? part.text : '';
 
-    expect(text).toContain('「5分だけ休憩したい」と伝える一動作');
+    expect(text).toContain('話の途中で感情が強くなってきたら');
+    expect(text).toContain("夫に『5分だけ休憩したい』と伝えてください");
+    expect(text).toContain('「感情的になりそうになったら」のように「なりそう」を重ねず');
     expect(text).toContain('その場を離れる');
     expect(text).toContain('二つ目の動作を足さない');
     expect(text).toContain('質問は付けない');
