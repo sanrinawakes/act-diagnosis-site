@@ -4049,6 +4049,18 @@ describe('normalizeCoachingOutput', () => {
     expect(text).toContain('具体的な一点を尋ねる質問一つだけ');
   });
 
+  it('家事を後回しにされて腹が立つ初回は返事の有無を一問尋ねる', () => {
+    const [part] = buildGeminiParts(
+      '夫に家事を頼んでも後回しにされます。私ばかり負担している気がして腹が立ちます。',
+      []
+    );
+    const text = 'text' in part ? part.text : '';
+
+    expect(text).toContain('いつやるかという返事があるか');
+    expect(text).toContain('質問一つだけ');
+    expect(text).toContain('心理や理由は足さない');
+  });
+
   it('時間の軽視を嫌だと述べた段階で感情強化や文面提案をしない', () => {
     const [part] = buildGeminiParts(
       '家事そのものより、私の時間を軽く扱われているように感じることが嫌なんです。',
@@ -4071,7 +4083,20 @@ describe('normalizeCoachingOutput', () => {
 
     expect(text).toContain('まだ一言や文面を求めていません');
     expect(text).toContain('引用文や伝え方を先回りして提案せず');
-    expect(text).toContain('質問で返してください');
+    expect(text).toContain('最初の一言に入れたいお願い');
+    expect(text).toContain('同じ言葉で聞き直さない');
+  });
+
+  it('一枚目から直す作業相談を文章か箇条書きかの二択にしない', () => {
+    const [part] = buildGeminiParts(
+      '今日は一枚目から直そうと思います。',
+      []
+    );
+    const text = 'text' in part ? part.text : '';
+
+    expect(text).toContain('最初に削りたい箇所を一つだけ');
+    expect(text).toContain('文章か箇条書きかの二択');
+    expect(text).toContain('質問一つだけ');
   });
 
   it('回答要求後は方法の予告や複数の相談先をモデルへ求めない', () => {
