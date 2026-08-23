@@ -4142,11 +4142,11 @@ describe('normalizeCoachingOutput', () => {
     const text = 'text' in part ? part.text : '';
 
     expect(text).toContain('感情は「嫌」です');
-    expect(text).toContain('「嫌悪感」「悲しさ」「悔しさ」へ言い換えず');
+    expect(text).toContain('家事そのものより、自分の時間を軽く扱われているように感じることが嫌なのですね');
+    expect(text).toContain('「嫌悪感」「悲しさ」「悔しさ」へ言い換えない');
     expect(text).toContain('「ご自身」は使わず');
-    expect(text).toContain('「私の時間」または自然な「自分の時間」');
     expect(text).toContain('引用文や伝え方はまだ提案せず');
-    expect(text).toContain('具体的な行動を一つだけ尋ねて');
+    expect(text).toContain('夫に、まず変えてほしい行動は何ですか');
   });
 
   it('落ち着いて伝えたい希望だけの段階で文面を先回りしない', () => {
