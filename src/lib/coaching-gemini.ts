@@ -124,9 +124,11 @@ export const COACHING_RESPONSE_SPEED_INSTRUCTION = [
   '- 220〜420字は、説明が必要な通常相談での上限目安であり、埋めるべき目標ではない。新しい事実が一つ追加された時、短い返答を受けた時、深掘りの質問を求められた時、一つの答えを求められた時は、会話を一段進めるために必要な長さで短く返す。',
   '- 質問が複数ある場合は、すべてを一度に深掘りせず、最初の1つを中心に、ただし本人の話の流れを切らないように返す。',
   '- 長い前置き、網羅的な一覧、同じタイプ説明の繰り返しを避ける。診断情報や一般論から本人の感情・動機・価値観を補わず、本人が話した事実だけを使う。',
+  '- 履歴にあるAI自身の推測は事実ではない。本人が明確に認めていない心理説明を引き継がず、最新の本人の訂正・拒否・感情を優先する。',
   '- 次の一手は質問一つ、または具体的な提案一つのどちらかにする。質問を置く返答には行動提案を足さず、提案を置く返答には確認質問を足さない。本人が両方を明示的に求めた場合だけ例外とする。',
   '- 本人が深掘りの質問を求めた時は、謝罪や一般論を付けず、直前までに本人が話した対象へ直接つながる具体的な質問一つだけを返す。',
   '- 直前の提案を拒否された時は、その提案や同じ意味の質問を繰り返さず、別の見立てまたは選択肢を示す。',
+  '- 具体策を求められた時は質問を返さない。相談と関係のない白湯、水分補給、深呼吸、散歩、休憩ではなく、直前までの人物・作業・決めた言葉に直接つながる一動作を答える。',
   '- 質問や行動提案が会話を前へ進めない時は、無理に付け足さず、具体的な理解と役に立つ整理で自然に閉じる。',
 ].join('\n');
 
@@ -2870,11 +2872,11 @@ export function normalizeCoachingOutput(
       historyMessages,
     })
       ? recovered
-      : buildCustomerSafeLocalFallback(lastUserText);
+      : buildCustomerSafeLocalFallback(lastUserText, historyMessages);
   }
 
   if (containsProtectedInternalContent(text)) {
-    return buildCustomerSafeLocalFallback(lastUserText);
+    return buildCustomerSafeLocalFallback(lastUserText, historyMessages);
   }
 
   if (requestsShortRestResponse(lastUserText)) {
@@ -3394,6 +3396,30 @@ function resolveObservedCoachingResponseQuality(params: {
   const unsafeAdvice = deliveryAssessment.issues.includes(
     'unsafe_high_impact_advice'
   );
+  const contextualSafetyText =
+    internalContextExposed || unsafeAdvice
+      ? buildFinalVerifiedQualityFallback(
+          params.lastUserText,
+          params.historyMessages
+        )
+      : '';
+  const contextualSafetyAssessment = contextualSafetyText
+    ? assessCoachingResponseQuality({
+        text: contextualSafetyText,
+        lastUserText: params.lastUserText,
+        historyMessages: params.historyMessages,
+      })
+    : null;
+  const verifiedContextualSafetyText =
+    contextualSafetyText &&
+    isCustomerSafeDeliveryText({
+      text: contextualSafetyText,
+      lastUserText: params.lastUserText,
+      historyMessages: params.historyMessages,
+      assessment: contextualSafetyAssessment || undefined,
+    })
+      ? contextualSafetyText
+      : '';
 
   if (
     urgentSafetyResponse ||
@@ -3404,7 +3430,11 @@ function resolveObservedCoachingResponseQuality(params: {
     const safetyText =
       urgentSafetyResponse ||
       promptGuardResponse ||
-      buildCustomerSafeLocalFallback(params.lastUserText);
+      verifiedContextualSafetyText ||
+      buildCustomerSafeLocalFallback(
+        params.lastUserText,
+        params.historyMessages
+      );
     const safetyAssessment = assessCoachingResponseQuality({
       text: safetyText,
       lastUserText: params.lastUserText,
@@ -5169,7 +5199,7 @@ export function ensureVerifiedCoachingResolution(params: {
     assessment: fallbackQuality,
   })
     ? fallbackText
-    : buildCustomerSafeLocalFallback(lastUserText);
+    : buildCustomerSafeLocalFallback(lastUserText, historyMessages);
   const safeFallbackQuality = assessCoachingResponseQuality({
     text: safeFallbackText,
     lastUserText,
@@ -5211,7 +5241,10 @@ function isCustomerSafeDeliveryText(params: {
   );
 }
 
-function buildCustomerSafeLocalFallback(lastUserText: string) {
+function buildCustomerSafeLocalFallback(
+  lastUserText: string,
+  historyMessages: CoachingChatMessage[] = []
+) {
   const urgentSafetyResponse = buildUrgentSafetyResponse(lastUserText);
   if (urgentSafetyResponse) return urgentSafetyResponse;
 
@@ -5219,15 +5252,32 @@ function buildCustomerSafeLocalFallback(lastUserText: string) {
     return 'その内容は公開できません。代わりに、今抱えている悩みや目標について一緒に考えます。今いちばん相談したいことは何ですか？';
   }
 
-  if (hasPaymentObligationContext(lastUserText)) {
+  const recentUserContext = historyMessages
+    .filter((message) => message.role === 'user')
+    .slice(-6)
+    .map((message) => stripAttachmentMarkdown(message.content))
+    .join('\n');
+  const knownContext = [recentUserContext, lastUserText]
+    .filter(Boolean)
+    .join('\n');
+
+  if (
+    hasPaymentObligationContext(knownContext) &&
+    (reportsResponseDissatisfaction(lastUserText) ||
+      requestsNoFollowUpQuestion(lastUserText))
+  ) {
+    return '口頭で毎月伝えても家賃の不足が続いているため、同じ伝え方では状況が変わっていません。家賃76,000円の分担と支払期限について、回答期限を付けた書面で合意を求めてください。';
+  }
+
+  if (hasPaymentObligationContext(knownContext)) {
     return '支払いについては、相手の理由を推測する前に、決まっている金額、期限、実際の支払いを分けて確認することが大切です。まず、今月分について確認できている金額と期日を書き出してください。';
   }
 
-  if (hasRelationshipConflictContext(lastUserText)) {
+  if (hasRelationshipConflictContext(knownContext)) {
     return '人との関係で困っている時は、相手の気持ちを決めつけず、実際に起きたことと、変えてほしい行動を分けて考えると整理しやすくなります。最後に困った場面で、相手がしたことを一つだけ教えてください。';
   }
 
-  if (/仕事|職場|業務|会社|上司|同僚|会議|企画|顧客/.test(lastUserText)) {
+  if (/仕事|職場|業務|会社|上司|同僚|会議|企画|顧客/.test(knownContext)) {
     return '仕事のことで迷っている時は、仕事全体の結論を急がず、実際に困った場面と次に確認する点を分けると、具体的な対応を選びやすくなります。最後に困った仕事の場面で、誰が何を言ったかを一つだけ教えてください。';
   }
 

@@ -100,7 +100,9 @@ describe('coaching runtime prompt', () => {
       '質問を選んだ返答には行動提案を入れず、提案を選んだ返答には質問を入れない'
     );
     expect(prompt).toContain('診断タイプと意識レベルも推測の根拠にしてはならない');
-    expect(prompt).toContain('本人が事実だけを追加した段階では解決策へ進まず');
+    expect(prompt).toContain('実務の整理では、感情を毎回尋ねず');
+    expect(prompt).toContain('AI自身の推測や提案は、本人が明確に認めていない限り事実として引き継がない');
+    expect(prompt).toContain('相談対象と関係のない白湯、水分補給、深呼吸、散歩、休憩へ逃げず');
     expect(prompt).toContain('合計が一つを超えた場合は一つに減らしてから返す');
   });
 
@@ -6530,6 +6532,35 @@ describe('normalizeCoachingOutput', () => {
     expect(result).not.toMatch(
       /直近3か月|記録にまとめてください|これまでの支払履歴を添えて|[？?]/
     );
+  });
+
+  it('家賃相談で質問を拒否された時は履歴を失わず期限付き書面へ進む', () => {
+    const history = [
+      {
+        role: 'user' as const,
+        content:
+          '家賃は76000円ですが、夫は毎月20000円くらいしか払わず、私が不足分を負担しています。',
+      },
+      {
+        role: 'user' as const,
+        content:
+          '夫には毎月、家賃を全額払ってほしいと伝えています。それでも払われません。',
+      },
+    ];
+    const lastUserText =
+      'わからないから聞いています。質問を返さず、今までと違う対応を具体的に答えてください。';
+    const fallback = buildFinalVerifiedQualityFallback(lastUserText, history);
+
+    expect(fallback).toContain('回答期限を付けた書面');
+    expect(fallback).toContain('家賃');
+    expect(fallback).not.toMatch(/[？?]/);
+    expect(
+      assessCoachingResponseQuality({
+        text: fallback,
+        lastUserText,
+        historyMessages: history,
+      }).issues
+    ).toEqual([]);
   });
 
   it('根拠のない期待推測を除いた後に「だと思います」だけを残さない', () => {
