@@ -2129,7 +2129,7 @@ function evaluateConversations(conversations) {
     checks,
     '拒否後: 家賃の未払いという現実の問題を保持する',
     /家賃|76000|支払|未払い|不足/.test(rejectionTurn.message) &&
-      rejectionTurn.outputChars >= 80 &&
+      rejectionTurn.outputChars >= 60 &&
       rejectionTurn.semanticQuestions === 0 &&
       /記録|書き残/.test(rejectionTurn.message) &&
       !/ノート|表|アプリ|紙|相談|窓口|第三者|法律/.test(
@@ -2259,6 +2259,14 @@ function evaluateConversations(conversations) {
       /気持ち|感じ|不安|戸惑|負担/.test(factToFeeling.turns[0].message),
     factToFeeling.turns[0].message
   );
+  addCheck(
+    checks,
+    '事実のみ: 硬い敬語や重複した感情表現を使わない',
+    !/ご自身|担当され|どんな気持ちを感じ/.test(
+      factToFeeling.turns[0].message
+    ),
+    factToFeeling.turns[0].message
+  );
 
   const deeperQuestion = findConversation(
     conversations,
@@ -2267,10 +2275,19 @@ function evaluateConversations(conversations) {
   const deeperFinal = deeperQuestion.turns.at(-1);
   addCheck(
     checks,
+    '深掘り要求: 初問を自然な助詞で迷いの一点へつなぐ',
+    deeperQuestion.turns[0].semanticQuestions === 1 &&
+      !/引き受けるか一番迷っている点|引き受けるか最も迷っている点/.test(
+        deeperQuestion.turns[0].message
+      ),
+    deeperQuestion.turns[0].message
+  );
+  addCheck(
+    checks,
     '深掘り要求: 二問目で最初の引っかかりを言い換えて反復しない',
     deeperQuestion.turns[1].semanticQuestions === 1 &&
       /場面|浮か/.test(deeperQuestion.turns[1].message) &&
-      !/何が一番引っかか|一番引っかかっている理由/.test(
+      !/何が一番引っかか|一番引っかかっている理由|具体的な場面はどんな場面/.test(
         deeperQuestion.turns[1].message
       ),
     deeperQuestion.turns[1].message

@@ -4025,6 +4025,8 @@ describe('normalizeCoachingOutput', () => {
 
     expect(text).toContain('生活上の変化');
     expect(text).toContain('どう感じているか');
+    expect(text).toContain('「ご自身」「担当される」は使わず');
+    expect(text).toContain('「朝食準備も担当しているのですね」');
     expect(text).toContain('「どんな気持ちを感じていますか」という重複表現');
     expect(text).toContain('「どのように感じていますか」と自然に');
     expect(text).toContain('質問一つだけ');
@@ -4085,7 +4087,19 @@ describe('normalizeCoachingOutput', () => {
 
     expect(text).toContain('「整理していきましょう」などの進行宣言');
     expect(text).toContain('「何が引っかかっているか」を言い換えて聞き直さず');
-    expect(text).toContain('最初に頭へ浮かぶ具体的な場面');
+    expect(text).toContain('最初に頭へ浮かぶのはどの場面ですか');
+    expect(text).toContain('「具体的な場面はどんな場面ですか」のように同じ語を重ねず');
+  });
+
+  it('新しい役割の初問を助詞の欠けた不自然な日本語にしない', () => {
+    const [part] = buildGeminiParts(
+      '新しい役割を引き受けるか迷っています。',
+      []
+    );
+    const text = 'text' in part ? part.text : '';
+
+    expect(text).toContain('引き受ける判断で、一番引っかかっていること');
+    expect(text).toContain('「引き受けるか一番迷っている点」のように助詞を欠いた表現');
   });
 
   it('深掘り要求には直前の引っかかりを聞き直さず選択の核心へ進める', () => {
