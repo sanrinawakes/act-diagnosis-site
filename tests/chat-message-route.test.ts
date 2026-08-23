@@ -159,7 +159,7 @@ describe('POST /api/chat/messages', () => {
     expect(persistChatMessageRecordMock).not.toHaveBeenCalled();
   });
 
-  it('rejects a browser attempt to save an assistant response', async () => {
+  it('accepts an assistant response for the authenticated owner session', async () => {
     const response = await POST(
       new NextRequest('https://act-diagnosis-site.vercel.app/api/chat/messages', {
         method: 'POST',
@@ -171,12 +171,19 @@ describe('POST /api/chat/messages', () => {
           id: '33333333-3333-4333-8333-333333333333',
           sessionId: '22222222-2222-4222-8222-222222222222',
           role: 'assistant',
-          content: '利用者が偽装した回答',
+          content: '利用者向けの保存済み回答',
         }),
       })
     );
 
-    expect(response.status).toBe(400);
-    expect(persistChatMessageRecordMock).not.toHaveBeenCalled();
+    expect(response.status).toBe(200);
+    expect(persistChatMessageRecordMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: '33333333-3333-4333-8333-333333333333',
+        sessionId: '22222222-2222-4222-8222-222222222222',
+        role: 'assistant',
+        content: '利用者向けの保存済み回答',
+      })
+    );
   });
 });
