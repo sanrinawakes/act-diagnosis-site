@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   COACHING_IMAGE_MODEL,
   COACHING_MAX_OUTPUT_TOKENS,
+  COACHING_RESPONSE_SPEED_INSTRUCTION,
   COACHING_TEXT_MODEL,
   COACHING_TEXT_THINKING_LEVEL,
   containsInternalCoachingContextExposure,
@@ -63,6 +64,19 @@ describe('coaching runtime prompt', () => {
     expect(prompt).toContain('拒否された提案');
     expect(prompt).toContain('無理に付けない');
     expect(prompt).not.toContain('27タイプ');
+  });
+
+  it('新しい話題・一段ずつの深掘り・具体策要求を明示する', () => {
+    const prompt = getCoachingSystemPrompt();
+
+    expect(prompt).toContain('新しい話題を優先');
+    expect(prompt).toContain('今の話と関係がある時だけ短く引用');
+    expect(prompt).toContain('深掘りは一段ずつ行う');
+    expect(prompt).toContain('具体策を求めた時は、質問だけで返さない');
+    expect(prompt).toContain('最初の1〜2文では断定を避け');
+    expect(COACHING_RESPONSE_SPEED_INSTRUCTION).toContain(
+      '最初の1つを中心に、ただし本人の話の流れを切らない'
+    );
   });
 
   it('診断情報は短い非表示文脈としてだけ追加する', () => {
