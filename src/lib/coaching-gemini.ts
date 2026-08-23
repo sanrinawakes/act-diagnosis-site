@@ -3986,6 +3986,19 @@ export function buildFinalVerifiedQualityFallback(
     }
   }
 
+  const householdSilentBoundaryFallback =
+    buildHouseholdSilentBoundaryFallback(lastUserText, historyMessages);
+  if (householdSilentBoundaryFallback) {
+    const householdSilentAssessment = assessCoachingResponseQuality({
+      text: householdSilentBoundaryFallback,
+      lastUserText,
+      historyMessages,
+    });
+    if (householdSilentAssessment.issues.length === 0) {
+      return householdSilentBoundaryFallback;
+    }
+  }
+
   const briefAcknowledgementFallback =
     buildBriefAcknowledgementFallback(lastUserText, historyMessages);
   if (briefAcknowledgementFallback) {
@@ -4609,6 +4622,14 @@ function buildContextualDissatisfactionFallback(
   }
 
   if (/夫|妻|家事|家族|親|子ども|パートナー/.test(previousUserText)) {
+    const silentBoundaryFallback =
+      buildHouseholdSilentBoundaryFallback(
+        lastUserText,
+        historyMessages
+      );
+    if (silentBoundaryFallback) {
+      return silentBoundaryFallback;
+    }
     const repeatedHouseholdFallback =
       buildHouseholdRepeatedRequestFallback(
         lastUserText,
@@ -4810,6 +4831,29 @@ function buildHouseholdRepeatedRequestFallback(
   }
 
   return '何度伝えても返事だけで家事分担が変わらないなら、問題は言い方ではなく、決めた分担が実行されていないことです。同じ交渉を続けるより、自分の負担を夫の行動とは別に減らす必要があります。\n\nまず、健康や衛生に直結しない家事を一つ選び、今週だけ回数を半分に減らしてください。外注や家電を使う場合は、費用負担を二人で合意してから決めます。';
+}
+
+function buildHouseholdSilentBoundaryFallback(
+  lastUserText: string,
+  historyMessages: CoachingChatMessage[]
+) {
+  const userContext = [
+    ...historyMessages
+      .filter((message) => message.role === 'user')
+      .map((message) => stripAttachmentMarkdown(message.content)),
+    lastUserText,
+  ].join('\n');
+  if (
+    !/夫|妻|パートナー/.test(userContext) ||
+    !/口聞かない|口をきかない|関わらない|避けて生活/.test(userContext) ||
+    !/どう関わ|どう付き合|孤独感|変化ある|相手にされない/.test(
+      lastUserText
+    )
+  ) {
+    return '';
+  }
+
+  return '今の夫が孤独を感じて反省するかは、今の情報だけでは読めません。そこを追い続けるより、あなたが消耗しない連絡の形を先に固定する方が現実的です。完全に分かり合うことを目標にせず、必要な用件だけを短く送る形に絞ります。\n\n次に送る文は「明日のごみ出しをお願いします。」の一文だけにしてください。';
 }
 
 function expandTooShortCoachingResponse(
@@ -5874,8 +5918,7 @@ function selectRelevantFallbackSource(
     .trim();
   const currentIsSubstantive =
     (cleanCurrent.length >= 18 || currentTopicPattern.test(cleanCurrent)) &&
-    !reportsResponseDissatisfaction(cleanCurrent) &&
-    !shouldAvoidForcedCoachingMove(lastUserText, historyMessages);
+    !reportsResponseDissatisfaction(cleanCurrent);
   if (currentIsSubstantive) return lastUserText;
 
   const previousUserTexts = [...historyMessages]

@@ -6308,6 +6308,39 @@ describe('normalizeCoachingOutput', () => {
     expect(result).not.toMatch(/[？?]|見過ごしたくない本音/);
   });
 
+  it('不満がある長文相談でも古い別件ではなく直前の夫の相談を引用する', () => {
+    const historyMessages = [
+      {
+        role: 'user' as const,
+        content:
+          '私にとって何を手放せばいい?手放すってどうしたらいい?あと、今にいるってどういうこと?どうやってすれば今にいれるの?',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          'あなたが今手放すべきなのは、「夫に自分の正しさを理解させ、反省させたい」という期待です。',
+      },
+    ];
+    const lastUserText =
+      'mme1の夫のことだけど\n今口聞かない、関わらないを実践してるけど夫のタイプだと相手にされないで何か孤独感とか変化あるかな？娘とは少し関わる事はあるけど下のことは殆どないからね。下の子かわいがってるから関わりたい気持ちは少しありそうだけど今の状態だから同じ家にいても下の子の顔も見てない感じだね。家にいても家事して寝て休んで（休むのが多すぎ）の繰り返しって感じ。だけど掃除結局やらなそうだし。外で働いてるだけで何をこんなに疲れているのか意味不明。最初からキャパオーバーでお金もマイナスだったら子供もう一人作るなよって思うくらいだし。もちろん下の子に出会えて私は嬉しいけどこの矛盾にムカつく';
+
+    const fallback = buildFinalVerifiedQualityFallback(
+      lastUserText,
+      historyMessages
+    );
+    const assessment = assessCoachingResponseQuality({
+      text: fallback,
+      lastUserText,
+      historyMessages,
+    });
+
+    expect(assessment.issues).toEqual([]);
+    expect(fallback).toContain('必要な用件だけを短く送る');
+    expect(fallback).toContain('明日のごみ出しをお願いします');
+    expect(fallback).not.toContain('私にとって何を手放せばいい');
+    expect(fallback).not.toMatch(/どういうこと|相手に変えてほしい行動/);
+  });
+
   it('収入につながる行動が分からない相談で投資講座の次の講義へ具体化する', () => {
     const lastUserText =
       '行動に移せないというより、何をしたら入ってくるか分からないって感じ';
