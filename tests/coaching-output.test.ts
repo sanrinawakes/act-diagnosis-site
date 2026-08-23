@@ -4020,6 +4020,9 @@ describe('normalizeCoachingOutput', () => {
     expect(COACHING_RESPONSE_SPEED_INSTRUCTION).toContain(
       '「方法があります」「提案があります」と予告しない'
     );
+    expect(COACHING_RESPONSE_SPEED_INSTRUCTION).toContain(
+      '「嫌」を「嫌悪感」へ強めない'
+    );
   });
 
   it('感情的になりそうな不安には伝達と離席の二動作を指示しない', () => {
@@ -4033,6 +4036,42 @@ describe('normalizeCoachingOutput', () => {
     expect(text).toContain('その場を離れる');
     expect(text).toContain('二つ目の動作を足さない');
     expect(text).toContain('質問は付けない');
+  });
+
+  it('理由を話したい発言には進行宣言を付けず具体的な一問を求める', () => {
+    const [part] = buildGeminiParts(
+      '条件の一覧より、自分がなぜ迷うのかを話したいです。',
+      []
+    );
+    const text = 'text' in part ? part.text : '';
+
+    expect(text).toContain('「整理していきましょう」などの進行宣言');
+    expect(text).toContain('具体的な一点を尋ねる質問一つだけ');
+  });
+
+  it('時間の軽視を嫌だと述べた段階で感情強化や文面提案をしない', () => {
+    const [part] = buildGeminiParts(
+      '家事そのものより、私の時間を軽く扱われているように感じることが嫌なんです。',
+      []
+    );
+    const text = 'text' in part ? part.text : '';
+
+    expect(text).toContain('感情は「嫌」です');
+    expect(text).toContain('「嫌悪感」「悲しさ」「悔しさ」へ言い換えず');
+    expect(text).toContain('引用文や伝え方はまだ提案せず');
+    expect(text).toContain('具体的な行動を一つだけ尋ねて');
+  });
+
+  it('落ち着いて伝えたい希望だけの段階で文面を先回りしない', () => {
+    const [part] = buildGeminiParts(
+      '責める言い方をすると喧嘩になるので、落ち着いて伝えたいです。',
+      []
+    );
+    const text = 'text' in part ? part.text : '';
+
+    expect(text).toContain('まだ一言や文面を求めていません');
+    expect(text).toContain('引用文や伝え方を先回りして提案せず');
+    expect(text).toContain('質問で返してください');
   });
 
   it('回答要求後は方法の予告や複数の相談先をモデルへ求めない', () => {
