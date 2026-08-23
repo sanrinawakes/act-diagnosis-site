@@ -671,6 +671,9 @@ describe('conversation continuity hints', () => {
 
     expect(hint).toContain('相手が説明や返答をしない');
     expect(hint).toContain('「方法があります」「提案があります」と予告');
+    expect(hint).toContain('「何度聞いても、夫から説明がないのですね」');
+    expect(hint).toContain('「何も言わない状態のまま」のような重複表現');
+    expect(hint).toContain('「夫に、まず何について説明してほしいですか」');
     expect(hint).toContain('相手へしてほしい具体的な行動を一つだけ尋ねる');
     expect(stripInternalResponseStyleHint(hint)).toBe('何も言わない');
   });
@@ -4029,7 +4032,8 @@ describe('normalizeCoachingOutput', () => {
     expect(text).toContain('「ご自身」「担当される」は使わず');
     expect(text).toContain('「朝食準備も担当しているのですね」');
     expect(text).toContain('「どんな気持ちを感じていますか」という重複表現');
-    expect(text).toContain('「どのように感じていますか」と自然に');
+    expect(text).toContain('「どのように感じていますか？」と自然に');
+    expect(text).toContain('質問文は「？」で閉じて');
     expect(text).toContain('質問一つだけ');
     expect(text).toContain('二択、解決策');
   });
@@ -4191,6 +4195,18 @@ describe('normalizeCoachingOutput', () => {
     expect(text).toContain('質問一つだけ');
   });
 
+  it('説明資料を作っている事実を接客敬語へ変えない', () => {
+    const [part] = buildGeminiParts(
+      '新しい企画の説明資料を作っています。',
+      []
+    );
+    const text = 'text' in part ? part.text : '';
+
+    expect(text).toContain('説明資料を作っているのですね');
+    expect(text).toContain('「作成されている」のような接客敬語');
+    expect(text).toContain('誰に向けて説明するのか');
+  });
+
   it('明日の提案と最後の質問を求められたら着手判断へ直接つなぐ', () => {
     const [part] = buildGeminiParts(
       '企画書を完璧にしようとして手が止まります。明日着手する方法を短く提案し、最後に自分で判断を深める質問を一つだけしてください。',
@@ -4248,8 +4264,22 @@ describe('normalizeCoachingOutput', () => {
     const text = 'text' in part ? part.text : '';
 
     expect(text).toContain('手をつけられない');
+    expect(text).toContain('「新しい仕事を任された中で」');
     expect(text).toContain('「手をつけるのが止まっている」のように不自然に言い換えず');
-    expect(text).toContain('具体的な作業を質問一つだけ');
+    expect(text).toContain('特に失敗が気になる作業は何ですか');
+  });
+
+  it('能力評価への訂正後は同じ具体作業を聞き直さず見てほしい行動へ進む', () => {
+    const [part] = buildGeminiParts(
+      '怖いというより、同僚に能力がないと思われるのが悔しいんです。',
+      []
+    );
+    const text = 'text' in part ? part.text : '';
+
+    expect(text).toContain('同僚に能力がないと思われるのが悔しいのですね');
+    expect(text).toContain('直前と同じ「失敗が気になる具体的な作業」を言い換えて聞き直さず');
+    expect(text).toContain('今回の仕事で、同僚にどの行動を見てほしいですか');
+    expect(text).toContain('誇り、価値、意欲は足さない');
   });
 
   it('家賃負担の初回は硬い接客表現を避けて感情を一問だけ尋ねる', () => {
@@ -4353,7 +4383,8 @@ describe('normalizeCoachingOutput', () => {
     const text = 'text' in part ? part.text : '';
 
     expect(text).toContain('最も締切日時が近い作業名');
-    expect(text).toContain('「現在抱えている重なっている仕事」のような重複表現');
+    expect(text).toContain('「優先順位を決めたい状況ですね」');
+    expect(text).toContain('「現在抱えている重なっている仕事」のような硬さや重複');
     expect(text).toContain('仕事の内容と各締切日を同時に答えさせない');
   });
 

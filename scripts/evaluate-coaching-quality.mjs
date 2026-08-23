@@ -1829,7 +1829,7 @@ function evaluateConversations(conversations) {
     checks,
     '初回: 手をつけられない状態を不自然に言い換えない',
     /手をつけられ|手がつかない/.test(continuity.turns[0].message) &&
-      !/手をつけるのが止まって|手をつけることが止まって/.test(
+      !/任された中で|手をつけるのが止まって|手をつけることが止まって/.test(
         continuity.turns[0].message
       ),
     continuity.turns[0].message
@@ -1838,7 +1838,12 @@ function evaluateConversations(conversations) {
     checks,
     '訂正後: 最新の「同僚」「悔しい」を優先',
     /同僚|低く見られ|能力がないと思われ/.test(continuity.turns[1].message) &&
-      /悔|能力/.test(continuity.turns[1].message)
+      /悔|能力/.test(continuity.turns[1].message) &&
+      /行動|見てほしい/.test(continuity.turns[1].message) &&
+      !/同僚の目[^。！？?\n]{0,32}具体的な作業|失敗が気になる具体的な作業/.test(
+        continuity.turns[1].message
+      ),
+    continuity.turns[1].message
   );
   addCheck(
     checks,
@@ -2173,6 +2178,14 @@ function evaluateConversations(conversations) {
       ),
     subjectTurn.message
   );
+  addCheck(
+    checks,
+    '短い回答: 沈黙を重複した状態表現へ言い換えない',
+    !/何も言わない状態|説明がない状態|状態のまま/.test(
+      subjectTurn.message
+    ),
+    subjectTurn.message
+  );
 
   const midMemory = findConversation(
     conversations,
@@ -2243,6 +2256,13 @@ function evaluateConversations(conversations) {
   const longContinuityFinal = longContinuity.turns.at(-1);
   addCheck(
     checks,
+    '10往復超: 資料作成の受け止めを接客敬語へ変えない',
+    /作っている/.test(longContinuity.turns[0].message) &&
+      !/作成されて|作っていらっしゃ/.test(longContinuity.turns[0].message),
+    longContinuity.turns[0].message
+  );
+  addCheck(
+    checks,
     '10往復超: 説明順の受け止めで同じ語を重ねない',
     !/説明資料の説明する順番|資料の説明する順番/.test(
       longContinuity.turns[3].message
@@ -2272,7 +2292,8 @@ function evaluateConversations(conversations) {
     checks,
     '事実のみ: 次の一段として気持ちを一つだけ尋ねる',
     factToFeeling.turns[0].semanticQuestions === 1 &&
-      /気持ち|感じ|不安|戸惑|負担/.test(factToFeeling.turns[0].message),
+      /気持ち|感じ|不安|戸惑|負担/.test(factToFeeling.turns[0].message) &&
+      /[？?]$/.test(factToFeeling.turns[0].message.trim()),
     factToFeeling.turns[0].message
   );
   addCheck(
@@ -2398,6 +2419,12 @@ function evaluateConversations(conversations) {
     '話題切替: 家庭の事実を不自然な状況表現へ変えない',
     !/状況が起きて|事実が起きて/.test(topicSwitch.turns[2].message),
     topicSwitch.turns[2].message
+  );
+  addCheck(
+    checks,
+    '話題切替: 優先順位相談を硬い状況表現へ変えない',
+    !/優先順位を決めたい状況/.test(topicSwitch.turns[0].message),
+    topicSwitch.turns[0].message
   );
 
   const sixTurn = findConversation(conversations, 'six-turn-paid-conversation');
