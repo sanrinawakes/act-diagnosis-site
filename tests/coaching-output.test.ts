@@ -4013,6 +4013,12 @@ describe('normalizeCoachingOutput', () => {
     expect(prompt).toContain('どの場面でその感情になったかを聞き直さない');
     expect(prompt).toContain('進行宣言を質問前へ足さない');
     expect(prompt).toContain('感情を述べただけの段階で文面を先回りして提案せず');
+    expect(COACHING_RESPONSE_SPEED_INSTRUCTION).toContain(
+      '「気持ちを受け止めます」「状況を受け止めます」'
+    );
+    expect(COACHING_RESPONSE_SPEED_INSTRUCTION).toContain(
+      '「方法があります」「提案があります」と予告しない'
+    );
   });
 
   it('長文末尾の断る一言も発言文の依頼として扱う', () => {
