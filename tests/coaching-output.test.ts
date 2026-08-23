@@ -675,6 +675,27 @@ describe('conversation continuity hints', () => {
 });
 
 describe('prepareGeminiHistory', () => {
+  it('100件超の会話では直近20件を各2000文字まで保持する', () => {
+    const messages = Array.from({ length: 120 }, (_, index) => ({
+      role: (index % 2 === 0 ? 'user' : 'assistant') as
+        | 'user'
+        | 'assistant',
+      content: `${String(index + 1).padStart(3, '0')}:${'長'.repeat(2200)}`,
+    }));
+
+    const history = prepareGeminiHistory(messages);
+    const texts = history.flatMap((item) =>
+      item.parts.map((part) => part.text)
+    );
+
+    expect(texts.some((text) => text.startsWith('101:'))).toBe(true);
+    expect(texts.some((text) => text.startsWith('120:'))).toBe(true);
+    expect(texts.some((text) => text.startsWith('100:'))).toBe(false);
+    const latest = texts.find((text) => text.startsWith('120:')) || '';
+    expect(latest.length).toBeGreaterThan(2000);
+    expect(latest).toContain('（長文のため一部省略）');
+  });
+
   it('長い会話でも保存済み要約の初期事実を落とさない', () => {
     const messages = [
       {

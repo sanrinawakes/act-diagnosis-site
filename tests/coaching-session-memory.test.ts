@@ -211,7 +211,7 @@ describe('buildCoachingSessionContext', () => {
       expect.objectContaining({
         session_id: sessionId,
         role: 'system',
-        content: expect.stringContaining('ACTI_SESSION_MEMORY_V1'),
+        content: expect.stringContaining('ACTI_SESSION_MEMORY_V2'),
       })
     );
   });
@@ -231,14 +231,6 @@ describe('buildCoachingSessionContext', () => {
         ).toISOString(),
       };
     });
-    const sourceMessages = Array.from({ length: 57 }, (_, index) => ({
-      role: index % 2 === 0 ? 'user' : 'assistant',
-      content:
-        index === 56
-          ? '毎月の支払い日は25日です。'
-          : `要約対象メッセージ${index + 1}`,
-      created_at: new Date(1_699_000_000_000 + index * 1000).toISOString(),
-    }));
     const memoryContent = `ACTI_SESSION_MEMORY_V1\n${JSON.stringify({
       version: 1,
       generatedAt: '2026-07-25T00:00:00.000Z',
@@ -262,16 +254,11 @@ describe('buildCoachingSessionContext', () => {
       data: loadedMessages.slice().reverse(),
       error: null,
     });
-    const sourceQuery = createAwaitableQuery({
-      data: sourceMessages,
-      error: null,
-    });
     const writeQuery = createAwaitableQuery({ data: null, error: null });
     const chatQueries = [
       countQuery,
       memoryQuery,
       recentQuery,
-      sourceQuery,
       writeQuery,
     ];
     const from = vi.fn((table: string) => {
@@ -302,15 +289,13 @@ describe('buildCoachingSessionContext', () => {
       memoryCoveredMessages: 57,
     });
     expect(result.messages[0].content).toContain('25日');
-    expect(sourceQuery.range).not.toHaveBeenCalled();
     expect(writeQuery.update).not.toHaveBeenCalled();
 
     await scheduledTask!();
 
-    expect(sourceQuery.range).toHaveBeenCalledWith(0, 56);
     expect(writeQuery.update).toHaveBeenCalledWith(
       expect.objectContaining({
-        content: expect.stringContaining('ACTI_SESSION_MEMORY_V1'),
+        content: expect.stringContaining('ACTI_SESSION_MEMORY_V2'),
       })
     );
   });
@@ -322,8 +307,8 @@ describe('buildCoachingSessionContext', () => {
       content: `保存メッセージ${index + 27}`,
       created_at: new Date(1_700_000_000_000 + index * 1000).toISOString(),
     }));
-    const memoryContent = `ACTI_SESSION_MEMORY_V1\n${JSON.stringify({
-      version: 1,
+    const memoryContent = `ACTI_SESSION_MEMORY_V2\n${JSON.stringify({
+      version: 2,
       generatedAt: '2026-08-04T08:50:00.000Z',
       coveredMessageCount: 33,
       summary: [
@@ -333,6 +318,8 @@ describe('buildCoachingSessionContext', () => {
         'ユーザーが話した事実・希望・未解決点:',
         '- 講座に申し込むか迷っている。',
       ].join('\n'),
+      structured: null,
+      generator: 'deterministic-v1-fallback',
     })}`;
     const sessionQuery = createAwaitableQuery({
       data: { id: sessionId },
