@@ -1849,9 +1849,12 @@ function evaluateConversations(conversations) {
   addCheck(
     checks,
     '具体策要求: 抽象的な「最初の1ステップ」で済ませない',
-    /最初に終わらせる作業を一つだけメモに書/.test(
+    (/最初に終わらせる作業を一つだけメモに書/.test(
       continuity.turns[2].message
-    ) && !/ステップ/.test(continuity.turns[2].message),
+    ) ||
+      /最初に取り組む具体的な作業名を一つだけ紙に書/.test(
+        continuity.turns[2].message
+      )) && !/ステップ/.test(continuity.turns[2].message),
     continuity.turns[2].message
   );
   addCheck(
@@ -2288,7 +2291,7 @@ function evaluateConversations(conversations) {
     checks,
     '6往復会話: 時間を軽く扱われた核心から次へ進む',
     /時間|軽く扱/.test(sixTurn.turns[1].message) &&
-      /態度|言葉|言動|場面|変えてほしい|何をわかってほしい|どうしてほしい|どんな返答をしてほしい/.test(
+      /行動|態度|言葉|言動|場面|変えてほしい|何をわかってほしい|どうしてほしい|どんな返答をしてほしい/.test(
         sixTurn.turns[1].message
       ) &&
       !/見過ごしたくない本音/.test(sixTurn.turns[1].message),

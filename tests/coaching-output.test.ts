@@ -110,6 +110,8 @@ describe('coaching runtime prompt', () => {
     expect(prompt).toContain('本人の「嫌」を「悲しい」に変えない');
     expect(prompt).toContain('言ってから立ち去るなど二動作をつなげない');
     expect(prompt).toContain('合計が一つを超えた場合は一つに減らしてから返す');
+    expect(COACHING_RESPONSE_SPEED_INSTRUCTION).toContain('どちらかを省略しない');
+    expect(COACHING_RESPONSE_SPEED_INSTRUCTION).toContain('未実施の質問を夫へ試した結果に変えない');
   });
 
   it('診断情報は短い非表示文脈としてだけ追加する', () => {
