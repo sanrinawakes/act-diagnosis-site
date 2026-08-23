@@ -1852,7 +1852,7 @@ function evaluateConversations(conversations) {
     (/最初に終わらせる作業を一つだけメモに書/.test(
       continuity.turns[2].message
     ) ||
-      /最初に取り組む具体的な作業名を一つだけ紙に書/.test(
+      /最初に取り組む具体的な作業名を一つ(?:だけ)?(?:紙|メモ)/.test(
         continuity.turns[2].message
       )) && !/ステップ/.test(continuity.turns[2].message),
     continuity.turns[2].message

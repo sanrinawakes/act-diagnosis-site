@@ -3975,6 +3975,9 @@ describe('normalizeCoachingOutput', () => {
     expect('text' in part ? part.text : '').toContain(
       'いつやるか教えてほしい'
     );
+    expect('text' in part ? part.text : '').toContain(
+      '「嫌」という感情を理由節へ入れず'
+    );
   });
 
   it('生活上の変化を事実だけで話した時は二択や解決策より気持ちを一問尋ねる', () => {
@@ -3999,6 +4002,15 @@ describe('normalizeCoachingOutput', () => {
 
     expect(text).toContain('「最初に行う手順」のような抽象語を作らず');
     expect(text).toContain('具体的な作業名を一つメモに書く');
+  });
+
+  it('感情の追加評価と質問前の進行宣言をモデル指示で禁止する', () => {
+    const prompt = getCoachingSystemPrompt();
+
+    expect(prompt).toContain('腹が立ったという発言へ、悔しさ');
+    expect(prompt).toContain('「当然です」「無理もありません」');
+    expect(prompt).toContain('どの場面でその感情になったかを聞き直さない');
+    expect(prompt).toContain('進行宣言を質問前へ足さない');
   });
 
   it('長文末尾の断る一言も発言文の依頼として扱う', () => {
