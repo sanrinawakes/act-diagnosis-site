@@ -2150,7 +2150,7 @@ function evaluateConversations(conversations) {
       /家賃|支払|未払い|不足|金額|期限|記録|第三者|相談/.test(
         directAnswerTurn.message
       ) &&
-      /自治体[^。！？?\n]{0,24}無料法律相談[^。！？?\n]{0,24}(?:一件|1件)[^。！？?\n]{0,12}予約/.test(
+      /自治体[^。！？?\n]{0,24}無料法律相談[^。！？?\n]{0,24}予約/.test(
         directAnswerTurn.message
       ) &&
       /(?:記録|メモ)[^。！？?\n]{0,24}(?:持参|持って)/.test(
