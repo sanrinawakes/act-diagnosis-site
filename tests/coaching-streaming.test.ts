@@ -183,6 +183,7 @@ import {
   createJsonLineStream,
   generateCoachingText,
 } from '../src/lib/coaching-gemini';
+import { DEFAULT_GEMINI_TEXT_TIMEOUT_MS } from '../src/lib/coaching-model-config';
 
 const decoder = new TextDecoder();
 let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
@@ -213,6 +214,46 @@ afterEach(() => {
 });
 
 describe('createJsonLineStream', () => {
+  it('ストリーミングのモデル初回トークン時間をttftMsとして記録する', async () => {
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    try {
+      const stream = createJsonLineStream({
+        systemPrompt: 'テスト用指示',
+        historyMessages: [],
+        lastUserParts: [{ text: '仕事について相談したいです。' }],
+        onDone: async () => ({ remaining: 49 }),
+        telemetry: {
+          route: '/api/chat/test-ttft',
+          requestId: 'ttft',
+          requestMessages: 1,
+          compactMessages: 1,
+          historyMessages: 0,
+          attachments: 0,
+          lastUserChars: 13,
+        },
+      });
+      state.releaseSecondChunk();
+      await new Response(stream).text();
+
+      const payloads = infoSpy.mock.calls
+        .map(([message]) => {
+          try {
+            return JSON.parse(String(message));
+          } catch {
+            return null;
+          }
+        })
+        .filter(Boolean);
+      const done = payloads.find(
+        (payload) => payload.event === 'chat_stream_done'
+      );
+      expect(done.ttftMs).toEqual(expect.any(Number));
+      expect(done.ttftMs).toBe(done.generationFirstChunkMs);
+    } finally {
+      infoSpy.mockRestore();
+    }
+  });
+
   it('observeは品質issueを記録しても本文をrepairやlocal fallbackへ差し替えない', async () => {
     process.env.COACHING_OUTPUT_PIPELINE_MODE = 'observe';
     state.qualityRepairMode = 'ambiguous-action';
@@ -660,7 +701,9 @@ describe('createJsonLineStream', () => {
       expect(state.externalCalls).toBe(0);
       await vi.advanceTimersByTimeAsync(1);
       expect(state.externalCalls).toBe(1);
-      await vi.advanceTimersByTimeAsync(6250);
+      await vi.advanceTimersByTimeAsync(
+        DEFAULT_GEMINI_TEXT_TIMEOUT_MS - 250
+      );
 
       const events = (await responsePromise)
         .trim()

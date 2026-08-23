@@ -10,6 +10,16 @@ import {
   getCoachingOutputPipelineConfig,
   type CoachingOutputPipelineMode,
 } from '@/lib/coaching-output-pipeline-mode';
+import {
+  COACHING_IMAGE_MODEL,
+  COACHING_IMAGE_TEMPERATURE,
+  COACHING_IMAGE_THINKING_LEVEL,
+  COACHING_IMAGE_TOP_P,
+  DEFAULT_COACHING_TEXT_MODEL,
+  DEFAULT_COACHING_TEXT_THINKING_LEVEL,
+  GEMINI_IMAGE_TIMEOUT_MS,
+  getCoachingTextModelConfig,
+} from '@/lib/coaching-model-config';
 
 export interface CoachingChatMessage {
   role: 'user' | 'assistant';
@@ -85,10 +95,8 @@ const API_LAST_USER_CHAR_LIMIT = 2500;
 const ACT_TYPE_CODE_PATTERN = /\b([SMP][VMG][AME])(?:-?([1-6]))?\b/g;
 const COACHING_DOMAIN_CONTEXT_PATTERN =
   /家計簿|収支|赤字|黒字|予算|固定費|変動費|食費|生活費|お金|返金|収入|支出|講座|占い|後悔|メンタル|ケア|仕事|職場|業務|会社|上司|同僚|会議|企画|顧客|夫|妻|主人|家事|家族|親|子ども|パートナー/;
-// Leave enough time for a verified provider fallback to finish before the
-// 10-second first-response monitor threshold.
-const GEMINI_TEXT_TIMEOUT_MS = 6500;
-const GEMINI_IMAGE_TIMEOUT_MS = 20000;
+// Provider and finalization timeouts remain bounded independently so the
+// request stays below the route's 60-second runtime limit.
 const GEMINI_FINALIZE_TIMEOUT_MS = 4000;
 const QUALITY_REPAIR_TIMEOUT_MS = 7000;
 const EXTERNAL_FALLBACK_TIMEOUT_MS = 10000;
@@ -97,10 +105,11 @@ const LONG_HISTORY_FALLBACK_HEDGE_DELAY_MS = 250;
 const GEMINI_RETRY_DELAYS_MS = [300];
 const ALERT_SLOW_RESPONSE_MS = 10000;
 const ALERT_THROTTLE_MS = 5 * 60 * 1000;
-export const COACHING_TEXT_MODEL = 'gemini-3.5-flash';
-export const COACHING_IMAGE_MODEL = 'gemini-3.5-flash';
+export const COACHING_TEXT_MODEL = DEFAULT_COACHING_TEXT_MODEL;
+export { COACHING_IMAGE_MODEL };
 export const COACHING_MAX_OUTPUT_TOKENS = 4096;
-export const COACHING_TEXT_THINKING_LEVEL = 'minimal';
+export const COACHING_TEXT_THINKING_LEVEL =
+  DEFAULT_COACHING_TEXT_THINKING_LEVEL;
 const PARTIAL_STREAM_TIMEOUT_NOTICE =
   '\n\n（応答処理に時間がかかったため、ここで一度区切っています。続きが必要な場合は、「続き」と入力するとここから再開できます。）';
 export const COACHING_RESPONSE_SPEED_INSTRUCTION = [
@@ -124,22 +133,25 @@ const alertLastSentAt = new Map<string, number>();
 export function getCoachingGeminiModelName(parts: GeminiPart[]) {
   return parts.some((part) => 'inlineData' in part)
     ? COACHING_IMAGE_MODEL
-    : COACHING_TEXT_MODEL;
+    : getCoachingTextModelConfig().model;
 }
 
 export function getCoachingGeminiModel(
   systemPrompt: string,
-  modelName = COACHING_TEXT_MODEL,
+  modelName = getCoachingTextModelConfig().model,
   isImageRequest = false
 ) {
+  const textConfig = getCoachingTextModelConfig();
   const generationConfig = {
-    temperature: 0.2,
-    topP: 0.8,
+    temperature: isImageRequest
+      ? COACHING_IMAGE_TEMPERATURE
+      : textConfig.temperature,
+    topP: isImageRequest ? COACHING_IMAGE_TOP_P : textConfig.topP,
     maxOutputTokens: COACHING_MAX_OUTPUT_TOKENS,
     thinkingConfig: {
       thinkingLevel: isImageRequest
-        ? 'minimal'
-        : COACHING_TEXT_THINKING_LEVEL,
+        ? COACHING_IMAGE_THINKING_LEVEL
+        : textConfig.thinkingLevel,
     },
   };
 
@@ -673,6 +685,7 @@ export function createJsonLineStream(params: {
             elapsedMs: Date.now() - startedAt,
             firstChunkMs,
             generationFirstChunkMs,
+            ttftMs: null,
             finalizationStatus: finalization.status,
             finalizationMs: finalization.elapsedMs,
             finalizationError: finalization.error,
@@ -839,6 +852,7 @@ export function createJsonLineStream(params: {
           elapsedMs: Date.now() - startedAt,
           firstChunkMs,
           generationFirstChunkMs,
+          ttftMs: generationFirstChunkMs,
           finalizationStatus: finalization.status,
           finalizationMs: finalization.elapsedMs,
           finalizationError: finalization.error,
@@ -921,6 +935,10 @@ export function createJsonLineStream(params: {
               elapsedMs: Date.now() - startedAt,
               firstChunkMs,
               generationFirstChunkMs,
+              ttftMs:
+                generationFirstChunkMs ??
+                externalFallback.firstChunkMs ??
+                null,
               finalizationStatus: finalization.status,
               finalizationMs: finalization.elapsedMs,
               finalizationError: finalization.error,
@@ -1089,6 +1107,7 @@ export function createJsonLineStream(params: {
             elapsedMs: Date.now() - startedAt,
             firstChunkMs,
             generationFirstChunkMs,
+            ttftMs: generationFirstChunkMs,
             finalizationStatus: finalization.status,
             finalizationMs: finalization.elapsedMs,
             finalizationError: finalization.error,
@@ -1158,6 +1177,7 @@ export function createJsonLineStream(params: {
           elapsedMs: Date.now() - startedAt,
           firstChunkMs,
           generationFirstChunkMs,
+          ttftMs: generationFirstChunkMs,
           finalizationStatus: finalization.status,
           finalizationMs: finalization.elapsedMs,
           finalizationError: finalization.error,
@@ -1964,7 +1984,9 @@ function buildImmediateCoachingResponse(
 }
 
 function getGeminiTimeoutMs(isImageRequest: boolean) {
-  return isImageRequest ? GEMINI_IMAGE_TIMEOUT_MS : GEMINI_TEXT_TIMEOUT_MS;
+  return isImageRequest
+    ? GEMINI_IMAGE_TIMEOUT_MS
+    : getCoachingTextModelConfig().timeoutMs;
 }
 
 export function containsProtectedInternalContent(text: string) {
@@ -3659,14 +3681,15 @@ async function generateGeminiQualityRepair(params: {
   lastUserParts: GeminiPart[];
 }) {
   const lastUserText = extractTextFromParts(params.lastUserParts);
+  const textConfig = getCoachingTextModelConfig();
   const generationConfig = {
-    temperature: 0.25,
-    topP: 0.85,
+    temperature: textConfig.temperature,
+    topP: textConfig.topP,
     maxOutputTokens: 1024,
-    thinkingConfig: { thinkingLevel: COACHING_TEXT_THINKING_LEVEL },
+    thinkingConfig: { thinkingLevel: textConfig.thinkingLevel },
   };
   const model = getGenAI().getGenerativeModel({
-    model: COACHING_TEXT_MODEL,
+    model: textConfig.model,
     systemInstruction: [
       'あなたはACTI AIコーチの最終編集者です。',
       '会話履歴と最新発言を正確に読み、返答案の問題だけを直してください。',

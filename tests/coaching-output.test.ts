@@ -36,7 +36,7 @@ describe('getCoachingGeminiModelName', () => {
 
   it('短い会話が内部思考だけで出力上限へ達しない設定にする', () => {
     expect(COACHING_MAX_OUTPUT_TOKENS).toBeGreaterThanOrEqual(4096);
-    expect(COACHING_TEXT_THINKING_LEVEL).toBe('minimal');
+    expect(COACHING_TEXT_THINKING_LEVEL).toBe('low');
   });
 
   it('画像添付時も品質を優先した3.5 Flashを使う', () => {
