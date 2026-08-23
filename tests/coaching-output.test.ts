@@ -4025,6 +4025,8 @@ describe('normalizeCoachingOutput', () => {
 
     expect(text).toContain('生活上の変化');
     expect(text).toContain('どう感じているか');
+    expect(text).toContain('「どんな気持ちを感じていますか」という重複表現');
+    expect(text).toContain('「どのように感じていますか」と自然に');
     expect(text).toContain('質問一つだけ');
     expect(text).toContain('二択、解決策');
   });
@@ -4120,6 +4122,8 @@ describe('normalizeCoachingOutput', () => {
 
     expect(text).toContain('感情は「嫌」です');
     expect(text).toContain('「嫌悪感」「悲しさ」「悔しさ」へ言い換えず');
+    expect(text).toContain('「ご自身」は使わず');
+    expect(text).toContain('「私の時間」または自然な「自分の時間」');
     expect(text).toContain('引用文や伝え方はまだ提案せず');
     expect(text).toContain('具体的な行動を一つだけ尋ねて');
   });
@@ -4240,7 +4244,20 @@ describe('normalizeCoachingOutput', () => {
 
     expect(text).toContain('直前と同じ感情質問を繰り返さず');
     expect(text).toContain('家賃の負担額について合意した内容');
+    expect(text).toContain('「合意や取り決め」のように同じ対象を二語で並べず');
     expect(text).toContain('提案はまだ付けない');
+  });
+
+  it('会議での怒りへ共感姿勢を宣言せず具体的な次の行動を尋ねる', () => {
+    const [part] = buildGeminiParts(
+      '会議で提案を最後まで聞かず却下されて、悲しいというより腹が立ちました。私の準備時間を軽く扱われたことが嫌です。',
+      []
+    );
+    const text = 'text' in part ? part.text : '';
+
+    expect(text).toContain('本人が述べた事実と感情だけ');
+    expect(text).toContain('「お気持ちが伝わります」などAIの共感姿勢を足さず');
+    expect(text).toContain('相手に変えてほしい具体的な行動');
   });
 
   it('同じ家賃提案を拒否されたターンは記録だけに絞る', () => {
@@ -4284,6 +4301,30 @@ describe('normalizeCoachingOutput', () => {
 
     expect(text).toContain('家族へ頼む準備を一つに絞り');
     expect(text).toContain('具体的な時刻、ゴミ、玄関などの作業例は作らず');
+  });
+
+  it('締切が重なる優先順位相談は作業名と締切日の二項目を同時に聞かない', () => {
+    const [part] = buildGeminiParts(
+      '仕事の締切が重なり、優先順位を決めたいです。',
+      []
+    );
+    const text = 'text' in part ? part.text : '';
+
+    expect(text).toContain('最も締切日時が近い作業名');
+    expect(text).toContain('「現在抱えている重なっている仕事」のような重複表現');
+    expect(text).toContain('仕事の内容と各締切日を同時に答えさせない');
+  });
+
+  it('話す直前の一手は未提示の媒体や矛盾した復唱表現を足さない', () => {
+    const [part] = buildGeminiParts(
+      '話す直前にできることを、質問なしで一つだけ教えてください。',
+      []
+    );
+    const text = 'text' in part ? part.text : '';
+
+    expect(text).toContain('頭の中で一度読み返す');
+    expect(text).toContain('スマートフォンや紙など未提示の媒体を足さず');
+    expect(text).toContain('「声に出さず復唱」のような不自然で重複した表現');
   });
 
   it('一つの行動指定は利用者への依頼形にして未提示の端末を足さない', () => {
