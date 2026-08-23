@@ -671,11 +671,25 @@ describe('conversation continuity hints', () => {
 
     expect(hint).toContain('相手が説明や返答をしない');
     expect(hint).toContain('「方法があります」「提案があります」と予告');
-    expect(hint).toContain('「何度聞いても、夫から説明がないのですね」');
+    expect(hint).toContain('「何度聞いても、夫から説明がないのですね」という一文をそのまま使い');
+    expect(hint).toContain('「夫が何も言わない状態が続いている」');
     expect(hint).toContain('「何も言わない状態のまま」のような重複表現');
     expect(hint).toContain('「夫に、まず何について説明してほしいですか」');
     expect(hint).toContain('相手へしてほしい具体的な行動を一つだけ尋ねる');
     expect(stripInternalResponseStyleHint(hint)).toBe('何も言わない');
+  });
+
+  it('一つだけの回答で明日の朝という時機をそのまま保持させる', () => {
+    const parts = buildGeminiParts(
+      '明日の朝に始める行動を一つだけ、質問なしで答えてください。',
+      []
+    );
+    const hint = parts
+      .map((part) => ('text' in part ? part.text : ''))
+      .join('\n');
+
+    expect(hint).toContain('回答を必ず「明日の朝、」で始め');
+    expect(hint).toContain('「明日」だけに弱めたり');
   });
 
   it('「そうかも」を暫定同意として扱い直前と同じ有無を聞き直さない', () => {
