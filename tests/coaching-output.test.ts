@@ -4236,7 +4236,9 @@ describe('normalizeCoachingOutput', () => {
     );
     const text = 'text' in part ? part.text : '';
 
-    expect(text).toContain('二枚目に書く最初の手順');
+    expect(text).toContain('一枚目が利用目的、二枚目が利用手順という構成なのですね');
+    expect(text).toContain('二枚目に書く最初の手順は何ですか？');
+    expect(text).toContain('「利用」と「手順」を重ねず');
     expect(text).toContain('本人がまだ話していない三枚目や別ページを作らず');
     expect(text).toContain('質問一つだけ');
   });
@@ -4349,6 +4351,7 @@ describe('normalizeCoachingOutput', () => {
     );
     const text = 'text' in part ? part.text : '';
 
+    expect(text).toContain('毎月全額払ってほしいのですね');
     expect(text).toContain('「ご自身」ではなく「あなた」');
     expect(text).toContain('本人がまだ話していない感情を足さず');
     expect(text).toContain('一問だけ');
@@ -4361,10 +4364,21 @@ describe('normalizeCoachingOutput', () => {
     );
     const text = 'text' in part ? part.text : '';
 
-    expect(text).toContain('直前と同じ感情質問を繰り返さず');
-    expect(text).toContain('家賃の負担額について合意した内容');
-    expect(text).toContain('「合意や取り決め」のように同じ対象を二語で並べず');
-    expect(text).toContain('提案はまだ付けない');
+    expect(text).toContain('毎月全額払ってほしいと伝えても、支払われないのですね');
+    expect(text).toContain('夫婦間で家賃の負担額について合意した内容はありますか？');
+    expect(text).toContain('「決めた取り決め」のように同じ意味を重ねず');
+    expect(text).toContain('直前と同じ感情質問や提案も付けない');
+  });
+
+  it('会議で責めずに伝える一言へ嫌だったという理由を入れない', () => {
+    const [part] = buildGeminiParts(
+      '次の会議の冒頭で、そのことを責めずに伝える最初の一言を一つだけ、質問なしで提案してください。',
+      []
+    );
+    const text = 'text' in part ? part.text : '';
+
+    expect(text).toContain('時間をかけて準備した提案ですので、今回は最後まで聞いてから判断してほしいです');
+    expect(text).toContain('「嫌」「腹が立った」という感情を理由節へ入れず');
   });
 
   it('会議での怒りへ共感姿勢を宣言せず具体的な次の行動を尋ねる', () => {
@@ -4420,7 +4434,8 @@ describe('normalizeCoachingOutput', () => {
     const [part] = buildGeminiParts('明日からどう対応すればいいですか？', []);
     const text = 'text' in part ? part.text : '';
 
-    expect(text).toContain('家族へ頼む準備を一つに絞り');
+    expect(text).toContain('明日の朝、家族に頼む準備を一つだけに絞り');
+    expect(text).toContain('「伝えます」で終えず');
     expect(text).toContain('具体的な時刻、ゴミ、玄関などの作業例は作らず');
   });
 
