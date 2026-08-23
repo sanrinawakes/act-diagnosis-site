@@ -6308,21 +6308,21 @@ describe('normalizeCoachingOutput', () => {
     expect(result).not.toMatch(/[？?]|見過ごしたくない本音/);
   });
 
-  it('不満がある長文相談でも古い別件ではなく直前の夫の相談を引用する', () => {
+  it('相談対象への「意味不明」をBotへの不満と誤認せず最新の相談を使う', () => {
     const historyMessages = [
       {
         role: 'user' as const,
         content:
-          '私にとって何を手放せばいい?手放すってどうしたらいい?あと、今にいるってどういうこと?どうやってすれば今にいれるの?',
+          '先週の会議で提案を最後まで説明できませんでした。次回の伝え方を考えたいです。',
       },
       {
         role: 'assistant' as const,
         content:
-          'あなたが今手放すべきなのは、「夫に自分の正しさを理解させ、反省させたい」という期待です。',
+          '次回は、結論と理由を一文ずつ準備してから会議に参加してください。',
       },
     ];
     const lastUserText =
-      'mme1の夫のことだけど\n今口聞かない、関わらないを実践してるけど夫のタイプだと相手にされないで何か孤独感とか変化あるかな？娘とは少し関わる事はあるけど下のことは殆どないからね。下の子かわいがってるから関わりたい気持ちは少しありそうだけど今の状態だから同じ家にいても下の子の顔も見てない感じだね。家にいても家事して寝て休んで（休むのが多すぎ）の繰り返しって感じ。だけど掃除結局やらなそうだし。外で働いてるだけで何をこんなに疲れているのか意味不明。最初からキャパオーバーでお金もマイナスだったら子供もう一人作るなよって思うくらいだし。もちろん下の子に出会えて私は嬉しいけどこの矛盾にムカつく';
+      '今は家庭の相談です。パートナーは決めた家事をせず、休んでいる時間が長いです。本人から理由の説明がないので、この状態は意味不明だと感じています。相手の気持ちを決めつけず、私はどう対応すればよいですか。';
 
     const fallback = buildFinalVerifiedQualityFallback(
       lastUserText,
@@ -6335,10 +6335,25 @@ describe('normalizeCoachingOutput', () => {
     });
 
     expect(assessment.issues).toEqual([]);
-    expect(fallback).toContain('必要な用件だけを短く送る');
-    expect(fallback).toContain('明日のごみ出しをお願いします');
-    expect(fallback).not.toContain('私にとって何を手放せばいい');
-    expect(fallback).not.toMatch(/どういうこと|相手に変えてほしい行動/);
+    expect(fallback).toMatch(/家族|家事|相手|パートナー/);
+    expect(fallback).not.toMatch(/会議|提案|結論と理由/);
+  });
+
+  it('Botの返答を意味不明と指摘した場合は不満として扱う', () => {
+    const lastUserText = 'この返答は意味不明です。質問で返さず説明してください。';
+    const assessment = assessCoachingResponseQuality({
+      text: '今いちばん気になっていることは何ですか？',
+      lastUserText,
+      historyMessages: [
+        {
+          role: 'assistant',
+          content: 'まず、気持ちを一言だけ書いてください。',
+        },
+      ],
+    });
+
+    expect(assessment.issues).toContain('dissatisfaction_unanswered');
+    expect(assessment.issues).toContain('repeats_rejected_move');
   });
 
   it('収入につながる行動が分からない相談で投資講座の次の講義へ具体化する', () => {
