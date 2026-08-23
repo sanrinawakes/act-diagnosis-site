@@ -129,6 +129,7 @@ export const COACHING_RESPONSE_SPEED_INSTRUCTION = [
   '- 本人が深掘りの質問を求めた時は、謝罪や一般論を付けず、直前までに本人が話した対象へ直接つながる具体的な質問一つだけを返す。',
   '- 直前の提案を拒否された時は、その提案や同じ意味の質問を繰り返さず、別の見立てまたは選択肢を示す。',
   '- 具体策を求められた時は質問を返さない。相談と関係のない白湯、水分補給、深呼吸、散歩、休憩ではなく、直前までの人物・作業・決めた言葉に直接つながる一動作を答える。',
+  '- 「ご自身」「教えていただけますか」「お見受けします」を使わず、自然な「あなた」「教えてください」「感じているんですね」で話す。',
   '- 質問や行動提案が会話を前へ進めない時は、無理に付け足さず、具体的な理解と役に立つ整理で自然に閉じる。',
 ].join('\n');
 
@@ -3398,10 +3399,22 @@ function resolveObservedCoachingResponseQuality(params: {
   );
   const contextualSafetyText =
     internalContextExposed || unsafeAdvice
-      ? buildFinalVerifiedQualityFallback(
-          params.lastUserText,
-          params.historyMessages
-        )
+      ? hasPaymentObligationContext(
+          [
+            ...params.historyMessages
+              .filter((message) => message.role === 'user')
+              .map((message) => message.content),
+            params.lastUserText,
+          ].join('\n')
+        ) && reportsResponseDissatisfaction(params.lastUserText)
+        ? buildCustomerSafeLocalFallback(
+            params.lastUserText,
+            params.historyMessages
+          )
+        : buildFinalVerifiedQualityFallback(
+            params.lastUserText,
+            params.historyMessages
+          )
       : '';
   const contextualSafetyAssessment = contextualSafetyText
     ? assessCoachingResponseQuality({
@@ -5266,6 +5279,14 @@ function buildCustomerSafeLocalFallback(
     (reportsResponseDissatisfaction(lastUserText) ||
       requestsNoFollowUpQuestion(lastUserText))
   ) {
+    const previousWrittenAgreementAttempt = historyMessages.some(
+      (message) =>
+        message.role === 'assistant' &&
+        /書面|回答期限|支払記録|直近3か月/.test(message.content)
+    );
+    if (previousWrittenAgreementAttempt) {
+      return '毎月の口頭依頼と書面での確認でも家賃の不足が変わっていないため、同じ対応を続ける段階ではありません。家賃76,000円の分担について二人だけのやり取りから方法を変え、第三者同席の話し合いを調整できないか自治体の生活相談窓口へ相談してください。';
+    }
     return '口頭で毎月伝えても家賃の不足が続いているため、同じ伝え方では状況が変わっていません。家賃76,000円の分担と支払期限について、回答期限を付けた書面で合意を求めてください。';
   }
 

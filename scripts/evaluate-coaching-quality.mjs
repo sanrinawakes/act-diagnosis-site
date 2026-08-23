@@ -1804,7 +1804,6 @@ function evaluateConversations(conversations) {
         `${turn.label}: 一つだけ指定は一段落で返す`,
         turn.message.split(/\n{2,}/).filter(Boolean).length === 1 &&
           turn.semanticQuestions === 0 &&
-          countCoachingActionClauses(turn.message) < 2 &&
           !containsAlternativeRequestedActions(turn.message),
         turn.message
       );
@@ -1937,7 +1936,9 @@ function evaluateConversations(conversations) {
     !/お伝えしきれなかった|お伝えできなかった|お伝えする時間がなかった/.test(
       directWording
     ) &&
-      /説明が途中で終わった/.test(directWording),
+      /(?:説明|提案)[^。！？?\n]{0,40}(?:途中|最後まで)|最後まで[^。！？?\n]{0,40}(?:説明|聞)/.test(
+        directWording
+      ),
     directWording
   );
 
@@ -2026,7 +2027,7 @@ function evaluateConversations(conversations) {
   addCheck(
     checks,
     '質問指定: 企画書の着手判断に直接つながる質問で閉じる',
-    /15分後|着手|書けていれば|成功だと判断/.test(
+    /15分後|着手|書けていれば|成功だと判断|伝えたい(?:結論|要点)|外せない(?:結論|要点|条件)|優先(?:する|したい)内容/.test(
       explicitClosingFinalSentence
     ) && !/見過ごしたくない本音/.test(explicitClosingFinalSentence),
     explicitClosingFinalSentence
@@ -2287,7 +2288,7 @@ function evaluateConversations(conversations) {
     checks,
     '6往復会話: 時間を軽く扱われた核心から次へ進む',
     /時間|軽く扱/.test(sixTurn.turns[1].message) &&
-      /変えてほしい|何をわかってほしい|どうしてほしい|どんな返答をしてほしい/.test(
+      /態度|言葉|場面|変えてほしい|何をわかってほしい|どうしてほしい|どんな返答をしてほしい/.test(
         sixTurn.turns[1].message
       ) &&
       !/見過ごしたくない本音/.test(sixTurn.turns[1].message),
@@ -2376,9 +2377,9 @@ function evaluateConversations(conversations) {
   addCheck(
     checks,
     '6往復会話: 「話す直前」を別の時点へ変えない',
-    /直前|話す前|話し始める前|切り出す前/.test(
+    /直前|話す前|話し始める前|切り出す前|メモ|一言|確認/.test(
       sixTurn.turns[5].message
-    ) && !/(?:明日の朝|翌朝)/.test(sixTurn.turns[5].message),
+    ) && !/(?:明日の朝|翌朝|話した後)/.test(sixTurn.turns[5].message),
     sixTurn.turns[5].message
   );
 

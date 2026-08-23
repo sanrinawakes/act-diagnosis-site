@@ -103,6 +103,10 @@ describe('coaching runtime prompt', () => {
     expect(prompt).toContain('実務の整理では、感情を毎回尋ねず');
     expect(prompt).toContain('AI自身の推測や提案は、本人が明確に認めていない限り事実として引き継がない');
     expect(prompt).toContain('相談対象と関係のない白湯、水分補給、深呼吸、散歩、休憩へ逃げず');
+    expect(prompt).toContain('本人側の不足へ言い換えない');
+    expect(prompt).toContain('二つの回答対象を「や」でつながない');
+    expect(prompt).toContain('「最初の一歩」「小さな一段階」「着手すべき作業を書き出す」');
+    expect(prompt).toContain('言ってから立ち去るなど二動作をつなげない');
     expect(prompt).toContain('合計が一つを超えた場合は一つに減らしてから返す');
   });
 
@@ -816,6 +820,45 @@ describe('prepareGeminiHistory', () => {
 });
 
 describe('ensureVerifiedCoachingResolution', () => {
+  it('minimalの家賃安全差し替えは既実施の書面を繰り返さず第三者同席へ進む', () => {
+    process.env.COACHING_OUTPUT_PIPELINE_MODE = 'minimal';
+    const historyMessages = [
+      {
+        role: 'user' as const,
+        content:
+          '家賃は76000円ですが、夫は毎月20000円くらいしか払わず、私が不足分を負担しています。',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          '家賃76,000円の分担と支払期限について、回答期限を付けた書面で合意を求めてください。',
+      },
+    ];
+    const lastUserText =
+      'わからないから聞いています。質問を返さず、今までと違う対応を具体的に答えてください。';
+    const result = ensureVerifiedCoachingResolution({
+      resolution: {
+        text:
+          '家賃の引き落とし口座をご主人の名義に変更し、生活費の支払いを止めてください。',
+        usage: {},
+        modelName: 'gemini-3.7-flash',
+        provider: 'gemini',
+        repairAttempted: false,
+        repairAccepted: false,
+        initialIssues: ['unsafe_high_impact_advice'],
+        finalIssues: [],
+      },
+      lastUserText,
+      historyMessages,
+    });
+
+    expect(result.modelName).toBe('local-output-safety-fallback');
+    expect(result.text).toContain('第三者同席');
+    expect(result.text).toContain('家賃76,000円');
+    expect(result.text).not.toMatch(/回答期限|合意を求め|口座|生活費|[？?]/);
+    expect(result.finalIssues).toEqual([]);
+  });
+
   it('内部設定を含む候補でも顧客へ内部停止文を返さない', () => {
     const result = ensureVerifiedCoachingResolution({
       resolution: {
