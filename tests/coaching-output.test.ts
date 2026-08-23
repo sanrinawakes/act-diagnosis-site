@@ -4049,6 +4049,18 @@ describe('normalizeCoachingOutput', () => {
     expect(text).toContain('具体的な一点を尋ねる質問一つだけ');
   });
 
+  it('深掘り要求には直前の引っかかりを聞き直さず選択の核心へ進める', () => {
+    const [part] = buildGeminiParts(
+      '定型的な整理ではなく、もう少し深く聞いてほしいです。',
+      []
+    );
+    const text = 'text' in part ? part.text : '';
+
+    expect(text).toContain('「何が引っかかるか」を言い換えて聞き直さない');
+    expect(text).toContain('守りたいもの');
+    expect(text).toContain('質問一つだけ');
+  });
+
   it('家事を後回しにされて腹が立つ初回は返事の有無を一問尋ねる', () => {
     const [part] = buildGeminiParts(
       '夫に家事を頼んでも後回しにされます。私ばかり負担している気がして腹が立ちます。',
@@ -4099,6 +4111,50 @@ describe('normalizeCoachingOutput', () => {
     expect(text).toContain('質問一つだけ');
   });
 
+  it('説明順の迷いを二択にせず最初に伝えたい一情報へ絞る', () => {
+    const [part] = buildGeminiParts('説明する順番にも迷っています。', []);
+    const text = 'text' in part ? part.text : '';
+
+    expect(text).toContain('最初に見る人へ伝えたい情報を一つだけ');
+    expect(text).toContain('「課題か機能か」のような二択');
+    expect(text).toContain('行動提案は付けない');
+  });
+
+  it('明日の提案と最後の質問を求められたら着手判断へ直接つなぐ', () => {
+    const [part] = buildGeminiParts(
+      '企画書を完璧にしようとして手が止まります。明日着手する方法を短く提案し、最後に自分で判断を深める質問を一つだけしてください。',
+      []
+    );
+    const text = 'text' in part ? part.text : '';
+
+    expect(text).toContain('実行方法と最後の質問の両方');
+    expect(text).toContain('何ができていれば着手できたと判断するか');
+    expect(text).toContain('完璧にしたい箇所や理由の分析へ話を戻さない');
+  });
+
+  it('質問だけを求める依頼へ実行方法の形式指定を足さない', () => {
+    const [part] = buildGeminiParts(
+      '企画書を完璧にしようとして手が止まります。状況を短く受け止めて、最後に自分で判断を深める鋭い質問を一つだけしてください。',
+      []
+    );
+    const text = 'text' in part ? part.text : '';
+
+    expect(text).not.toContain('実行方法と最後の質問の両方');
+  });
+
+  it('断りたい予定への返事を先延ばしにした初回は断り文句を先回りしない', () => {
+    const [part] = buildGeminiParts(
+      '友人に断りたい予定があるのに、返事を先延ばしにしています。',
+      []
+    );
+    const text = 'text' in part ? part.text : '';
+
+    expect(text).toContain('断り文句を求めていません');
+    expect(text).toContain('何が一番気になるか');
+    expect(text).toContain('引用文、断り方');
+    expect(text).not.toContain('そのまま読める一文');
+  });
+
   it('回答要求後は方法の予告や複数の相談先をモデルへ求めない', () => {
     const parts = buildGeminiParts(
       'わからないから聞いています。質問を返さず、今までと違う対応を具体的に答えてください。',
@@ -4138,7 +4194,8 @@ describe('normalizeCoachingOutput', () => {
     );
     const text = 'text' in part ? part.text : '';
 
-    expect(text).toContain('答えまたは提案を一つだけ、一段落で簡潔に');
+    expect(text).toContain('名前・日付・時刻・金額などの答えだけ');
+    expect(text).toContain('質問文の言い換え、背景説明、追加質問は付けない');
     expect(text).not.toContain('そのまま読める一文');
     expect(text).not.toContain('「」で一つだけ');
   });

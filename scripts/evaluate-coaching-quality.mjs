@@ -2149,6 +2149,12 @@ function evaluateConversations(conversations) {
   );
   addCheck(
     checks,
+    '有料版長期履歴: 一言指定へ名前だけを直接返す',
+    /^ミント(?:です)?[。！]?$/.test(memory.turns[0].message.trim()),
+    memory.turns[0].message
+  );
+  addCheck(
+    checks,
     '有料版長期履歴: 要約V2または安全フォールバックを保存',
     memory.memoryVersion === 2 &&
       ['llm', 'deterministic-v1-fallback'].includes(memory.memoryGenerator),
@@ -2196,7 +2202,12 @@ function evaluateConversations(conversations) {
     '深掘り要求: 迷いの中身へ具体的な一問を返す',
     deeperFinal.semanticQuestions === 1 &&
       /役割|引き受け|迷/.test(deeperFinal.message) &&
-      !/何かありますか|どう思いますか/.test(deeperFinal.message),
+      /守りたい|手放したくない|失いたくない|後悔/.test(
+        deeperFinal.message
+      ) &&
+      !/何かありますか|どう思いますか|何が一番引っかか/.test(
+        deeperFinal.message
+      ),
     deeperFinal.message
   );
 
@@ -2205,6 +2216,14 @@ function evaluateConversations(conversations) {
     'short-reply-continuation'
   );
   const shortContinuationFinal = shortContinuation.turns.at(-1);
+  addCheck(
+    checks,
+    '短い返答: 初回に断り文句を先回りせず一問で理由を聞く',
+    shortContinuation.turns[0].semanticQuestions === 1 &&
+      !/[「『][^」』]+[」』]/.test(shortContinuation.turns[0].message) &&
+      /返事|先延ばし|気にな/.test(shortContinuation.turns[0].message),
+    shortContinuation.turns[0].message
+  );
   addCheck(
     checks,
     '短い返答: 友人への断りと関係悪化の流れを継続',
