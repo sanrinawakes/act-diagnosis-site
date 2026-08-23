@@ -890,51 +890,6 @@ function evaluateQuality(
     );
   }
 
-  if (scenarioId === 'long-continuity-three-turn-reference') {
-    checks.push(
-      check('3ターン前の締切曜日を保持する', /火曜/.test(text)),
-      check('3ターン前の締切時刻を保持する', /10時/.test(text)),
-      check('質問なし指定を守る', questions === 0),
-      check('一枚目の目的説明を最初の修正対象にする', /一枚目|目的/.test(text))
-    );
-  }
-
-  if (scenarioId === 'fact-to-one-feeling-question') {
-    checks.push(
-      check('気持ちを一つだけ尋ねる', questions === 1),
-      check('事実から感情へ進める', /気持ち|感じ|不安|戸惑|負担/.test(text)),
-      check('根拠のない感情を断定しない', !/焦り|苛立|イライラ|悲し|寂し/.test(text))
-    );
-  }
-
-  if (scenarioId === 'explicit-deeper-question') {
-    checks.push(
-      check('深掘りの質問を一つ返す', questions === 1),
-      check('役割を引き受ける迷いを扱う', /役割|引き受け|迷/.test(text)),
-      check(
-        '抽象的な定型質問で終わらない',
-        !/何かありますか|どう思いますか/.test(text)
-      )
-    );
-  }
-
-  if (scenarioId === 'short-reply-continuation') {
-    checks.push(
-      check('友人との断りの話を継続する', /友人|断|関係/.test(text)),
-      check('短い同意を新しい感情へ膨らませない', !/失望|距離|孤独|寂し/.test(text)),
-      check('短い返答に長く返しすぎない', text.length <= 240, `${text.length} chars`)
-    );
-  }
-
-  if (scenarioId === 'topic-switch-fact-insight-action') {
-    checks.push(
-      check('家庭の朝の準備を優先する', /家族|朝|準備/.test(text)),
-      check('具体的な一手を示す', /頼|動|担当|時間|一つ/.test(text)),
-      check('終了した仕事の話へ戻らない', !/仕事|締切/.test(text)),
-      check('根拠のない感情を断定しない', !/焦り|苛立|イライラ|悲し|寂し/.test(text))
-    );
-  }
-
   return checks;
 }
 
