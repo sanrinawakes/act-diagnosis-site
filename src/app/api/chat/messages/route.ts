@@ -40,7 +40,8 @@ export async function POST(request: NextRequest) {
 
   const id = typeof body.id === 'string' ? body.id : '';
   const sessionId = typeof body.sessionId === 'string' ? body.sessionId : '';
-  const role = body.role === 'user' ? body.role : '';
+  const role =
+    body.role === 'user' || body.role === 'assistant' ? body.role : '';
   const content = typeof body.content === 'string' ? body.content : '';
 
   if (
