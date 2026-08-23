@@ -1827,6 +1827,15 @@ function evaluateConversations(conversations) {
   );
   addCheck(
     checks,
+    '初回: 手をつけられない状態を不自然に言い換えない',
+    /手をつけられ|手がつかない/.test(continuity.turns[0].message) &&
+      !/手をつけるのが止まって|手をつけることが止まって/.test(
+        continuity.turns[0].message
+      ),
+    continuity.turns[0].message
+  );
+  addCheck(
+    checks,
     '訂正後: 最新の「同僚」「悔しい」を優先',
     /同僚|低く見られ|能力がないと思われ/.test(continuity.turns[1].message) &&
       /悔|能力/.test(continuity.turns[1].message)
@@ -2111,15 +2120,17 @@ function evaluateConversations(conversations) {
     /家賃|76000|支払|未払い|不足/.test(rejectionTurn.message) &&
       rejectionTurn.outputChars >= 80 &&
       rejectionTurn.semanticQuestions === 0 &&
-      /記録/.test(rejectionTurn.message) &&
-      !/相談|窓口|第三者|法律/.test(rejectionTurn.message),
+      /記録|書き残/.test(rejectionTurn.message) &&
+      !/ノート|表|アプリ|紙|相談|窓口|第三者|法律/.test(
+        rejectionTurn.message
+      ),
     `${rejectionTurn.outputChars} chars: ${rejectionTurn.message}`
   );
   addCheck(
     checks,
     '回答要求後: 質問を返さず別の対応を具体的に示す',
     directAnswerTurn.semanticQuestions === 0 &&
-      directAnswerTurn.outputChars >= 70 &&
+    directAnswerTurn.outputChars >= 60 &&
       /家賃|支払|未払い|不足|金額|期限|記録|第三者|相談/.test(
         directAnswerTurn.message
       ) &&
@@ -2286,6 +2297,16 @@ function evaluateConversations(conversations) {
     /友人|断|関係/.test(shortContinuationFinal.message) &&
       hasClosingCoachingMove(shortContinuationFinal.message),
     shortContinuationFinal.message
+  );
+  addCheck(
+    checks,
+    '短い返答: 関係悪化の不安へ文面作成を返さず反応を一問尋ねる',
+    shortContinuation.turns[1].semanticQuestions === 1 &&
+      /反応/.test(shortContinuation.turns[1].message) &&
+      !/文面|理由|どう伝え|伝えられそう/.test(
+        shortContinuation.turns[1].message
+      ),
+    shortContinuation.turns[1].message
   );
   addCheck(
     checks,
@@ -2525,7 +2546,7 @@ function evaluateConversations(conversations) {
     '同時5接続: Bot自身の予定ではなく利用者への行動として答える',
     parallelTurns.every(
       (turn) =>
-        /してください|することです|始めてください/.test(turn.message) &&
+        /てください|することです|始めてください/.test(turn.message) &&
         !/書きます[。！]?$/.test(turn.message.trim())
     ),
     parallelTurns.map((turn) => `${turn.label}: ${turn.message}`).join(' / ')

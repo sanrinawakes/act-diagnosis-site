@@ -4195,6 +4195,30 @@ describe('normalizeCoachingOutput', () => {
     expect(text).not.toContain('そのまま読める一文');
   });
 
+  it('友人関係が悪くなる不安へ文面作成を返さず反応を一問尋ねる', () => {
+    const [part] = buildGeminiParts(
+      '断ると関係が悪くなる気がします。',
+      []
+    );
+    const text = 'text' in part ? part.text : '';
+
+    expect(text).toContain('断りの文面や理由をユーザーへ作らせず');
+    expect(text).toContain('どのような反応をされるのが一番心配か');
+    expect(text).toContain('過去に同じ出来事があったとは仮定しない');
+  });
+
+  it('手をつけられない状態を不自然な日本語へ言い換えない', () => {
+    const [part] = buildGeminiParts(
+      '新しい仕事を任されたのですが、失敗して期待を裏切るのが怖くて、手をつけられません。',
+      []
+    );
+    const text = 'text' in part ? part.text : '';
+
+    expect(text).toContain('手をつけられない');
+    expect(text).toContain('「手をつけるのが止まっている」のように不自然に言い換えず');
+    expect(text).toContain('具体的な作業を質問一つだけ');
+  });
+
   it('家賃負担の初回は硬い接客表現を避けて感情を一問だけ尋ねる', () => {
     const [part] = buildGeminiParts(
       '家賃は76000円ですが、夫は毎月20000円くらいしか払わず、私が不足分を負担しています。毎月全額払ってほしいです。',
@@ -4227,7 +4251,8 @@ describe('normalizeCoachingOutput', () => {
     const text = 'text' in part ? part.text : '';
 
     expect(text).toContain('一つの記録へ残す対応だけ');
-    expect(text).toContain('相談窓口、第三者、別案、追加質問は付けない');
+    expect(text).toContain('ノート、表、アプリ、紙など記録媒体の候補を並べず');
+    expect(text).toContain('相談窓口、第三者、別案、追加質問も付けない');
   });
 
   it('回答要求後は方法の予告や複数の相談先をモデルへ求めない', () => {
