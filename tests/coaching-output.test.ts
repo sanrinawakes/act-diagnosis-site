@@ -4151,6 +4151,18 @@ describe('normalizeCoachingOutput', () => {
     expect(text).toContain('心理や理由は足さない');
   });
 
+  it('家賃の理由を尋ねた人の主語を夫へ入れ替えない', () => {
+    const [part] = buildGeminiParts(
+      '夫が家賃を払わない理由を何度聞いても、説明がありません。',
+      []
+    );
+    const text = 'text' in part ? part.text : '';
+
+    expect(text).toContain('夫に家賃を払わない理由を何度聞いても、説明がないのですね');
+    expect(text).toContain('「夫が何度聞いても」のように、尋ねた人を夫へ入れ替えない');
+    expect(text).toContain('理由が分からないままの状況を、どのように感じていますか？');
+  });
+
   it('時間の軽視を嫌だと述べた段階で感情強化や文面提案をしない', () => {
     const [part] = buildGeminiParts(
       '家事そのものより、私の時間を軽く扱われているように感じることが嫌なんです。',
@@ -4199,9 +4211,22 @@ describe('normalizeCoachingOutput', () => {
     const text = 'text' in part ? part.text : '';
 
     expect(text).toContain('最初に見る人へ伝えたい情報を一つだけ');
+    expect(text).toContain('「説明する順番でも」「迷われている」');
     expect(text).toContain('「説明資料の説明する順番」のように同じ語を重ねず');
     expect(text).toContain('「課題か機能か」のような二択');
     expect(text).toContain('行動提案も付けない');
+  });
+
+  it('資料の締切を硬い間接表現へ変えない', () => {
+    const [part] = buildGeminiParts(
+      '担当者から、資料は火曜午前10時までと言われました。',
+      []
+    );
+    const text = 'text' in part ? part.text : '';
+
+    expect(text).toContain('火曜午前10時が資料の提出期限なのですね');
+    expect(text).toContain('「提出の期限が示された」のような硬く間接的な表現');
+    expect(text).toContain('その期限までに、最初に終わらせる作業は何ですか？');
   });
 
   it('二枚目の利用手順から未提示の三枚目を作らず最初の手順を一問だけ尋ねる', () => {

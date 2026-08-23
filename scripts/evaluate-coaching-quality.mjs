@@ -2153,7 +2153,9 @@ function evaluateConversations(conversations) {
       /自治体[^。！？?\n]{0,24}無料法律相談[^。！？?\n]{0,24}(?:一件|1件)[^。！？?\n]{0,12}予約/.test(
         directAnswerTurn.message
       ) &&
-      /記録[^。！？?\n]{0,24}持参/.test(directAnswerTurn.message) &&
+      /記録[^。！？?\n]{0,24}(?:持参|持って)/.test(
+        directAnswerTurn.message
+      ) &&
       !/女性相談|夫婦問題|別の相談|相談先.+(?:や|または|もしくは)/.test(
         directAnswerTurn.message
       ) &&
