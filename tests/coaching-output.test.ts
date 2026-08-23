@@ -705,8 +705,9 @@ describe('conversation continuity hints', () => {
       .join('\n');
 
     expect(hint).toContain('本人が話していない過去の出来事');
-    expect(hint).toContain('言われると一番怖い一つの言葉');
-    expect(hint).toContain('過去に実際に言われたとは仮定しない');
+    expect(hint).toContain('過去に実際に言われたとも仮定しない');
+    expect(hint).toContain('その友人から言われると一番怖い言葉は何ですか');
+    expect(hint).toContain('「怖い言葉はどのような言葉ですか」のように同じ語を重ねず');
   });
 
   it('拒否された提案を言い換えて繰り返さない指示を加える', () => {
@@ -4099,6 +4100,7 @@ describe('normalizeCoachingOutput', () => {
     const text = 'text' in part ? part.text : '';
 
     expect(text).toContain('引き受ける判断で、一番引っかかっていること');
+    expect(text).toContain('「迷われている」のような硬い敬語');
     expect(text).toContain('「引き受けるか一番迷っている点」のように助詞を欠いた表現');
   });
 
@@ -4172,8 +4174,21 @@ describe('normalizeCoachingOutput', () => {
     const text = 'text' in part ? part.text : '';
 
     expect(text).toContain('最初に見る人へ伝えたい情報を一つだけ');
+    expect(text).toContain('「説明資料の説明する順番」のように同じ語を重ねず');
     expect(text).toContain('「課題か機能か」のような二択');
-    expect(text).toContain('行動提案は付けない');
+    expect(text).toContain('行動提案も付けない');
+  });
+
+  it('二枚目の利用手順から未提示の三枚目を作らず最初の手順を一問だけ尋ねる', () => {
+    const [part] = buildGeminiParts(
+      '一枚目は利用目的、二枚目は利用手順を書く予定です。',
+      []
+    );
+    const text = 'text' in part ? part.text : '';
+
+    expect(text).toContain('二枚目に書く最初の手順');
+    expect(text).toContain('本人がまだ話していない三枚目や別ページを作らず');
+    expect(text).toContain('質問一つだけ');
   });
 
   it('明日の提案と最後の質問を求められたら着手判断へ直接つなぐ', () => {
@@ -4269,8 +4284,9 @@ describe('normalizeCoachingOutput', () => {
     );
     const text = 'text' in part ? part.text : '';
 
-    expect(text).toContain('本人が述べた事実と感情だけ');
-    expect(text).toContain('「お気持ちが伝わります」などAIの共感姿勢を足さず');
+    expect(text).toContain('本人が述べた事実と二つの感情');
+    expect(text).toContain('本人が明言した「嫌」を省かず');
+    expect(text).toContain('「お気持ちが伝わります」などAIの共感姿勢も足さず');
     expect(text).toContain('相手に変えてほしい具体的な行動');
   });
 
@@ -4315,6 +4331,18 @@ describe('normalizeCoachingOutput', () => {
 
     expect(text).toContain('家族へ頼む準備を一つに絞り');
     expect(text).toContain('具体的な時刻、ゴミ、玄関などの作業例は作らず');
+  });
+
+  it('家族が返事だけで動かない相談を重複した状況表現にしない', () => {
+    const [part] = buildGeminiParts(
+      '家族に朝の準備を頼んでも、返事だけで動いてくれません。',
+      []
+    );
+    const text = 'text' in part ? part.text : '';
+
+    expect(text).toContain('返事だけで動いてくれないのですね');
+    expect(text).toContain('「状況が起きている」のような重複表現');
+    expect(text).toContain('「どのように感じていますか」と質問一つだけ');
   });
 
   it('締切が重なる優先順位相談は作業名と締切日の二項目を同時に聞かない', () => {

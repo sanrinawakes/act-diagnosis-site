@@ -1931,6 +1931,7 @@ function evaluateConversations(conversations) {
     checks,
     '感情保持: 明言済みの怒りと時間の軽視を別の感情へ変えない',
     /腹が立|怒|時間|軽く扱/.test(emotionFidelity.turns[0].message) &&
+      /嫌/.test(emotionFidelity.turns[0].message) &&
       !/落ち込|心残り|どんな気持ち(?:ですか|になりますか)|(?:怒り|腹が立)[^。！？?\n]{0,80}(?:感じている|強い|でしょうか|ですか)/.test(
         emotionFidelity.turns[0].message
       ),
@@ -2242,6 +2243,21 @@ function evaluateConversations(conversations) {
   const longContinuityFinal = longContinuity.turns.at(-1);
   addCheck(
     checks,
+    '10往復超: 説明順の受け止めで同じ語を重ねない',
+    !/説明資料の説明する順番|資料の説明する順番/.test(
+      longContinuity.turns[3].message
+    ),
+    longContinuity.turns[3].message
+  );
+  addCheck(
+    checks,
+    '10往復超: 二枚目の利用手順から未提示の三枚目を作らない',
+    /二枚目|2枚目|利用手順/.test(longContinuity.turns[5].message) &&
+      !/三枚目|3枚目/.test(longContinuity.turns[5].message),
+    longContinuity.turns[5].message
+  );
+  addCheck(
+    checks,
     '10往復超: 3ターン前の火曜午前10時を参照',
     /火曜|10時/.test(longContinuityFinal.message) &&
       longContinuityFinal.semanticQuestions === 0,
@@ -2277,7 +2293,7 @@ function evaluateConversations(conversations) {
     checks,
     '深掘り要求: 初問を自然な助詞で迷いの一点へつなぐ',
     deeperQuestion.turns[0].semanticQuestions === 1 &&
-      !/引き受けるか一番迷っている点|引き受けるか最も迷っている点/.test(
+      !/迷われて|引き受けるか一番迷っている点|引き受けるか最も迷っている点/.test(
         deeperQuestion.turns[0].message
       ),
     deeperQuestion.turns[0].message
@@ -2344,7 +2360,7 @@ function evaluateConversations(conversations) {
     '短い返答: 暫定同意の後に同じ出来事の有無を聞き直さない',
     shortContinuationFinal.semanticQuestions === 1 &&
       /何と|言葉|言われ/.test(shortContinuationFinal.message) &&
-      !/ことがありますか|反応がありましたか|何らかの反応|過去に|以前に|断ったり|意見を言ったり/.test(
+      !/怖い言葉はどのような言葉|言葉はどんな言葉|ことがありますか|反応がありましたか|何らかの反応|過去に|以前に|断ったり|意見を言ったり/.test(
         shortContinuationFinal.message
       ),
     shortContinuationFinal.message
@@ -2376,6 +2392,12 @@ function evaluateConversations(conversations) {
         topicSwitchFinal.message
       ),
     topicSwitchFinal.message
+  );
+  addCheck(
+    checks,
+    '話題切替: 家庭の事実を不自然な状況表現へ変えない',
+    !/状況が起きて|事実が起きて/.test(topicSwitch.turns[2].message),
+    topicSwitch.turns[2].message
   );
 
   const sixTurn = findConversation(conversations, 'six-turn-paid-conversation');
