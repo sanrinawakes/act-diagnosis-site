@@ -4155,7 +4155,9 @@ describe('normalizeCoachingOutput', () => {
     );
     const text = 'text' in part ? part.text : '';
 
-    expect(text).toContain('まだ一言や文面を求めていません');
+    expect(text).toContain('責める言い方だと喧嘩になるので、落ち着いて伝えたいのですね');
+    expect(text).toContain('「だからこそ」「からこそ」のような強調を足さない');
+    expect(text).toContain('まだ一言や文面を求めていないため');
     expect(text).toContain('引用文や伝え方を先回りして提案せず');
     expect(text).toContain('最初の一言に入れたいお願い');
     expect(text).toContain('同じ言葉で聞き直さない');
