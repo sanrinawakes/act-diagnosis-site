@@ -4047,6 +4047,7 @@ describe('normalizeCoachingOutput', () => {
 
     expect(text).toContain('「最初に行う手順」のような抽象語を作らず');
     expect(text).toContain('具体的な作業名を一つメモに書く');
+    expect(text).toContain('「最初に取り組み始める」のように開始を重ねない');
     expect(text).toContain('「明日」をそのまま残して');
   });
 
