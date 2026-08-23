@@ -320,11 +320,15 @@ function buildResponseStyleHint(text: string, hasAttachments = false) {
   }
 
   if (requestsDirectWording(text)) {
-    return '【内部応答形式】直近の会話を読み直し、ユーザーが明言した具体的な事実・感情・希望を少なくとも一つ含めて、そのまま読める一文を「」で一つだけ返してください。ユーザーが示していない時刻、時間、期限、事情は足さないでください。「少し話したいことがある」「今いいですか」のような許可取りだけの一般的な文、補足説明、追加質問は付けないでください。';
+    return '【内部応答形式】直近の会話を読み直し、ユーザーが明言した具体的な事実・感情・希望を少なくとも一つ含めて、そのまま読める一文を「」で一つだけ返してください。相手へ行動の変更を頼む文面は、「嫌だから」や「落ち着いて話を聞いてほしい」で済ませず、相手に変えてほしい具体的な行動を一つ入れてください。家事を後回しにされる相談なら「いつやるか教えてほしい」と頼んでください。ユーザーが示していない時刻、時間、期限、事情は足さないでください。「少し話したいことがある」「今いいですか」のような許可取りだけの一般的な文、補足説明、追加質問は付けないでください。';
   }
 
   if (requestsSingleAnswerFormat(text)) {
-    return '【内部応答形式】ユーザーの指定を優先し、答えまたは提案を一つだけ、一段落で簡潔に返してください。一つの提案へ二つの動作を「〜して、〜する」と詰め込まず、「AまたはB」「AやB」のような別案も付けないでください。補足説明や確認質問は付けず、答えた時点で終了してください。';
+    return '【内部応答形式】ユーザーの指定を優先し、答えまたは提案を一つだけ、一段落で簡潔に返してください。一つの提案へ二つの動作を「〜して、〜する」と詰め込まず、「AまたはB」「AやB」のような別案も付けないでください。対象の作業名が会話にない場合は「最初に行う手順」のような抽象語を作らず、「最初に取り組む具体的な作業名を一つメモに書く」という一動作にしてください。補足説明や確認質問は付けず、答えた時点で終了してください。';
+  }
+
+  if (isFactualLifeChangeWithoutExplicitRequest(text)) {
+    return '【内部応答形式】これは人間関係または生活上の変化について、本人が事実だけを追加した発言です。書かれた事実を一文で短く受け止めた後、本人がその変化をどう感じているかを具体的な質問一つだけで尋ねてください。二択、解決策、負担や感情の先回りは付けないでください。';
   }
 
   if (requestsRestWithoutQuestions(text)) {
@@ -332,6 +336,32 @@ function buildResponseStyleHint(text: string, hasAttachments = false) {
   }
 
   return '';
+}
+
+function isFactualLifeChangeWithoutExplicitRequest(text: string) {
+  const hasExplicitRequest =
+    /[？?]|(?:どうすれば|どうしたら|教えて|答えて|提案して|考えて|聞いてほしい|相談したい|助けて)/.test(
+      text
+    );
+  const alreadyNamesFeeling =
+    /腹が立|怒|嫌|悲し|不安|怖|つら|しんど|疲れ|戸惑|困|負担に感じ|うれし|嬉し|楽し/.test(
+      text
+    );
+  const describesLifeChange =
+    /勤務|始業|通勤|朝食|家事|育児|介護|引っ越|転居|家族|夫|妻|子ども|子供|親|生活時間|勤務時間/.test(
+      text
+    );
+  const isPracticalTaskUpdate =
+    /資料|企画書|原稿|ファイル|スライド|会議資料|締切|タスク|作業/.test(
+      text
+    );
+
+  return (
+    !hasExplicitRequest &&
+    !alreadyNamesFeeling &&
+    describesLifeChange &&
+    !isPracticalTaskUpdate
+  );
 }
 
 function buildConversationContinuityHint(

@@ -3969,6 +3969,36 @@ describe('normalizeCoachingOutput', () => {
       '具体的な事実・感情・希望'
     );
     expect('text' in part ? part.text : '').toContain('「」で一つだけ');
+    expect('text' in part ? part.text : '').toContain(
+      '相手に変えてほしい具体的な行動'
+    );
+    expect('text' in part ? part.text : '').toContain(
+      'いつやるか教えてほしい'
+    );
+  });
+
+  it('生活上の変化を事実だけで話した時は二択や解決策より気持ちを一問尋ねる', () => {
+    const [part] = buildGeminiParts(
+      '来月から勤務開始が一時間早くなります。通勤には四十分かかり、朝食準備も私が担当しています。',
+      []
+    );
+    const text = 'text' in part ? part.text : '';
+
+    expect(text).toContain('生活上の変化');
+    expect(text).toContain('どう感じているか');
+    expect(text).toContain('質問一つだけ');
+    expect(text).toContain('二択、解決策');
+  });
+
+  it('対象の作業名が不明な一行動指定へ抽象的な最初の手順を足さない', () => {
+    const [part] = buildGeminiParts(
+      '明日の朝にできることを一つだけ、質問なしで教えてください。',
+      []
+    );
+    const text = 'text' in part ? part.text : '';
+
+    expect(text).toContain('「最初に行う手順」のような抽象語を作らず');
+    expect(text).toContain('具体的な作業名を一つメモに書く');
   });
 
   it('長文末尾の断る一言も発言文の依頼として扱う', () => {

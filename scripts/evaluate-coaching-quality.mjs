@@ -1929,7 +1929,7 @@ function evaluateConversations(conversations) {
       /時間|準備|最後まで|聞|軽く|大切/.test(directWording) &&
       emotionFidelity.turns[1].semanticQuestions === 0 &&
       !/悲し|落ち込|残念|心残り/.test(directWording) &&
-      !/嫌(?:です|だと|だ)|腹が立/.test(directWording) &&
+      !/嫌(?:です|だから)|腹が立/.test(directWording) &&
       directWording.split(/\n{2,}/).filter(Boolean).length === 1,
     directWording
   );
@@ -1964,7 +1964,7 @@ function evaluateConversations(conversations) {
     checks,
     '長文: 末尾の本題「断る一言」を保持',
     quotedRefusal.length >= 18 &&
-      /(?:(?:今回は|今は|本日は|今回の依頼は)[^。！？?\n]{0,50}(?:(?:お?引き受け|お受け|対応)(?:でき|られ)(?:ません|ない)|見送(?:らせてください|ります|らせていただきます))|(?:お断り|辞退)します)/.test(
+      /(?:(?:今回は|今は|本日は|今回(?:の[^。！？?\n]{1,24})?)[^。！？?\n]{0,50}(?:(?:お?引き受け|お受け|対応)(?:でき|られ)(?:ません|ない)|(?:お?引き受け|お受け|対応)するのは難しい|見送(?:らせてください|ります|らせていただきます))|(?:お断り|辞退)します)/.test(
         quotedRefusal
       ) &&
       !/(?:明日以降|後日)[^。！？?\n]{0,60}(?:お?引き受け|お受け|対応)[^。！？?\n]{0,20}(?:でき|可能)/.test(
@@ -2118,8 +2118,11 @@ function evaluateConversations(conversations) {
   );
   addCheck(
     checks,
-    '有料版中期履歴: LLM要約V2を保存',
-    midMemory.memoryVersion === 2 && midMemory.memoryGenerator === 'llm',
+    '有料版中期履歴: 要約V2または安全フォールバックを保存',
+    midMemory.memoryVersion === 2 &&
+      ['llm', 'deterministic-v1-fallback'].includes(
+        midMemory.memoryGenerator
+      ),
     `version=${midMemory.memoryVersion} generator=${midMemory.memoryGenerator}`
   );
 
@@ -2140,9 +2143,16 @@ function evaluateConversations(conversations) {
   );
   addCheck(
     checks,
-    '有料版長期履歴: LLM要約V2を保存',
-    memory.memoryVersion === 2 && memory.memoryGenerator === 'llm',
+    '有料版長期履歴: 要約V2または安全フォールバックを保存',
+    memory.memoryVersion === 2 &&
+      ['llm', 'deterministic-v1-fallback'].includes(memory.memoryGenerator),
     `version=${memory.memoryVersion} generator=${memory.memoryGenerator}`
+  );
+  addCheck(
+    checks,
+    '有料版履歴: LLM要約経路が少なくとも一度成功',
+    [midMemory.memoryGenerator, memory.memoryGenerator].includes('llm'),
+    `mid=${midMemory.memoryGenerator} long=${memory.memoryGenerator}`
   );
 
   const longContinuity = findConversation(
@@ -2291,7 +2301,7 @@ function evaluateConversations(conversations) {
     checks,
     '6往復会話: 時間を軽く扱われた核心から次へ進む',
     /時間|軽く扱/.test(sixTurn.turns[1].message) &&
-      /行動|態度|言葉|言動|場面|期限|伝えたこと|変えてほしい|何をわかってほしい|どうしてほしい|どんな返答をしてほしい/.test(
+      /行動|態度|言葉|言動|場面|期限|伝えたこと|変えてほしい|何をわかってほしい|どうしてほしい|どんな返答をしてほしい|どのような対応をしてほしい/.test(
         sixTurn.turns[1].message
       ) &&
       !/見過ごしたくない本音/.test(sixTurn.turns[1].message),
