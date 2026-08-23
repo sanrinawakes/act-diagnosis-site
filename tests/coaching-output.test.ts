@@ -688,8 +688,8 @@ describe('conversation continuity hints', () => {
       .map((part) => ('text' in part ? part.text : ''))
       .join('\n');
 
-    expect(hint).toContain('回答を必ず「明日の朝、」で始め');
-    expect(hint).toContain('「明日」だけに弱めたり');
+    expect(hint).toContain('明日の朝、最初に取り組む具体的な作業名を一つメモに書いてください');
+    expect(hint).toContain('「明日の朝」を「明日」「その日」「翌日」に弱めず');
   });
 
   it('「そうかも」を暫定同意として扱い直前と同じ有無を聞き直さない', () => {
@@ -4059,10 +4059,10 @@ describe('normalizeCoachingOutput', () => {
     );
     const text = 'text' in part ? part.text : '';
 
-    expect(text).toContain('「最初に行う手順」のような抽象語を作らず');
-    expect(text).toContain('具体的な作業名を一つメモに書く');
-    expect(text).toContain('「最初に取り組み始める」のように開始を重ねない');
-    expect(text).toContain('「明日」をそのまま残して');
+    expect(text).toContain('「最初に行う手順」');
+    expect(text).toContain('具体的な作業名を一つメモに書いてください');
+    expect(text).toContain('「最初に取り組み始める」のように言葉を足さない');
+    expect(text).toContain('「明日の朝」を「明日」「その日」「翌日」に弱めず');
   });
 
   it('感情の追加評価と質問前の進行宣言をモデル指示で禁止する', () => {
@@ -4233,6 +4233,30 @@ describe('normalizeCoachingOutput', () => {
     expect(text).toContain('火曜午前10時が資料の提出期限なのですね');
     expect(text).toContain('「提出の期限が示された」のような硬く間接的な表現');
     expect(text).toContain('その期限までに、最初に終わらせる作業は何ですか？');
+  });
+
+  it('初めて使う人向けの資料で優先順位の語を重ねない', () => {
+    const [part] = buildGeminiParts(
+      '対象は初めてサービスを使う人です。',
+      []
+    );
+    const text = 'text' in part ? part.text : '';
+
+    expect(text).toContain('その人に、資料で最初に伝えたいことは何ですか？');
+    expect(text).toContain('「最初」「まず」「一番」を同じ質問内で重ねず');
+    expect(text).toContain('サービスの特徴や行動も決めつけない');
+  });
+
+  it('長い利用目的は文字数ではなく残す内容を尋ねる', () => {
+    const [part] = buildGeminiParts(
+      '目的の説明が長くなりすぎています。',
+      []
+    );
+    const text = 'text' in part ? part.text : '';
+
+    expect(text).toContain('その説明で、必ず残したい内容は何ですか？');
+    expect(text).toContain('目標文字数を尋ねず');
+    expect(text).toContain('核心として残す内容一つだけ');
   });
 
   it('二枚目の利用手順から未提示の三枚目を作らず最初の手順を一問だけ尋ねる', () => {
@@ -4503,8 +4527,9 @@ describe('normalizeCoachingOutput', () => {
     );
     const text = 'text' in part ? part.text : '';
 
-    expect(text).toContain('「〜してください」と書き');
-    expect(text).toContain('「〜します」で終えない');
+    expect(text).toContain('出力は「明日の朝、最初に取り組む具体的な作業名を一つメモに書いてください。」の一文だけ');
+    expect(text).toContain('「メモに書く行動から進めてください」');
+    expect(text).toContain('「メモに書く行動から始めてください」');
     expect(text).toContain('履歴にないスマートフォン');
   });
 
