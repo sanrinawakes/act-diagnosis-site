@@ -49,6 +49,8 @@ import {
   type MonthlyQuotaReservation,
 } from '@/lib/coaching-quota';
 import { hasAllowedRequestOrigin } from '@/lib/request-origin';
+import { getCoachingOutputPipelineConfig } from '@/lib/coaching-output-pipeline-mode';
+import { createCoachingSessionCorrelationId } from '@/lib/coaching-telemetry';
 import {
   hasCoachingAccess,
   hasInternalCoachingMonitorAccess,
@@ -567,6 +569,9 @@ export async function POST(request: NextRequest) {
     const telemetry = {
       route: '/api/chat',
       requestId,
+      pipelineMode: getCoachingOutputPipelineConfig().mode,
+      sessionCorrelationId:
+        createCoachingSessionCorrelationId(activeSessionId),
       requestMessages: messages.length,
       compactMessages: compactMessages.length,
       historyMessages: historyMessages.length,
@@ -793,6 +798,7 @@ export async function POST(request: NextRequest) {
           qualityRepairAttempted: result.qualityRepairAttempted,
           qualityRepairAccepted: result.qualityRepairAccepted,
           qualityInitialIssues: result.qualityInitialIssues,
+          qualityObservedIssues: result.qualityInitialIssues,
           qualityFinalIssues: result.qualityFinalIssues,
           usage,
         })

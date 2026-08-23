@@ -6,6 +6,10 @@ import {
 } from '@/lib/attachments';
 import { sendCoachingAlert } from '@/lib/coaching-alerts';
 import { COACHING_SCOPE_GUIDANCE } from '@/lib/coaching-scope';
+import {
+  getCoachingOutputPipelineConfig,
+  type CoachingOutputPipelineMode,
+} from '@/lib/coaching-output-pipeline-mode';
 
 export interface CoachingChatMessage {
   role: 'user' | 'assistant';
@@ -56,6 +60,8 @@ export interface CoachingTelemetry {
   preStreamMs?: number;
   attachmentMs?: number;
   accountLookupMs?: number;
+  pipelineMode?: CoachingOutputPipelineMode;
+  sessionCorrelationId?: string | null;
 }
 
 type GeminiRole = 'user' | 'model';
@@ -394,10 +400,15 @@ export async function generateCoachingText(params: {
   historyMessages: CoachingChatMessage[];
   lastUserParts: GeminiPart[];
 }) {
+  const pipelineConfig = getCoachingOutputPipelineConfig();
   const lastUserText = extractTextFromParts(params.lastUserParts);
   const immediateResponse = buildImmediateCoachingResponse(
     lastUserText,
-    params.historyMessages
+    params.historyMessages,
+    {
+      allowNonSafetyResponses:
+        pipelineConfig.allowNonSafetyImmediateResponses,
+    }
   );
   if (immediateResponse) {
     return {
@@ -580,6 +591,7 @@ export function createJsonLineStream(params: {
 }) {
   const encoder = new TextEncoder();
   const modelName = getCoachingGeminiModelName(params.lastUserParts);
+  const pipelineConfig = getCoachingOutputPipelineConfig();
   let deliveryOpen = true;
 
   return new ReadableStream<Uint8Array>({
@@ -637,7 +649,11 @@ export function createJsonLineStream(params: {
         const lastUserText = extractTextFromParts(params.lastUserParts);
         const immediateResponse = buildImmediateCoachingResponse(
           lastUserText,
-          params.historyMessages
+          params.historyMessages,
+          {
+            allowNonSafetyResponses:
+              pipelineConfig.allowNonSafetyImmediateResponses,
+          }
         );
         if (immediateResponse) {
           fullText = immediateResponse.text;
@@ -937,6 +953,68 @@ export function createJsonLineStream(params: {
 
         if (fullText.trim()) {
           const partialRawText = trimToNaturalContinuationBoundary(fullText);
+          if (!pipelineConfig.applySemanticNormalization) {
+            const observedPartial = resolveObservedCoachingResponseQuality({
+              rawText: isTimeout
+                ? `${partialRawText}${PARTIAL_STREAM_TIMEOUT_NOTICE}`
+                : partialRawText,
+              historyMessages: params.historyMessages,
+              lastUserText: fallbackUserText,
+              usage: {},
+              modelName,
+              provider: 'gemini',
+            });
+            const verifiedObservedPartial = ensureVerifiedCoachingResolution({
+              resolution: observedPartial,
+              lastUserText: fallbackUserText,
+              historyMessages: params.historyMessages,
+              preserveUsage: true,
+            });
+            fullText = verifiedObservedPartial.text;
+            if (!emittedText) writeVerifiedChunk(fullText);
+            const finalization = await resolveDonePayload(params.onDone, {}, {
+              message: fullText,
+              completionStatus: 'partial',
+              modelName: verifiedObservedPartial.modelName,
+              provider: verifiedObservedPartial.provider,
+              qualityInitialIssues: verifiedObservedPartial.initialIssues,
+              qualityFinalIssues: verifiedObservedPartial.finalIssues,
+              qualitySafetyHold: verifiedObservedPartial.qualitySafetyHold,
+              chargeable: verifiedObservedPartial.chargeable,
+            });
+            logChatTelemetry('partial_done', params.telemetry, {
+              modelName: verifiedObservedPartial.modelName,
+              provider: verifiedObservedPartial.provider,
+              completionStatus: 'partial',
+              elapsedMs: Date.now() - startedAt,
+              firstChunkMs,
+              generationFirstChunkMs,
+              ttftMs: generationFirstChunkMs,
+              finalizationStatus: finalization.status,
+              finalizationMs: finalization.elapsedMs,
+              finalizationError: finalization.error,
+              outputChars: fullText.length,
+              qualityInitialIssues: verifiedObservedPartial.initialIssues,
+              qualityObservedIssues: verifiedObservedPartial.initialIssues,
+              qualityFinalIssues: verifiedObservedPartial.finalIssues,
+              qualitySafetyHold: verifiedObservedPartial.qualitySafetyHold,
+              error: getErrorMessage(error),
+            });
+            write({
+              type: 'done',
+              modelName: verifiedObservedPartial.modelName,
+              provider: verifiedObservedPartial.provider,
+              completionStatus: 'partial',
+              finalizationStatus: finalization.status,
+              message: fullText,
+              qualityInitialIssues: verifiedObservedPartial.initialIssues,
+              qualityFinalIssues: verifiedObservedPartial.finalIssues,
+              qualitySafetyHold: verifiedObservedPartial.qualitySafetyHold,
+              usage: {},
+              ...finalization.payload,
+            });
+            return;
+          }
           const partialRawQuality = assessCoachingResponseQuality({
             text: partialRawText,
             lastUserText: fallbackUserText,
@@ -1204,6 +1282,9 @@ function logChatTelemetry(
   const payload = {
     event: `chat_stream_${status}`,
     ...telemetry,
+    pipelineMode: getCoachingOutputPipelineConfig().mode,
+    qualityObservedIssues:
+      details.qualityObservedIssues ?? details.qualityInitialIssues ?? [],
     ...details,
   };
 
@@ -1750,19 +1831,9 @@ function buildThemeSelectionResponse(
 
 function buildImmediateCoachingResponse(
   text: string,
-  historyMessages: CoachingChatMessage[] = []
+  historyMessages: CoachingChatMessage[] = [],
+  options: { allowNonSafetyResponses?: boolean } = {}
 ) {
-  const themeSelectionResponse = buildThemeSelectionResponse(
-    text,
-    historyMessages
-  );
-  if (themeSelectionResponse) {
-    return {
-      text: themeSelectionResponse,
-      modelName: 'local-theme-selection',
-      finishReason: 'LOCAL_THEME_SELECTION',
-    };
-  }
   const urgentSafetyResponse = buildUrgentSafetyResponse(text);
   if (urgentSafetyResponse) {
     return {
@@ -1776,6 +1847,19 @@ function buildImmediateCoachingResponse(
       text: 'その内容は公開できません。代わりに、今抱えている悩みや目標について一緒に考えます。今いちばん相談したいことは何ですか？',
       modelName: 'local-guard',
       finishReason: 'LOCAL_PROMPT_GUARD',
+    };
+  }
+  if (options.allowNonSafetyResponses === false) return null;
+
+  const themeSelectionResponse = buildThemeSelectionResponse(
+    text,
+    historyMessages
+  );
+  if (themeSelectionResponse) {
+    return {
+      text: themeSelectionResponse,
+      modelName: 'local-theme-selection',
+      finishReason: 'LOCAL_THEME_SELECTION',
     };
   }
   if (requestsShortRestResponse(text)) {
@@ -3242,6 +3326,100 @@ type CoachingQualityResolution = {
   chargeable?: boolean;
 };
 
+export function minimallySanitizeCoachingOutput(text: string) {
+  return cleanupTrailingMarkdown(
+    text
+      .replace(/^```(?:markdown|text)?\s*/i, '')
+      .replace(/\s*```$/i, '')
+      .replace(/^#{1,6}\s+/gm, '')
+      .replace(/\*\*/g, '')
+  );
+}
+
+function resolveObservedCoachingResponseQuality(params: {
+  rawText: string;
+  historyMessages: CoachingChatMessage[];
+  lastUserText: string;
+  usage: CoachingUsage;
+  modelName: string;
+  provider?: string;
+}): CoachingQualityResolution {
+  const rawAssessment = assessCoachingResponseQuality({
+    text: params.rawText,
+    lastUserText: params.lastUserText,
+    historyMessages: params.historyMessages,
+  });
+  const deliveryText = minimallySanitizeCoachingOutput(params.rawText);
+  const deliveryAssessment = assessCoachingResponseQuality({
+    text: deliveryText,
+    lastUserText: params.lastUserText,
+    historyMessages: params.historyMessages,
+  });
+  const observedIssues = [
+    ...new Set([...rawAssessment.issues, ...deliveryAssessment.issues]),
+  ];
+  const urgentSafetyResponse = buildUrgentSafetyResponse(params.lastUserText);
+  const promptGuardResponse = requestsInternalPromptDisclosure(
+    params.lastUserText
+  )
+    ? 'その内容は公開できません。代わりに、今抱えている悩みや目標について一緒に考えます。今いちばん相談したいことは何ですか？'
+    : '';
+  const internalContextExposed =
+    containsInternalCoachingContextExposure(deliveryText) ||
+    containsProtectedInternalContent(deliveryText);
+  const unsafeAdvice = deliveryAssessment.issues.includes(
+    'unsafe_high_impact_advice'
+  );
+
+  if (
+    urgentSafetyResponse ||
+    promptGuardResponse ||
+    internalContextExposed ||
+    unsafeAdvice
+  ) {
+    const safetyText =
+      urgentSafetyResponse ||
+      promptGuardResponse ||
+      buildCustomerSafeLocalFallback(params.lastUserText);
+    const safetyAssessment = assessCoachingResponseQuality({
+      text: safetyText,
+      lastUserText: params.lastUserText,
+      historyMessages: params.historyMessages,
+    });
+    return {
+      text: safetyText,
+      usage: params.usage,
+      modelName: urgentSafetyResponse
+        ? 'local-safety'
+        : promptGuardResponse
+          ? 'local-guard'
+          : 'local-output-safety-fallback',
+      provider: 'local',
+      repairAttempted: false,
+      repairAccepted: false,
+      initialIssues: observedIssues,
+      finalIssues: safetyAssessment.issues,
+      qualitySafetyHold: false,
+      chargeable: false,
+    };
+  }
+
+  return {
+    text: deliveryText,
+    usage: params.usage,
+    modelName: params.modelName,
+    provider: params.provider,
+    repairAttempted: false,
+    repairAccepted: false,
+    initialIssues: observedIssues,
+    // In observe/minimal mode these are observations, not response-gate
+    // failures. They stay in initialIssues/qualityObservedIssues telemetry.
+    finalIssues: [],
+    qualitySafetyHold: false,
+    chargeable: true,
+  };
+}
+
 async function resolveCoachingResponseQuality(params: {
   rawText: string;
   systemPrompt: string;
@@ -3253,6 +3431,17 @@ async function resolveCoachingResponseQuality(params: {
   allowRemoteRepair?: boolean;
 }) {
   const lastUserText = extractTextFromParts(params.lastUserParts);
+  const pipelineConfig = getCoachingOutputPipelineConfig();
+  if (!pipelineConfig.applySemanticNormalization) {
+    return resolveObservedCoachingResponseQuality({
+      rawText: params.rawText,
+      historyMessages: params.historyMessages,
+      lastUserText,
+      usage: params.usage,
+      modelName: params.modelName,
+      provider: params.provider,
+    });
+  }
   const rawAssessment = assessCoachingResponseQuality({
     text: params.rawText,
     lastUserText,
@@ -3304,7 +3493,7 @@ async function resolveCoachingResponseQuality(params: {
   let bestAssessment = initialAssessment;
 
   const repairedCandidate =
-    params.allowRemoteRepair === false
+    params.allowRemoteRepair === false || !pipelineConfig.applyQualityRepair
       ? null
       : await generateGeminiQualityRepair({
           candidateText: baseResolution.text,
@@ -3346,6 +3535,7 @@ async function resolveCoachingResponseQuality(params: {
 
   const repairAttempted = true;
   if (
+    pipelineConfig.applyQualityFallback &&
     bestAssessment.issues.some((issue) =>
       [
         'too_short',
@@ -3394,7 +3584,10 @@ async function resolveCoachingResponseQuality(params: {
     }
   }
 
-  if (bestAssessment.issues.length > 0) {
+  if (
+    pipelineConfig.applyQualityFallback &&
+    bestAssessment.issues.length > 0
+  ) {
     const verifiedFallback = buildFinalVerifiedQualityFallback(
       lastUserText,
       params.historyMessages
@@ -4913,6 +5106,16 @@ export function ensureVerifiedCoachingResolution(params: {
 }) {
   const { resolution, lastUserText, historyMessages, preserveUsage = false } =
     params;
+  if (!getCoachingOutputPipelineConfig().applyVerifiedResolution) {
+    return resolveObservedCoachingResponseQuality({
+      rawText: resolution.text,
+      historyMessages,
+      lastUserText,
+      usage: preserveUsage ? resolution.usage : {},
+      modelName: resolution.modelName,
+      provider: resolution.provider,
+    });
+  }
   if (
     resolution.finalIssues.length === 0 &&
     isCustomerSafeDeliveryText({

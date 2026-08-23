@@ -37,6 +37,7 @@ import {
 } from '@/lib/coaching-scope';
 import { hasAllowedRequestOrigin } from '@/lib/request-origin';
 import { isFormerAwakesMemberWithoutAccess } from '@/lib/coaching-access';
+import { getCoachingOutputPipelineConfig } from '@/lib/coaching-output-pipeline-mode';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -352,6 +353,7 @@ export async function POST(request: NextRequest) {
     const telemetry = {
       route: '/api/free/chat',
       requestId,
+      pipelineMode: getCoachingOutputPipelineConfig().mode,
       requestMessages: messages.length,
       compactMessages: compactMessages.length,
       historyMessages: historyMessages.length,
@@ -407,6 +409,7 @@ export async function POST(request: NextRequest) {
           qualityRepairAttempted: result.qualityRepairAttempted,
           qualityRepairAccepted: result.qualityRepairAccepted,
           qualityInitialIssues: result.qualityInitialIssues,
+          qualityObservedIssues: result.qualityInitialIssues,
           qualityFinalIssues: result.qualityFinalIssues,
           usage,
         })
