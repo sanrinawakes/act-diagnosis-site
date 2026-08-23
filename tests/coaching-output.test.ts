@@ -4198,6 +4198,18 @@ describe('normalizeCoachingOutput', () => {
     expect(text).toContain('質問一つだけ');
   });
 
+  it('一枚目の利用目的から次の内容を二択で決めつけない', () => {
+    const [part] = buildGeminiParts(
+      '一枚目には利用目的を書く予定です。',
+      []
+    );
+    const text = 'text' in part ? part.text : '';
+
+    expect(text).toContain('一枚目に利用目的を書く予定なのですね');
+    expect(text).toContain('その利用目的の次に、二枚目で伝えたい内容は何ですか');
+    expect(text).toContain('「使い方かメリットか」のような二択');
+  });
+
   it('説明資料を作っている事実を接客敬語へ変えない', () => {
     const [part] = buildGeminiParts(
       '新しい企画の説明資料を作っています。',
@@ -4218,9 +4230,11 @@ describe('normalizeCoachingOutput', () => {
     const text = 'text' in part ? part.text : '';
 
     expect(text).toContain('実行方法と最後の質問の両方');
+    expect(text).toContain('明日、最初の15分で企画書の見出しを一つだけ書いてください');
     expect(text).toContain('提案文でも「明日」と書き');
     expect(text).toContain('「目次または見出し」のような二択');
-    expect(text).toContain('何ができていれば着手できたと判断するか');
+    expect(text).toContain('15分後に何が書けていれば、着手は成功だと判断しますか');
+    expect(text).toContain('「ご自身」は使わず');
     expect(text).toContain('完璧にしたい箇所や理由の分析へ話を戻さない');
   });
 
@@ -4447,8 +4461,20 @@ describe('normalizeCoachingOutput', () => {
     );
     const text = 'text' in part ? part.text : '';
 
-    expect(text).toContain('そのまま読める一文');
-    expect(text).toContain('「」で一つだけ');
+    expect(text).toContain('そのまま使える一文だけ');
+    expect(text).toContain('今回はお引き受けできません');
+  });
+
+  it('長文末尾の断り文で未提示の予定や猶予を作らない', () => {
+    const [part] = buildGeminiParts(
+      '本当に相談したいのは、明日また急な依頼をされた時に、角を立てずに断る一言です。一つだけ提案してください。',
+      []
+    );
+    const text = 'text' in part ? part.text : '';
+
+    expect(text).toContain('今回はお引き受けできません');
+    expect(text).toContain('今日の予定、明日までの猶予、別の引受時期を作らず');
+    expect(text).toContain('質問や補足も付けない');
   });
 
   it('名前を一言で聞く事実質問を発言文の依頼と取り違えない', () => {
