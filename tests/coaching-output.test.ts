@@ -4083,6 +4083,12 @@ describe('normalizeCoachingOutput', () => {
     expect(COACHING_RESPONSE_SPEED_INSTRUCTION).toContain(
       '「嫌」を「嫌悪感」へ強めない'
     );
+    expect(COACHING_RESPONSE_SPEED_INSTRUCTION).toContain(
+      '同じ名詞や優先順位の語を一文の中で必要なく重ねない'
+    );
+    expect(COACHING_RESPONSE_SPEED_INSTRUCTION).toContain(
+      '「利用手順のページで、最初に行う手順」'
+    );
   });
 
   it('感情的になりそうな不安には伝達と離席の二動作を指示しない', () => {
@@ -4548,6 +4554,29 @@ describe('normalizeCoachingOutput', () => {
     expect(text).toContain('質問文の言い換え、背景説明、追加質問は付けない');
     expect(text).not.toContain('そのまま読める一文');
     expect(text).not.toContain('「」で一つだけ');
+  });
+
+  it('日付だけを求められた時は質問文を繰り返さない', () => {
+    const [part] = buildGeminiParts(
+      '以前伝えた毎月の支払い日は何日ですか？日付だけ答えてください。',
+      []
+    );
+    const text = 'text' in part ? part.text : '';
+
+    expect(text).toContain('答えが25日なら「25日です」とだけ返し');
+    expect(text).toContain('「毎月の支払い日は」を繰り返さない');
+  });
+
+  it('長期履歴の最終回答で修飾を重ねない', () => {
+    const [part] = buildGeminiParts(
+      '3回前に伝えた締切時刻も踏まえて、今日最初に直す箇所を一つだけ、質問なしで答えてください。',
+      []
+    );
+    const text = 'text' in part ? part.text : '';
+
+    expect(text).toContain('今日最初に直す箇所は、一枚目の利用目的の長い説明です');
+    expect(text).toContain('「一枚目に書いている利用目的の長くなっている文章」');
+    expect(text).toContain('修飾を重ねず');
   });
 
   it('断り文の回りくどい許可表現を直接的で丁寧な文へ直す', () => {
