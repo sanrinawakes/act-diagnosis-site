@@ -692,6 +692,23 @@ describe('conversation continuity hints', () => {
     expect(hint).toContain('相手が実際に言った一つの言葉');
   });
 
+  it('反応への心配に対する「そうかも」から未確認の過去を作らない', () => {
+    const parts = buildGeminiParts('そうかも。', [], [
+      {
+        role: 'assistant',
+        content:
+          'その友人からどのような反応をされるのが一番心配ですか？',
+      },
+    ]);
+    const hint = parts
+      .map((part) => ('text' in part ? part.text : ''))
+      .join('\n');
+
+    expect(hint).toContain('本人が話していない過去の出来事');
+    expect(hint).toContain('言われると一番怖い一つの言葉');
+    expect(hint).toContain('過去に実際に言われたとは仮定しない');
+  });
+
   it('拒否された提案を言い換えて繰り返さない指示を加える', () => {
     const parts = buildGeminiParts('できない', [], [
       {
@@ -4065,7 +4082,8 @@ describe('normalizeCoachingOutput', () => {
     const text = 'text' in part ? part.text : '';
 
     expect(text).toContain('「整理していきましょう」などの進行宣言');
-    expect(text).toContain('具体的な一点を尋ねる質問一つだけ');
+    expect(text).toContain('「何が引っかかっているか」を言い換えて聞き直さず');
+    expect(text).toContain('最初に頭へ浮かぶ具体的な場面');
   });
 
   it('深掘り要求には直前の引っかかりを聞き直さず選択の核心へ進める', () => {
@@ -4088,6 +4106,7 @@ describe('normalizeCoachingOutput', () => {
     const text = 'text' in part ? part.text : '';
 
     expect(text).toContain('いつやるかという返事があるか');
+    expect(text).toContain('「ご自身」は使わず「あなた」');
     expect(text).toContain('質問一つだけ');
     expect(text).toContain('心理や理由は足さない');
   });
@@ -4176,6 +4195,41 @@ describe('normalizeCoachingOutput', () => {
     expect(text).not.toContain('そのまま読める一文');
   });
 
+  it('家賃負担の初回は硬い接客表現を避けて感情を一問だけ尋ねる', () => {
+    const [part] = buildGeminiParts(
+      '家賃は76000円ですが、夫は毎月20000円くらいしか払わず、私が不足分を負担しています。毎月全額払ってほしいです。',
+      []
+    );
+    const text = 'text' in part ? part.text : '';
+
+    expect(text).toContain('「ご自身」ではなく「あなた」');
+    expect(text).toContain('本人がまだ話していない感情を足さず');
+    expect(text).toContain('一問だけ');
+  });
+
+  it('家賃を毎月求めても払われない追加事実から合意確認へ進む', () => {
+    const [part] = buildGeminiParts(
+      '夫には毎月、家賃を全額払ってほしいと伝えています。それでも払われません。',
+      []
+    );
+    const text = 'text' in part ? part.text : '';
+
+    expect(text).toContain('直前と同じ感情質問を繰り返さず');
+    expect(text).toContain('家賃の負担額について合意した内容');
+    expect(text).toContain('提案はまだ付けない');
+  });
+
+  it('同じ家賃提案を拒否されたターンは記録だけに絞る', () => {
+    const [part] = buildGeminiParts(
+      'その伝え方はもう毎月やっています。同じ提案や同じ質問はしないでください。',
+      []
+    );
+    const text = 'text' in part ? part.text : '';
+
+    expect(text).toContain('一つの記録へ残す対応だけ');
+    expect(text).toContain('相談窓口、第三者、別案、追加質問は付けない');
+  });
+
   it('回答要求後は方法の予告や複数の相談先をモデルへ求めない', () => {
     const parts = buildGeminiParts(
       'わからないから聞いています。質問を返さず、今までと違う対応を具体的に答えてください。',
@@ -4195,6 +4249,40 @@ describe('normalizeCoachingOutput', () => {
     expect(text).toContain('「方法があります」と予告せず');
     expect(text).toContain('相談先や別案を複数並べず');
     expect(text).toContain('対応を一つだけ示す');
+    expect(text).toContain('自治体の無料法律相談を一件予約');
+    expect(text).toContain('別の相談先を並べず');
+  });
+
+  it('家庭の対応策で未提示の時刻や作業例を創作しない', () => {
+    const [part] = buildGeminiParts('明日からどう対応すればいいですか？', []);
+    const text = 'text' in part ? part.text : '';
+
+    expect(text).toContain('家族へ頼む準備を一つに絞り');
+    expect(text).toContain('具体的な時刻、ゴミ、玄関などの作業例は作らず');
+  });
+
+  it('一つの行動指定は利用者への依頼形にして未提示の端末を足さない', () => {
+    const [part] = buildGeminiParts(
+      '明日の朝に始める行動を一つだけ、質問なしで答えてください。',
+      []
+    );
+    const text = 'text' in part ? part.text : '';
+
+    expect(text).toContain('「〜してください」と書き');
+    expect(text).toContain('「〜します」で終えない');
+    expect(text).toContain('履歴にないスマートフォン');
+  });
+
+  it('短い疲労には未申告の蓄積や身体状態を足さない', () => {
+    const [part] = buildGeminiParts(
+      'もう今日は何も考えたくない。疲れた。',
+      []
+    );
+    const text = 'text' in part ? part.text : '';
+
+    expect(text).toContain('二文以内');
+    expect(text).toContain('「疲れがたまっている」「頭と体」');
+    expect(text).toContain('再開案内、質問は付けない');
   });
 
   it('長文末尾の断る一言も発言文の依頼として扱う', () => {

@@ -1495,7 +1495,7 @@ function evaluateConversations(conversations) {
     addCheck(
       checks,
       `${turn.label}: 硬い接客表現・既知の誤字なし`,
-      !/お察し(?:いた)?します|承知(?:いた)?しました|いらっしゃる|差し支えなければ|よろしければ|(?:お聞かせ|聞かせて|教えて|お話し|話して)いただけますか|お聞かせいただけますでしょうか|させていただけますでしょうか|となっております|お伺いいたします|お気軽に(?:ご質問|お尋ね|ご相談)|頑張られ|(?:素晴らしい|大切な)一歩|大切な視点|大切な本音|本音が隠れて|気づかれたのですね|(?:提案|方法|行動)があります|それだけ[^。！？?\n]{0,80}(?:大切|重要)[^。！？?\n]{0,12}(?:から|ため)|サポートさせていただきます|ご無理なさらず|ご安心ください|お過ごしください|(?:教えて|伝えて|書いて|声をかけて|相談して|お話しして|話して)くださ(?:り|って)[、,]?ありがとうございます|(?:気持ち|状況|悩み)を言葉にしていただけて(?:よかった|うれしい)です|(?:お気持ち|気持ち).{0,8}よく(?:分|わ)かります|何か(?:具体的に|続けて)?(?:お話し|話して)(?:みたい|したい)?ことはありますか|何か[、,]?(?:今)?(?:感じていることや[、,]?)?(?:話したい|話してみたい)ことはありますか|今[、,]?(?:この瞬間に)?(?:最も|一番)?(?:話したい|話してみたい)ことは何ですか|この(?:提案|方法|考え)(?:について)?[、,]?(?:どのように|どう)(?:感じ|思い)ますか|この[^。！？?\n]{0,80}(?:いかがでしょうか|いかがですか|試せそうでしょうか|試せそうですか|できそうでしょうか|できそうですか|どう思いますか)|最後に[、,]?自分で判断を深めるための質問です|その[^。！？?\n]{0,80}気持ちが伝わります|姿勢は(?:とても)?素敵です|あなたの言葉一つ一つを大切に受け止めています|受け止めさせてください|受け止めたいと思います|細かく分析する前に|見捨てられ|承認欲求|トラウマ|幼少期|愛着障害|共依存|我慢.{0,12}証拠|という喧嘩|タタスク|タースク|タムスケジュール|(?:です|ます)[。．]\s*か[？?]|途中で止まることはありません|途切れることなく|受け止めております|お話ししてくださいました|必ず(?:回答|返答)します/.test(
+      !/ご自身|という事実がある|お察し(?:いた)?します|承知(?:いた)?しました|いらっしゃる|差し支えなければ|よろしければ|(?:お聞かせ|聞かせて|教えて|お話し|話して)いただけますか|お聞かせいただけますでしょうか|させていただけますでしょうか|となっております|お伺いいたします|お気軽に(?:ご質問|お尋ね|ご相談)|頑張られ|(?:素晴らしい|大切な)一歩|大切な視点|大切な本音|本音が隠れて|気づかれたのですね|(?:提案|方法|行動)があります|それだけ[^。！？?\n]{0,80}(?:大切|重要)[^。！？?\n]{0,12}(?:から|ため)|サポートさせていただきます|ご無理なさらず|ご安心ください|お過ごしください|(?:教えて|伝えて|書いて|声をかけて|相談して|お話しして|話して)くださ(?:り|って)[、,]?ありがとうございます|(?:気持ち|状況|悩み)を言葉にしていただけて(?:よかった|うれしい)です|(?:お気持ち|気持ち).{0,8}よく(?:分|わ)かります|何か(?:具体的に|続けて)?(?:お話し|話して)(?:みたい|したい)?ことはありますか|何か[、,]?(?:今)?(?:感じていることや[、,]?)?(?:話したい|話してみたい)ことはありますか|今[、,]?(?:この瞬間に)?(?:最も|一番)?(?:話したい|話してみたい)ことは何ですか|この(?:提案|方法|考え)(?:について)?[、,]?(?:どのように|どう)(?:感じ|思い)ますか|この[^。！？?\n]{0,80}(?:いかがでしょうか|いかがですか|試せそうでしょうか|試せそうですか|できそうでしょうか|できそうですか|どう思いますか)|最後に[、,]?自分で判断を深めるための質問です|その[^。！？?\n]{0,80}気持ちが伝わります|姿勢は(?:とても)?素敵です|あなたの言葉一つ一つを大切に受け止めています|受け止めさせてください|受け止めたいと思います|細かく分析する前に|見捨てられ|承認欲求|トラウマ|幼少期|愛着障害|共依存|我慢.{0,12}証拠|という喧嘩|タタスク|タースク|タムスケジュール|(?:です|ます)[。．]\s*か[？?]|途中で止まることはありません|途切れることなく|受け止めております|お話ししてくださいました|必ず(?:回答|返答)します/.test(
         turn.message
       ),
       turn.message
@@ -1905,6 +1905,14 @@ function evaluateConversations(conversations) {
       /疲|休|考えなく|しんど/.test(shortEmotion.turns[0].message),
     `${shortEmotion.turns[0].outputChars} chars / ${shortEmotion.turns[0].semanticQuestions} questions`
   );
+  addCheck(
+    checks,
+    '短い感情: 疲れを未申告の蓄積や身体状態へ広げない',
+    !/疲れがたま|疲れが溜ま|頭と体|いつでもまた|声をかけて/.test(
+      shortEmotion.turns[0].message
+    ),
+    shortEmotion.turns[0].message
+  );
 
   const emotionFidelity = findConversation(
     conversations,
@@ -2077,6 +2085,18 @@ function evaluateConversations(conversations) {
   const directAnswerTurn = rejectedSuggestion.turns[3];
   addCheck(
     checks,
+    '拒否前: 伝えても払われない追加事実から合意確認へ進む',
+    rejectedSuggestion.turns[1].semanticQuestions === 1 &&
+      /合意|取り決め|決めた|約束/.test(
+        rejectedSuggestion.turns[1].message
+      ) &&
+      !/どう感じ|どのように感じ/.test(
+        rejectedSuggestion.turns[1].message
+      ),
+    rejectedSuggestion.turns[1].message
+  );
+  addCheck(
+    checks,
     '拒否後: 毎月実行済みの伝達提案を繰り返さない',
     !/もう一度|改めて|再度/.test(rejectionTurn.message) &&
       !/夫[^。！？?\n]{0,80}伝えて(?:ください|みてください|みましょう)/.test(
@@ -2089,7 +2109,10 @@ function evaluateConversations(conversations) {
     checks,
     '拒否後: 家賃の未払いという現実の問題を保持する',
     /家賃|76000|支払|未払い|不足/.test(rejectionTurn.message) &&
-      rejectionTurn.outputChars >= 80,
+      rejectionTurn.outputChars >= 80 &&
+      rejectionTurn.semanticQuestions === 0 &&
+      /記録/.test(rejectionTurn.message) &&
+      !/相談|窓口|第三者|法律/.test(rejectionTurn.message),
     `${rejectionTurn.outputChars} chars: ${rejectionTurn.message}`
   );
   addCheck(
@@ -2098,6 +2121,10 @@ function evaluateConversations(conversations) {
     directAnswerTurn.semanticQuestions === 0 &&
       directAnswerTurn.outputChars >= 70 &&
       /家賃|支払|未払い|不足|金額|期限|記録|第三者|相談/.test(
+        directAnswerTurn.message
+      ) &&
+      /無料法律相談/.test(directAnswerTurn.message) &&
+      !/女性相談|夫婦問題|別の相談|相談先.+(?:や|または|もしくは)/.test(
         directAnswerTurn.message
       ) &&
       !/見過ごしたくない本音|一文だけメモ|何かありますか/.test(
@@ -2218,6 +2245,16 @@ function evaluateConversations(conversations) {
   const deeperFinal = deeperQuestion.turns.at(-1);
   addCheck(
     checks,
+    '深掘り要求: 二問目で最初の引っかかりを言い換えて反復しない',
+    deeperQuestion.turns[1].semanticQuestions === 1 &&
+      /場面|浮か/.test(deeperQuestion.turns[1].message) &&
+      !/何が一番引っかか|一番引っかかっている理由/.test(
+        deeperQuestion.turns[1].message
+      ),
+    deeperQuestion.turns[1].message
+  );
+  addCheck(
+    checks,
     '深掘り要求: 迷いの中身へ具体的な一問を返す',
     deeperFinal.semanticQuestions === 1 &&
       /役割|引き受け|迷/.test(deeperFinal.message) &&
@@ -2255,7 +2292,7 @@ function evaluateConversations(conversations) {
     '短い返答: 暫定同意の後に同じ出来事の有無を聞き直さない',
     shortContinuationFinal.semanticQuestions === 1 &&
       /何と|言葉|言われ/.test(shortContinuationFinal.message) &&
-      !/ことがありますか|反応がありましたか/.test(
+      !/ことがありますか|反応がありましたか|何らかの反応|過去に|以前に|断ったり|意見を言ったり/.test(
         shortContinuationFinal.message
       ),
     shortContinuationFinal.message
@@ -2271,7 +2308,10 @@ function evaluateConversations(conversations) {
     '話題切替: 家庭の事実・見立て・一手を優先',
     /家族|朝|準備/.test(topicSwitchFinal.message) &&
       /頼|動|担当|時間|一つ/.test(topicSwitchFinal.message) &&
-      !/仕事|締切/.test(topicSwitchFinal.message),
+      !/仕事|締切/.test(topicSwitchFinal.message) &&
+      !/(?:\d{1,2}|一|二|三|四|五|六|七|八|九|十)時|ゴミ|玄関/.test(
+        topicSwitchFinal.message
+      ),
     topicSwitchFinal.message
   );
 
@@ -2449,6 +2489,14 @@ function evaluateConversations(conversations) {
     ) && !/(?:明日の朝|翌朝|話した後)/.test(sixTurn.turns[5].message),
     sixTurn.turns[5].message
   );
+  addCheck(
+    checks,
+    '6往復会話: 履歴にない端末や媒体を話す直前の一手へ足さない',
+    !/スマートフォン|スマホ|タブレット|パソコン|ノート|紙/.test(
+      sixTurn.turns[5].message
+    ),
+    sixTurn.turns[5].message
+  );
 
   const parallelTurns = conversations
     .filter((conversation) => conversation.name.startsWith('parallel-burst-'))
@@ -2469,6 +2517,16 @@ function evaluateConversations(conversations) {
         /水|窓|カーテン|呼吸|メモ|紙|ノート|机|予定|タスク|TODO|着替|ログイン|画面|ページ|ファイル|アプリ|ブラウザ|開(?:く|いて)|(?:\d+|一|ひと)(?:杯|回|分|行|文|つ)/i.test(
           turn.message
         )
+    ),
+    parallelTurns.map((turn) => `${turn.label}: ${turn.message}`).join(' / ')
+  );
+  addCheck(
+    checks,
+    '同時5接続: Bot自身の予定ではなく利用者への行動として答える',
+    parallelTurns.every(
+      (turn) =>
+        /してください|することです|始めてください/.test(turn.message) &&
+        !/書きます[。！]?$/.test(turn.message.trim())
     ),
     parallelTurns.map((turn) => `${turn.label}: ${turn.message}`).join(' / ')
   );
