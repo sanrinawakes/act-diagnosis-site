@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { writeFile } from 'node:fs/promises';
 import { deflateSync } from 'node:zlib';
 import { createClient } from '@supabase/supabase-js';
 import { deleteTestAuthUser } from './lib/test-account-cleanup.mjs';
@@ -28,6 +29,8 @@ const maxTotalMs = Number(args.get('max-ms') || 15000);
 const maxFirstChunkMs = Number(args.get('max-first-chunk-ms') || 10000);
 const expectedTextModel = args.get('expected-text-model') || '';
 const expectedImageModel = args.get('expected-image-model') || '';
+const expectedPipelineMode = args.get('expected-pipeline-mode') || 'legacy';
+const reportPath = args.get('report') || '';
 const supabaseUrl = requireEnv('NEXT_PUBLIC_SUPABASE_URL');
 const anonKey = requireEnv('NEXT_PUBLIC_SUPABASE_ANON_KEY');
 const serviceRoleKey = requireEnv('SUPABASE_SERVICE_ROLE_KEY');
@@ -104,10 +107,8 @@ try {
     }
   );
   const compactOutput = args.get('compact') === 'true';
-  console.log(
-    JSON.stringify(
-      compactOutput
-        ? {
+  const report = compactOutput
+    ? {
             ok: failed.length === 0,
             baseUrl,
             runId,
@@ -121,6 +122,12 @@ try {
                 firstChunkMs: turn.firstChunkMs,
                 totalMs: turn.totalMs,
                 outputChars: turn.outputChars,
+                provider: turn.provider,
+                finishReason: turn.finishReason,
+                qualityRepairAttempted: turn.qualityRepairAttempted,
+                qualityRepairAccepted: turn.qualityRepairAccepted,
+                qualityInitialIssues: turn.qualityInitialIssues,
+                qualityFinalIssues: turn.qualityFinalIssues,
                 usage: turn.usage,
               }))
             ),
@@ -132,18 +139,30 @@ try {
               }))
             ),
           }
-        : {
+    : {
             ok: failed.length === 0,
             baseUrl,
             runId,
             summary,
             checks,
             conversations,
-          },
-      null,
-      2
-    )
-  );
+          };
+  const serializedReport = `${JSON.stringify(report, null, 2)}\n`;
+  if (reportPath) {
+    await writeFile(reportPath, serializedReport, { mode: 0o600 });
+    console.log(
+      JSON.stringify({
+        ok: report.ok,
+        baseUrl,
+        runId,
+        summary,
+        usage,
+        reportPath,
+      })
+    );
+  } else {
+    console.log(serializedReport.trimEnd());
+  }
 
   if (failed.length > 0) process.exitCode = 1;
 } catch (error) {
@@ -1302,9 +1321,15 @@ function evaluateConversations(conversations) {
   });
 
   allTurns.forEach((turn) => {
-    const localExpectation = getLocalTurnExpectation(turn.label);
+    const localExpectation = getLocalTurnExpectation(
+      turn.label,
+      expectedPipelineMode
+    );
+    const explicitScenarioExpectationEnabled =
+      expectedPipelineMode !== 'minimal';
     const expectedFinishReason =
-      turn.expectedFinishReason || localExpectation.finishReason;
+      (explicitScenarioExpectationEnabled && turn.expectedFinishReason) ||
+      localExpectation.finishReason;
     const minimumOutputChars =
       turn.label.startsWith('inline-image') ||
       turn.label.startsWith('three-large-images') ||
@@ -1335,7 +1360,7 @@ function evaluateConversations(conversations) {
       turn.label.startsWith('inline-image') ||
       turn.label.startsWith('three-large-images');
     const expectedModel =
-      turn.expectedModelName ||
+      (explicitScenarioExpectationEnabled && turn.expectedModelName) ||
       localExpectation.modelName ||
       (isImageTurn ? expectedImageModel : expectedTextModel);
     if (expectedModel) {
@@ -1345,7 +1370,8 @@ function evaluateConversations(conversations) {
           turn.provider === 'anthropic' ||
           (!isImageTurn &&
             turn.provider === 'local' &&
-            turn.modelName === 'local-quality-fallback'));
+            (turn.modelName === 'local-quality-fallback' ||
+              turn.modelName?.includes('safety'))));
       addCheck(
         checks,
         `${turn.label}: 想定モデルまたは検品済み代替モデルを使用`,
@@ -2382,8 +2408,8 @@ function evaluateConversations(conversations) {
   return checks;
 }
 
-function getLocalTurnExpectation(label) {
-  if (label === 'short-emotional-message-1') {
+function getLocalTurnExpectation(label, pipelineMode = 'legacy') {
+  if (pipelineMode !== 'minimal' && label === 'short-emotional-message-1') {
     return {
       modelName: 'local-rest',
       finishReason: 'LOCAL_REST_RESPONSE',

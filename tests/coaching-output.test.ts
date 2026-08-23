@@ -93,6 +93,17 @@ describe('coaching runtime prompt', () => {
     );
   });
 
+  it('モデル単体でも心理補完と複数の次の一手を避ける', () => {
+    const prompt = getCoachingSystemPrompt();
+
+    expect(prompt).toContain(
+      '質問を選んだ返答には行動提案を入れず、提案を選んだ返答には質問を入れない'
+    );
+    expect(prompt).toContain('診断タイプと意識レベルも推測の根拠にしてはならない');
+    expect(prompt).toContain('本人が事実だけを追加した段階では解決策へ進まず');
+    expect(prompt).toContain('合計が一つを超えた場合は一つに減らしてから返す');
+  });
+
   it('診断情報は短い非表示文脈としてだけ追加する', () => {
     const prompt = getContextualizedPrompt('PGE-1');
 
@@ -3882,7 +3893,7 @@ describe('normalizeCoachingOutput', () => {
     );
     const text = 'text' in part ? part.text : '';
 
-    expect(text).toContain('答えまたは提案を一つだけ簡潔に');
+    expect(text).toContain('答えまたは提案を一つだけ、一段落で簡潔に');
     expect(text).not.toContain('そのまま読める一文');
     expect(text).not.toContain('「」で一つだけ');
   });
