@@ -370,7 +370,7 @@ function buildResponseStyleHint(text: string, hasAttachments = false) {
     requestsExplicitClosingQuestion(text) &&
     /方法|提案|行動|一歩|できること|どうすれば|どうしたら/.test(text)
   ) {
-    return '【内部応答形式】ユーザーは、実行方法と最後の質問の両方を明示的に求めています。まず、指定された時機に実行できる一動作を短く提案してください。最後は、「何ができていれば着手できたと判断するか」のように、直前の目的を実行する判断に直接つながる質問一つだけで閉じてください。完璧にしたい箇所や理由の分析へ話を戻さないでください。';
+    return '【内部応答形式】ユーザーは、実行方法と最後の質問の両方を明示的に求めています。まず、指定された時機に実行できる一動作を短く提案してください。ユーザーが「明日」と指定した場合、提案文でも「明日」と書き、「その日」「翌日」へ言い換えないでください。「目次または見出し」のような二択を作らず、実行対象も一つに絞ってください。最後は、「何ができていれば着手できたと判断するか」のように、直前の目的を実行する判断に直接つながる質問一つだけで閉じてください。完璧にしたい箇所や理由の分析へ話を戻さないでください。';
   }
 
   if (requestsSingleAnswerFormat(text)) {
@@ -440,8 +440,18 @@ function buildConversationContinuityHint(
     );
   const answersWithSilence =
     isShortContinuation && /^何も(?:言わない|答えない)[。！!？?]*$/.test(normalized);
+  const tentativeAgreement =
+    isShortContinuation &&
+    /^(?:うん|はい|そう|そうかも|たぶん|かもしれない)(?:です|だと思います)?[。！!？?]*$/.test(
+      normalized
+    );
 
-  if (!rejectsPreviousMove && !asksCoachToAnswer && !answersWithSilence) {
+  if (
+    !rejectsPreviousMove &&
+    !asksCoachToAnswer &&
+    !answersWithSilence &&
+    !tentativeAgreement
+  ) {
     return '';
   }
 
@@ -450,8 +460,7 @@ function buildConversationContinuityHint(
     `直前のコーチ発言: ${truncateForApiPrompt(previousAssistant, 500)}`,
     '- 最新発言は、直前の質問または提案に対する回答として解釈する。',
     '- ユーザーが否定した提案や、すでに実行済みだと言った提案を言い換えて繰り返さない。',
-    '- ユーザーへ同じ判断を質問で返さず、これまでの事実からコーチ側の見立てと別の選択肢を示す。',
-    '- 返答は、具体的な理解、役に立つ新しい整理、必要な場合だけ次の一手の順に書く。',
+    '- 直前と同じ判断を質問で返さず、最新の回答を受けて会話を一段だけ進める。',
   ];
 
   if (answersWithSilence) {
@@ -464,10 +473,21 @@ function buildConversationContinuityHint(
         '- 直前の提案をユーザーが実行したとは仮定しない。「何も言わない」は、それ以前から話している相手が説明や返答をしないという補足として扱う。'
       );
     }
+    instructions.push(
+      '- 「方法があります」「提案があります」と予告したり、理由の質問と方法の提案を同時に置いたりしない。',
+      '- 相手が説明しない事実を短く拾い、次に相手へしてほしい具体的な行動を一つだけ尋ねる質問で返す。'
+    );
+  }
+  if (tentativeAgreement) {
+    instructions.push(
+      '- 「そうかも」は直前の問いへの暫定的な同意として扱い、同じ出来事があったかどうかを言い換えて再質問しない。',
+      '- 直前が過去の出来事の有無を尋ねる質問なら、その時に相手が実際に言った一つの言葉を尋ねる質問で一段深める。見立てや提案は足さない。'
+    );
   }
   if (rejectsPreviousMove) {
     instructions.push(
-      '- 「できない」「やりたくない」は直前の提案への拒否として扱い、疲労や人生全体の無気力へ意味を広げない。'
+      '- 「できない」「やりたくない」は直前の提案への拒否として扱い、疲労や人生全体の無気力へ意味を広げない。',
+      '- これまでの事実からコーチ側の見立てと、拒否された案とは別の選択肢を示す。'
     );
   }
   if (asksCoachToAnswer) {

@@ -670,7 +670,26 @@ describe('conversation continuity hints', () => {
       .join('\n');
 
     expect(hint).toContain('相手が説明や返答をしない');
+    expect(hint).toContain('「方法があります」「提案があります」と予告');
+    expect(hint).toContain('相手へしてほしい具体的な行動を一つだけ尋ねる');
     expect(stripInternalResponseStyleHint(hint)).toBe('何も言わない');
+  });
+
+  it('「そうかも」を暫定同意として扱い直前と同じ有無を聞き直さない', () => {
+    const parts = buildGeminiParts('そうかも。', [], [
+      {
+        role: 'assistant',
+        content:
+          'その友人とは、これまでにも予定を断って関係が気まずくなったことがありますか？',
+      },
+    ]);
+    const hint = parts
+      .map((part) => ('text' in part ? part.text : ''))
+      .join('\n');
+
+    expect(hint).toContain('暫定的な同意');
+    expect(hint).toContain('言い換えて再質問しない');
+    expect(hint).toContain('相手が実際に言った一つの言葉');
   });
 
   it('拒否された提案を言い換えて繰り返さない指示を加える', () => {
@@ -4128,6 +4147,8 @@ describe('normalizeCoachingOutput', () => {
     const text = 'text' in part ? part.text : '';
 
     expect(text).toContain('実行方法と最後の質問の両方');
+    expect(text).toContain('提案文でも「明日」と書き');
+    expect(text).toContain('「目次または見出し」のような二択');
     expect(text).toContain('何ができていれば着手できたと判断するか');
     expect(text).toContain('完璧にしたい箇所や理由の分析へ話を戻さない');
   });

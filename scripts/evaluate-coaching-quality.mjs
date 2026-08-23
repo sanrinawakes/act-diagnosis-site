@@ -2018,6 +2018,13 @@ function evaluateConversations(conversations) {
       .map((line) => line.trim())
       .filter(Boolean)
       .at(-1) || '';
+  const explicitClosingProposal = explicitClosingMessage
+    .trim()
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(0, -1)
+    .join('\n');
   addCheck(
     checks,
     '質問指定: 最後に質問を一つだけ置く',
@@ -2032,6 +2039,18 @@ function evaluateConversations(conversations) {
       explicitClosingMessage
     ),
     explicitClosingMessage
+  );
+  addCheck(
+    checks,
+    '質問指定: 提案文でも明日の指定を保持する',
+    /明日/.test(explicitClosingProposal),
+    explicitClosingProposal
+  );
+  addCheck(
+    checks,
+    '質問指定: 提案対象を二択にしない',
+    !/または|もしくは|あるいは/.test(explicitClosingProposal),
+    explicitClosingProposal
   );
   addCheck(
     checks,
@@ -2202,7 +2221,7 @@ function evaluateConversations(conversations) {
     '深掘り要求: 迷いの中身へ具体的な一問を返す',
     deeperFinal.semanticQuestions === 1 &&
       /役割|引き受け|迷/.test(deeperFinal.message) &&
-      /守りたい|手放したくない|失いたくない|後悔/.test(
+      /守りたい|手放したくない|失いたくない|手放すことになりそう|後悔/.test(
         deeperFinal.message
       ) &&
       !/何かありますか|どう思いますか|何が一番引っかか/.test(
@@ -2229,6 +2248,16 @@ function evaluateConversations(conversations) {
     '短い返答: 友人への断りと関係悪化の流れを継続',
     /友人|断|関係/.test(shortContinuationFinal.message) &&
       hasClosingCoachingMove(shortContinuationFinal.message),
+    shortContinuationFinal.message
+  );
+  addCheck(
+    checks,
+    '短い返答: 暫定同意の後に同じ出来事の有無を聞き直さない',
+    shortContinuationFinal.semanticQuestions === 1 &&
+      /何と|言葉|言われ/.test(shortContinuationFinal.message) &&
+      !/ことがありますか|反応がありましたか/.test(
+        shortContinuationFinal.message
+      ),
     shortContinuationFinal.message
   );
 
