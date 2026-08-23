@@ -4345,8 +4345,8 @@ describe('normalizeCoachingOutput', () => {
     );
     const text = 'text' in part ? part.text : '';
 
-    expect(text).toContain('一つの記録へ残す対応だけ');
-    expect(text).toContain('ノート、表、アプリ、紙など記録媒体の候補を並べず');
+    expect(text).toContain('月ごとに一つの記録に残してください');
+    expect(text).toContain('「記録」を「メモ」「ノート」「表」「アプリ」「紙」へ言い換えず');
     expect(text).toContain('相談窓口、第三者、別案、追加質問も付けない');
   });
 
