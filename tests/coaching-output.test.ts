@@ -6335,8 +6335,59 @@ describe('normalizeCoachingOutput', () => {
     });
 
     expect(assessment.issues).toEqual([]);
-    expect(fallback).toMatch(/家族|家事|相手|パートナー/);
+    expect(fallback).toContain('本人の説明がない限り判断できません');
+    expect(fallback).toContain('決めた家事が実行されていない');
+    expect(fallback).toContain('理由の推測と家事分担の問題を分け');
     expect(fallback).not.toMatch(/会議|提案|結論と理由/);
+  });
+
+  it('家庭の具体策を求めた利用者へ古い仕事の要約と質問だけを返さない', () => {
+    const historyMessages = [
+      {
+        role: 'user' as const,
+        content:
+          '先週の会議で提案を最後まで説明できませんでした。次回の伝え方を考えたいです。',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          '先週の会議で説明が途切れた時の状況を教えてください。',
+      },
+    ];
+    const lastUserText =
+      '今は家庭の相談です。パートナーは決めた家事をせず、本人から理由の説明がありません。この状態は意味不明だと感じています。相手の気持ちを決めつけず、私はどう対応すればよいですか。';
+    const rawText =
+      '先週の会議の件から、今回は家庭の相談ですね。相手に、まずどの行動を変えてほしいですか？';
+    const initialAssessment = assessCoachingResponseQuality({
+      text: rawText,
+      lastUserText,
+      historyMessages,
+    });
+    const resolution = ensureVerifiedCoachingResolution({
+      resolution: {
+        text: rawText,
+        usage: {},
+        modelName: 'gemini-3.5-flash',
+        provider: 'gemini',
+        repairAttempted: false,
+        repairAccepted: false,
+        initialIssues: initialAssessment.issues,
+        finalIssues: initialAssessment.issues,
+      },
+      lastUserText,
+      historyMessages,
+    });
+    const result = resolution.text;
+    const assessment = assessCoachingResponseQuality({
+      text: result,
+      lastUserText,
+      historyMessages,
+    });
+
+    expect(assessment.issues).toEqual([]);
+    expect(result).toContain('本人の説明がない限り判断できません');
+    expect(result).toContain('実行期限');
+    expect(result).not.toMatch(/会議|提案|どの行動を変えてほしい|[？?]/);
   });
 
   it('Botの返答を意味不明と指摘した場合は不満として扱う', () => {
