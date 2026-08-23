@@ -4002,6 +4002,7 @@ describe('normalizeCoachingOutput', () => {
 
     expect(text).toContain('「最初に行う手順」のような抽象語を作らず');
     expect(text).toContain('具体的な作業名を一つメモに書く');
+    expect(text).toContain('「明日」をそのまま残して');
   });
 
   it('感情の追加評価と質問前の進行宣言をモデル指示で禁止する', () => {
@@ -4011,6 +4012,7 @@ describe('normalizeCoachingOutput', () => {
     expect(prompt).toContain('「当然です」「無理もありません」');
     expect(prompt).toContain('どの場面でその感情になったかを聞き直さない');
     expect(prompt).toContain('進行宣言を質問前へ足さない');
+    expect(prompt).toContain('感情を述べただけの段階で文面を先回りして提案せず');
   });
 
   it('長文末尾の断る一言も発言文の依頼として扱う', () => {
