@@ -4161,8 +4161,9 @@ describe('normalizeCoachingOutput', () => {
     expect(text).toContain('「だからこそ」「からこそ」のような強調を足さない');
     expect(text).toContain('まだ一言や文面を求めていないため');
     expect(text).toContain('引用文や伝え方を先回りして提案せず');
-    expect(text).toContain('最初の一言に入れたいお願い');
-    expect(text).toContain('同じ言葉で聞き直さない');
+    expect(text).toContain('最初の一言には、夫へどんなお願いを入れたいですか');
+    expect(text).toContain('期限を決める提案');
+    expect(text).toContain('「変えてほしい行動」の聞き直し');
   });
 
   it('一枚目から直す作業相談を文章か箇条書きかの二択にしない', () => {
