@@ -76,6 +76,7 @@ interface ChatSession {
   is_pinned: boolean;
   last_message_at: string | null;
   message_count: number;
+  folder: string | null;
   preview: string | null;
 }
 
@@ -84,6 +85,7 @@ interface PaginatedResponse {
   total: number;
   page: number;
   limit: number;
+  folders?: string[];
 }
 
 type ChatClientFailureStage =
@@ -298,6 +300,12 @@ function CoachingContent() {
   const [sidebarLoading, setSidebarLoading] = useState(false);
   const [sidebarSearch, setSidebarSearch] = useState('');
   const [sidebarTab, setSidebarTab] = useState<'all' | 'pinned'>('all');
+  const [sidebarFolders, setSidebarFolders] = useState<string[]>([]);
+  const [folderFilter, setFolderFilter] = useState<string>('');
+  const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+  const [folderEditSessionId, setFolderEditSessionId] = useState<string | null>(null);
+  const [folderEditValue, setFolderEditValue] = useState('');
   const [sidebarPage, setSidebarPage] = useState(1);
   const [sidebarTotal, setSidebarTotal] = useState(0);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -363,7 +371,12 @@ function CoachingContent() {
 
   // ─── Sidebar: fetch sessions ───
   const fetchSidebarSessions = useCallback(
-    async (search?: string, tab?: 'all' | 'pinned', pageNum?: number) => {
+    async (
+      search?: string,
+      tab?: 'all' | 'pinned',
+      pageNum?: number,
+      folderName?: string
+    ) => {
       try {
         setSidebarLoading(true);
         const {
@@ -375,6 +388,7 @@ function CoachingContent() {
         const params = new URLSearchParams();
         if (tab === 'pinned') params.append('pinned', 'true');
         if (search) params.append('search', search);
+        if (folderName) params.append('folder', folderName);
         params.append('page', (pageNum || 1).toString());
         params.append('limit', sidebarLimit.toString());
 
@@ -395,6 +409,9 @@ function CoachingContent() {
         setSidebarSessions(data.sessions);
         setSidebarTotal(data.total);
         setSidebarPage(pageNum || 1);
+        if (Array.isArray(data.folders)) {
+          setSidebarFolders(data.folders);
+        }
       } catch (error) {
         console.error('Error fetching sidebar sessions:', error);
       } finally {
@@ -407,8 +424,8 @@ function CoachingContent() {
   // Fetch sidebar sessions on mount and when tab/search changes
   useEffect(() => {
     if (!isReady || !initialized) return;
-    fetchSidebarSessions(sidebarSearch, sidebarTab, 1);
-  }, [isReady, initialized, sidebarTab, fetchSidebarSessions, sidebarSearch]);
+    fetchSidebarSessions(sidebarSearch, sidebarTab, 1, folderFilter);
+  }, [isReady, initialized, sidebarTab, fetchSidebarSessions, sidebarSearch, folderFilter]);
 
   useEffect(() => {
     if (!isReady) return;
@@ -455,11 +472,85 @@ function CoachingContent() {
       );
       if (!response.ok) throw new Error('ピン留めを更新できませんでした。');
 
-      await fetchSidebarSessions(sidebarSearch, sidebarTab, sidebarPage);
+      await fetchSidebarSessions(sidebarSearch, sidebarTab, sidebarPage, folderFilter);
     } catch (error) {
       console.error('Error pinning session:', error);
       setAttachmentError(
         error instanceof Error ? error.message : 'ピン留めを更新できませんでした。'
+      );
+    }
+  };
+
+  // ─── Sidebar: rename ───
+  const handleRenameSession = async (sid: string) => {
+    const newTitle = renameValue.trim();
+    if (!newTitle) {
+      setRenamingSessionId(null);
+      return;
+    }
+    try {
+      const {
+        data: { session: authSession },
+      } = await supabase.auth.getSession();
+      if (!authSession?.access_token) return;
+
+      const response = await withTimeout(
+        fetch('/api/chat/sessions', {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${authSession.access_token}`,
+          },
+          body: JSON.stringify({ session_id: sid, title: newTitle.slice(0, 200) }),
+        }),
+        CHAT_INITIALIZATION_TIMEOUT_MS,
+        '名前の変更に時間がかかりすぎました。'
+      );
+      if (!response.ok) throw new Error('名前を変更できませんでした。');
+
+      setRenamingSessionId(null);
+      setRenameValue('');
+      await fetchSidebarSessions(sidebarSearch, sidebarTab, sidebarPage, folderFilter);
+    } catch (error) {
+      console.error('Error renaming session:', error);
+      setAttachmentError(
+        error instanceof Error ? error.message : '名前を変更できませんでした。'
+      );
+    }
+  };
+
+  // ─── Sidebar: move to folder ───
+  const handleMoveToFolder = async (sid: string, folderName: string | null) => {
+    try {
+      const {
+        data: { session: authSession },
+      } = await supabase.auth.getSession();
+      if (!authSession?.access_token) return;
+
+      const response = await withTimeout(
+        fetch('/api/chat/sessions', {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${authSession.access_token}`,
+          },
+          body: JSON.stringify({
+            session_id: sid,
+            folder: folderName === null ? null : folderName.trim().slice(0, 50),
+          }),
+        }),
+        CHAT_INITIALIZATION_TIMEOUT_MS,
+        'フォルダの変更に時間がかかりすぎました。'
+      );
+      if (!response.ok) throw new Error('フォルダを変更できませんでした。');
+
+      setFolderEditSessionId(null);
+      setFolderEditValue('');
+      await fetchSidebarSessions(sidebarSearch, sidebarTab, sidebarPage, folderFilter);
+    } catch (error) {
+      console.error('Error moving session to folder:', error);
+      setAttachmentError(
+        error instanceof Error ? error.message : 'フォルダを変更できませんでした。'
       );
     }
   };
@@ -493,7 +584,7 @@ function CoachingContent() {
         router.push('/coaching');
       }
 
-      await fetchSidebarSessions(sidebarSearch, sidebarTab, 1);
+      await fetchSidebarSessions(sidebarSearch, sidebarTab, 1, folderFilter);
     } catch (error) {
       console.error('Error deleting session:', error);
       setAttachmentError(
@@ -743,7 +834,7 @@ function CoachingContent() {
         setInitialized(true);
 
         // Refresh sidebar to include the new session
-        fetchSidebarSessions(sidebarSearch, sidebarTab, 1);
+        fetchSidebarSessions(sidebarSearch, sidebarTab, 1, folderFilter);
         router.replace(`/coaching?session=${session.id}`);
       } catch (err) {
         if (!active) return;
@@ -1318,7 +1409,7 @@ function CoachingContent() {
       }
 
       // Refresh sidebar to update preview/count. Do not block the send button on sidebar refresh.
-      fetchSidebarSessions(sidebarSearch, sidebarTab, sidebarPage);
+      fetchSidebarSessions(sidebarSearch, sidebarTab, sidebarPage, folderFilter);
     } catch (err) {
       console.error('Failed to send message:', err);
       if (shouldReportFailure) {
@@ -1367,7 +1458,7 @@ function CoachingContent() {
           CHAT_PERSIST_TIMEOUT_MS,
           'セッション情報の更新に時間がかかりすぎました。'
         );
-        fetchSidebarSessions(sidebarSearch, sidebarTab, sidebarPage);
+        fetchSidebarSessions(sidebarSearch, sidebarTab, sidebarPage, folderFilter);
       } catch (activityErr) {
         console.warn('Failed to refresh session activity in browser:', activityErr);
       }
@@ -1479,6 +1570,35 @@ function CoachingContent() {
             </button>
           </div>
 
+          {/* Folder filter */}
+          {sidebarFolders.length > 0 && (
+            <div className="flex flex-wrap gap-1 px-2 py-1.5 border-b border-gray-200" data-testid="sidebar-folders">
+              <button
+                onClick={() => setFolderFilter('')}
+                className={`px-2 py-0.5 text-xs rounded-full border transition-colors ${
+                  folderFilter === ''
+                    ? 'bg-blue-500 text-white border-blue-500'
+                    : 'bg-white text-gray-600 border-gray-300 hover:border-blue-400'
+                }`}
+              >
+                すべて
+              </button>
+              {sidebarFolders.map((f) => (
+                <button
+                  key={f}
+                  onClick={() => setFolderFilter(folderFilter === f ? '' : f)}
+                  className={`px-2 py-0.5 text-xs rounded-full border transition-colors ${
+                    folderFilter === f
+                      ? 'bg-blue-500 text-white border-blue-500'
+                      : 'bg-white text-gray-600 border-gray-300 hover:border-blue-400'
+                  }`}
+                >
+                  📁 {f}
+                </button>
+              ))}
+            </div>
+          )}
+
           {/* Sessions List */}
           <div className="flex-1 overflow-y-auto" data-testid="sidebar-sessions">
             {sidebarLoading ? (
@@ -1504,15 +1624,106 @@ function CoachingContent() {
                   >
                     <div className="flex items-start justify-between gap-1">
                       <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium text-gray-900 truncate">
-                          {s.title || s.preview || 'チャット'}
-                        </p>
+                        {renamingSessionId === s.id ? (
+                          <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
+                            <input
+                              type="text"
+                              value={renameValue}
+                              onChange={(e) => setRenameValue(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+                                  e.preventDefault();
+                                  void handleRenameSession(s.id);
+                                }
+                                if (e.key === 'Escape') setRenamingSessionId(null);
+                              }}
+                              maxLength={200}
+                              autoFocus
+                              className="min-w-0 flex-1 px-1.5 py-0.5 text-sm border border-blue-400 rounded focus:outline-none"
+                              placeholder="新しい名前"
+                              data-testid="session-rename-input"
+                            />
+                            <button
+                              onClick={() => void handleRenameSession(s.id)}
+                              className="px-1.5 py-0.5 bg-blue-500 text-white text-xs rounded hover:bg-blue-600 transition-colors"
+                            >
+                              保存
+                            </button>
+                            <button
+                              onClick={() => setRenamingSessionId(null)}
+                              className="px-1.5 py-0.5 bg-gray-300 text-gray-700 text-xs rounded hover:bg-gray-400 transition-colors"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        ) : (
+                          <p className="text-sm font-medium text-gray-900 truncate">
+                            {s.title || s.preview || 'チャット'}
+                          </p>
+                        )}
+                        {folderEditSessionId === s.id && (
+                          <div className="flex gap-1 mt-1" onClick={(e) => e.stopPropagation()}>
+                            <input
+                              type="text"
+                              list={`folder-options-${s.id}`}
+                              value={folderEditValue}
+                              onChange={(e) => setFolderEditValue(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+                                  e.preventDefault();
+                                  if (folderEditValue.trim()) {
+                                    void handleMoveToFolder(s.id, folderEditValue);
+                                  }
+                                }
+                                if (e.key === 'Escape') setFolderEditSessionId(null);
+                              }}
+                              maxLength={50}
+                              autoFocus
+                              className="min-w-0 flex-1 px-1.5 py-0.5 text-xs border border-blue-400 rounded focus:outline-none"
+                              placeholder="フォルダ名を入力または選択"
+                              data-testid="session-folder-input"
+                            />
+                            <datalist id={`folder-options-${s.id}`}>
+                              {sidebarFolders.map((f) => (
+                                <option key={f} value={f} />
+                              ))}
+                            </datalist>
+                            <button
+                              onClick={() => {
+                                if (folderEditValue.trim()) {
+                                  void handleMoveToFolder(s.id, folderEditValue);
+                                }
+                              }}
+                              className="px-1.5 py-0.5 bg-blue-500 text-white text-xs rounded hover:bg-blue-600 transition-colors"
+                            >
+                              移動
+                            </button>
+                            {s.folder && (
+                              <button
+                                onClick={() => void handleMoveToFolder(s.id, null)}
+                                className="px-1.5 py-0.5 bg-gray-300 text-gray-700 text-xs rounded hover:bg-gray-400 transition-colors"
+                                title="フォルダから外す"
+                              >
+                                外す
+                              </button>
+                            )}
+                            <button
+                              onClick={() => setFolderEditSessionId(null)}
+                              className="px-1.5 py-0.5 bg-gray-300 text-gray-700 text-xs rounded hover:bg-gray-400 transition-colors"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        )}
                         {s.preview && s.title && (
                           <p className="text-xs text-gray-500 truncate mt-0.5">
                             {s.preview}
                           </p>
                         )}
                         <div className="flex items-center gap-2 mt-1 text-xs text-gray-400">
+                          {s.folder && (
+                            <span className="text-blue-500 truncate max-w-[9rem]">📁 {s.folder}</span>
+                          )}
                           <span>{s.message_count}件</span>
                           <span>
                             {new Date(s.last_message_at || s.created_at).toLocaleDateString('ja-JP', {
@@ -1525,6 +1736,30 @@ function CoachingContent() {
 
                       {/* Actions (visible on hover or when active) */}
                       <div className={`flex items-center gap-0.5 flex-shrink-0 ${s.id === sessionId ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} transition-opacity`}>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setFolderEditSessionId(null);
+                            setRenamingSessionId(s.id);
+                            setRenameValue(s.title || s.preview || '');
+                          }}
+                          className="p-1 hover:bg-blue-200 rounded transition-colors"
+                          title="名前を変更"
+                        >
+                          <span className="text-xs text-gray-400">✏️</span>
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setRenamingSessionId(null);
+                            setFolderEditSessionId(s.id);
+                            setFolderEditValue(s.folder || '');
+                          }}
+                          className="p-1 hover:bg-blue-200 rounded transition-colors"
+                          title="フォルダへ移動"
+                        >
+                          <span className="text-xs text-gray-400">📁</span>
+                        </button>
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
@@ -1578,7 +1813,7 @@ function CoachingContent() {
             {sidebarTotalPages > 1 && (
               <div className="flex justify-center gap-2 p-3 border-t border-gray-200">
                 <button
-                  onClick={() => fetchSidebarSessions(sidebarSearch, sidebarTab, sidebarPage - 1)}
+                  onClick={() => fetchSidebarSessions(sidebarSearch, sidebarTab, sidebarPage - 1, folderFilter)}
                   disabled={sidebarPage === 1}
                   className="px-2 py-1 text-xs bg-white border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
@@ -1588,7 +1823,7 @@ function CoachingContent() {
                   {sidebarPage}/{sidebarTotalPages}
                 </span>
                 <button
-                  onClick={() => fetchSidebarSessions(sidebarSearch, sidebarTab, sidebarPage + 1)}
+                  onClick={() => fetchSidebarSessions(sidebarSearch, sidebarTab, sidebarPage + 1, folderFilter)}
                   disabled={sidebarPage === sidebarTotalPages}
                   className="px-2 py-1 text-xs bg-white border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
