@@ -319,6 +319,7 @@ function CoachingContent() {
   const pendingAttachmentsRef = useRef<PendingImageAttachment[]>([]);
   const sendInFlightRef = useRef(false);
   const sidebarRequestSequenceRef = useRef(0);
+  const sidebarRequestControllerRef = useRef<AbortController | null>(null);
   const supabase = createClient();
   const { t } = useI18n();
   const sidebarLimit = 20;
@@ -364,6 +365,7 @@ function CoachingContent() {
 
   useEffect(() => {
     return () => {
+      sidebarRequestControllerRef.current?.abort();
       pendingAttachmentsRef.current.forEach((attachment) => {
         URL.revokeObjectURL(attachment.previewUrl);
       });
@@ -379,6 +381,9 @@ function CoachingContent() {
       folderName?: string
     ) => {
       const requestSequence = ++sidebarRequestSequenceRef.current;
+      sidebarRequestControllerRef.current?.abort();
+      const controller = new AbortController();
+      sidebarRequestControllerRef.current = controller;
       try {
         setSidebarLoading(true);
         const {
@@ -395,7 +400,6 @@ function CoachingContent() {
         params.append('page', (pageNum || 1).toString());
         params.append('limit', sidebarLimit.toString());
 
-        const controller = new AbortController();
         const response = await withTimeout(
           fetch(`/api/chat/sessions?${params.toString()}`, {
             headers: { Authorization: `Bearer ${authSession.access_token}` },
@@ -422,6 +426,7 @@ function CoachingContent() {
         }
       } finally {
         if (requestSequence === sidebarRequestSequenceRef.current) {
+          sidebarRequestControllerRef.current = null;
           setSidebarLoading(false);
         }
       }
