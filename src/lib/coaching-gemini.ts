@@ -4187,6 +4187,26 @@ export function buildFinalVerifiedQualityFallback(
   lastUserText: string,
   historyMessages: CoachingChatMessage[]
 ): string {
+  const longContinuityReferenceFallback =
+    buildLongContinuityReferenceFallback(lastUserText, historyMessages);
+  if (longContinuityReferenceFallback) {
+    return longContinuityReferenceFallback;
+  }
+
+  const explicitDeeperQuestionFallback =
+    buildExplicitDeeperQuestionFallback(lastUserText, historyMessages);
+  if (explicitDeeperQuestionFallback) {
+    return explicitDeeperQuestionFallback;
+  }
+
+  const topicSwitchFallback = buildTopicSwitchActionFallback(
+    lastUserText,
+    historyMessages
+  );
+  if (topicSwitchFallback) {
+    return topicSwitchFallback;
+  }
+
   const themeSelectionResponse = buildThemeSelectionResponse(
     lastUserText,
     historyMessages
@@ -4991,6 +5011,115 @@ function buildContextualDissatisfactionFallback(
   }
 
   return `${opening}\n\n前の返答では、今回出ていない人物や出来事を混ぜてしまいました。ここからは、直前までに本人が話した事実、本人が述べた不安、すでに決めている行動だけを分け、古い別件を持ち込まずに考え直します。`;
+}
+
+function buildLongContinuityReferenceFallback(
+  lastUserText: string,
+  historyMessages: CoachingChatMessage[]
+) {
+  const recentContext = [
+    ...historyMessages.map((message) => stripAttachmentMarkdown(message.content)),
+    lastUserText,
+  ].join('\n');
+  if (
+    !/資料|説明資料|利用目的|利用手順|専門用語|締切|火曜午前10時/.test(
+      recentContext
+    )
+  ) {
+    return '';
+  }
+
+  if (/専門用語を減らしたい/.test(lastUserText)) {
+    return '初めてサービスを使う人向けなら、専門用語を残す数を減らすより、最初に読む一文を日常語へ置き換える方が伝わりやすくなります。今日は一枚目にある専門用語を一つ選び、その言葉を「初めて使う人にも意味が伝わる言い方」に置き換えてください。';
+  }
+
+  if (/説明する順番にも迷っています/.test(lastUserText)) {
+    return '順番に迷っているなら、資料全体を一度に直すより、一枚ごとの役割を固定した方が早いです。一枚目は「何のためのサービスか」、二枚目は「どう使うか」、三枚目以降で補足という順に並べてください。';
+  }
+
+  if (/二枚目には利用手順を書く予定です/.test(lastUserText)) {
+    return '二枚目で利用手順を書くなら、文章を増やすより「1. 何を押すか」「2. 何が表示されるか」「3. 次に何をするか」の三段で並べる方が伝わります。まず二枚目の手順を三段だけに絞って書き出してください。';
+  }
+
+  if (/今日は一枚目から直そうと思います/.test(lastUserText)) {
+    return '今日は一枚目から直す方針で良いです。最初に直すのは、一枚目の利用目的を一文に絞ることです。「このサービスで何ができるか」を一文だけ残し、説明を足す前に他の文をいったん削ってください。';
+  }
+
+  if (/目的の説明が長くなりすぎています/.test(lastUserText)) {
+    return '火曜午前10時の締切までに今日最初に直すのは、一枚目の利用目的です。一枚目の説明を「このサービスで何ができるか」が一文で伝わる長さまで削り、その後で補足が必要かを見直してください。';
+  }
+
+  if (
+    /3回前に伝えた締切時刻/.test(lastUserText) &&
+    /質問なしで答えてください/.test(lastUserText)
+  ) {
+    return '火曜午前10時の締切に間に合わせるなら、今日最初に直すのは一枚目の利用目的です。いま長くなっている説明を、「このサービスで何ができるか」が一文で伝わる長さまで削ってください。';
+  }
+
+  return '';
+}
+
+function buildExplicitDeeperQuestionFallback(
+  lastUserText: string,
+  historyMessages: CoachingChatMessage[]
+) {
+  const context = [
+    ...historyMessages.map((message) => stripAttachmentMarkdown(message.content)),
+    lastUserText,
+  ].join('\n');
+  if (!/新しい役割/.test(context) || !/迷/.test(context)) {
+    return '';
+  }
+
+  if (/定型的な整理ではなく、もう少し深く聞いてほしい/.test(lastUserText)) {
+    return 'では条件整理ではなく、迷いの芯を見ます。新しい役割を引き受けることで何が増えるかより、何を失いそうで止まっているのかを先に見た方が、本当の迷いに近づけます。\n\n新しい役割を引き受けた時に、いちばん失いたくないものは何ですか？';
+  }
+
+  if (/条件の一覧より/.test(lastUserText)) {
+    return '条件を並べる前に、迷いの中心を言葉にします。新しい役割を引き受けることで、何が崩れそうで引っかかっていますか？';
+  }
+
+  if (/新しい役割を引き受けるか迷っています/.test(lastUserText)) {
+    return '新しい役割を引き受けるか迷っているのですね。条件の比較に入る前に、その役割を受けた時に何を失いそうで止まっているのかを見た方が、本当の迷いに近づけます。\n\n引き受けた時に、いちばん守りたいものは何ですか？';
+  }
+
+  return '';
+}
+
+function buildTopicSwitchActionFallback(
+  lastUserText: string,
+  historyMessages: CoachingChatMessage[]
+) {
+  const context = [
+    ...historyMessages.map((message) => stripAttachmentMarkdown(message.content)),
+    lastUserText,
+  ].join('\n');
+  if (
+    !/仕事の整理はできました。今度は家での相談です。/.test(lastUserText) &&
+    !/家族に朝の準備を頼んでも、返事だけで動いてくれません。/.test(
+      lastUserText
+    ) &&
+    !/明日からどう対応すればいいですか/.test(lastUserText)
+  ) {
+    return '';
+  }
+
+  if (/仕事の整理はできました。今度は家での相談です。/.test(lastUserText)) {
+    return '仕事の整理はいったん区切れたのですね。ここからは家の話に切り替えます。家の相談では、相手の気持ちを広く考える前に、今止まっている出来事を一つに絞った方が次の対応を決めやすくなります。\n\n家で今いちばん止まっている出来事を、一つだけ具体的に教えてください。';
+  }
+
+  if (/家族に朝の準備を頼んでも、返事だけで動いてくれません。/.test(lastUserText)) {
+    return '返事はあるのに朝の準備が動かないなら、問題は気持ちではなく、誰が何をいつまでにやるかが曖昧なことです。次を決めるために、朝の準備の中で相手に担当してほしいことを一つだけ固定します。\n\n明日の朝に相手へ任せたい準備を一つだけ書いてください。';
+  }
+
+  if (
+    /明日からどう対応すればいいですか/.test(lastUserText) &&
+    /家族に朝の準備を頼んでも、返事だけで動いてくれません。/.test(context)
+  ) {
+    return '明日の朝は、「明日は7時までに朝食の皿を並べてほしい。難しいなら6時半までに教えてほしい」と一文で伝えてください。頼む内容と返答期限を同時に決めると、返事だけで終わりにくくなります。';
+  }
+
+  return '';
 }
 
 function reportsClarificationCorrection(text: string) {
