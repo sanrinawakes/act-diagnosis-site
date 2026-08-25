@@ -1536,7 +1536,7 @@ function CoachingContent() {
   return (
     <AuthGuard>
       <Header />
-      <div className="flex" style={{ height: 'calc(100vh - 64px)' }}>
+      <div className="flex overflow-x-hidden" style={{ height: 'calc(100vh - 64px)' }}>
         {/* ━━━ Sidebar ━━━ */}
         <div
           className={`${
