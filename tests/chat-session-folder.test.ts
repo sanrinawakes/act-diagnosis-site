@@ -50,6 +50,11 @@ describe('chat session folders and rename', () => {
     expect(page.match(/isComposing/g)?.length).toBeGreaterThanOrEqual(2);
     // moving to a folder never sends an empty name
     expect(page).toContain('folderEditValue.trim()');
+    // Moving out of the active folder must not leave an invisible stale filter.
+    expect(page).toContain(
+      "folderFilter && normalizedFolder !== folderFilter ? '' : folderFilter"
+    );
+    expect(page).toContain('setFolderFilter(nextFolderFilter);');
     // The fixed-width mobile sidebar must not make the page horizontally scrollable.
     expect(page).toContain(
       '<div className="flex overflow-x-hidden" style={{ height:'
