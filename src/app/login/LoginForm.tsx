@@ -155,6 +155,7 @@ export default function LoginForm() {
         email: magicEmail,
         options: {
           emailRedirectTo: `${window.location.origin}/api/auth/callback?next=${encodeURIComponent(redirect)}`,
+          shouldCreateUser: false,
         },
       });
       if (otpError) {
@@ -314,7 +315,7 @@ export default function LoginForm() {
           {/* Magic Link Login */}
           <div className="mt-4 pt-4 border-t border-blue-100">
             <p className="text-xs text-gray-500 mb-2 text-center">
-              AWAKES（MyASP）で決済済みの方・パスワードを忘れた方はこちら
+              Googleログインが使えない方・パスワードが分からない方はこちら
             </p>
             {magicSent ? (
               <div className="p-3 bg-green-50 border border-green-200 rounded-lg text-center">
