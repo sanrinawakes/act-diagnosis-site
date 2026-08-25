@@ -49,6 +49,9 @@ describe('coaching output pipeline modes', () => {
 
   it('minimalでも内部情報と危険助言は従来どおり顧客へ出さない', () => {
     process.env.COACHING_OUTPUT_PIPELINE_MODE = 'minimal';
+    expect(getCoachingOutputPipelineConfig().applySemanticNormalization).toBe(
+      true
+    );
 
     const result = ensureVerifiedCoachingResolution({
       resolution: {
