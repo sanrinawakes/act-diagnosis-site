@@ -254,6 +254,115 @@ describe('final verified quality fallback', () => {
     ).toEqual([]);
   });
 
+  it('説明資料の長い継続文脈では締切と一枚目の修正対象を保つ', () => {
+    const historyMessages = [
+      { role: 'user' as const, content: '新しい企画の説明資料を作っています。' },
+      { role: 'user' as const, content: '対象は初めてサービスを使う人です。' },
+      { role: 'user' as const, content: '専門用語を減らしたいです。' },
+      { role: 'user' as const, content: '説明する順番にも迷っています。' },
+      { role: 'user' as const, content: '一枚目には利用目的を書く予定です。' },
+      { role: 'user' as const, content: '二枚目には利用手順を書く予定です。' },
+      {
+        role: 'user' as const,
+        content: '担当者から、資料は火曜午前10時までと言われました。',
+      },
+      { role: 'user' as const, content: '今日は一枚目から直そうと思います。' },
+    ];
+    const lastUserText =
+      '3回前に伝えた締切時刻も踏まえて、今日最初に直す箇所を一つだけ、質問なしで答えてください。';
+    const result = buildFinalVerifiedQualityFallback(
+      lastUserText,
+      historyMessages
+    );
+
+    expect(result).toContain('火曜午前10時');
+    expect(result).toContain('一枚目');
+    expect(result).toContain('利用目的');
+    expect(result).not.toMatch(/[？?]/);
+    expect(
+      assessCoachingResponseQuality({
+        text: result,
+        lastUserText,
+        historyMessages,
+      }).issues
+    ).toEqual([]);
+  });
+
+  it('深く聞いてほしい依頼では条件整理へ戻さず迷いの芯を問う', () => {
+    const historyMessages = [
+      { role: 'user' as const, content: '新しい役割を引き受けるか迷っています。' },
+      {
+        role: 'user' as const,
+        content: '条件の一覧より、自分がなぜ迷うのかを話したいです。',
+      },
+    ];
+    const lastUserText = '定型的な整理ではなく、もう少し深く聞いてほしいです。';
+    const result = buildFinalVerifiedQualityFallback(
+      lastUserText,
+      historyMessages
+    );
+
+    expect(result).toContain('迷いの芯');
+    expect(result).toContain('失いたくないもの');
+    expect(result).not.toContain('一覧');
+    expect(
+      assessCoachingResponseQuality({
+        text: result,
+        lastUserText,
+        historyMessages,
+      }).issues
+    ).toEqual([]);
+  });
+
+  it('仕事から家の相談へ切り替わった時は新しい話題を受け直す', () => {
+    const historyMessages = [
+      { role: 'user' as const, content: '仕事の締切が重なり、優先順位を決めたいです。' },
+    ];
+    const lastUserText = '仕事の整理はできました。今度は家での相談です。';
+    const result = buildFinalVerifiedQualityFallback(
+      lastUserText,
+      historyMessages
+    );
+
+    expect(result).toContain('家の話に切り替えます');
+    expect(result).toContain('出来事を、一つだけ具体的に');
+    expect(result).not.toContain('仕事全体');
+    expect(
+      assessCoachingResponseQuality({
+        text: result,
+        lastUserText,
+        historyMessages,
+      }).issues
+    ).toEqual([]);
+  });
+
+  it('家族の朝準備の相談では明日の依頼文と返答期限を一文で返す', () => {
+    const historyMessages = [
+      { role: 'user' as const, content: '仕事の締切が重なり、優先順位を決めたいです。' },
+      { role: 'user' as const, content: '仕事の整理はできました。今度は家での相談です。' },
+      {
+        role: 'user' as const,
+        content: '家族に朝の準備を頼んでも、返事だけで動いてくれません。',
+      },
+    ];
+    const lastUserText = '明日からどう対応すればいいですか？';
+    const result = buildFinalVerifiedQualityFallback(
+      lastUserText,
+      historyMessages
+    );
+
+    expect(result).toContain('7時まで');
+    expect(result).toContain('6時半まで');
+    expect(result).toContain('一文で伝えてください');
+    expect(
+      assessCoachingResponseQuality({
+        text: result,
+        lastUserText,
+        historyMessages,
+      }).issues
+    ).toEqual([]);
+  });
+
   it('聞き直しの後に同じ質問を繰り返された本番事故文脈でも内容のある返答へ戻す', () => {
     const lastUserText =
       '記事ごと削除することは、どのくらいの意識レベルの人がする対処方法ですか？';
