@@ -4450,6 +4450,7 @@ export function buildFinalVerifiedQualityFallback(
   const noQuestionRequested = requestsNoFollowUpQuestion(lastUserText);
   const dissatisfaction =
     shouldAvoidForcedCoachingMove(lastUserText, historyMessages);
+  const tentativeAgreement = isTentativeAgreementReply(lastUserText);
   const contextualDissatisfactionFallback = dissatisfaction
     ? buildContextualDissatisfactionFallback(
         lastUserText,
@@ -4536,7 +4537,16 @@ export function buildFinalVerifiedQualityFallback(
           'いま困っている場面の中で、最後に実際に起きた出来事は何ですか？',
           '次の対応を決めるために、日時と相手を特定できる出来事を一つ教えてください。',
         ];
+  const tentativeAgreementFallback =
+    tentativeAgreement && concreteAction
+      ? `${cleanFallbackSourceText || 'その方向'}で考えているのですね。今の話を進めるには、次に決める項目を一つに絞った方が動きやすいです。\n\n${
+          /チャンネル|動画|発信|SNS/.test(fallbackSourceText)
+            ? '今日のうちに、最初の一本で話すテーマを一つだけメモに書いてください。'
+            : concreteAction
+        }`
+      : '';
   const candidates = [
+    tentativeAgreementFallback,
     contextualCommunicationFallback,
     buildSubstantiveShortFallback(lastUserText),
     buildSubstantiveShortFallback(fallbackSourceText),
@@ -6288,6 +6298,13 @@ function reportsResponseDissatisfaction(text: string) {
   );
 }
 
+function isTentativeAgreementReply(text: string) {
+  const normalized = text.replace(/\s+/g, ' ').trim();
+  return /^(?:うん|はい|そう|そうです|そうかも|たぶん|かもしれない)(?:です|だと思います)?[。！!？?]*$/.test(
+    normalized
+  );
+}
+
 function selectRelevantFallbackSource(
   lastUserText: string,
   historyMessages: CoachingChatMessage[]
@@ -6316,8 +6333,14 @@ function selectRelevantFallbackSource(
         !reportsResponseDissatisfaction(clean)
       );
     });
-  const immediatePrevious = previousUserTexts[0] || '';
-  const earlierTopical = previousUserTexts
+  const previousWithoutCurrent =
+    previousUserTexts[0] &&
+    stripAttachmentMarkdown(previousUserTexts[0]).replace(/\s+/g, ' ').trim() ===
+      cleanCurrent
+      ? previousUserTexts.slice(1)
+      : previousUserTexts;
+  const immediatePrevious = previousWithoutCurrent[0] || '';
+  const earlierTopical = previousWithoutCurrent
     .slice(1, 4)
     .find((content) => currentTopicPattern.test(content));
   if (
@@ -6330,7 +6353,7 @@ function selectRelevantFallbackSource(
   ) {
     return `${earlierTopical}\n${immediatePrevious}`;
   }
-  const recentMeaningfulContext = previousUserTexts.find((content) => {
+  const recentMeaningfulContext = previousWithoutCurrent.find((content) => {
     const clean = stripAttachmentMarkdown(content)
       .replace(/\s+/g, ' ')
       .trim();
