@@ -5084,6 +5084,62 @@ describe('normalizeCoachingOutput', () => {
     expect(assessment.issues).not.toContain('vague_action_target');
   });
 
+  it('仕事のタスク解決と共有が重なった相談では先に一つの対象タスクへ絞る', () => {
+    const lastUserText =
+      '上手く仕事が進まずつまづいているタスクの解決方法を見つけアイディアを共有する';
+    const historyMessages = [
+      {
+        role: 'user' as const,
+        content:
+          '今まではちょっと自分の世界に閉じこもりがちだったんじゃないかと思うようになったりもっと変化やs成長を受け入れるようになりたいと思うことが増えたことかな？',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          '自分の世界に閉じこもりがちだったと気づき、もっと変化や成長を受け入れたいと思うようになったのですね。\n\nそう思えるようになった今、職場で一番試してみたいことは何ですか？',
+      },
+      {
+        role: 'user' as const,
+        content: '自身の変化を周りの人に影響させたい',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          'ご自身の変化を、周りの人にも良い形で広げていきたいと考えているのですね。\n\n周りの人に影響を与えたいと思った時、まず職場のどなたに一番それを伝えたいですか？',
+      },
+      {
+        role: 'user' as const,
+        content:
+          '一番お世話になっているプランナーの方二名デザイナ＾さんプログラマーさん',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          'いつもお世話になっているプランナーのお二人やデザイナーさん、プログラマーさんへ自分の変化を広げていきたいのですね。\n\nその方々に対して、まずはどのような関わり方から自分の変化を見せていきたいですか？',
+      },
+      {
+        role: 'user' as const,
+        content:
+          '仕事の進め方を積極的にアイディアを提供していけるようになりたいし都度感謝の気持ちも伝えたい 雑談の機会も増えて楽しい時間をもっと提供できたら嬉しい',
+      },
+    ];
+
+    const fallback = buildFinalVerifiedQualityFallback(
+      lastUserText,
+      historyMessages
+    );
+    const assessment = assessCoachingResponseQuality({
+      text: fallback,
+      lastUserText,
+      historyMessages,
+    });
+
+    expect(assessment.issues).toEqual([]);
+    expect(fallback).toContain('つまづいているタスク');
+    expect(fallback).toContain('明日いちばん先に解決方法を考えるタスク');
+    expect(fallback).not.toContain('次に確認する点');
+  });
+
   it.each([
     {
       text: '「前回は提案の説明が途中で終わったため、今回は内容を最後までお伝えしてから、ご意見をいただけると助かります。」',
