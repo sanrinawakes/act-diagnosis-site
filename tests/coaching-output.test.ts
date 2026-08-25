@@ -930,6 +930,57 @@ describe('ensureVerifiedCoachingResolution', () => {
     expect(result.text).not.toContain('残高');
   });
 
+  it('短い同意だけ返された時も現在の計画に沿って具体化する', () => {
+    const historyMessages = [
+      {
+        role: 'user' as const,
+        content: 'コースは11月だから、辞めるのは9.10月頃かなと思ってる',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          '11月のコース開始に向けて、9月か10月頃の退職を視野に入れているのですね。時期が具体的になったことで、これからの数ヶ月をどう過ごすか、見通しが立てやすくなったのではないでしょうか。',
+      },
+      {
+        role: 'user' as const,
+        content: 'スクールの講座進めて、9月中にチャンネル立ち上げてくイメージ',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          '「スクールの講座進めて、9月中にチャンネル立ち上げてくイメージ」という相談ですね。\n\nまだ書かれていない原因を推測せず、実際に起きたことと、次に困る場面を分けると、具体的な対応を選びやすくなります。今の情報だけで原因や相手の意図を決めつけず、確認できる出来事から整理します。',
+      },
+      { role: 'user' as const, content: 'はい' },
+      {
+        role: 'assistant' as const,
+        content:
+          '「スクールの講座進めて、9月中にチャンネル立ち上げてくイメージ」という相談ですね。同じ内容を2回伝えてくれた経緯も確認しました。\n\nまだ書かれていない原因を推測せず、実際に起きたことと、次に困る場面を分けると、具体的な対応を選びやすくなります。',
+      },
+      { role: 'user' as const, content: 'そうです' },
+    ];
+    const result = ensureVerifiedCoachingResolution({
+      resolution: {
+        text: '「スクールの講座進めて、9月中にチャンネル立ち上げてくイメージ」という相談ですね。同じ内容を3回伝えてくれた経緯も確認しました。',
+        usage: { prompt_tokens: 18, completion_tokens: 8, total_tokens: 26 },
+        modelName: 'gemini-3.5-flash',
+        provider: 'gemini',
+        repairAttempted: true,
+        repairAccepted: true,
+        initialIssues: ['too_short'],
+        finalIssues: ['too_short'],
+      },
+      lastUserText: 'そうです',
+      historyMessages,
+      preserveUsage: true,
+    });
+
+    expect(result.finalIssues).toEqual([]);
+    expect(result.text).toContain('9月中にチャンネル');
+    expect(result.text).toContain('次に決める項目');
+    expect(result.text).toContain('最初の一本');
+    expect(result.text).not.toContain('同じ内容を3回');
+  });
+
   it('疑問符だけの聞き返しでも短い修復案をそのまま採用しない', () => {
     const historyMessages = [
       {
