@@ -35,7 +35,7 @@ const PIPELINE_CONFIGS: Record<
     applyQualityRepair: false,
     applyQualityFallback: false,
     applyVerifiedResolution: true,
-    allowNonSafetyImmediateResponses: false,
+    allowNonSafetyImmediateResponses: true,
   },
 };
 

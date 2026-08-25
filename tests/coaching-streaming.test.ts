@@ -297,7 +297,7 @@ describe('createJsonLineStream', () => {
     );
   });
 
-  it('observeは非安全系の即時応答を維持し、minimalはモデルへ戻す', async () => {
+  it('observeとminimalは非安全系の即時応答を維持する', async () => {
     const run = async (mode: 'observe' | 'minimal') => {
       process.env.COACHING_OUTPUT_PIPELINE_MODE = mode;
       const stream = createJsonLineStream({
@@ -335,8 +335,10 @@ describe('createJsonLineStream', () => {
       state.releaseSecondChunk = resolve;
     });
     const minimalDone = await run('minimal');
-    expect(minimalDone.modelName).toBe('gemini-3.5-flash');
-    expect(minimalDone.message).not.toBe('今日はゆっくり休んでください。');
+    expect(minimalDone).toMatchObject({
+      modelName: 'local-rest',
+      message: '今日はゆっくり休んでください。',
+    });
     expect(state.qualityRepairCalls).toBe(0);
   });
 
