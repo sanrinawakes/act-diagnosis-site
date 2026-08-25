@@ -288,6 +288,55 @@ describe('final verified quality fallback', () => {
     ).toEqual([]);
   });
 
+  it('説明資料の継続文脈で一枚目の利用目的を短く保つ', () => {
+    const historyMessages = [
+      { role: 'user' as const, content: '新しい企画の説明資料を作っています。' },
+      { role: 'user' as const, content: '対象は初めてサービスを使う人です。' },
+      { role: 'user' as const, content: '専門用語を減らしたいです。' },
+      { role: 'user' as const, content: '説明する順番にも迷っています。' },
+    ];
+    const lastUserText = '一枚目には利用目的を書く予定です。';
+    const result = buildFinalVerifiedQualityFallback(
+      lastUserText,
+      historyMessages
+    );
+
+    expect(result).toContain('一枚目');
+    expect(result).toContain('利用目的');
+    expect(result).toContain('一文');
+    expect(
+      assessCoachingResponseQuality({
+        text: result,
+        lastUserText,
+        historyMessages,
+      }).issues
+    ).toEqual([]);
+  });
+
+  it('説明資料の継続文脈で二枚目の利用手順を三段に絞る', () => {
+    const historyMessages = [
+      { role: 'user' as const, content: '新しい企画の説明資料を作っています。' },
+      { role: 'user' as const, content: '対象は初めてサービスを使う人です。' },
+      { role: 'user' as const, content: '一枚目には利用目的を書く予定です。' },
+    ];
+    const lastUserText = '二枚目には利用手順を書く予定です。';
+    const result = buildFinalVerifiedQualityFallback(
+      lastUserText,
+      historyMessages
+    );
+
+    expect(result).toContain('二枚目');
+    expect(result).toContain('三段');
+    expect(result).toContain('初めてサービスを使う人');
+    expect(
+      assessCoachingResponseQuality({
+        text: result,
+        lastUserText,
+        historyMessages,
+      }).issues
+    ).toEqual([]);
+  });
+
   it('深く聞いてほしい依頼では条件整理へ戻さず迷いの芯を問う', () => {
     const historyMessages = [
       { role: 'user' as const, content: '新しい役割を引き受けるか迷っています。' },
@@ -305,6 +354,28 @@ describe('final verified quality fallback', () => {
     expect(result).toContain('迷いの芯');
     expect(result).toContain('失いたくないもの');
     expect(result).not.toContain('一覧');
+    expect(
+      assessCoachingResponseQuality({
+        text: result,
+        lastUserText,
+        historyMessages,
+      }).issues
+    ).toEqual([]);
+  });
+
+  it('役割の迷いで条件一覧より理由を話したい時は短い質問だけで終わらない', () => {
+    const historyMessages = [
+      { role: 'user' as const, content: '新しい役割を引き受けるか迷っています。' },
+    ];
+    const lastUserText = '条件の一覧より、自分がなぜ迷うのかを話したいです。';
+    const result = buildFinalVerifiedQualityFallback(
+      lastUserText,
+      historyMessages
+    );
+
+    expect(result).toContain('迷いの中心');
+    expect(result).toContain('何か大事なものが崩れる');
+    expect(result).toContain('何が崩れそう');
     expect(
       assessCoachingResponseQuality({
         text: result,
