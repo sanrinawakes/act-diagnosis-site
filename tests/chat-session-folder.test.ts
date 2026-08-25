@@ -51,4 +51,23 @@ describe('chat session folders and rename', () => {
     // moving to a folder never sends an empty name
     expect(page).toContain('folderEditValue.trim()');
   });
+
+  it('ignores stale sidebar responses during rapid search changes', () => {
+    const page = fs.readFileSync(
+      path.join(root, 'src/app/coaching/page.tsx'),
+      'utf8'
+    );
+    expect(page).toContain('const sidebarRequestSequenceRef = useRef(0);');
+    expect(page).toContain(
+      'const requestSequence = ++sidebarRequestSequenceRef.current;'
+    );
+    expect(
+      page.match(
+        /requestSequence !== sidebarRequestSequenceRef\.current/g
+      )?.length
+    ).toBeGreaterThanOrEqual(2);
+    expect(page).toContain(
+      'requestSequence === sidebarRequestSequenceRef.current'
+    );
+  });
 });
