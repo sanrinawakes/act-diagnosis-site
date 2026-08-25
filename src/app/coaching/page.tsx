@@ -544,6 +544,8 @@ function CoachingContent() {
   // ─── Sidebar: move to folder ───
   const handleMoveToFolder = async (sid: string, folderName: string | null) => {
     try {
+      const normalizedFolder =
+        folderName === null ? null : folderName.trim().slice(0, 50);
       const {
         data: { session: authSession },
       } = await supabase.auth.getSession();
@@ -558,7 +560,7 @@ function CoachingContent() {
           },
           body: JSON.stringify({
             session_id: sid,
-            folder: folderName === null ? null : folderName.trim().slice(0, 50),
+            folder: normalizedFolder,
           }),
         }),
         CHAT_INITIALIZATION_TIMEOUT_MS,
@@ -568,7 +570,17 @@ function CoachingContent() {
 
       setFolderEditSessionId(null);
       setFolderEditValue('');
-      await fetchSidebarSessions(sidebarSearch, sidebarTab, sidebarPage, folderFilter);
+      const nextFolderFilter =
+        folderFilter && normalizedFolder !== folderFilter ? '' : folderFilter;
+      if (nextFolderFilter !== folderFilter) {
+        setFolderFilter(nextFolderFilter);
+      }
+      await fetchSidebarSessions(
+        sidebarSearch,
+        sidebarTab,
+        sidebarPage,
+        nextFolderFilter
+      );
     } catch (error) {
       console.error('Error moving session to folder:', error);
       setAttachmentError(
