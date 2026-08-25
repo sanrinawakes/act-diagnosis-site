@@ -69,5 +69,10 @@ describe('chat session folders and rename', () => {
     expect(page).toContain(
       'requestSequence === sidebarRequestSequenceRef.current'
     );
+    expect(page).toContain(
+      'const sidebarRequestControllerRef = useRef<AbortController | null>(null);'
+    );
+    expect(page).toContain('sidebarRequestControllerRef.current?.abort();');
+    expect(page).toContain('sidebarRequestControllerRef.current = controller;');
   });
 });
