@@ -74,5 +74,12 @@ describe('chat session folders and rename', () => {
     );
     expect(page).toContain('sidebarRequestControllerRef.current?.abort();');
     expect(page).toContain('sidebarRequestControllerRef.current = controller;');
+    expect(page).toContain('const SIDEBAR_SEARCH_DEBOUNCE_MS = 250;');
+    expect(page).toContain(
+      'setDebouncedSidebarSearch(sidebarSearch);'
+    );
+    expect(page).toContain(
+      'fetchSidebarSessions(debouncedSidebarSearch, sidebarTab, 1, folderFilter);'
+    );
   });
 });

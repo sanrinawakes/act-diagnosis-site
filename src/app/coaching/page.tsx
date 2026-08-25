@@ -110,6 +110,7 @@ type ClientChatFailurePayload = {
 const CHAT_RESPONSE_TIMEOUT_MS = 60000;
 const CHAT_PERSIST_TIMEOUT_MS = 10000;
 const CHAT_INITIALIZATION_TIMEOUT_MS = 12000;
+const SIDEBAR_SEARCH_DEBOUNCE_MS = 250;
 const CHAT_BUSY_MESSAGE =
   'AIが前の返信を処理中です。完了すると送信できます。入力内容はこのまま残ります。';
 const CHAT_NOT_READY_MESSAGE =
@@ -299,6 +300,7 @@ function CoachingContent() {
   const [sidebarSessions, setSidebarSessions] = useState<ChatSession[]>([]);
   const [sidebarLoading, setSidebarLoading] = useState(false);
   const [sidebarSearch, setSidebarSearch] = useState('');
+  const [debouncedSidebarSearch, setDebouncedSidebarSearch] = useState('');
   const [sidebarTab, setSidebarTab] = useState<'all' | 'pinned'>('all');
   const [sidebarFolders, setSidebarFolders] = useState<string[]>([]);
   const [folderFilter, setFolderFilter] = useState<string>('');
@@ -434,11 +436,18 @@ function CoachingContent() {
     [supabase]
   );
 
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setDebouncedSidebarSearch(sidebarSearch);
+    }, SIDEBAR_SEARCH_DEBOUNCE_MS);
+    return () => window.clearTimeout(timer);
+  }, [sidebarSearch]);
+
   // Fetch sidebar sessions on mount and when tab/search changes
   useEffect(() => {
     if (!isReady || !initialized) return;
-    fetchSidebarSessions(sidebarSearch, sidebarTab, 1, folderFilter);
-  }, [isReady, initialized, sidebarTab, fetchSidebarSessions, sidebarSearch, folderFilter]);
+    fetchSidebarSessions(debouncedSidebarSearch, sidebarTab, 1, folderFilter);
+  }, [isReady, initialized, sidebarTab, fetchSidebarSessions, debouncedSidebarSearch, folderFilter]);
 
   useEffect(() => {
     if (!isReady) return;
