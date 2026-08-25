@@ -66,10 +66,67 @@ describe('coaching output pipeline modes', () => {
       preserveUsage: true,
     });
 
-    expect(result.modelName).toBe('local-output-safety-fallback');
+    expect(result.modelName).toBe('local-quality-fallback');
     expect(result.provider).toBe('local');
     expect(result.chargeable).toBe(false);
     expect(result.text).not.toMatch(/保存済み要約|ACTI_SESSION_MEMORY/);
+  });
+
+  it('minimalでも話題ずれと不満が観測されたらverified fallbackへ戻す', () => {
+    process.env.COACHING_OUTPUT_PIPELINE_MODE = 'minimal';
+
+    const repeated =
+      '現在の支払い分担について、口頭のお願い以外に確認できる合意や記録はありますか？';
+    const historyMessages = [
+      {
+        role: 'user' as const,
+        content: '以前、夫が家賃を払わないことで困っていました。',
+      },
+      { role: 'assistant' as const, content: repeated },
+      {
+        role: 'user' as const,
+        content:
+          '今回は講座に申し込まなかった後悔と、スピリチュアルな学びにこれ以上お金を使いたくない疲れ、お金が入ってこない不安の話です。',
+      },
+      { role: 'assistant' as const, content: repeated },
+      { role: 'user' as const, content: '支払い分担って何の話？' },
+      { role: 'assistant' as const, content: repeated },
+      {
+        role: 'user' as const,
+        content: 'なんで私ばっかりお金が入ってこないの、という話です。',
+      },
+      { role: 'assistant' as const, content: repeated },
+    ];
+    const result = ensureVerifiedCoachingResolution({
+      resolution: {
+        text: 'こちらの確認が噛み合っておらず、大変失礼いたしました。\n\n講座に申し込まなかった後悔や、スピリチュアルな学びにこれ以上お金を使いたくない疲れ、そしてお金が入ってこない不安について話してくださっていたのですね。\n\nお金が入ってこない不安について、今一番困っている出来事は何ですか？',
+        usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+        modelName: 'gemini-3.5-flash',
+        provider: 'gemini',
+        repairAttempted: false,
+        repairAccepted: false,
+        initialIssues: [
+          'too_short',
+          'repeats_rejected_move',
+          'dissatisfaction_unanswered',
+        ],
+        finalIssues: [
+          'too_short',
+          'repeats_rejected_move',
+          'dissatisfaction_unanswered',
+        ],
+      },
+      lastUserText: '本当に何の話？',
+      historyMessages,
+      preserveUsage: true,
+    });
+
+    expect(result.modelName).toBe('local-quality-fallback');
+    expect(result.provider).toBe('local');
+    expect(result.chargeable).toBe(false);
+    expect(result.text).toContain('講座への申し込みを保留');
+    expect(result.text).toContain('現在の収入源');
+    expect(result.text).toContain('今月必要な金額');
   });
 
   it('表示上必要なMarkdownと壊れた末尾だけを除く', () => {

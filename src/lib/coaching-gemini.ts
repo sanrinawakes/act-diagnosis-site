@@ -3452,6 +3452,7 @@ function resolveObservedCoachingResponseQuality(params: {
     lastUserText: params.lastUserText,
     historyMessages: params.historyMessages,
   });
+  const pipelineConfig = getCoachingOutputPipelineConfig();
   const observedIssues = [
     ...new Set([...rawAssessment.issues, ...deliveryAssessment.issues]),
   ];
@@ -3549,9 +3550,10 @@ function resolveObservedCoachingResponseQuality(params: {
     repairAttempted: false,
     repairAccepted: false,
     initialIssues: observedIssues,
-    // In observe/minimal mode these are observations, not response-gate
-    // failures. They stay in initialIssues/qualityObservedIssues telemetry.
-    finalIssues: [],
+    finalIssues:
+      pipelineConfig.mode === 'minimal'
+        ? observedIssues
+        : [],
     qualitySafetyHold: false,
     chargeable: true,
   };
