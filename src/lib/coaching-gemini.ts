@@ -4820,6 +4820,16 @@ function buildSubstantiveShortFallback(lastUserText: string) {
   }
 
   if (
+    /仕事/.test(lastUserText) &&
+    /つまづ(?:い|き)/.test(lastUserText) &&
+    /タスク/.test(lastUserText) &&
+    /アイディア/.test(lastUserText) &&
+    /共有/.test(lastUserText)
+  ) {
+    return '仕事の進め方でつまづいているタスクを動かし、その解決方法を周りへ共有したいのですね。今は「解決すること」と「共有すること」が一つに重なっているので、まず明日最初に扱うタスクを一つだけ固定した方が動きやすくなります。\n\n明日いちばん先に解決方法を考えるタスクを一つだけ、名前で書いてください。';
+  }
+
+  if (
     /会議/.test(lastUserText) &&
     /提案/.test(lastUserText) &&
     /最後まで/.test(lastUserText) &&
