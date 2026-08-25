@@ -4209,6 +4209,18 @@ describe('normalizeCoachingOutput', () => {
     expect(result).not.toContain('お見受けします');
   });
 
+  it('一つだけの行動提案で「教えていただけますか」を接客敬語のまま残さない', () => {
+    const result = normalizeCoachingOutput(
+      '明日上司と話す時に、「前回のご指摘について、最初に見直す点を一つ教えていただけますか」と聞いてみてください。',
+      'では、明日まず何をすればいいか一つだけ教えてください。'
+    );
+
+    expect(result).toBe(
+      '明日上司と話す時に、「前回のご指摘について、最初に見直す点を一つ聞かせてもらえますか」と聞いてみてください。'
+    );
+    expect(result).not.toContain('教えていただけますか');
+  });
+
   it('内部の回答形式指定を利用者本文から分離する', () => {
     const result = stripInternalResponseStyleHint(
       'この画像の色を一言で答えてください。\n\n【内部応答形式】答えまたは提案を一つだけ簡潔に返してください。'
