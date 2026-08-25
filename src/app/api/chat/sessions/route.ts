@@ -19,6 +19,7 @@ interface SessionWithPreview {
   is_pinned: boolean;
   last_message_at: string | null;
   message_count: number;
+  folder: string | null;
   preview: string | null;
 }
 
@@ -66,6 +67,9 @@ export async function GET(request: NextRequest) {
     // Get query parameters
     const url = new URL(request.url);
     const pinned = url.searchParams.get('pinned') === 'true';
+    const folderParam = url.searchParams.get('folder');
+    const folder =
+      typeof folderParam === 'string' ? folderParam.trim().slice(0, 50) : '';
     const search = url.searchParams.get('search')?.trim().slice(0, 200) || '';
     const requestedPage = parseInt(url.searchParams.get('page') || '1', 10);
     const requestedLimit = parseInt(url.searchParams.get('limit') || '20', 10);
@@ -86,6 +90,7 @@ export async function GET(request: NextRequest) {
         is_pinned,
         last_message_at,
         message_count,
+        folder,
         chat_messages(content, created_at)
       `,
         { count: 'exact' }
@@ -95,6 +100,11 @@ export async function GET(request: NextRequest) {
     // Apply pinned filter
     if (pinned) {
       sessionsQuery = sessionsQuery.eq('is_pinned', true);
+    }
+
+    // Apply folder filter
+    if (folder) {
+      sessionsQuery = sessionsQuery.eq('folder', folder);
     }
 
     // Apply search filter if provided
@@ -110,7 +120,13 @@ export async function GET(request: NextRequest) {
         new Set((searchResults || []).map((result) => result.session_id))
       );
       if (uniqueIds.length === 0) {
-        return NextResponse.json({ sessions: [], total: 0, page, limit });
+        return NextResponse.json({
+          sessions: [],
+          total: 0,
+          page,
+          limit,
+          folders: [],
+        });
       }
       sessionsQuery = sessionsQuery.in('id', uniqueIds);
     }
@@ -136,12 +152,27 @@ export async function GET(request: NextRequest) {
       throw sessionsError;
     }
 
+    const { data: folderRows } = await supabase
+      .from('chat_sessions')
+      .select('folder')
+      .eq('user_id', user.id)
+      .not('folder', 'is', null)
+      .limit(500);
+    const folders = Array.from(
+      new Set(
+        (folderRows || [])
+          .map((row) => (typeof row.folder === 'string' ? row.folder : ''))
+          .filter(Boolean)
+      )
+    ).sort((a, b) => a.localeCompare(b, 'ja'));
+
     if (!sessions) {
       return NextResponse.json({
         sessions: [],
         total: 0,
         page,
         limit,
+        folders,
       });
     }
 
@@ -156,6 +187,7 @@ export async function GET(request: NextRequest) {
         is_pinned: session.is_pinned,
         last_message_at: session.last_message_at,
         message_count: session.message_count,
+        folder: session.folder ?? null,
         preview:
           typeof firstUserMessage === 'string'
             ? firstUserMessage.substring(0, 50)
@@ -168,6 +200,7 @@ export async function GET(request: NextRequest) {
       total: count || 0,
       page,
       limit,
+      folders,
     });
   } catch (error) {
     console.error('Sessions GET error:', error);
@@ -202,7 +235,7 @@ export async function PATCH(request: NextRequest) {
     if (!body || typeof body !== 'object') {
       return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
     }
-    const { session_id, is_pinned, title } = body;
+    const { session_id, is_pinned, title, folder } = body;
 
     if (typeof session_id !== 'string' || !UUID_PATTERN.test(session_id)) {
       return NextResponse.json(
@@ -217,7 +250,14 @@ export async function PATCH(request: NextRequest) {
     if (title !== undefined && (typeof title !== 'string' || title.length > 200)) {
       return NextResponse.json({ error: 'Invalid title' }, { status: 400 });
     }
-    if (is_pinned === undefined && title === undefined) {
+    if (
+      folder !== undefined &&
+      folder !== null &&
+      (typeof folder !== 'string' || folder.trim().length === 0 || folder.trim().length > 50)
+    ) {
+      return NextResponse.json({ error: 'Invalid folder' }, { status: 400 });
+    }
+    if (is_pinned === undefined && title === undefined && folder === undefined) {
       return NextResponse.json({ error: 'No update provided' }, { status: 400 });
     }
 
@@ -246,12 +286,15 @@ export async function PATCH(request: NextRequest) {
       }
     }
 
-    const updateData: { is_pinned?: boolean; title?: string } = {};
+    const updateData: { is_pinned?: boolean; title?: string; folder?: string | null } = {};
     if (is_pinned !== undefined) {
       updateData.is_pinned = is_pinned;
     }
     if (title !== undefined) {
       updateData.title = title;
+    }
+    if (folder !== undefined) {
+      updateData.folder = folder === null ? null : folder.trim();
     }
 
     const { data: updatedSession, error: updateError } = await supabaseAdmin
