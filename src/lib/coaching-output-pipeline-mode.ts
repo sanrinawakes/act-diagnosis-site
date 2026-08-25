@@ -31,11 +31,11 @@ const PIPELINE_CONFIGS: Record<
   },
   minimal: {
     mode: 'minimal',
-    applySemanticNormalization: false,
+    applySemanticNormalization: true,
     applyQualityRepair: false,
     applyQualityFallback: false,
-    applyVerifiedResolution: false,
-    allowNonSafetyImmediateResponses: false,
+    applyVerifiedResolution: true,
+    allowNonSafetyImmediateResponses: true,
   },
 };
 
