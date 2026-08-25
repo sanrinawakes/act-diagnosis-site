@@ -318,6 +318,7 @@ function CoachingContent() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pendingAttachmentsRef = useRef<PendingImageAttachment[]>([]);
   const sendInFlightRef = useRef(false);
+  const sidebarRequestSequenceRef = useRef(0);
   const supabase = createClient();
   const { t } = useI18n();
   const sidebarLimit = 20;
@@ -377,6 +378,7 @@ function CoachingContent() {
       pageNum?: number,
       folderName?: string
     ) => {
+      const requestSequence = ++sidebarRequestSequenceRef.current;
       try {
         setSidebarLoading(true);
         const {
@@ -384,6 +386,7 @@ function CoachingContent() {
         } = await supabase.auth.getSession();
 
         if (!authSession?.access_token) return;
+        if (requestSequence !== sidebarRequestSequenceRef.current) return;
 
         const params = new URLSearchParams();
         if (tab === 'pinned') params.append('pinned', 'true');
@@ -406,6 +409,7 @@ function CoachingContent() {
         if (!response.ok) return;
 
         const data: PaginatedResponse = await response.json();
+        if (requestSequence !== sidebarRequestSequenceRef.current) return;
         setSidebarSessions(data.sessions);
         setSidebarTotal(data.total);
         setSidebarPage(pageNum || 1);
@@ -413,9 +417,13 @@ function CoachingContent() {
           setSidebarFolders(data.folders);
         }
       } catch (error) {
-        console.error('Error fetching sidebar sessions:', error);
+        if (requestSequence === sidebarRequestSequenceRef.current) {
+          console.error('Error fetching sidebar sessions:', error);
+        }
       } finally {
-        setSidebarLoading(false);
+        if (requestSequence === sidebarRequestSequenceRef.current) {
+          setSidebarLoading(false);
+        }
       }
     },
     [supabase]
