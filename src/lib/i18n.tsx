@@ -50,7 +50,7 @@ const translations: Record<Locale, Record<string, string>> = {
     'login.or': 'または',
     'login.noAccount': 'アカウントをお持ちでないですか？',
     'login.register': '新規登録',
-    'login.error.invalid': 'メールアドレスまたはパスワードが正しくありません',
+    'login.error.invalid': 'メールアドレスまたはパスワードが正しくありません。Googleで登録した方は、上の「Googleでログイン」を押してください。パスワードが分からない方は、下の「メールでログインリンクを受け取る」をお使いください。',
     'login.error.failed': 'ログインに失敗しました',
 
     // Register
@@ -222,7 +222,7 @@ const translations: Record<Locale, Record<string, string>> = {
     'login.or': 'or',
     'login.noAccount': "Don't have an account?",
     'login.register': 'Sign Up',
-    'login.error.invalid': 'Invalid email or password',
+    'login.error.invalid': 'Invalid email or password. If you registered with Google, use “Sign in with Google” above. If you do not know your password, use the email sign-in link below.',
     'login.error.failed': 'Login failed',
 
     // Register
