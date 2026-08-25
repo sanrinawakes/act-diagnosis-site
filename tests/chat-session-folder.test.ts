@@ -50,6 +50,10 @@ describe('chat session folders and rename', () => {
     expect(page.match(/isComposing/g)?.length).toBeGreaterThanOrEqual(2);
     // moving to a folder never sends an empty name
     expect(page).toContain('folderEditValue.trim()');
+    // The fixed-width mobile sidebar must not make the page horizontally scrollable.
+    expect(page).toContain(
+      '<div className="flex overflow-x-hidden" style={{ height:'
+    );
   });
 
   it('ignores stale sidebar responses during rapid search changes', () => {
