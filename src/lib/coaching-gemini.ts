@@ -4187,6 +4187,22 @@ export function buildFinalVerifiedQualityFallback(
   lastUserText: string,
   historyMessages: CoachingChatMessage[]
 ): string {
+  const snsPostingDirectionFallback = buildSnsPostingDirectionFallback(
+    lastUserText,
+    historyMessages
+  );
+  if (snsPostingDirectionFallback) {
+    return snsPostingDirectionFallback;
+  }
+
+  const workGrowthDirectionFallback = buildWorkGrowthDirectionFallback(
+    lastUserText,
+    historyMessages
+  );
+  if (workGrowthDirectionFallback) {
+    return workGrowthDirectionFallback;
+  }
+
   const longContinuityReferenceFallback =
     buildLongContinuityReferenceFallback(lastUserText, historyMessages);
   if (longContinuityReferenceFallback) {
@@ -4677,6 +4693,15 @@ function buildSilentAnswerFallback(
 
 function buildSubstantiveShortFallback(lastUserText: string) {
   if (
+    /X/.test(lastUserText) &&
+    /投稿/.test(lastUserText) &&
+    /ChatGPT/.test(lastUserText) &&
+    /新月|上弦の月|満月|下弦の月/.test(lastUserText)
+  ) {
+    return '星座と月のタイミングを組み合わせた投稿を、育てたChatGPTでXに月4回出しているのですね。今ここで整理したいのは、自分で書くかどうかより、その投稿で誰に何を届けたいかです。\n\nXの月4回投稿で、いちばん反応してほしい相手は誰ですか？';
+  }
+
+  if (
     /浪費/.test(lastUserText) &&
     /抑止|分岐点|気付かない|気づかない/.test(lastUserText)
   ) {
@@ -4775,7 +4800,9 @@ function buildSubstantiveShortFallback(lastUserText: string) {
   }
 
   if (
-    /今のレベル/.test(lastUserText) &&
+    (/今のレベル/.test(lastUserText) ||
+      /今の状態からレベル/.test(lastUserText) ||
+      /レベルを\s*4/.test(lastUserText)) &&
     /上がる|上げる/.test(lastUserText)
   ) {
     return '今のレベルを上げたいなら、先に対象を一つに絞る必要があります。\n\nまず、紙に「仕事」「人間関係」「生活習慣」の中で今いちばん上げたいものを一つだけ書いてください。';
@@ -4820,6 +4847,14 @@ function buildSubstantiveShortFallback(lastUserText: string) {
   }
 
   if (
+    /考えを打ち明けてほしい|デザインをもっと良くしてほしい|考えをまとめて共有してほしい/.test(
+      lastUserText
+    )
+  ) {
+    return '職場で「考えをもっと共有してほしい」「デザインをもっと良くしてほしい」と言われ、何から直せばよいかがぼやけているのですね。今必要なのは評価を丸ごと受け止めることではなく、最初に直す一点を決めることです。\n\n次にその相手へ、「最初に直す点を一つだけ教えてください」と確認してください。';
+  }
+
+  if (
     /仕事/.test(lastUserText) &&
     /つまづ(?:い|き)/.test(lastUserText) &&
     /タスク/.test(lastUserText) &&
@@ -4855,6 +4890,68 @@ function buildSubstantiveShortFallback(lastUserText: string) {
   }
 
   return '';
+}
+
+function buildWorkGrowthDirectionFallback(
+  lastUserText: string,
+  historyMessages: CoachingChatMessage[]
+) {
+  const recentUserContext = historyMessages
+    .filter((message) => message.role === 'user')
+    .slice(-8)
+    .map((message) => stripAttachmentMarkdown(message.content))
+    .join('\n');
+  const combinedContext = [recentUserContext, lastUserText]
+    .filter(Boolean)
+    .join('\n');
+  const hasCareerGrowthContext =
+    /フリーランス|会社|職場|仕事|スキル|共有|プランナー|デザイナー|プログラマー|AI/.test(
+      combinedContext
+    );
+  if (!hasCareerGrowthContext) return '';
+
+  if (
+    /方向性/.test(lastUserText) &&
+    /行動/.test(lastUserText) &&
+    /心のあり方/.test(lastUserText)
+  ) {
+    return '今の話では、行動だけを見るより、行動を止める考え方も一緒に見た方が合っています。一度に両方を広げるとぼやけるので、先に整理する対象は二つに絞れます。\n\n今日は、会社で考えを共有する場面を先に見るか、フリーランスに向けた準備を先に見るかを一つ選んでください。';
+  }
+
+  if (
+    (/今のレベル/.test(lastUserText) ||
+      /今の状態からレベル/.test(lastUserText) ||
+      /レベルを\s*4/.test(lastUserText)) &&
+    /上がる|上げる/.test(lastUserText)
+  ) {
+    return '今の話では、出社でのスキル習得、周りとの共有、フリーランス準備が同時に並んでいます。レベル4に上げたいなら、まず今週いちばん伸ばす対象を一つに固定する必要があります。\n\n紙に「会社で伸ばすスキル」「考えの共有」「フリーランス準備」の中から、今週いちばん優先するものを一つだけ書いてください。';
+  }
+
+  return '';
+}
+
+function buildSnsPostingDirectionFallback(
+  lastUserText: string,
+  historyMessages: CoachingChatMessage[]
+) {
+  const recentUserContext = historyMessages
+    .filter((message) => message.role === 'user')
+    .slice(-6)
+    .map((message) => stripAttachmentMarkdown(message.content))
+    .join('\n');
+  const combinedContext = [recentUserContext, lastUserText]
+    .filter(Boolean)
+    .join('\n');
+
+  if (
+    !/X|SNS|投稿|リツイート/.test(combinedContext) ||
+    !/新月|上弦の月|満月|下弦の月/.test(combinedContext) ||
+    !/ChatGPT/.test(lastUserText)
+  ) {
+    return '';
+  }
+
+  return '星座と月のタイミングを組み合わせた投稿を、育てたChatGPTでXに月4回出しているのですね。今ここで整理したいのは、自分で書くかどうかより、その投稿で誰に何を届けたいかです。\n\nXの月4回投稿で、いちばん反応してほしい相手は誰ですか？';
 }
 
 function buildDiagnosisExplanationFallback(

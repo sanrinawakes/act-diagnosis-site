@@ -5140,6 +5140,111 @@ describe('normalizeCoachingOutput', () => {
     expect(fallback).not.toContain('次に確認する点');
   });
 
+  it('X投稿の相談で月4回のChatGPT投稿を無関係な一般論へ逸らさない', () => {
+    const historyMessages = [
+      {
+        role: 'assistant' as const,
+        content:
+          'こんにちは！ACTIのコーチングへようこそ。\n\nあなたのタイプコード「MGA-3」に基づいて、パーソナライズされたコーチングを提供します。\n\n次のテーマについてお話しすることができます：\n・自己理解 - あなたのタイプの強みと課題\n・行動パターン - 日常での行動傾向\n・人間関係 - 対人スキルの向上\n・キャリア - 仕事での活躍方法\n・パーソナルグロース - 成長のステップ\n\n何について詳しく知りたいですか？',
+      },
+      {
+        role: 'user' as const,
+        content:
+          'Xの投稿してます。暦ことばというサイトで、新月、上弦の月、満月、下弦の月だけ投稿しています。あとは、心理カウンセラーmasaさんの朝の言葉と、優しい四柱推命の十干十二支カード、ウェザーニュースの暦は毎日リツイートと、三凛さんなどの投稿をリツイートしてます。',
+      },
+    ];
+    const lastUserText =
+      'ありがとう。自分の言葉ではなく、育てたChatGPTに星座と新月、上弦の月、満月、下弦の月をかけ合わせた月４回投稿です。';
+
+    const fallback = buildFinalVerifiedQualityFallback(
+      lastUserText,
+      historyMessages
+    );
+    const assessment = assessCoachingResponseQuality({
+      text: fallback,
+      lastUserText,
+      historyMessages,
+    });
+
+    expect(fallback).toContain('X');
+    expect(fallback).toContain('月4回');
+    expect(fallback).toContain('誰に何を届けたいか');
+    expect(assessment.issues).toEqual([]);
+  });
+
+  it('心のあり方か行動かを尋ねる仕事相談を引用だけで返さない', () => {
+    const historyMessages = [
+      {
+        role: 'user' as const,
+        content:
+          'その今の生活の中で身につけられると感じているスキルを得ようと考えています。なので苦しいばかりではなく楽しいと感じてもいます。スクジュール力を高めること 会社でなるべく人と交流しイラストのきっかけを掴む活動をする 。仕事の進め方を振り返り自分がフリーランスになった時に備えるため知見を蓄える。AIを活用している会社なのでそこでAIのスキルアップも目指す　アウトソーシングなので永続的にその会社にいるわけではありません。ですがどれくらいその会社には所属していられるのかわからないので流れに乗りつつもできることをやるという感じです。一年以内など期限はそろそろ決断したいと考えています。',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          '考えを箇条書きでまとめる手段を取り入れ、状況が良い方向に向かうと確信できているのですね。現在の取り組みと感覚がよく分かります。\n\nその確信を持っている中で、いま一番優先して深掘りしたいテーマは、職場でまとめている考えの共有と、フリーランスに向けた準備のどちらですか？',
+      },
+      {
+        role: 'user' as const,
+        content: '深掘りしたいのはリーランスに向けた準備の方になります',
+      },
+    ];
+    const lastUserText =
+      'ここで相談すべき内容の方向性は行動というよりも心のあり方にお目をむいている感じでしょうか';
+
+    const fallback = buildFinalVerifiedQualityFallback(
+      lastUserText,
+      historyMessages
+    );
+    const assessment = assessCoachingResponseQuality({
+      text: fallback,
+      lastUserText,
+      historyMessages,
+    });
+
+    expect(fallback).toContain('行動を止める考え方');
+    expect(fallback).toContain('会社で考えを共有する場面');
+    expect(fallback).toContain('フリーランスに向けた準備');
+    expect(fallback).toContain('先に見るかを一つ選んでください');
+    expect(assessment.issues).toEqual([]);
+  });
+
+  it('レベル4へ上がりたい相談を無関係な作業環境の提案へ逸らさない', () => {
+    const historyMessages = [
+      {
+        role: 'user' as const,
+        content:
+          'その今の生活の中で身につけられると感じているスキルを得ようと考えています。なので苦しいばかりではなく楽しいと感じてもいます。スクジュール力を高めること 会社でなるべく人と交流しイラストのきっかけを掴む活動をする 。仕事の進め方を振り返り自分がフリーランスになった時に備えるため知見を蓄える。AIを活用している会社なのでそこでAIのスキルアップも目指す　アウトソーシングなので永続的にその会社にいるわけではありません。ですがどれくらいその会社には所属していられるのかわからないので流れに乗りつつもできることをやるという感じです。一年以内など期限はそろそろ決断したいと考えています。',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          '考えを箇条書きでまとめる手段を取り入れ、状況が良い方向に向かうと確信できているのですね。現在の取り組みと感覚がよく分かります。\n\nその確信を持っている中で、いま一番優先して深掘りしたいテーマは、職場でまとめている考えの共有と、フリーランスに向けた準備のどちらですか？',
+      },
+      {
+        role: 'user' as const,
+        content: '深掘りしたいのはリーランスに向けた準備の方になります',
+      },
+    ];
+    const lastUserText = '今の状態からレベルを4に上がるにはどうしたら良い？';
+
+    const fallback = buildFinalVerifiedQualityFallback(
+      lastUserText,
+      historyMessages
+    );
+    const assessment = assessCoachingResponseQuality({
+      text: fallback,
+      lastUserText,
+      historyMessages,
+    });
+
+    expect(fallback).toContain('レベル4に上げたい');
+    expect(fallback).toContain('会社で伸ばすスキル');
+    expect(fallback).toContain('フリーランス準備');
+    expect(fallback).not.toMatch(/イラストの作業環境/);
+    expect(assessment.issues).toEqual([]);
+  });
+
   it.each([
     {
       text: '「前回は提案の説明が途中で終わったため、今回は内容を最後までお伝えしてから、ご意見をいただけると助かります。」',
