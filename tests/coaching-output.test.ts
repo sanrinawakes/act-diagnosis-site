@@ -7050,6 +7050,48 @@ describe('normalizeCoachingOutput', () => {
     );
   });
 
+  it('休職中に仕事を続けるか迷う相談を短い質問だけで返さない', () => {
+    const lastUserText =
+      '今の仕事続けるか、もっと、他の道、他の仕事、したほうが、いいのか、迷ってます、';
+    const historyMessages = [
+      {
+        role: 'user' as const,
+        content:
+          '最近、何か、やる気が、でない、それに、目標や、生きがいが、わからなくなりました、やりたいことは、あるけど、行動できないことが、ふえました、お金の、事考えると、慎重に、使わないとなあと、おもい、おもいきり、つかえなくなりました、現在、病気で、仕事休んでるせいなので、しょうか？何か、やる気や、行動できる方法教えて欲しいです、',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          '「最近、何か、やる気が、でない、それに、目 標や、生きがいが、わからなくなりました、 やりたいこと…」という相談ですね。\n\n仕事全体について結論を急がず、実際に困った場面と、次に確認する点を分けると、具体的な対応を選びやすくなります。今の情報だけで原因や相手の意図を決めつけず、確認できる出来事から整理します。\n\nいま詰まっている仕事の場面で、誰が何を言ったかを一つだけ書いてください。',
+      },
+      {
+        role: 'user' as const,
+        content:
+          '今は、病気で、仕事休んでます、これからの、事、考えると、不安があります、',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          '「今は、病気で、仕事休んでます、これからの、事、考えると、不安があります、」という相談ですね。\n\n仕事全体について結論を急がず、実際に困った場面と、次に確認する点を分けると、具体的な対応を選びやすくなります。',
+      },
+    ];
+
+    const fallback = buildFinalVerifiedQualityFallback(
+      lastUserText,
+      historyMessages
+    );
+    const assessment = assessCoachingResponseQuality({
+      text: fallback,
+      lastUserText,
+      historyMessages,
+    });
+
+    expect(assessment.issues).toEqual([]);
+    expect(fallback).toContain('病気で仕事を休んでいて');
+    expect(fallback).toContain('続けるか変えるか');
+    expect(fallback).not.toContain('明日ひとつだけ状況を動かすなら');
+  });
+
   it('かわす方法を聞かれた会話では抽象整理ではなく具体的な返し方へ修復する', () => {
     const historyMessages = [
       {
