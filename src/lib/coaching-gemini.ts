@@ -4373,6 +4373,22 @@ export function buildFinalVerifiedQualityFallback(
     }
   }
 
+  const medicalLeaveCareerDecisionFallback =
+    buildMedicalLeaveCareerDecisionFallback(
+      lastUserText,
+      historyMessages
+    );
+  if (medicalLeaveCareerDecisionFallback) {
+    const medicalLeaveAssessment = assessCoachingResponseQuality({
+      text: medicalLeaveCareerDecisionFallback,
+      lastUserText,
+      historyMessages,
+    });
+    if (medicalLeaveAssessment.issues.length === 0) {
+      return medicalLeaveCareerDecisionFallback;
+    }
+  }
+
   const careerMobilityFollowupFallback =
     buildCareerMobilityFollowupFallback(lastUserText, historyMessages);
   if (careerMobilityFollowupFallback) {
@@ -8324,6 +8340,36 @@ function buildCareerMobilityFollowupFallback(
   }
 
   return 'では、総合職の話が出る場面で何を見せるかを先に絞ります。一般職のまま出向や留学を狙うなら、「任せても大丈夫」と判断される材料が必要です。まずは今の職場で、自分から手を挙げて広い視点で動いた実例を一つ書き出してください。推薦や打診につながるのは、その実例です。';
+}
+
+function buildMedicalLeaveCareerDecisionFallback(
+  lastUserText: string,
+  historyMessages: CoachingChatMessage[]
+) {
+  if (
+    !/今の仕事/.test(lastUserText) ||
+    !/続ける/.test(lastUserText) ||
+    !/他の道|他の仕事/.test(lastUserText) ||
+    !/迷/.test(lastUserText)
+  ) {
+    return '';
+  }
+
+  const recentUserContext = historyMessages
+    .filter((message) => message.role === 'user')
+    .slice(-4)
+    .map((message) => stripAttachmentMarkdown(message.content))
+    .join('\n');
+
+  if (
+    !/病気/.test(recentUserContext) ||
+    !/休んでます|休んでる|休職/.test(recentUserContext) ||
+    !/不安/.test(recentUserContext)
+  ) {
+    return '';
+  }
+
+  return '病気で仕事を休んでいて、これからの不安がある中で、今の仕事を続けるか変えるかで迷っているのですね。今ここで先に決めるのは、続けるか辞めるかの結論ではなく、今の体調でも無理なく守りたい働き方の条件です。\n\nまず、次の仕事を考える時に外せない条件を三つだけ書いてください。たとえば勤務時間、通勤の負担、人との関わり方のように、今の生活を守るために必要な条件です。';
 }
 
 function buildScheduleTemplateFollowupFallback(
