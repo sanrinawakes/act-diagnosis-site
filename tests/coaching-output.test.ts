@@ -5208,6 +5208,37 @@ describe('normalizeCoachingOutput', () => {
     expect(assessment.issues).toEqual([]);
   });
 
+  it('学校での約束案に短く引っかかった返答を引用だけで返さない', () => {
+    const historyMessages = [
+      {
+        role: 'user' as const,
+        content:
+          '学校との話し合いのあとに、相手側へどんな約束を確認したらよいか考えています。',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          '今後の生活で暴力や嫌がらせをしないことを紙に書いて署名してもらい、破った時の利用停止も明記してください。',
+      },
+    ];
+    const lastUserText = 'それは';
+
+    const fallback = buildFinalVerifiedQualityFallback(
+      lastUserText,
+      historyMessages
+    );
+    const assessment = assessCoachingResponseQuality({
+      text: fallback,
+      lastUserText,
+      historyMessages,
+    });
+
+    expect(fallback).toContain('重すぎると感じた');
+    expect(fallback).toContain('親子に約束してもらう内容');
+    expect(fallback).toContain('学童側のルールとして別に整理');
+    expect(assessment.issues).toEqual([]);
+  });
+
   it('心のあり方か行動かを尋ねる仕事相談を引用だけで返さない', () => {
     const historyMessages = [
       {
