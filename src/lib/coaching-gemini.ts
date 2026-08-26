@@ -4187,6 +4187,15 @@ export function buildFinalVerifiedQualityFallback(
   lastUserText: string,
   historyMessages: CoachingChatMessage[]
 ): string {
+  const bullyingAgreementClarificationFallback =
+    buildBullyingAgreementClarificationFallback(
+      lastUserText,
+      historyMessages
+    );
+  if (bullyingAgreementClarificationFallback) {
+    return bullyingAgreementClarificationFallback;
+  }
+
   const bullyingMeetingFactFallback = buildBullyingMeetingFactFallback(
     lastUserText,
     historyMessages
@@ -4994,6 +5003,33 @@ function buildBullyingMeetingFactFallback(
   }
 
   return 'その場で伝える事実は、感想ではなく「誰が、誰に、何をさせたか」に絞るとぶれません。\n\n相手側には、「一人の子が他の子に『たたいてきて』と指示し、実際に手を出させていたことが確認できました」と一文で伝えてください。';
+}
+
+function buildBullyingAgreementClarificationFallback(
+  lastUserText: string,
+  historyMessages: CoachingChatMessage[]
+) {
+  const normalized = stripAttachmentMarkdown(lastUserText)
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!/^(それは|それは？|それはちょっと|それは少し|それは違う|それは強い)$/.test(normalized)) {
+    return '';
+  }
+
+  const recentContext = historyMessages
+    .slice(-6)
+    .map((message) => stripAttachmentMarkdown(message.content))
+    .join('\n');
+  const hasSchoolConflictContext =
+    /学校|学童|保護者|いじめ|加害側|被害側/.test(recentContext);
+  const hasHeavyAgreementProposal =
+    /署名|利用停止|保護者呼出|紙に書いて/.test(recentContext);
+
+  if (!hasSchoolConflictContext || !hasHeavyAgreementProposal) {
+    return '';
+  }
+
+  return 'その案だと重すぎると感じたのですね。ここで分けるのは、親子に約束してもらう内容と、学童側が運用として決める内容です。\n\n親子には「今後、叩く・蹴る・命令して手を出させることをしない」とだけ確認し、保護者呼出や利用停止の扱いは学童側のルールとして別に整理してください。';
 }
 
 function buildDiagnosisExplanationFallback(
