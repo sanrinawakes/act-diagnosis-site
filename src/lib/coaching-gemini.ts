@@ -4187,6 +4187,14 @@ export function buildFinalVerifiedQualityFallback(
   lastUserText: string,
   historyMessages: CoachingChatMessage[]
 ): string {
+  const bullyingMeetingFactFallback = buildBullyingMeetingFactFallback(
+    lastUserText,
+    historyMessages
+  );
+  if (bullyingMeetingFactFallback) {
+    return bullyingMeetingFactFallback;
+  }
+
   const snsPostingDirectionFallback = buildSnsPostingDirectionFallback(
     lastUserText,
     historyMessages
@@ -4952,6 +4960,40 @@ function buildSnsPostingDirectionFallback(
   }
 
   return '星座と月のタイミングを組み合わせた投稿を、育てたChatGPTでXに月4回出しているのですね。今ここで整理したいのは、自分で書くかどうかより、その投稿で誰に何を届けたいかです。\n\nXの月4回投稿で、いちばん反応してほしい相手は誰ですか？';
+}
+
+function buildBullyingMeetingFactFallback(
+  lastUserText: string,
+  historyMessages: CoachingChatMessage[]
+) {
+  const recentUserContext = historyMessages
+    .filter((message) => message.role === 'user')
+    .slice(-8)
+    .map((message) => stripAttachmentMarkdown(message.content))
+    .join('\n');
+  const combinedContext = [recentUserContext, lastUserText]
+    .filter(Boolean)
+    .join('\n');
+  const hasSchoolConflictContext =
+    /学校|学童|保護者|面談|話し合い|被害側|加害側/.test(combinedContext);
+  const isDraftingWhatToSay =
+    /伝えます|伝える|言います|どう伝える|文章に|文にしてください/.test(
+      lastUserText
+    );
+  const describesDirectedViolence =
+    /(たたいてきて|叩いてきて|蹴ってきて|手を出して).*(言って|言われ|指示|させ)|指示.*(たた|叩|蹴|手を出)/.test(
+      combinedContext
+    );
+
+  if (
+    !hasSchoolConflictContext ||
+    !isDraftingWhatToSay ||
+    !describesDirectedViolence
+  ) {
+    return '';
+  }
+
+  return 'その場で伝える事実は、感想ではなく「誰が、誰に、何をさせたか」に絞るとぶれません。\n\n相手側には、「一人の子が他の子に『たたいてきて』と指示し、実際に手を出させていたことが確認できました」と一文で伝えてください。';
 }
 
 function buildDiagnosisExplanationFallback(

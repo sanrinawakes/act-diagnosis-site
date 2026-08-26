@@ -5172,6 +5172,42 @@ describe('normalizeCoachingOutput', () => {
     expect(assessment.issues).toEqual([]);
   });
 
+  it('学校側との話し合いで暴力の指示を伝える相談を引用だけで返さない', () => {
+    const historyMessages = [
+      {
+        role: 'user' as const,
+        content:
+          '放課後の話し合いで、相手側の保護者へ確認できた事実を順番に伝える予定です。',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          '話し合いでは、確認できた事実と、そこで求める対応を分けて伝えると整理しやすくなります。',
+      },
+      {
+        role: 'user' as const,
+        content:
+          '別の子に手を出すよう言わせていた場面もあり、その点も伝えるつもりです。',
+      },
+    ];
+    const lastUserText =
+      '相手側には、他の子へ「たたいてきて」と指示して実際に手を出させていたことが分かりました。と伝えます。';
+
+    const fallback = buildFinalVerifiedQualityFallback(
+      lastUserText,
+      historyMessages
+    );
+    const assessment = assessCoachingResponseQuality({
+      text: fallback,
+      lastUserText,
+      historyMessages,
+    });
+
+    expect(fallback).toContain('誰が、誰に、何をさせたか');
+    expect(fallback).toContain('手を出させていたことが確認できました');
+    expect(assessment.issues).toEqual([]);
+  });
+
   it('心のあり方か行動かを尋ねる仕事相談を引用だけで返さない', () => {
     const historyMessages = [
       {
