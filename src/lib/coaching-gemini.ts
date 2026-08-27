@@ -1897,11 +1897,67 @@ const COACHING_THEME_SELECTION_RESPONSES: Record<string, string> = {
     '成長のステップでは、周囲に合わせる力を残したまま、自分の希望も同じ重さで扱う練習が大切です。大きく変えるより、日常の小さな選択で自分の意思を先に確認する方が続きやすいです。\n\n今日の中で、人に合わせず自分で決めたいことを一つ挙げるとしたら何ですか？',
 };
 
+const COACHING_THEME_SELECTION_ALIASES: Array<[string, string[]]> = [
+  [
+    '自己理解 - あなたのタイプの強みと課題',
+    ['自己理解', '強みと課題', 'タイプの強みと課題'],
+  ],
+  [
+    '行動パターン - 日常での行動傾向',
+    [
+      '行動パターン',
+      '日常での行動傾向',
+      '行動傾向',
+      '日常の行動傾向',
+      '行動の特徴',
+      'どんな特徴がある',
+    ],
+  ],
+  [
+    '人間関係 - 対人スキルの向上',
+    ['人間関係', '対人スキル', '対人スキルの向上'],
+  ],
+  [
+    'キャリア - 仕事での活躍方法',
+    ['キャリア', '仕事での活躍方法', '仕事の活かし方'],
+  ],
+  [
+    'パーソナルグロース - 成長のステップ',
+    ['パーソナルグロース', '成長のステップ', '成長'],
+  ],
+];
+
 function normalizeThemeSelectionText(text: string) {
   return stripAttachmentMarkdown(text)
     .replace(/^[・•\-\s]+/u, '')
+    .replace(/[？?！!。｡、,，]/g, ' ')
+    .replace(/\s*は\s*$/u, '')
+    .replace(/\s*って\s*$/u, '')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function resolveThemeSelection(normalizedSelection: string) {
+  if (COACHING_THEME_SELECTION_RESPONSES[normalizedSelection]) {
+    return normalizedSelection;
+  }
+
+  for (const [canonicalLabel, aliases] of COACHING_THEME_SELECTION_ALIASES) {
+    if (
+      aliases.some((alias) => {
+        const normalizedAlias = normalizeThemeSelectionText(alias);
+        return (
+          normalizedSelection === normalizedAlias ||
+          normalizedSelection.includes(normalizedAlias) ||
+          normalizedAlias.includes(normalizedSelection)
+        );
+      })
+    ) {
+      return canonicalLabel;
+    }
+  }
+
+  return '';
 }
 
 function buildThemeSelectionResponse(
@@ -1909,8 +1965,9 @@ function buildThemeSelectionResponse(
   historyMessages: CoachingChatMessage[] = []
 ) {
   const normalizedSelection = normalizeThemeSelectionText(lastUserText);
+  const canonicalSelection = resolveThemeSelection(normalizedSelection);
   const template =
-    COACHING_THEME_SELECTION_RESPONSES[normalizedSelection] || '';
+    COACHING_THEME_SELECTION_RESPONSES[canonicalSelection] || '';
   if (!template) return '';
 
   const hasThemeMenuContext = historyMessages.some(
