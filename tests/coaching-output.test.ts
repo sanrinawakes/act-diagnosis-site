@@ -4194,6 +4194,63 @@ describe('normalizeCoachingOutput', () => {
     );
   });
 
+  it('読まれている不安で会話を終える短文には終了に沿った十分な返答を返す', () => {
+    const history = [
+      {
+        role: 'user' as const,
+        content:
+          'シッディ間違えた、ディクシャだった。\nディクシャウィークに毎日ディクシャを送ることを頑張ったこととか。\nところで、この会話は事務局の人も見てるの？',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          'システム改善やサポートの目的で、事務局や運営チームが会話の内容を確認する場合があります。\n\n先ほど教えてくれた「ディクシャウィークに毎日ディクシャを送るのを頑張ったこと」について、一番記事に書けそうなエピソードは何ですか？',
+      },
+      {
+        role: 'user' as const,
+        content: 'もう書いた、えー、運営チームこれ読んでるの？',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          '運営チームによる会話の確認は、サービスの品質管理や適切な案内のために行われており、個人情報として取り扱われています。\n\nこのままブログの発信や整理についてのお話を続けても大丈夫ですか？',
+      },
+      {
+        role: 'user' as const,
+        content: '読んでるなら、あまり書きたくないわ、いつになったら読みに来なくなる？',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          '確認が行われるのは不定期で、特定の閲覧終了時期というものは設定されていません。\n\n個人情報や特定されたくない内容を避けながら、お話できる範囲だけでブログの相談を進めることもできますが、本日の会話はこのまま終了にしますか？',
+      },
+      {
+        role: 'user' as const,
+        content: '読まれてるのなら終了します',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          '「読んでるなら、あまり書きたくないわ、いつになったら読みに来なくなる」という相談ですね。\n\nまだ書かれていない原因を推測せず、実際に起きたことと、次に困る場面を分けると、具体的な対応を選びやすくなります。今の情報だけで原因や相手の意図を決めつけず、確認できる出来事から整理します。',
+      },
+    ];
+
+    const fallback = buildFinalVerifiedQualityFallback(
+      'とりあえず今日はいいです',
+      history
+    );
+    const assessment = assessCoachingResponseQuality({
+      text: fallback,
+      lastUserText: 'とりあえず今日はいいです',
+      historyMessages: history,
+    });
+
+    expect(fallback).toContain('今日はここで終えて大丈夫です');
+    expect(fallback).toContain('書ける範囲だけで再開してください');
+    expect(fallback).not.toContain('次に困る場面');
+    expect(assessment.issues).toEqual([]);
+  });
+
   it('広すぎる会話継続質問を具体的な問いへ置き換える', () => {
     const result = normalizeCoachingOutput(
       '前の話は踏まえています。何か具体的に話してみたいことはありますか？',
