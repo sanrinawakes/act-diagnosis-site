@@ -6761,6 +6761,41 @@ describe('normalizeCoachingOutput', () => {
     );
   });
 
+  it.each([
+    '行動パターンは？',
+    '日常での行動傾向',
+    'どんな特徴がある？',
+  ])(
+    'テーマ選択の省略入力でも行動パターンの具体応答へ戻す: %s',
+    async (lastUserText) => {
+      const result = await generateCoachingText({
+        systemPrompt: 'test',
+        historyMessages: [
+          {
+            role: 'assistant' as const,
+            content:
+              'こんにちは！ACTIのコーチングへようこそ。\n\nあなたのタイプコード「MGA-3」に基づいて、パーソナライズされたコーチングを提供します。\n\n次のテーマについてお話しすることができます：\n・自己理解 - あなたのタイプの強みと課題\n・行動パターン - 日常での行動傾向\n・人間関係 - 対人スキルの向上\n・キャリア - 仕事での活躍方法\n・パーソナルグロース - 成長のステップ\n\n何について詳しく知りたいですか？',
+          },
+          {
+            role: 'user' as const,
+            content: '自己理解',
+          },
+          {
+            role: 'assistant' as const,
+            content:
+              '「自己理解」という相談ですね。\n\nまだ書かれていない原因を推測せず、実際に起きたことと、次に困る場面を分けると、具体的な対応を選びやすくなります。今の情報だけで原因や相手の意図を決めつけず、確認できる出来事から整理します。',
+          },
+        ],
+        lastUserParts: [{ text: lastUserText }],
+      });
+
+      expect(result.modelName).toBe('local-theme-selection');
+      expect(result.qualityFinalIssues).toEqual([]);
+      expect(result.text).toContain('気が進まないのに引き受けた場面');
+      expect(result.text).not.toContain('という相談ですね');
+    }
+  );
+
   it('元の相談文が履歴から落ちても直前の引用からキャリア継続文脈を復元する', () => {
     const lastUserText = 'お願いします';
     const historyMessages = [
