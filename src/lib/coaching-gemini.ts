@@ -2270,6 +2270,7 @@ export function assessCoachingResponseQuality(params: {
     /短く.{0,20}(?:提案|示|まとめ)/.test(lastUserText) ||
     requestsDirectWording(lastUserText) ||
     requestsFactualShortAnswer(lastUserText) ||
+    requestsSessionClose(lastUserText) ||
     requestsShortRestResponse(lastUserText) ||
     Boolean(buildUrgentSafetyResponse(lastUserText)) ||
     /^「[^」]{24,}」[。！]?$/u.test(text.trim());
@@ -4517,6 +4518,13 @@ export function buildFinalVerifiedQualityFallback(
       : cleanFallbackSourceText || cleanUserText || '今回の相談';
   const acknowledgement = `「${excerpt}」という相談ですね。`;
   const noQuestionRequested = requestsNoFollowUpQuestion(lastUserText);
+  const sessionCloseFallback = buildSessionCloseFallback(
+    lastUserText,
+    historyMessages
+  );
+  if (sessionCloseFallback) {
+    return sessionCloseFallback;
+  }
   const dissatisfaction =
     shouldAvoidForcedCoachingMove(lastUserText, historyMessages);
   const tentativeAgreement = isTentativeAgreementReply(lastUserText);
@@ -8212,6 +8220,42 @@ function requestsRestWithoutQuestions(text: string) {
   return /何も考えたくない|もう考えたくない|今日はもう(?:無理|限界)|疲れ(?:た|ました)|しんどい|休みたい/.test(
     text
   );
+}
+
+function requestsSessionClose(text: string) {
+  const normalized = stripAttachmentMarkdown(text)
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!normalized) return false;
+
+  return /(?:今日は|とりあえず|ひとまず|また今度|またあとで|ここで|今回は)?(?:もう)?(?:いいです|大丈夫です|終わりにします|終わります|終了します|ここまでにします|やめます|閉じます)(?:[。！!]|$)/.test(
+    normalized
+  );
+}
+
+function buildSessionCloseFallback(
+  lastUserText: string,
+  historyMessages: CoachingChatMessage[]
+) {
+  if (!requestsSessionClose(lastUserText)) return '';
+
+  const recentContext = [
+    ...historyMessages.slice(-6).map((message) =>
+      stripAttachmentMarkdown(message.content)
+    ),
+    stripAttachmentMarkdown(lastUserText),
+  ]
+    .filter(Boolean)
+    .join('\n');
+  const privacyConcern =
+    /事務局|運営チーム|スタッフ/.test(recentContext) &&
+    /見てる|読んでる|読まれてる|確認/.test(recentContext);
+
+  if (privacyConcern) {
+    return '運営や事務局に読まれる前提では書きにくいと感じたなら、今日はここで終えて大丈夫です。無理にブログの整理を続けなくて構いません。\n\nまた話したくなった時に、書ける範囲だけで再開してください。';
+  }
+
+  return '今日はここで終えて大丈夫です。無理に続きを考えず、この会話はいったん閉じてください。\n\nまた整理したくなった時に、今いちばん気になっていることから再開すれば十分です。';
 }
 
 function buildRestAcknowledgementFallback(
