@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   buildSessionContext: vi.fn(),
   usageInsert: vi.fn(),
   quotaRpc: vi.fn(),
+  profileSingle: vi.fn(),
   profileCount: 9,
   accessExpiresAt: '2099-12-31T00:00:00.000Z',
   paidTestCredits: 0,
@@ -53,6 +54,18 @@ describe('POST /api/chat scope guard', () => {
     mocks.profileCount = 9;
     mocks.accessExpiresAt = '2099-12-31T00:00:00.000Z';
     mocks.paidTestCredits = 0;
+    mocks.profileSingle.mockImplementation(async () => ({
+      data: {
+        chat_count_month: mocks.profileCount,
+        chat_month_start: getJapanMonthStartKey(),
+        role: 'member',
+        subscription_status: 'active',
+        is_active: true,
+        paid_test_credits: mocks.paidTestCredits,
+        awakes_access_expires_at: mocks.accessExpiresAt,
+      },
+      error: null,
+    }));
 
     mocks.createServerClient.mockResolvedValue({
       auth: {
@@ -83,18 +96,7 @@ describe('POST /api/chat scope guard', () => {
           return {
             select: vi.fn(() => ({
               eq: vi.fn(() => ({
-                single: vi.fn().mockResolvedValue({
-                  data: {
-                    chat_count_month: mocks.profileCount,
-                    chat_month_start: getJapanMonthStartKey(),
-                    role: 'member',
-                    subscription_status: 'active',
-                    is_active: true,
-                    paid_test_credits: mocks.paidTestCredits,
-                    awakes_access_expires_at: mocks.accessExpiresAt,
-                  },
-                  error: null,
-                }),
+                single: mocks.profileSingle,
               })),
             })),
           };
@@ -252,6 +254,28 @@ describe('POST /api/chat scope guard', () => {
         provider_requested: true,
       })
     );
+  });
+
+  it('retries a transient profile timeout once before returning 504', async () => {
+    mocks.profileSingle
+      .mockRejectedValueOnce(new Error('PROFILE_TIMEOUT'))
+      .mockResolvedValueOnce({
+        data: {
+          chat_count_month: mocks.profileCount,
+          chat_month_start: getJapanMonthStartKey(),
+          role: 'member',
+          subscription_status: 'active',
+          is_active: true,
+          paid_test_credits: mocks.paidTestCredits,
+          awakes_access_expires_at: mocks.accessExpiresAt,
+        },
+        error: null,
+      });
+
+    const response = await POST(createAllowedRequest(false));
+
+    expect(response.status).toBe(200);
+    expect(mocks.profileSingle).toHaveBeenCalledTimes(2);
   });
 
   it('keeps a family legal drafting follow-up on the provider path', async () => {
