@@ -19,6 +19,7 @@ import {
   stripAttachmentMarkdown,
   type StoredImageAttachmentReference,
 } from '@/lib/attachments';
+import { getCopyableCoachingMessageText } from '@/lib/coaching-message-copy';
 import {
   uploadChatImageAttachments,
   validatePendingImageFiles,
@@ -980,7 +981,7 @@ function CoachingContent() {
   };
 
   const handleCopyMessage = async (messageId: string, content: string) => {
-    const text = stripAttachmentMarkdown(content).trim();
+    const text = getCopyableCoachingMessageText(content);
     if (!text) return;
 
     const fallbackCopy = () => {

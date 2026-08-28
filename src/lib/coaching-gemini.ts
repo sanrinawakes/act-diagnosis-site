@@ -4606,6 +4606,12 @@ export function buildFinalVerifiedQualityFallback(
     .filter(Boolean)
     .join('\n');
   if (
+    /確かに|混同しやすい/.test(lastUserText) &&
+    /レベル\s*4/.test(fallbackSourceText)
+  ) {
+    return 'レベル4を目指す時に大事なのは、相談の場面で事実と推測を分けることです。たとえば、相手が実際に言ったことと、自分がそこから受け取った意味を別に見ると、次に確認すべき点が見えます。さっきの話で、混同しやすいと感じたのはどの部分でしたか？';
+  }
+  if (
     /かわす方法|言わずに/.test(lastUserText) &&
     /お高い|価格|値段|ジュース/.test(fallbackContext)
   ) {
@@ -4791,6 +4797,14 @@ function buildSilentAnswerFallback(
 
 function buildSubstantiveShortFallback(lastUserText: string) {
   if (
+    /レベル\s*4/.test(lastUserText) &&
+    /向けて|目指/.test(lastUserText) &&
+    /するといいこと|何をすれば|どうすれば/.test(lastUserText)
+  ) {
+    return 'レベル4を目指すなら、考え方を増やすことより、相談の場面で事実と推測を分ける練習を重ねることが大事です。相手の反応や原因を先に決めず、実際に起きた出来事、今困っている点、次に確認したい点を一つずつ書き分けると、会話が具体的になります。\n\n最近のやり取りで、その三つが混ざったと感じた場面はどこでしたか？';
+  }
+
+  if (
     /X/.test(lastUserText) &&
     /投稿/.test(lastUserText) &&
     /ChatGPT/.test(lastUserText) &&
@@ -4840,6 +4854,23 @@ function buildSubstantiveShortFallback(lastUserText: string) {
     /どうすれば|どうしたら|方法|わから|分から/.test(lastUserText)
   ) {
     return '安定した収入が見えないのは、今ある仕事ごとの収入見込みと、生活に必要な金額がまだ並んでいないからです。建築の仕事、広告の仕事、そのほか今月入る見込みの収入源と、今月生活に必要な金額を、同じ紙に並べて書いてください。\n\n不足額が出れば、今の仕事や活動を続けながら何円分の収入を足す必要があるかを具体的に判断できます。';
+  }
+
+  if (
+    /仕事/.test(lastUserText) &&
+    /稼ぎたい|収入|金額/.test(lastUserText) &&
+    /価値/.test(lastUserText) &&
+    /不安/.test(lastUserText)
+  ) {
+    return '仕事を続けるために収入も増やしたい一方で、提示する金額が自分の価値に見合うか不安なんですね。ここで必要なのは、自分の価値を抽象的に考え続けることではなく、その金額で何を提供するのかを具体的に言葉へ分けることです。\n\n次に提示する金額に含める内容を、完成物、やり取り回数、納期の三つに分けると、どう書けますか？';
+  }
+
+  if (/^\d[\d,]*\s*円です[。！!？?]*$/.test(lastUserText)) {
+    const amountMatch = lastUserText.match(/\d[\d,]*/);
+    if (amountMatch) {
+      const amount = amountMatch[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+      return `${amount}円を提示したいのですね。金額だけを先に決めると不安が残りやすいので、その金額で相手へ渡す内容を先に言葉へ分けます。\n\n${amount}円に含める内容を、完成物、やり取り回数、納期の三つに分けると、どう書けますか？`;
+    }
   }
 
   if (
