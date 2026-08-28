@@ -524,6 +524,7 @@ async function testConnectionDropRecovery(page) {
   if (usageError) throw usageError;
 
   const profileCountAfter = await getProfileChatCount();
+  const profileCountDelta = profileCountAfter - profileCountBefore;
   const pageText = await page.locator('body').innerText();
   addCheck(
     '通信切断: 同じIDで自動再接続し回答生成・利用回数・監査を重複させない',
@@ -532,7 +533,10 @@ async function testConnectionDropRecovery(page) {
       assistantRows[0].role === 'assistant' &&
       assistantRows[0].content === result.assistantContent &&
       usageRows === 1 &&
-      profileCountAfter === profileCountBefore + 1 &&
+      // Provider responses consume one use. Verified local fallbacks are
+      // intentionally non-chargeable and release the reservation, so both
+      // zero and one are valid while any larger delta is a duplicate charge.
+      (profileCountDelta === 0 || profileCountDelta === 1) &&
       expectedChatConnectionFailures === 0 &&
       clientErrorTelemetryRequests === telemetryBefore &&
       !pageText.includes('Failed to fetch'),
@@ -543,6 +547,7 @@ async function testConnectionDropRecovery(page) {
       usageRows,
       profileCountBefore,
       profileCountAfter,
+      profileCountDelta,
       expectedChatConnectionFailures,
       telemetryBefore,
       telemetryAfter: clientErrorTelemetryRequests,
