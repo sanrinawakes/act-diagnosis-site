@@ -66,6 +66,8 @@ const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
 const AUTH_TIMEOUT_MS = 8000;
 const PROFILE_TIMEOUT_MS = 8000;
+const PROFILE_TIMEOUT_RETRIES = 1;
+const PROFILE_TIMEOUT_RETRY_DELAY_MS = 250;
 const SETTINGS_TIMEOUT_MS = 5000;
 const SESSION_CONTEXT_TIMEOUT_MS = 8000;
 const ATTACHMENT_LOAD_TIMEOUT_MS = 20000;
@@ -211,15 +213,11 @@ export async function POST(request: NextRequest) {
     let profile;
     let profileError;
     try {
-      const profileResult = await withStageTimeout(
-        supabaseAdmin
-          .from('profiles')
-          .select('chat_count_month, chat_month_start, role, subscription_status, is_active, paid_test_credits, awakes_access_expires_at, is_internal_coaching_monitor')
-          .eq('id', user.id)
-          .single(),
-        PROFILE_TIMEOUT_MS,
-        'PROFILE_TIMEOUT'
-      );
+      const profileResult = await fetchProfileWithRetry({
+        supabaseAdmin,
+        userId: user.id,
+        requestId,
+      });
       profile = profileResult.data;
       profileError = profileResult.error;
     } catch (error) {
@@ -895,6 +893,57 @@ function withStageTimeout<T>(
   return Promise.race([Promise.resolve(promise), timeout]).finally(() =>
     clearTimeout(timeoutId)
   );
+}
+
+async function fetchProfileWithRetry(params: {
+  supabaseAdmin: SupabaseClient;
+  userId: string;
+  requestId: string;
+}) {
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt <= PROFILE_TIMEOUT_RETRIES; attempt += 1) {
+    try {
+      return await withStageTimeout(
+        params.supabaseAdmin
+          .from('profiles')
+          .select('chat_count_month, chat_month_start, role, subscription_status, is_active, paid_test_credits, awakes_access_expires_at, is_internal_coaching_monitor')
+          .eq('id', params.userId)
+          .single(),
+        PROFILE_TIMEOUT_MS,
+        'PROFILE_TIMEOUT'
+      );
+    } catch (error) {
+      lastError = error;
+      if (
+        !(error instanceof Error) ||
+        error.message !== 'PROFILE_TIMEOUT' ||
+        attempt >= PROFILE_TIMEOUT_RETRIES
+      ) {
+        throw error;
+      }
+
+      console.warn(
+        JSON.stringify({
+          event: 'chat_preflight_retry',
+          route: '/api/chat',
+          requestId: params.requestId,
+          stage: 'profile',
+          attempt: attempt + 1,
+          error: error.message,
+        })
+      );
+      await wait(PROFILE_TIMEOUT_RETRY_DELAY_MS);
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error('PROFILE_TIMEOUT');
+}
+
+function wait(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function logPreflightError(
