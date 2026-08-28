@@ -6285,19 +6285,19 @@ describe('normalizeCoachingOutput', () => {
     expect(fallback).not.toMatch(/構成案|大まかな流れ|メモに書き出/);
   });
 
-  it('レベル4の相談後の短い相づちでも汎用文だけで終わらない', () => {
+  it('成長の相談後に短く納得を示しても復唱だけで終わらない', () => {
     const historyMessages = [
       {
         role: 'user' as const,
-        content: 'レベル4に向けてするといいことは何ですか',
+        content: '今の成長段階から一歩進むには、何を見直せばよいですか？',
       },
       {
         role: 'assistant' as const,
         content:
-          'まだ書かれていない原因を推測せず、実際に起きたことと、次に困る場面を分けると、具体的な対応を選びやすくなります。今の情報だけで原因や相手の意図を決めつけず、確認できる出来事から整理します。',
+          '実際に起きたことと、自分がそこから考えたことを分けると、次に確かめる点を選びやすくなります。まず直近の一場面を基準に整理しましょう。',
       },
     ];
-    const lastUserText = '確かに混同しやすいのですね';
+    const lastUserText = '確かに二つを一緒に考えやすいですね';
     const fallback = buildFinalVerifiedQualityFallback(
       lastUserText,
       historyMessages
@@ -6309,54 +6309,23 @@ describe('normalizeCoachingOutput', () => {
     });
 
     expect(assessment.issues).toEqual([]);
-    expect(fallback).toMatch(/レベル4|事実と推測|確認したい点/);
-    expect(fallback).not.toBe(
-      'まだ書かれていない原因を推測せず、実際に起きたことと、次に困る場面を分けると、具体的な対応を選びやすくなります。'
-    );
+    expect(fallback).toMatch(/言い換えて返すだけ|具体的な出来事/);
+    expect(fallback).not.toContain(lastUserText);
   });
 
   it('価格設定の不安で金額回答だけを引用して終わらない', () => {
     const historyMessages = [
       {
         role: 'user' as const,
-        content: '不安が多いですか？',
+        content: '個別サービスの価格を決めたいです。',
       },
       {
         role: 'assistant' as const,
         content:
-          '「不安が多いですか」という相談ですね。\n\nその不安の奥で、いちばん守りたいものは何ですか？',
-      },
-      {
-        role: 'user' as const,
-        content:
-          '仕事を続けていきたい その為に稼ぎたい 金額を上げて自分のしている価値を翻訳ができているか不安です',
-      },
-      {
-        role: 'assistant' as const,
-        content:
-          '仕事を続けていくためにしっかり稼ぎたいという思いと、自分が提供している価値が提示している金額に見合っているかという不安があるのですね。\n\n今の金額設定について、クライアントから具体的にどのような反応やフィードバックを受け取っていますか？',
-      },
-      {
-        role: 'user' as const,
-        content:
-          '楽しかった。私の描いた絵を大切にすると言ってくれます。とにかく会話が楽しかったと自分のことを好きになれたんじゃないかと思います。',
-      },
-      {
-        role: 'assistant' as const,
-        content:
-          'クライアントから「私の描いた絵を大切にする」「会話が楽しかった」と言ってもらえているのですね。\n\nそのクライアントとのやり取りの中で、あなたが「提示した金額に見合う価値を届けられた」と最も実感できた瞬間はどの場面でしたか？',
-      },
-      {
-        role: 'user' as const,
-        content: 'ありがとうと言われてお金を受け取るときです。',
-      },
-      {
-        role: 'assistant' as const,
-        content:
-          '「ありがとう」と言われてお金を受け取るときに、価値を届けられたと実感できているのですね。\n\n仕事を続けてしっかり稼いでいくために、次の案件でクライアントに提示したい希望の金額はいくらですか？',
+          '価格は、自分の価値そのものではなく、提供する内容と責任の範囲を基準に決めます。次に提示したい金額はいくらですか？',
       },
     ];
-    const lastUserText = '5000円です';
+    const lastUserText = '8000円です';
     const fallback = buildFinalVerifiedQualityFallback(
       lastUserText,
       historyMessages
@@ -6368,9 +6337,61 @@ describe('normalizeCoachingOutput', () => {
     });
 
     expect(assessment.issues).toEqual([]);
-    expect(fallback).toMatch(/5,000円|5000円/);
-    expect(fallback).toMatch(/完成物|やり取り回数|納期/);
+    expect(fallback).toMatch(/8,000円|8000円/);
+    expect(fallback).toMatch(/提供する内容|責任の範囲/);
     expect(fallback).not.toMatch(/という相談ですね。?$/);
+  });
+
+  it('受けた助言を共有した時は復唱せず本人の判断を深掘りする', () => {
+    const historyMessages = [
+      {
+        role: 'assistant' as const,
+        content:
+          '相手へ説明した時の反応を確認すると、伝え方のどこを見直すか決めやすくなります。',
+      },
+    ];
+    const lastUserText =
+      '最初に結論を伝えると分かりやすいと、同僚から助言されました。';
+    const fallback = buildFinalVerifiedQualityFallback(
+      lastUserText,
+      historyMessages
+    );
+    const assessment = assessCoachingResponseQuality({
+      text: fallback,
+      lastUserText,
+      historyMessages,
+    });
+
+    expect(assessment.issues).toEqual([]);
+    expect(fallback).toMatch(/復唱ではなく|納得した点/);
+    expect(fallback).not.toContain(lastUserText);
+  });
+
+  it.each([
+    '準備ができたので、明日から一つずつ試しながらやります。',
+    '今日分かったことをノートに書き出す',
+  ])('行動を決めた報告には新しい課題を重ねない: %s', (lastUserText) => {
+    const historyMessages = [
+      {
+        role: 'assistant' as const,
+        content:
+          '一度に全部を変えず、次に試すことを一つだけ決めてください。',
+      },
+    ];
+    const fallback = buildFinalVerifiedQualityFallback(
+      lastUserText,
+      historyMessages
+    );
+    const assessment = assessCoachingResponseQuality({
+      text: fallback,
+      lastUserText,
+      historyMessages,
+    });
+
+    expect(assessment.issues).toEqual([]);
+    expect(fallback).toMatch(/新しい課題は足さず/);
+    expect(fallback).toMatch(/一度だけ書き出|一回だけを実行/);
+    expect(fallback).not.toContain(lastUserText);
   });
 
   it('最初の一歩を一気にゴール化する相談では具体的な一場面へ戻す', () => {

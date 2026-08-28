@@ -4251,7 +4251,14 @@ export function buildFinalVerifiedQualityFallback(
       historyMessages
     );
   if (bullyingAgreementClarificationFallback) {
-    return bullyingAgreementClarificationFallback;
+    const assessment = assessCoachingResponseQuality({
+      text: bullyingAgreementClarificationFallback,
+      lastUserText,
+      historyMessages,
+    });
+    if (assessment.issues.length === 0) {
+      return bullyingAgreementClarificationFallback;
+    }
   }
 
   const bullyingMeetingFactFallback = buildBullyingMeetingFactFallback(
@@ -4259,7 +4266,12 @@ export function buildFinalVerifiedQualityFallback(
     historyMessages
   );
   if (bullyingMeetingFactFallback) {
-    return bullyingMeetingFactFallback;
+    const assessment = assessCoachingResponseQuality({
+      text: bullyingMeetingFactFallback,
+      lastUserText,
+      historyMessages,
+    });
+    if (assessment.issues.length === 0) return bullyingMeetingFactFallback;
   }
 
   const snsPostingDirectionFallback = buildSnsPostingDirectionFallback(
@@ -4267,7 +4279,12 @@ export function buildFinalVerifiedQualityFallback(
     historyMessages
   );
   if (snsPostingDirectionFallback) {
-    return snsPostingDirectionFallback;
+    const assessment = assessCoachingResponseQuality({
+      text: snsPostingDirectionFallback,
+      lastUserText,
+      historyMessages,
+    });
+    if (assessment.issues.length === 0) return snsPostingDirectionFallback;
   }
 
   const workGrowthDirectionFallback = buildWorkGrowthDirectionFallback(
@@ -4275,19 +4292,38 @@ export function buildFinalVerifiedQualityFallback(
     historyMessages
   );
   if (workGrowthDirectionFallback) {
-    return workGrowthDirectionFallback;
+    const assessment = assessCoachingResponseQuality({
+      text: workGrowthDirectionFallback,
+      lastUserText,
+      historyMessages,
+    });
+    if (assessment.issues.length === 0) return workGrowthDirectionFallback;
   }
 
   const longContinuityReferenceFallback =
     buildLongContinuityReferenceFallback(lastUserText, historyMessages);
   if (longContinuityReferenceFallback) {
-    return longContinuityReferenceFallback;
+    const assessment = assessCoachingResponseQuality({
+      text: longContinuityReferenceFallback,
+      lastUserText,
+      historyMessages,
+    });
+    if (assessment.issues.length === 0) {
+      return longContinuityReferenceFallback;
+    }
   }
 
   const explicitDeeperQuestionFallback =
     buildExplicitDeeperQuestionFallback(lastUserText, historyMessages);
   if (explicitDeeperQuestionFallback) {
-    return explicitDeeperQuestionFallback;
+    const assessment = assessCoachingResponseQuality({
+      text: explicitDeeperQuestionFallback,
+      lastUserText,
+      historyMessages,
+    });
+    if (assessment.issues.length === 0) {
+      return explicitDeeperQuestionFallback;
+    }
   }
 
   const topicSwitchFallback = buildTopicSwitchActionFallback(
@@ -4295,7 +4331,12 @@ export function buildFinalVerifiedQualityFallback(
     historyMessages
   );
   if (topicSwitchFallback) {
-    return topicSwitchFallback;
+    const assessment = assessCoachingResponseQuality({
+      text: topicSwitchFallback,
+      lastUserText,
+      historyMessages,
+    });
+    if (assessment.issues.length === 0) return topicSwitchFallback;
   }
 
   const themeSelectionResponse = buildThemeSelectionResponse(
@@ -4303,7 +4344,12 @@ export function buildFinalVerifiedQualityFallback(
     historyMessages
   );
   if (themeSelectionResponse) {
-    return themeSelectionResponse;
+    const assessment = assessCoachingResponseQuality({
+      text: themeSelectionResponse,
+      lastUserText,
+      historyMessages,
+    });
+    if (assessment.issues.length === 0) return themeSelectionResponse;
   }
   const pricingBoundaryFallback =
     /かわす|言わずに|言わないで|別の言い方|どう返|何て言えば/.test(
@@ -4315,7 +4361,12 @@ export function buildFinalVerifiedQualityFallback(
       ? '「こだわりのジュースなんですね」と伝えます。'
       : '';
   if (pricingBoundaryFallback) {
-    return pricingBoundaryFallback;
+    const assessment = assessCoachingResponseQuality({
+      text: pricingBoundaryFallback,
+      lastUserText,
+      historyMessages,
+    });
+    if (assessment.issues.length === 0) return pricingBoundaryFallback;
   }
 
   if (
@@ -4551,6 +4602,22 @@ export function buildFinalVerifiedQualityFallback(
     }
   }
 
+  const groundedStatementContinuationFallback =
+    buildGroundedStatementContinuationFallback(
+      lastUserText,
+      historyMessages
+    );
+  if (groundedStatementContinuationFallback) {
+    const groundedStatementAssessment = assessCoachingResponseQuality({
+      text: groundedStatementContinuationFallback,
+      lastUserText,
+      historyMessages,
+    });
+    if (groundedStatementAssessment.issues.length === 0) {
+      return groundedStatementContinuationFallback;
+    }
+  }
+
   const immediatePreviousUserText =
     [...historyMessages]
       .reverse()
@@ -4605,12 +4672,6 @@ export function buildFinalVerifiedQualityFallback(
   const fallbackContext = [historicalUserContext, fallbackSourceText]
     .filter(Boolean)
     .join('\n');
-  if (
-    /確かに|混同しやすい/.test(lastUserText) &&
-    /レベル\s*4/.test(fallbackSourceText)
-  ) {
-    return 'レベル4を目指す時に大事なのは、相談の場面で事実と推測を分けることです。たとえば、相手が実際に言ったことと、自分がそこから受け取った意味を別に見ると、次に確認すべき点が見えます。さっきの話で、混同しやすいと感じたのはどの部分でしたか？';
-  }
   if (
     /かわす方法|言わずに/.test(lastUserText) &&
     /お高い|価格|値段|ジュース/.test(fallbackContext)
@@ -4854,23 +4915,6 @@ function buildSubstantiveShortFallback(lastUserText: string) {
     /どうすれば|どうしたら|方法|わから|分から/.test(lastUserText)
   ) {
     return '安定した収入が見えないのは、今ある仕事ごとの収入見込みと、生活に必要な金額がまだ並んでいないからです。建築の仕事、広告の仕事、そのほか今月入る見込みの収入源と、今月生活に必要な金額を、同じ紙に並べて書いてください。\n\n不足額が出れば、今の仕事や活動を続けながら何円分の収入を足す必要があるかを具体的に判断できます。';
-  }
-
-  if (
-    /仕事/.test(lastUserText) &&
-    /稼ぎたい|収入|金額/.test(lastUserText) &&
-    /価値/.test(lastUserText) &&
-    /不安/.test(lastUserText)
-  ) {
-    return '仕事を続けるために収入も増やしたい一方で、提示する金額が自分の価値に見合うか不安なんですね。ここで必要なのは、自分の価値を抽象的に考え続けることではなく、その金額で何を提供するのかを具体的に言葉へ分けることです。\n\n次に提示する金額に含める内容を、完成物、やり取り回数、納期の三つに分けると、どう書けますか？';
-  }
-
-  if (/^\d[\d,]*\s*円です[。！!？?]*$/.test(lastUserText)) {
-    const amountMatch = lastUserText.match(/\d[\d,]*/);
-    if (amountMatch) {
-      const amount = amountMatch[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-      return `${amount}円を提示したいのですね。金額だけを先に決めると不安が残りやすいので、その金額で相手へ渡す内容を先に言葉へ分けます。\n\n${amount}円に含める内容を、完成物、やり取り回数、納期の三つに分けると、どう書けますか？`;
-    }
   }
 
   if (
@@ -8380,6 +8424,94 @@ function buildRestAcknowledgementFallback(
     : '考え事を増やさず';
 
   return `${opening}スマートフォンを閉じたら、${pauseTarget}、飲み物を一つ用意して座るか横になってください。\n\n今は次の答えを探すより、体の緊張を下げる方が先です。今日は連絡や集客をここで止めたまま、休むことだけを予定にしてください。`;
+}
+
+function buildGroundedStatementContinuationFallback(
+  lastUserText: string,
+  historyMessages: CoachingChatMessage[]
+) {
+  const normalized = stripAttachmentMarkdown(lastUserText)
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (
+    !normalized ||
+    normalized.length > 120 ||
+    !historyMessages.some((message) => message.role === 'assistant') ||
+    reportsResponseDissatisfaction(normalized) ||
+    requestsShortRestResponse(normalized) ||
+    /[？?]/.test(normalized) ||
+    hasPaymentObligationContext(normalized)
+  ) {
+    return '';
+  }
+
+  const recentUserContext = historyMessages
+    .filter((message) => message.role === 'user')
+    .slice(-4)
+    .map((message) => stripAttachmentMarkdown(message.content))
+    .join('\n');
+  const combinedUserContext = `${recentUserContext}\n${normalized}`;
+  const amountMatch = normalized.match(
+    /^\s*(\d[\d,]*)\s*円(?:です)?[。！!]*\s*$/
+  );
+  if (
+    amountMatch &&
+    /仕事|サービス|商品|価格|料金|金額|価値|顧客|クライアント/.test(
+      combinedUserContext
+    )
+  ) {
+    const amount = amountMatch[1].replace(
+      /\B(?=(\d{3})+(?!\d))/g,
+      ','
+    );
+    return `${amount}円を基準に考えているのですね。金額だけを先に決めると、相手へ何を渡す価格なのかが曖昧なままになり、自分でも妥当性を判断しにくくなります。ここでは自分の価値を金額へ置き換えるのではなく、提供する内容と責任の範囲を価格の根拠にします。\n\n${amount}円で引き受ける範囲を、相手へ一文で説明するとどうなりますか？`;
+  }
+
+  const reportsReceivedFeedback =
+    /言われ(?:た|ました)|教えてもら|勧められ|助言され|アドバイス(?:を)?(?:受け|もら)|指摘され/.test(
+      normalized
+    );
+  if (reportsReceivedFeedback) {
+    return '誰かから受けた助言を共有してくれたのですね。その言葉をそのまま正解にせず、自分が納得した点と、まだ違和感がある点を分けると、他人の評価に引っ張られずに次の行動を選べます。今の話で大切なのは、言われた内容の復唱ではなく、本人が実際の伝え方をどう変えたいと思ったかです。\n\n次に相手へ説明する時、最初に変える一文はどこですか？';
+  }
+
+  const commitsToAction =
+    /(?:やってみ|試してみ|取り組んでみ|始め|続け|記録|書き出|書きだ|書いてみ|まとめてみ|確認してみ|分けてみ|決めてみ|伝えてみ|作ってみ)(?:ます|たい|ようと思|ことにします|予定です|つもりです|る|す)(?:[。！!]|$)/.test(
+      normalized
+    ) ||
+    /(?:やります|試します|取り組みます|始めます|続けます|記録します|書きます|まとめます|確認します|伝えます)(?:[。！!]|$)/.test(
+      normalized
+    );
+  if (commitsToAction) {
+    if (
+      /書|記録|メモ|ノート/.test(normalized) &&
+      /会話|話|伝/.test(normalized)
+    ) {
+      return '相手との会話で何が伝わったかを残す方針がはっきりしたのですね。その方針なら、うまくいったかという感覚だけで終わらず、実際の反応を次の判断材料にできます。文章の完成度より、本人が受け取った事実が分かることが大切です。\n\n新しい課題は足さず、相手との会話で伝わったことを一文だけ書き出してください。';
+    }
+
+    if (/書|記録|メモ|ノート/.test(normalized)) {
+      const contextLabel =
+        /仕事|職場|業務|会社|上司|同僚|会議|企画|顧客/.test(
+          combinedUserContext
+        )
+          ? '仕事で'
+          : '';
+      return `${contextLabel}紙にある内容を使いながら進める方針がはっきりしたのですね。今は計画や課題を増やすより、その手順で一度進め、実際に何が起きるかを確かめる段階です。予定どおりに進まなくても、それは失敗ではなく、次の改善点が分かる材料になります。\n\n新しい課題は足さず、予定している最初の一回だけを実行してください。`;
+    }
+
+    return '準備したことを実際に試しながら進める方針を自分で決められたのですね。今は計画や課題を増やすより、その方針で一度進め、実際に何が起きるかを確かめる段階です。予定どおりに進まなくても、それは失敗ではなく、次に見直す手順が分かる材料になります。\n\n新しい課題は足さず、予定している最初の一回だけを実行してください。';
+  }
+
+  const reflectsOnOwnPattern =
+    normalized.length >= 12 &&
+    (/^(?:確かに|なるほど)/.test(normalized) ||
+      /(?:知っていく|理解していく|分かっていく|見つけていく|気づいていく|していきながら)/.test(
+        normalized
+      ));
+  if (!reflectsOnOwnPattern) return '';
+
+  return '今の言葉には、出来事の説明だけでなく、これからどう考えたいか、どう関わりたいかという希望も含まれています。その内容をそのまま言い換えて返すだけでは、本人がすでに分かっている場所で会話が止まります。ここでは、すでに言葉になった結論と、その結論に至った理由を分けて考えます。\n\nその考えに至るまでに、以前とは違うと感じた具体的な出来事は何でしたか？';
 }
 
 function buildBriefAcknowledgementFallback(
