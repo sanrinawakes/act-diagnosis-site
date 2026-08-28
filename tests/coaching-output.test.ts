@@ -1034,6 +1034,57 @@ describe('ensureVerifiedCoachingResolution', () => {
     ).toEqual([]);
   });
 
+  it.each([
+    {
+      label: '背景のない短い近況',
+      lastUserText: '少し迷っています。',
+      historyMessages: [],
+    },
+    {
+      label: '家庭相談に続く短い質問',
+      lastUserText: 'どう思いますか？',
+      historyMessages: [
+        {
+          role: 'user' as const,
+          content: '家族とのやり取りで困っています。',
+        },
+      ],
+    },
+    {
+      label: '抽象的な短い近況',
+      lastUserText: '自分の方向が分かりません。',
+      historyMessages: [],
+    },
+  ])('$labelでも最終フォールバックに品質違反を残さない', ({
+    lastUserText,
+    historyMessages,
+  }) => {
+    const result = ensureVerifiedCoachingResolution({
+      resolution: {
+        text: 'まず整理してみましょう。',
+        usage: {},
+        modelName: 'gemini-3.5-flash',
+        provider: 'gemini',
+        repairAttempted: true,
+        repairAccepted: false,
+        initialIssues: ['too_short', 'vague_action_target'],
+        finalIssues: ['too_short', 'vague_action_target'],
+      },
+      lastUserText,
+      historyMessages,
+    });
+
+    expect(
+      assessCoachingResponseQuality({
+        text: result.text,
+        lastUserText,
+        historyMessages,
+      }).issues
+    ).toEqual([]);
+    expect(result.finalIssues).toEqual([]);
+    expect(result.chargeable).toBe(false);
+  });
+
   it('短い追記しかない会話でも直前の実質的な相談文脈を使って最終フォールバックを合格させる', () => {
     const historyMessages = [
       {
