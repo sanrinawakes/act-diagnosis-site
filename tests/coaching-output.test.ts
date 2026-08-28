@@ -6285,6 +6285,94 @@ describe('normalizeCoachingOutput', () => {
     expect(fallback).not.toMatch(/構成案|大まかな流れ|メモに書き出/);
   });
 
+  it('レベル4の相談後の短い相づちでも汎用文だけで終わらない', () => {
+    const historyMessages = [
+      {
+        role: 'user' as const,
+        content: 'レベル4に向けてするといいことは何ですか',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          'まだ書かれていない原因を推測せず、実際に起きたことと、次に困る場面を分けると、具体的な対応を選びやすくなります。今の情報だけで原因や相手の意図を決めつけず、確認できる出来事から整理します。',
+      },
+    ];
+    const lastUserText = '確かに混同しやすいのですね';
+    const fallback = buildFinalVerifiedQualityFallback(
+      lastUserText,
+      historyMessages
+    );
+    const assessment = assessCoachingResponseQuality({
+      text: fallback,
+      lastUserText,
+      historyMessages,
+    });
+
+    expect(assessment.issues).toEqual([]);
+    expect(fallback).toMatch(/レベル4|事実と推測|確認したい点/);
+    expect(fallback).not.toBe(
+      'まだ書かれていない原因を推測せず、実際に起きたことと、次に困る場面を分けると、具体的な対応を選びやすくなります。'
+    );
+  });
+
+  it('価格設定の不安で金額回答だけを引用して終わらない', () => {
+    const historyMessages = [
+      {
+        role: 'user' as const,
+        content: '不安が多いですか？',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          '「不安が多いですか」という相談ですね。\n\nその不安の奥で、いちばん守りたいものは何ですか？',
+      },
+      {
+        role: 'user' as const,
+        content:
+          '仕事を続けていきたい その為に稼ぎたい 金額を上げて自分のしている価値を翻訳ができているか不安です',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          '仕事を続けていくためにしっかり稼ぎたいという思いと、自分が提供している価値が提示している金額に見合っているかという不安があるのですね。\n\n今の金額設定について、クライアントから具体的にどのような反応やフィードバックを受け取っていますか？',
+      },
+      {
+        role: 'user' as const,
+        content:
+          '楽しかった。私の描いた絵を大切にすると言ってくれます。とにかく会話が楽しかったと自分のことを好きになれたんじゃないかと思います。',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          'クライアントから「私の描いた絵を大切にする」「会話が楽しかった」と言ってもらえているのですね。\n\nそのクライアントとのやり取りの中で、あなたが「提示した金額に見合う価値を届けられた」と最も実感できた瞬間はどの場面でしたか？',
+      },
+      {
+        role: 'user' as const,
+        content: 'ありがとうと言われてお金を受け取るときです。',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          '「ありがとう」と言われてお金を受け取るときに、価値を届けられたと実感できているのですね。\n\n仕事を続けてしっかり稼いでいくために、次の案件でクライアントに提示したい希望の金額はいくらですか？',
+      },
+    ];
+    const lastUserText = '5000円です';
+    const fallback = buildFinalVerifiedQualityFallback(
+      lastUserText,
+      historyMessages
+    );
+    const assessment = assessCoachingResponseQuality({
+      text: fallback,
+      lastUserText,
+      historyMessages,
+    });
+
+    expect(assessment.issues).toEqual([]);
+    expect(fallback).toMatch(/5,000円|5000円/);
+    expect(fallback).toMatch(/完成物|やり取り回数|納期/);
+    expect(fallback).not.toMatch(/という相談ですね。?$/);
+  });
+
   it('最初の一歩を一気にゴール化する相談では具体的な一場面へ戻す', () => {
     const lastUserText =
       'どうしても大ジャンプを望んでしまいます。「最初の一歩＝ゴール」みたいに。壁打ちでいつも指摘されます。';
