@@ -60,6 +60,9 @@ try {
     locale: 'ja-JP',
     timezoneId: 'Asia/Tokyo',
   });
+  await desktop.grantPermissions(['clipboard-read', 'clipboard-write'], {
+    origin: new URL(baseUrl).origin,
+  });
   await configureVercelProtectionBypass(desktop);
   const desktopPage = await desktop.newPage();
   collectBrowserErrors(desktopPage, 'desktop');
@@ -72,6 +75,7 @@ try {
   await testJapaneseCompositionEnter(desktopPage);
   await testShiftEnter(desktopPage);
   await testDesktopEnterSend(desktopPage);
+  await testDesktopMessageCopy(desktopPage);
   await testSynchronousDoubleSendGuard(desktopPage);
   await testConnectionDropRecovery(desktopPage);
   await testRepeatedConversation(desktopPage);
@@ -104,11 +108,15 @@ try {
     locale: 'ja-JP',
     timezoneId: 'Asia/Tokyo',
   });
+  await mobile.grantPermissions(['clipboard-read', 'clipboard-write'], {
+    origin: new URL(baseUrl).origin,
+  });
   await configureVercelProtectionBypass(mobile);
   const mobilePage = await mobile.newPage();
   collectBrowserErrors(mobilePage, 'mobile');
   await loginToExistingChat(mobilePage, sessionId);
   await testMobileEnterAndButton(mobilePage);
+  await testMobileMessageCopy(mobilePage);
   await testMobileLayout(mobilePage);
   addCheck(
     'スマートフォン: コーチング画面内に問い合わせ導線を表示',
@@ -424,6 +432,30 @@ async function testDesktopEnterSend(page) {
     Boolean(requestPayload) &&
       !Object.prototype.hasOwnProperty.call(requestPayload, 'diagnosisCode'),
     JSON.stringify(requestPayload || null)
+  );
+}
+
+async function testDesktopMessageCopy(page) {
+  const latestAssistant = page
+    .locator('[data-message-role="assistant"]')
+    .last();
+  const assistantText = (await latestAssistant.innerText()).split('\n')[0]?.trim();
+  await latestAssistant.getByRole('button', { name: 'コピー' }).click();
+  await page.getByRole('button', { name: 'コピーしました' }).waitFor({
+    state: 'visible',
+    timeout: 10000,
+  });
+  const copiedText = await page.evaluate(() => navigator.clipboard.readText());
+  const copyButtons = await page
+    .locator('[data-message-role] button[title="このメッセージをコピー"]')
+    .count();
+  const messageCount = await page.locator('[data-message-role]').count();
+  addCheck(
+    'PC: メッセージごとにコピーできる',
+    Boolean(assistantText) &&
+      copiedText.includes(assistantText) &&
+      copyButtons === messageCount,
+    JSON.stringify({ assistantText, copiedText, copyButtons, messageCount })
   );
 }
 
@@ -990,6 +1022,24 @@ async function testMobileEnterAndButton(page) {
         result.assistantContent
       ),
     result.assistantContent
+  );
+}
+
+async function testMobileMessageCopy(page) {
+  const latestAssistant = page
+    .locator('[data-message-role="assistant"]')
+    .last();
+  const assistantText = (await latestAssistant.innerText()).split('\n')[0]?.trim();
+  await latestAssistant.getByRole('button', { name: 'コピー' }).tap();
+  await page.getByRole('button', { name: 'コピーしました' }).waitFor({
+    state: 'visible',
+    timeout: 10000,
+  });
+  const copiedText = await page.evaluate(() => navigator.clipboard.readText());
+  addCheck(
+    'スマホ: 最新メッセージを個別コピーできる',
+    Boolean(assistantText) && copiedText.includes(assistantText),
+    JSON.stringify({ assistantText, copiedText })
   );
 }
 
