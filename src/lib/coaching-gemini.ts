@@ -5761,14 +5761,36 @@ export function ensureVerifiedCoachingResolution(params: {
     historyMessages,
   });
 
-  const safeFallbackText = isCustomerSafeDeliveryText({
-    text: fallbackText,
+  const fallbackIsSafeAndClean =
+    fallbackQuality.issues.length === 0 &&
+    isCustomerSafeDeliveryText({
+      text: fallbackText,
+      lastUserText,
+      historyMessages,
+      assessment: fallbackQuality,
+    });
+  const customerSafeFallbackText = buildCustomerSafeLocalFallback(
+    lastUserText,
+    historyMessages
+  );
+  const customerSafeFallbackQuality = assessCoachingResponseQuality({
+    text: customerSafeFallbackText,
     lastUserText,
     historyMessages,
-    assessment: fallbackQuality,
-  })
+  });
+  const customerFallbackIsSafeAndClean =
+    customerSafeFallbackQuality.issues.length === 0 &&
+    isCustomerSafeDeliveryText({
+      text: customerSafeFallbackText,
+      lastUserText,
+      historyMessages,
+      assessment: customerSafeFallbackQuality,
+    });
+  const safeFallbackText = fallbackIsSafeAndClean
     ? fallbackText
-    : buildCustomerSafeLocalFallback(lastUserText, historyMessages);
+    : customerFallbackIsSafeAndClean
+      ? customerSafeFallbackText
+      : fallbackText;
   const safeFallbackQuality = assessCoachingResponseQuality({
     text: safeFallbackText,
     lastUserText,
@@ -5843,14 +5865,14 @@ function buildCustomerSafeLocalFallback(
   }
 
   if (hasRelationshipConflictContext(knownContext)) {
-    return '人との関係で困っている時は、相手の気持ちを決めつけず、実際に起きたことと、変えてほしい行動を分けて考えると整理しやすくなります。最後に困った場面で、相手がしたことを一つだけ教えてください。';
+    return '人との関係で困っている時は、相手の気持ちを決めつけず、実際に起きたことと、変えてほしい行動を分けて考えると整理しやすくなります。相手の理由を考える前に、最後に困った場面で相手が実際にしたことを一つだけこの画面に書いてください。その事実を基準に、次に伝える内容を絞ります。';
   }
 
   if (/仕事|職場|業務|会社|上司|同僚|会議|企画|顧客/.test(knownContext)) {
     return '仕事のことで迷っている時は、仕事全体の結論を急がず、実際に困った場面と次に確認する点を分けると、具体的な対応を選びやすくなります。最後に困った仕事の場面で、誰が何を言ったかを一つだけ教えてください。';
   }
 
-  return '今の相談について、まだ書かれていない事情を決めつけず、実際に起きたことと今いちばん困っていることを分けて考えましょう。最後に困った場面で、何が起きたかを一つだけ教えてください。';
+  return '今の相談について、まだ書かれていない事情を決めつけず、実際に起きたことと今いちばん困っていることを分けて考えます。最初に、相談したい出来事の中から、確認できる事実を一つだけこの画面に書いてください。相手の意図や自分の評価ではなく、実際に起きたことだけで大丈夫です。';
 }
 
 function mergeCoachingUsage(
