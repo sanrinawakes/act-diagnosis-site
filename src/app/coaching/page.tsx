@@ -279,7 +279,9 @@ function CoachingContent() {
   const [input, setInput] = useState('');
   const [isListening, setIsListening] = useState(false);
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
+  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const copiedMessageResetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [loading, setLoading] = useState(false);
   const [botDisabled, setBotDisabled] = useState(false);
   const [coachingNotice, setCoachingNotice] = useState<CoachingNotice | null>(null);
@@ -368,6 +370,9 @@ function CoachingContent() {
   useEffect(() => {
     return () => {
       sidebarRequestControllerRef.current?.abort();
+      if (copiedMessageResetTimeoutRef.current) {
+        clearTimeout(copiedMessageResetTimeoutRef.current);
+      }
       pendingAttachmentsRef.current.forEach((attachment) => {
         URL.revokeObjectURL(attachment.previewUrl);
       });
@@ -971,6 +976,45 @@ function CoachingContent() {
       });
     } finally {
       setHistoryLoadingOlder(false);
+    }
+  };
+
+  const handleCopyMessage = async (messageId: string, content: string) => {
+    const text = stripAttachmentMarkdown(content).trim();
+    if (!text) return;
+
+    const fallbackCopy = () => {
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.setAttribute('readonly', 'true');
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+    };
+
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        fallbackCopy();
+      }
+
+      setCopiedMessageId(messageId);
+      if (copiedMessageResetTimeoutRef.current) {
+        clearTimeout(copiedMessageResetTimeoutRef.current);
+      }
+      copiedMessageResetTimeoutRef.current = setTimeout(() => {
+        setCopiedMessageId((current) => (current === messageId ? null : current));
+      }, 2000);
+    } catch (error) {
+      console.error('Failed to copy coaching message:', error);
+      setAttachmentError(
+        'メッセージをコピーできませんでした。時間をおいて、もう一度お試しください。'
+      );
     }
   };
 
@@ -2039,16 +2083,35 @@ function CoachingContent() {
                       </>
                     );
                   })()}
-                  {message.role === 'assistant' && (
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
                     <button
                       type="button"
-                      onClick={() => handleSpeak(message.id, stripAttachmentMarkdown(message.content))}
-                      className="text-xs text-blue-500 hover:text-blue-700 mt-1 mr-2"
-                      title={speakingMessageId === message.id ? '読み上げ停止' : '音声で聞く'}
+                      onClick={() => handleCopyMessage(message.id, message.content)}
+                      className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                        message.role === 'user'
+                          ? 'bg-blue-400/30 text-white hover:bg-blue-400/40'
+                          : 'bg-blue-50 text-blue-700 hover:bg-blue-100'
+                      }`}
+                      title="このメッセージをコピー"
                     >
-                      {speakingMessageId === message.id ? '⏸ 停止' : '🔊 読み上げ'}
+                      {copiedMessageId === message.id ? 'コピーしました' : 'コピー'}
                     </button>
-                  )}
+                    {message.role === 'assistant' && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleSpeak(
+                            message.id,
+                            stripAttachmentMarkdown(message.content)
+                          )
+                        }
+                        className="rounded-full bg-white px-3 py-1 text-xs font-medium text-blue-600 transition-colors hover:bg-blue-50"
+                        title={speakingMessageId === message.id ? '読み上げ停止' : '音声で聞く'}
+                      >
+                        {speakingMessageId === message.id ? '停止' : '読み上げ'}
+                      </button>
+                    )}
+                  </div>
                   <p
                     className={`text-xs mt-2 ${
                       message.role === 'user' ? 'text-blue-100' : 'text-gray-500'
