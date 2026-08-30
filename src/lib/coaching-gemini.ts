@@ -4524,6 +4524,23 @@ export function buildFinalVerifiedQualityFallback(
     }
   }
 
+  const schoolConflictCompletionAckFallback =
+    buildSchoolConflictCompletionAckFallback(
+      lastUserText,
+      historyMessages
+    );
+  if (schoolConflictCompletionAckFallback) {
+    const schoolConflictCompletionAssessment =
+      assessCoachingResponseQuality({
+        text: schoolConflictCompletionAckFallback,
+        lastUserText,
+        historyMessages,
+      });
+    if (schoolConflictCompletionAssessment.issues.length === 0) {
+      return schoolConflictCompletionAckFallback;
+    }
+  }
+
   const briefAcknowledgementFallback =
     buildBriefAcknowledgementFallback(lastUserText, historyMessages);
   if (briefAcknowledgementFallback) {
@@ -8584,6 +8601,44 @@ function buildBriefAcknowledgementFallback(
   }
 
   return '';
+}
+
+function buildSchoolConflictCompletionAckFallback(
+  lastUserText: string,
+  historyMessages: CoachingChatMessage[]
+) {
+  const normalized = stripAttachmentMarkdown(lastUserText)
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!/^(?:書きました|書けました|できました|書いた|できた)(?:[。！!]|$)/.test(normalized)) {
+    return '';
+  }
+
+  const recentUserContext = historyMessages
+    .filter((message) => message.role === 'user')
+    .slice(-6)
+    .map((message) => stripAttachmentMarkdown(message.content))
+    .join('\n');
+  const recentAssistantContext = historyMessages
+    .filter((message) => message.role === 'assistant')
+    .slice(-3)
+    .map((message) => stripAttachmentMarkdown(message.content))
+    .join('\n');
+  const hasSchoolConflictResolution =
+    /学童|保護者|面談|加害側|被害側/.test(recentUserContext) &&
+    /無事に終わ|ありがとうございました|謝罪|約束/.test(
+      recentUserContext
+    );
+  const promptedForWrittenFact =
+    /確認できる事実を一つだけ|この画面に書いてください/.test(
+      recentAssistantContext
+    );
+
+  if (!hasSchoolConflictResolution || !promptedForWrittenFact) {
+    return '';
+  }
+
+  return '面談が無事に終わり、謝罪と約束まで進んだことは整理できています。次は再発防止のために、誰が、いつ、何を見守るかを一つずつ決める段階です。\n\nまず最初に確認する見守り項目を一つだけ書いてください。';
 }
 
 function buildCareerMobilityFollowupFallback(
