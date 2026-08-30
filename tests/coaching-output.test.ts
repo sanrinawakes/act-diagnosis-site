@@ -4302,6 +4302,46 @@ describe('normalizeCoachingOutput', () => {
     expect(assessment.issues).toEqual([]);
   });
 
+  it('学童面談の完了報告直後に「書きました」と返っても古い要約へ戻らない', () => {
+    const history = [
+      {
+        role: 'user' as const,
+        content:
+          '当社は互いにやられたからやり返していた。途中から先生に言われて、2名はてをだすのはやめたが、2名が理由がないときも手を出していることがわかりました。また、加害側の一人がひとりな命令をしててをだしていました。これを文章にしてください。',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          '「当初はお互いにやり返していましたが、先生から指導を受けて2名が手を出すのをやめた後も、もう2名が理由なく手を出し続けていたこと、そして1名が指示を出して叩かせていたことが確認できています。」',
+      },
+      {
+        role: 'user' as const,
+        content:
+          'こんにちは。面談無事に終わりました。もめることなく、加害側も認めて、謝罪、約束までおこなえました。ありがとうございました。',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          '今の相談について、まだ書かれていない事情を決めつけず、実際に起きたことと今いちばん困っていることを分けて考えます。最初に、相談したい出来事の中から、確認できる事実を一つだけこの画面に書いてください。相手の意図や自分の評価ではなく、実際に起きたことだけで大丈夫です。',
+      },
+    ];
+
+    const fallback = buildFinalVerifiedQualityFallback(
+      '書きました。',
+      history
+    );
+    const assessment = assessCoachingResponseQuality({
+      text: fallback,
+      lastUserText: '書きました。',
+      historyMessages: history,
+    });
+
+    expect(fallback).toContain('謝罪と約束まで進んだことは整理できています');
+    expect(fallback).toContain('見守り項目を一つだけ書いてください');
+    expect(fallback).not.toContain('という相談ですね');
+    expect(assessment.issues).toEqual([]);
+  });
+
   it('広すぎる会話継続質問を具体的な問いへ置き換える', () => {
     const result = normalizeCoachingOutput(
       '前の話は踏まえています。何か具体的に話してみたいことはありますか？',
