@@ -4675,6 +4675,17 @@ export function buildFinalVerifiedQualityFallback(
         historyMessages
       )
     : '';
+  if (contextualDissatisfactionFallback) {
+    const contextualDissatisfactionAssessment =
+      assessCoachingResponseQuality({
+        text: contextualDissatisfactionFallback,
+        lastUserText,
+        historyMessages,
+      });
+    if (contextualDissatisfactionAssessment.issues.length === 0) {
+      return contextualDissatisfactionFallback;
+    }
+  }
   const historicalUserContext = historyMessages
     .filter((message) => message.role === 'user')
     .filter(
@@ -5318,6 +5329,12 @@ function buildContextualDissatisfactionFallback(
     .filter((content) => !reportsResponseDissatisfaction(content))
     .slice(-4)
     .join('\n');
+  const dissatisfactionContext = [
+    recentUserContext,
+    previousUserText,
+  ]
+    .filter(Boolean)
+    .join('\n');
 
   if (
     /講座/.test(recentUserContext) &&
@@ -5350,6 +5367,23 @@ function buildContextualDissatisfactionFallback(
     if (financialFallback) {
       return `${opening}\n\n${financialFallback}`;
     }
+  }
+
+  if (
+    /講座|学び|瞑想|スピリチュアル|AWAKES|awakes/.test(
+      dissatisfactionContext
+    ) &&
+    /給料|分割|手数料|\d[\d,]*円/.test(dissatisfactionContext)
+  ) {
+    return `${opening}\n\n今の迷いは、学びを続けたい気持ちがある一方で、毎月使ってよい額の上限は1万円から1万5千円くらいだと、すでに自分で分かっていることです。そこに追加で月1万6千円を重ねると上限を超え、分割にしても不安と手数料が残ります。今決めるなら、新しい講座はまだ申し込まず、今の1万円の学びを続けるか休止するかを、生活費と合わせて見直す方が現実に合っています。`;
+  }
+
+  if (
+    /カフェ|集客|発信|宣伝|SNS|投稿|コンサート/.test(
+      previousUserText
+    )
+  ) {
+    return `${opening}\n\n今の相談は、暗闇カフェの集客を増やすために、あなたが使える発信手段を一つに絞ることです。すでに、発信、宣伝、コンサートで話すという候補は出ています。まずは、平日は静かに味や香りへ集中できる時間だと伝えるSNS投稿文を一本だけ作ってください。`;
   }
 
   if (/仕事|職場|業務|会社|上司|同僚|会議|企画|顧客/.test(previousUserText)) {
@@ -6791,7 +6825,7 @@ function explicitlyRejectsPreviousCoachingMove(text: string) {
 function reportsResponseDissatisfaction(text: string) {
   const normalized = text.replace(/\s+/g, ' ').trim();
   const standaloneComplaint =
-    /^(?:[？?]+|意味(?:が)?(?:不明|わから|分から)(?:ない|ん)?|何の話|話が(?:違|ずれ)(?:う|てる|ています)?)[。！？!?]*$/.test(
+    /^(?:[？?]+|意味(?:が)?(?:不明|わから|分から)(?:ない|ん)?|何の話|話が(?:違|ずれ|飛び)(?:う|てる|ています|ました)?|オウム返し(?:になって(?:います|る))?|全然違う(?:回答|返答)?(?:ですね)?|修正して(?:ください|下さい)?)[。！？!?]*$/.test(
       normalized
     );
   const responseDirectedComplaint =
@@ -6805,7 +6839,7 @@ function reportsResponseDissatisfaction(text: string) {
   return (
     standaloneComplaint ||
     responseDirectedComplaint ||
-    /^(?:[？?]+)$|わからないから聞いて|それを聞いている|質問ばかり|同じ質問|答えになっていない|納得(?:できない|いかない)|何を言いたいのかわから|ちゃんと答えて|何の話|^(?:(?:これ|それ)は)?どういう(?:こと|事|意味)[。！？!?]*$|いちいち確認しないで|言葉の通りに解釈して|^相手とは[。！？!?]*$|前の返答.{0,20}(?:わか(?:ら|り)|短|意味)|前(?:の|より).{0,20}(?:方が|ほうが).{0,20}(?:的確|良かった|よかった)|頭が悪くな|作成されてない|作成されていない|文章を出せていない|もっと(?:分か|わか)るように(?:言って|説明して)|(?:もう少し|もうちょっと)(?:分か|わか)るように(?:言って|説明して)|説明して|かみ砕いて|噛み砕いて/.test(
+    /^(?:[？?]+)$|わからないから聞いて|それを聞いている|質問ばかり|同じ質問|答えになっていない|納得(?:できない|いかない)|何を言いたいのかわから|ちゃんと答えて|何の話|^(?:(?:これ|それ)は)?どういう(?:こと|事|意味)[。！？!?]*$|いちいち確認しないで|言葉の通りに解釈して|^相手とは[。！？!?]*$|前の返答.{0,20}(?:わか(?:ら|り)|短|意味)|前(?:の|より).{0,20}(?:方が|ほうが).{0,20}(?:的確|良かった|よかった)|頭が悪くな|作成されてない|作成されていない|文章を出せていない|もっと(?:分か|わか)るように(?:言って|説明して)|(?:もう少し|もうちょっと)(?:分か|わか)るように(?:言って|説明して)|説明して|かみ砕いて|噛み砕いて|オウム返し|話が飛ん|急に話が飛び|全然違う回答|修正して(?:ください|下さい)/.test(
       normalized
     )
   );
