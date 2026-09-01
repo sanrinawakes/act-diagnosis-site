@@ -7205,6 +7205,113 @@ describe('normalizeCoachingOutput', () => {
     expect(assessment.issues).toContain('repeats_rejected_move');
   });
 
+  it('話が飛んだと指摘されたら講座費用の相談へ戻した補修文を返す', () => {
+    const historyMessages = [
+      {
+        role: 'user' as const,
+        content: '悩んでいることがあります\nスピリチュアル的な学びを続けた方が良いか？',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          '「悩んでいることがあります スピリチュアル的な学びを続けた方が良いか」という相談ですね。\n\nまだ書かれていない原因を推測せず、実際に起きたことと、次に困る場面を分けると、具体的な対応を選びやすくなります。今の情報だけで原因や相手の意図を決めつけず、確認できる出来事から整理します。',
+      },
+      {
+        role: 'user' as const,
+        content:
+          'awakesにて月10,000円の学びをしています\nさらに追加でマニフェストの学び(瞑想)で月16,000円使うか\n次の給料が28万\nマニフェストに興味はあります\n今まで学んできた事とも連動しているしここで学びを止めるのも怖い(ワクワクからくる望みではない状態)\n今までの学びで内面は少し変わった\nでも外面(金銭面、パートナーシップ、家族関係)は特にみられない\n変われることを期待していちねんやってみるか…\nまたawakesの学び(ワンレスヨガ)はちょっと気になるけどそちらを辞めるか…',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          'awakesでの月10,000円の学びを続けながら、追加で月16,000円のマニフェストの学びを始めるか、あるいはawakesをやめるかで迷っているのですね。今までの学びで内面は少し変わったものの、金銭面や人間関係などの外面に変化が見られず、学びを止める怖さもあるというお気持ちも伝わってきます。\n\n月28万円の給料から合計で毎月いくらまでなら、生活を脅かさずに学びへ使っても大丈夫だと感じますか？',
+      },
+      {
+        role: 'user' as const,
+        content:
+          '10,000円、多くても15,000円のいないだと思っています\n\n分割にする方法もありますが、後々まで残る不安や手数料が高くなるので悩んでいます',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          '人との関係で困っている時は、相手の気持ちを決めつけず、実際に起きたことと、変えてほしい行動を分けて考えると整理しやすくなります。相手の理由を考える前に、最後に困った場面で相手が実際にしたことを一つだけこの画面に書いてください。その事実を基準に、次に伝える内容を絞ります。',
+      },
+      {
+        role: 'user' as const,
+        content: '？',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          '自己理解では、周囲の空気や相手の反応を先に見ながら動けることが強みになりやすいです。一方で、人に合わせることを優先しすぎると、自分が本当に望んでいることを後回しにしやすくなります。\n\n最近「本当はこうしたかったのに遠慮してやめたこと」があれば、それが今の課題をつかむ手がかりになります。思い当たる場面はありますか？',
+      },
+    ];
+    const lastUserText = '急に話が飛びましたよ\n修正して下さい';
+    const fallback = buildFinalVerifiedQualityFallback(
+      lastUserText,
+      historyMessages
+    );
+    const assessment = assessCoachingResponseQuality({
+      text: fallback,
+      lastUserText,
+      historyMessages,
+    });
+
+    expect(assessment.issues).toEqual([]);
+    expect(fallback).toContain('1万円から1万5千円');
+    expect(fallback).toContain('月1万6千円');
+    expect(fallback).not.toContain('相手が実際にしたこと');
+  });
+
+  it('オウム返しの苦情後は集客相談の候補へ戻して聞き直す', () => {
+    const historyMessages = [
+      {
+        role: 'user' as const,
+        content:
+          'カフェを運営しているダイアログジャパンは、竹柴に拠点があります。でもいつも運営が厳しい。代表と話をすると、（存続が危ない）と言われます。',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          '「カフェを運営しているダイアログジャパンは、竹柴に拠点があります。でもいつも運営が厳しい。代表と話…」という相談ですね。',
+      },
+      {
+        role: 'user' as const,
+        content:
+          '私ができることは、発信と宣伝と、そしてカフェの運営に携わることです。今思ったのは、コンサートの中で話すこともできる。',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          '「私ができることは、発信と宣伝と、そしてカフェの運営に携わることです。今思ったのは、コンサートの中…」という相談ですね。',
+      },
+      {
+        role: 'user' as const,
+        content: 'オウム返しになっています。これは私が具体的に質問しないからですか？',
+      },
+      {
+        role: 'assistant' as const,
+        content: '対象の資料を開き、最初の見出しを一つだけ書いてください。',
+      },
+    ];
+    const lastUserText = '全然違う回答ですね。';
+    const fallback = buildFinalVerifiedQualityFallback(
+      lastUserText,
+      historyMessages
+    );
+    const assessment = assessCoachingResponseQuality({
+      text: fallback,
+      lastUserText,
+      historyMessages,
+    });
+
+    expect(assessment.issues).toEqual([]);
+    expect(fallback).toContain('暗闇カフェの集客');
+    expect(fallback).toContain('コンサート');
+    expect(fallback).toContain('SNS投稿文');
+    expect(fallback).not.toContain('対象の資料');
+  });
+
   it('収入につながる行動が分からない相談で投資講座の次の講義へ具体化する', () => {
     const lastUserText =
       '行動に移せないというより、何をしたら入ってくるか分からないって感じ';
