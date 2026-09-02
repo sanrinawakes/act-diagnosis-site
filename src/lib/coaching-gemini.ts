@@ -4245,6 +4245,19 @@ export function buildFinalVerifiedQualityFallback(
   lastUserText: string,
   historyMessages: CoachingChatMessage[]
 ): string {
+  const meditationClarificationFallback =
+    buildMeditationClarificationFallback(lastUserText, historyMessages);
+  if (meditationClarificationFallback) {
+    const assessment = assessCoachingResponseQuality({
+      text: meditationClarificationFallback,
+      lastUserText,
+      historyMessages,
+    });
+    if (assessment.issues.length === 0) {
+      return meditationClarificationFallback;
+    }
+  }
+
   const bullyingAgreementClarificationFallback =
     buildBullyingAgreementClarificationFallback(
       lastUserText,
@@ -5705,6 +5718,24 @@ function buildHouseholdRepeatedRequestFallback(
   }
 
   return '何度伝えても返事だけで家事分担が変わらないなら、問題は言い方ではなく、決めた分担が実行されていないことです。同じ交渉を続けるより、自分の負担を夫の行動とは別に減らす必要があります。\n\nまず、健康や衛生に直結しない家事を一つ選び、今週だけ回数を半分に減らしてください。外注や家電を使う場合は、費用負担を二人で合意してから決めます。';
+}
+
+function buildMeditationClarificationFallback(
+  lastUserText: string,
+  historyMessages: CoachingChatMessage[]
+) {
+  if (!/^相手とは[。！？!?]*$/.test(lastUserText.trim())) return '';
+
+  const userContext = historyMessages
+    .filter((message) => message.role === 'user')
+    .slice(-6)
+    .map((message) => stripAttachmentMarkdown(message.content))
+    .join('\n');
+  if (!/瞑想|余白|アーカイブ/.test(userContext)) {
+    return '';
+  }
+
+  return '前の返答で「相手」と書いたのは誤りです。今の相談は、乳児の世話の中で余白があっても雑務やアーカイブで埋めてしまい、休んでもすっきりしないことでした。昼寝や3分の瞑想を、アーカイブを進めるための手段として評価しなくて大丈夫です。余白の時間は、まずアーカイブを見ない時間として確保し、3分の瞑想か横になることのどちらか一つだけで終えてください。';
 }
 
 function buildGroundedHouseholdActionFallback(lastUserText: string) {

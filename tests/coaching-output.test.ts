@@ -145,6 +145,45 @@ describe('final verified quality fallback', () => {
     expect(assessment.issues).toContain('latest_user_echo');
   });
 
+  it('瞑想と余白の相談で相手という無関係な前提を訂正する', () => {
+    const historyMessages = [
+      {
+        role: 'user' as const,
+        content:
+          '余白の時間があっても雑務や掃除で埋めてしまいます。3分の瞑想が限界でした。',
+      },
+      {
+        role: 'assistant' as const,
+        content: 'まずは昼寝や横になることを優先してみますか。',
+      },
+      {
+        role: 'user' as const,
+        content:
+          '乳児がいるので、AWAKESのアーカイブを取り返そうとしてもすっきりしません。',
+      },
+      {
+        role: 'assistant' as const,
+        content: '明日の朝、相手に最初に伝える一文だけをメモに書いてください。',
+      },
+    ];
+    const lastUserText = '相手とは';
+    const result = buildFinalVerifiedQualityFallback(
+      lastUserText,
+      historyMessages
+    );
+
+    expect(
+      assessCoachingResponseQuality({
+        text: result,
+        lastUserText,
+        historyMessages,
+      }).issues
+    ).toEqual([]);
+    expect(result).toContain('前の返答で「相手」と書いたのは誤りです');
+    expect(result).toContain('アーカイブを見ない時間');
+    expect(result).not.toContain('相手に');
+  });
+
   it('質問なしの一行動では相談の言い換えより具体的な行動を優先する', () => {
     const lastUserText =
       '話す直前にできることを、質問なしで一つだけ教えてください。';
