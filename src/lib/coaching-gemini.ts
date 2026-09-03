@@ -94,7 +94,7 @@ const API_HISTORY_CHAR_LIMIT = 2000;
 const API_LAST_USER_CHAR_LIMIT = 2500;
 const ACT_TYPE_CODE_PATTERN = /\b([SMP][VMG][AME])(?:-?([1-6]))?\b/g;
 const COACHING_DOMAIN_CONTEXT_PATTERN =
-  /家計簿|収支|赤字|黒字|予算|固定費|変動費|食費|生活費|お金|返金|収入|支出|講座|占い|後悔|メンタル|ケア|仕事|職場|業務|会社|上司|同僚|会議|企画|顧客|夫|妻|主人|家事|家族|親|子ども|パートナー/;
+  /家計簿|収支|赤字|黒字|予算|固定費|変動費|食費|生活費|お金|返金|収入|支出|講座|占い|後悔|メンタル|ケア|仕事|職場|業務|会社|上司|同僚|会議|企画|顧客|社員|職員|部署|先輩|後輩|ターゲット|無視|夫|妻|主人|家事|家族|親|子ども|パートナー/;
 // Provider and finalization timeouts remain bounded independently so the
 // request stays below the route's 60-second runtime limit.
 const GEMINI_FINALIZE_TIMEOUT_MS = 4000;
@@ -2561,6 +2561,19 @@ export function assessCoachingResponseQuality(params: {
     !requestsOnePhraseAnswer(lastUserText) &&
     contextRelevanceChecks.length > 0 &&
     !contextRelevanceChecks.some((check) => check.relevant)
+  ) {
+    issues.push('context_mismatch');
+  }
+  const workContinuationContext =
+    /仕事|職場|業務|会社|上司|同僚|会議|企画|顧客|社員|職員|部署|先輩|後輩/.test(
+      relevanceContext
+    ) ||
+    (/無視|ターゲット/.test(relevanceContext) &&
+      /社員|職員|部署|先輩|後輩/.test(userContext));
+  if (
+    workContinuationContext &&
+    /AWAKES|更新|引き落とし|毎月払|止める条件|退会|解約/.test(text) &&
+    !issues.includes('context_mismatch')
   ) {
     issues.push('context_mismatch');
   }
@@ -6888,7 +6901,7 @@ function selectRelevantFallbackSource(
   historyMessages: CoachingChatMessage[]
 ) {
   const currentTopicPattern =
-    /家計簿|収支|赤字|黒字|予算|固定費|変動費|食費|生活費|仕事|職場|業務|会社|上司|同僚|会議|企画|顧客|夫|妻|主人|家事|家族|親|子ども|パートナー|お金|収入|講座|スピリチュアル|瞑想|解放|不安|後悔/;
+    /家計簿|収支|赤字|黒字|予算|固定費|変動費|食費|生活費|仕事|職場|業務|会社|上司|同僚|会議|企画|顧客|社員|職員|部署|先輩|後輩|ターゲット|無視|夫|妻|主人|家事|家族|親|子ども|パートナー|お金|収入|講座|スピリチュアル|瞑想|解放|不安|後悔/;
   const cleanCurrent = stripAttachmentMarkdown(lastUserText)
     .replace(/\s+/g, ' ')
     .trim();
