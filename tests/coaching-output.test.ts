@@ -7145,6 +7145,57 @@ describe('normalizeCoachingOutput', () => {
     expect(result).not.toMatch(/[？?]|見過ごしたくない本音/);
   });
 
+  it('仕事相談の短い追記を古いAWAKES文脈へ逸らす回答を不合格にする', () => {
+    const historyMessages = [
+      {
+        role: 'user' as const,
+        content:
+          'お金が少ない。もっと欲しい。普通に暮らしたい。欲しいものを買いたい。AWAKESって途中でやめられる？',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          'AWAKESを途中でやめられるかどうかは、契約した時の規約や決済方法で変わります。',
+      },
+      {
+        role: 'user' as const,
+        content:
+          'また仕事で無視される事態に陥りました。ただ仕事の効率をよくしたかっただけなのに。なんで同じような悪いことっておこるの？',
+      },
+      {
+        role: 'assistant' as const,
+        content:
+          '仕事の効率をよくしようとして動いたのに、職場で無視される事態になってしまったのですね。今回は、仕事の効率をよくするためにどのような行動をとった後に無視されましたか。',
+      },
+    ];
+    const lastUserText =
+      '無視された人に対して何かいったわけではありません。ただ社員と話をしていただけなのにターゲットにされた。最悪なきもち';
+    const driftedAnswer =
+      'AWAKESが毎月払いなら、途中でやめられるかは次回更新までに停止できる形かどうかで決まります。今の情報で見るべき軸は、毎月更新か、次回の引き落としはいつか、止める条件は何かの三つです。\n\nまずは、次回の引き落とし日と、止める時の条件を確認してください。';
+
+    expect(
+      assessCoachingResponseQuality({
+        text: driftedAnswer,
+        lastUserText,
+        historyMessages,
+      }).issues
+    ).toContain('context_mismatch');
+
+    const fallback = buildFinalVerifiedQualityFallback(
+      lastUserText,
+      historyMessages
+    );
+    const fallbackAssessment = assessCoachingResponseQuality({
+      text: fallback,
+      lastUserText,
+      historyMessages,
+    });
+
+    expect(fallbackAssessment.issues).toEqual([]);
+    expect(fallback).toMatch(/仕事|職場|社員|相手/);
+    expect(fallback).not.toMatch(/AWAKES|引き落とし|毎月払|解約|退会/);
+  });
+
   it('相談対象への「意味不明」をBotへの不満と誤認せず最新の相談を使う', () => {
     const historyMessages = [
       {
