@@ -7638,4 +7638,123 @@ describe('normalizeCoachingOutput', () => {
     expect(result).toContain('こだわりのジュースなんですね');
     expect(result).not.toContain('次に困る場面を分ける');
   });
+
+  it('ACT診断コードの特徴とレベル差を聞かれた時に要約だけで終わらない', () => {
+    const historyMessages = [
+      { role: 'user' as const, content: 'PMA3の特徴を教えて' },
+      {
+        role: 'assistant' as const,
+        content: 'PMA3は、論理で切り拓く挑戦者です。',
+      },
+    ];
+    const lastUserText = 'PMA3が4に上がるためにすることは？';
+    const fallback = buildFinalVerifiedQualityFallback(
+      lastUserText,
+      historyMessages
+    );
+    const assessment = assessCoachingResponseQuality({
+      text: fallback,
+      lastUserText,
+      historyMessages,
+    });
+
+    expect(assessment.issues).toEqual([]);
+    expect(fallback).toContain('レベル3');
+    expect(fallback).toContain('レベル4');
+    expect(fallback).toContain('調和');
+    expect(fallback).not.toContain('という相談ですね');
+  });
+
+  it('全角・空白入りのACTコードと無効な先頭文字を正しく説明する', () => {
+    const validText = 'S M Ａ3はある？';
+    const validFallback = buildFinalVerifiedQualityFallback(validText, []);
+    expect(validFallback).toContain('SMA');
+    expect(validFallback).toContain('内省的戦略家');
+    expect(
+      assessCoachingResponseQuality({
+        text: validFallback,
+        lastUserText: validText,
+        historyMessages: [],
+      }).issues
+    ).toEqual([]);
+
+    const invalidText = 'I MＡ4の性格は？';
+    const invalidFallback = buildFinalVerifiedQualityFallback(invalidText, []);
+    expect(invalidFallback).toContain('Iは使いません');
+    expect(invalidFallback).toContain('S・M・P');
+    expect(invalidFallback).toContain('V・M・G');
+    expect(invalidFallback).not.toContain('次に困る場面');
+  });
+
+  it('診断コードの真ん中の文字を聞かれた時に軸の値を直接答える', () => {
+    const historyMessages = [
+      { role: 'user' as const, content: 'SMA4はある？' },
+      { role: 'assistant' as const, content: 'SMA4はあります。' },
+    ];
+    const lastUserText = '真ん中のアルファベットは？';
+    const fallback = buildFinalVerifiedQualityFallback(
+      lastUserText,
+      historyMessages
+    );
+
+    expect(fallback).toContain('V・M・G');
+    expect(fallback).toContain('思考傾向');
+    expect(fallback).not.toContain('確認できる事実を一つ');
+  });
+
+  it('施設で複数人と始める事業相談をオウム返しで終えない', () => {
+    const historyMessages = [
+      {
+        role: 'user' as const,
+        content: 'これから商業施設で専門サービスの店を始める。最初に何をする？',
+      },
+      { role: 'assistant' as const, content: '対象と提供内容を決めましょう。' },
+      { role: 'user' as const, content: '商業施設は借りる' },
+    ];
+    const lastUserText = '受講生と一緒にサービスを提供する';
+    const fallback = buildFinalVerifiedQualityFallback(
+      lastUserText,
+      historyMessages
+    );
+    const assessment = assessCoachingResponseQuality({
+      text: fallback,
+      lastUserText,
+      historyMessages,
+    });
+
+    expect(assessment.issues).toEqual([]);
+    expect(fallback).toContain('運営表');
+    expect(fallback).toMatch(/役割|担当/);
+    expect(fallback).not.toContain('という相談ですね');
+  });
+
+  it('最終フォールバックの正規化結果が空でも空文字を保存しない', () => {
+    process.env.COACHING_OUTPUT_PIPELINE_MODE = 'minimal';
+    const historyMessages = [
+      { role: 'user' as const, content: '今日は仕事の進め方を相談したい' },
+      {
+        role: 'assistant' as const,
+        content: '最後に困った仕事の場面を教えてください。',
+      },
+      { role: 'user' as const, content: 'もう説明しました' },
+    ];
+    const result = ensureVerifiedCoachingResolution({
+      resolution: {
+        text: '',
+        usage: {},
+        modelName: 'local-quality-fallback',
+        provider: 'local',
+        repairAttempted: true,
+        repairAccepted: true,
+        initialIssues: ['too_short'],
+        finalIssues: ['too_short'],
+      },
+      lastUserText: 'そう',
+      historyMessages,
+      preserveUsage: true,
+    });
+
+    expect(result.text.trim().length).toBeGreaterThan(0);
+    expect(result.text).not.toBe('');
+  });
 });
