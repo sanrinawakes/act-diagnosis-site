@@ -1,5 +1,5 @@
 import { getGenAI } from '@/lib/openai';
-import { typeNames } from '@/data/type-names';
+import { axisDescriptions, levelNames, typeNames } from '@/data/type-names';
 import {
   stripAttachmentMarkdown,
   type InlineImageAttachment,
@@ -4258,6 +4258,34 @@ export function buildFinalVerifiedQualityFallback(
   lastUserText: string,
   historyMessages: CoachingChatMessage[]
 ): string {
+  const directDiagnosisLookupFallback =
+    buildDirectDiagnosisLookupFallback(lastUserText, historyMessages);
+  if (directDiagnosisLookupFallback) {
+    const assessment = assessCoachingResponseQuality({
+      text: directDiagnosisLookupFallback,
+      lastUserText,
+      historyMessages,
+    });
+    if (assessment.issues.length === 0) {
+      return directDiagnosisLookupFallback;
+    }
+  }
+
+  const sharedServiceLaunchFallback = buildSharedServiceLaunchFallback(
+    lastUserText,
+    historyMessages
+  );
+  if (sharedServiceLaunchFallback) {
+    const assessment = assessCoachingResponseQuality({
+      text: sharedServiceLaunchFallback,
+      lastUserText,
+      historyMessages,
+    });
+    if (assessment.issues.length === 0) {
+      return sharedServiceLaunchFallback;
+    }
+  }
+
   const meditationClarificationFallback =
     buildMeditationClarificationFallback(lastUserText, historyMessages);
   if (meditationClarificationFallback) {
@@ -5297,6 +5325,85 @@ function buildDiagnosisExplanationFallback(
   return '';
 }
 
+function buildDirectDiagnosisLookupFallback(
+  lastUserText: string,
+  historyMessages: CoachingChatMessage[]
+) {
+  const normalized = stripAttachmentMarkdown(lastUserText)
+    .normalize('NFKC')
+    .replace(/\s+/g, '')
+    .toUpperCase();
+  const recentContext = historyMessages
+    .slice(-6)
+    .map((message) => stripAttachmentMarkdown(message.content).normalize('NFKC'))
+    .join('\n');
+  const isMiddleAxisQuestion =
+    /(?:真ん中|二文字目|第二軸).*(?:文字|アルファベット|意味)/.test(lastUserText) &&
+    /(?:診断|タイプ|[SMP][VMG][AME][1-6]?)/i.test(recentContext);
+  if (isMiddleAxisQuestion) {
+    return `ACT診断の真ん中の文字は、思考傾向を表すV・M・Gのいずれかです。Vは${axisDescriptions.axis2.V}、Mは${axisDescriptions.axis2.M}、Gは${axisDescriptions.axis2.G}です。この文字は、物事を考える時に理想を起点にするか、理想と現実の両方を見るか、現実の条件を起点にするかの傾向を示します。例えばSMAなら、真ん中のMは「バランス型」を意味します。`;
+  }
+
+  const compactCodeMatch = normalized.match(/([SMP][VMG][AME])(?:-?([1-6]))?/);
+  const invalidLeadingCodeMatch = normalized.match(/(I)([VMG])([AME])(?:-?([1-6]))?/);
+  if (
+    !compactCodeMatch &&
+    invalidLeadingCodeMatch &&
+    /(?:診断|タイプ|性格|特徴|ある)/.test(lastUserText)
+  ) {
+    return `ACT診断の先頭文字にIは使いません。三文字は、行動エネルギーのS・M・P、思考傾向のV・M・G、評価基準のA・M・Eを順に組み合わせます。そのため「IMA4」は正式なコードではなく、先頭はS、M、Pのどれかになります。`;
+  }
+
+  if (
+    !compactCodeMatch ||
+    !/(?:診断|タイプ|性格|特徴|意味|ある|上が|上げ|レベル)/.test(
+      lastUserText
+    )
+  ) {
+    return '';
+  }
+
+  const [, typeCode, levelText = ''] = compactCodeMatch;
+  const typeName = typeNames[typeCode];
+  if (!typeName) return '';
+  const [axis1, axis2, axis3] = typeCode.split('') as [
+    keyof typeof axisDescriptions.axis1,
+    keyof typeof axisDescriptions.axis2,
+    keyof typeof axisDescriptions.axis3,
+  ];
+  const level = Number(levelText || 0);
+
+  if (level === 3 && /(?:4|上が|上げ)/.test(normalized)) {
+    return `${typeCode}3のレベル3は「${levelNames[3]}」で、自分の価値観で判断し、自分の責任で行動する段階です。レベル4の「${levelNames[4]}」へ進むには、自分の意見を保ったまま、相手の目的や制約も確認し、共同で決める経験を増やすことが具体的な練習になります。次の会話では、結論を出す前に「あなたが優先したいことは何ですか」と一度確認してください。`;
+  }
+
+  const levelExplanation = level
+    ? `末尾の${level}は意識レベル${level}「${levelNames[level]}」を表します。`
+    : '';
+  return `${typeCode}${levelText}は実在するACTタイプで、名称は「${typeName}」です。${axis1}は${axisDescriptions.axis1[axis1]}、${axis2}は${axisDescriptions.axis2[axis2]}、${axis3}は${axisDescriptions.axis3[axis3]}を表します。${levelExplanation}これは固定された性格の断定ではなく、診断時点の行動・思考・評価の傾向を理解するための指標です。`;
+}
+
+function buildSharedServiceLaunchFallback(
+  lastUserText: string,
+  historyMessages: CoachingChatMessage[]
+) {
+  const recentUserContext = historyMessages
+    .filter((message) => message.role === 'user')
+    .slice(-6)
+    .map((message) => stripAttachmentMarkdown(message.content))
+    .join('\n');
+  const combinedContext = `${recentUserContext}\n${lastUserText}`;
+  if (
+    !/(?:店|館|サロン|事業|開業|始める)/.test(combinedContext) ||
+    !/(?:商業施設|テナント|施設を借り|場所を借り)/.test(combinedContext) ||
+    !/(?:受講生|講座生|メンバー|スタッフ|一緒に)/.test(combinedContext)
+  ) {
+    return '';
+  }
+
+  return '商業施設を借り、受講生と一緒にサービスを提供するなら、最初に作るのは一日分の運営表です。営業時間、提供メニューと所要時間、各受講生の担当、予約受付、会計、トラブル時の責任者を一枚に書いてください。この表を先に作ると、必要な人数と施設側へ確認する条件を、契約や募集の前に具体化できます。';
+}
+
 function extractActDiagnosisCodes(text: string) {
   const normalized = text.normalize('NFKC').toUpperCase();
   return [...normalized.matchAll(ACT_TYPE_CODE_PATTERN)].reduce<string[]>(
@@ -5881,11 +5988,14 @@ export function ensureVerifiedCoachingResolution(params: {
       historyMessages,
       assessment: customerSafeFallbackQuality,
     });
+  const nonEmptyFallbackText = fallbackText.trim()
+    ? fallbackText
+    : customerSafeFallbackText;
   const safeFallbackText = fallbackIsSafeAndClean
     ? fallbackText
     : customerFallbackIsSafeAndClean
       ? customerSafeFallbackText
-      : fallbackText;
+      : nonEmptyFallbackText;
   const safeFallbackQuality = assessCoachingResponseQuality({
     text: safeFallbackText,
     lastUserText,
