@@ -26,6 +26,13 @@ describe('child safety conversation fallback', () => {
     expect(text).not.toContain('という相談ですね');
     expect(assessCoachingResponseQuality({text,lastUserText,historyMessages:history}).issues).toEqual([]);
   });
+  it('recognizes a child referred to without repeating the domain noun', () => {
+    const h: CoachingChatMessage[] = [{role:'user',content:'暴行を見つけたら対応して、担任へ報告する決まりにします。'}];
+    const lastUserText = 'その子の行動をよく見ておくという意味です。';
+    const text = buildFinalVerifiedQualityFallback(lastUserText,h);
+    expect(text).toContain('職員');
+    expect(assessCoachingResponseQuality({text,lastUserText,historyMessages:h}).issues).toEqual([]);
+  });
   it('helps turn remembered events into a record without inventing facts', () => {
     const h: CoachingChatMessage[] = [...history, {role:'user', content:'職員が子どもを叩いた件を報告します。'}, {role:'assistant', content:'日時や出来事の記録はありますか？'}];
     const lastUserText = '記録はこれからですが、出来事は覚えています。';
