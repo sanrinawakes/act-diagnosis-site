@@ -42,6 +42,24 @@ describe('child safety conversation fallback', () => {
     expect(text).not.toContain('という相談ですね');
     expect(assessCoachingResponseQuality({text,lastUserText,historyMessages:h}).issues).toEqual([]);
   });
+  it('keeps clarification followups useful after its own recovery answer', () => {
+    const h: CoachingChatMessage[] = [...history];
+    for (const lastUserText of ['見守る子の行動を追っておく方針です。', '叩いてしまう子の様子を近くで見守るという意味です。', '手を出す子を注意して見ておくということです。']) {
+      const text = buildFinalVerifiedQualityFallback(lastUserText, h);
+      expect(text).not.toContain('という相談ですね');
+      expect(assessCoachingResponseQuality({text,lastUserText,historyMessages:h}).issues).toEqual([]);
+      h.push({role:'user',content:lastUserText},{role:'assistant',content:text});
+    }
+  });
+  it('continues a record answer after already describing the record format', () => {
+    const first = '職員が子どもを叩いた件を報告するため記録したいです。';
+    const answer = buildFinalVerifiedQualityFallback(first, []);
+    const h: CoachingChatMessage[] = [{role:'user',content:first},{role:'assistant',content:answer}];
+    const lastUserText = '記録はこれからですが、出来事は覚えています。';
+    const text = buildFinalVerifiedQualityFallback(lastUserText,h);
+    expect(text).not.toContain('という相談ですね');
+    expect(assessCoachingResponseQuality({text,lastUserText,historyMessages:h}).issues).toEqual([]);
+  });
   it('does not turn a correction into an older relationship topic', () => {
     const h: CoachingChatMessage[] = [{role:'user',content:'前は夫への返事を考えていました。'}, ...history, {role:'user',content:'担当者が子どもの説明を聞いていないという意味です。'}];
     const text = buildFinalVerifiedQualityFallback('相談ではありません。', h);
