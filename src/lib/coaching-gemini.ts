@@ -4254,10 +4254,50 @@ function buildSafeQualityFallback(
   );
 }
 
+function buildChildSafetyContinuationFallback(
+  lastUserText: string,
+  historyMessages: CoachingChatMessage[]
+): string {
+  // Only use recent user facts. Saved summaries and old topics must not select
+  // a domain-specific recovery for a short answer in a different conversation.
+  const recentUsers = historyMessages
+    .filter((message) => message.role === 'user')
+    .filter((message) =>
+      !message.content.startsWith('以下は過去の会話の保存済み要約です。')
+    )
+    .slice(-3)
+    .map((message) => stripAttachmentMarkdown(message.content));
+  const context = [...recentUsers, lastUserText].join('\n');
+  if (
+    /話を変|別の話|別件|ところで/.test(lastUserText) ||
+    !/保育|園児|担任|子ども|子供|こども|その子|子を|こを/.test(context) ||
+    !/叩|たた|暴行|手を(?:出|だ|あげ|上げ)|見守/.test(context)
+  ) {
+    return '';
+  }
+
+  if (/記憶|覚えて|記録|書く|書き/.test(lastUserText)) {
+    return '覚えている出来事を、報告に使う記録へ書き起こす段階ですね。日時・場所・その場にいた人・実際の言動・子どもの様子を項目にして、覚えている範囲を記入してください。日時などが曖昧な箇所は「不明」や「おおよそ」と明記し、直接見た事実と人から聞いた話を分けると、報告先が確認すべき点も分かります。';
+  }
+  if (/見守|見て|みて|追[うっ]|おって|行動/.test(lastUserText)) {
+    return '手が出る場面を見逃さないよう、子どもの行動を近くで見守るということですね。職員間では、誰がどの場所を見守り、担当を離れる時は誰へ引き継ぐかまで決めると、見守りが途切れるのを防げます。特定の子だけを決めつけず周囲とのやり取りも見て、危険があれば安全を確保し、起きた行動と対応を担当者へ共有してください。';
+  }
+  return '';
+}
+
 export function buildFinalVerifiedQualityFallback(
   lastUserText: string,
   historyMessages: CoachingChatMessage[]
 ): string {
+  const childSafetyFallback = buildChildSafetyContinuationFallback(
+    lastUserText, historyMessages
+  );
+  if (childSafetyFallback) {
+    const assessment = assessCoachingResponseQuality({
+      text: childSafetyFallback, lastUserText, historyMessages,
+    });
+    if (assessment.issues.length === 0) return childSafetyFallback;
+  }
   const directDiagnosisLookupFallback =
     buildDirectDiagnosisLookupFallback(lastUserText, historyMessages);
   if (directDiagnosisLookupFallback) {
@@ -5760,14 +5800,10 @@ function buildClarificationCorrectionFallback(
     previousExcerpt.length > 36
       ? `${previousExcerpt.slice(0, 36)}…`
       : previousExcerpt;
-  const userContext = [
-    ...historyMessages
-      .filter((message) => message.role === 'user')
-      .map((message) => stripAttachmentMarkdown(message.content)),
-    lastUserText,
-  ].join('\n');
-
-  if (/彼|夫|妻|相手|大好き|告白|結婚/.test(userContext)) {
+  if (
+    /彼|夫|妻|大好き|告白|結婚/.test(previousUserText) &&
+    /大好き|告白|恋愛|結婚|返事|反応/.test(previousUserText)
+  ) {
     return `わかりました。さっきの内容は新しい相談ではなく、彼の反応について答えてくれた内容だったのですね。\n\n彼がその反応を見せそうだと感じているなら、次は気持ちを推測し直すより、「私も大好きだよ」と返すのか、別の言葉にするのかを一つに決める段階です。彼へ返したい言葉を一つだけ教えてください。`;
   }
 
