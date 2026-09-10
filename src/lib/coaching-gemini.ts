@@ -4302,10 +4302,54 @@ function buildChildSafetyContinuationFallback(
   return '';
 }
 
+function buildWorkplaceConflictContinuationFallback(
+  lastUserText: string,
+  historyMessages: CoachingChatMessage[]
+): string {
+  if (/話を変|別の話|別件|ところで/.test(lastUserText) ||
+      requestsSessionClose(lastUserText)) return '';
+  const topicBoundary = historyMessages.findLastIndex((message) =>
+    message.role === 'user' && /話を変|別の話|別件|ところで/.test(message.content));
+  const recentUsers = historyMessages.slice(topicBoundary < 0 ? 0 : topicBoundary)
+    .filter((message) => message.role === 'user' &&
+      !message.content.startsWith('以下は過去の会話の保存済み要約です。'))
+    .slice(-12).map((message) => stripAttachmentMarkdown(message.content));
+  const context = [...recentUsers, lastUserText].join('\n');
+  if (!/職場|仕事|同僚|上司|店長|勤務/.test(context) ||
+      !/無視|攻撃|人間関係|嫌な人|嫌だった|つら|辛/.test(context)) return '';
+  const previousAssistant = [...historyMessages].reverse()
+    .find((message) => message.role === 'assistant')?.content || '';
+  if (/故障|壊れ|動かなく/.test(lastUserText) &&
+      /機械|機器|端末|レジ|受付/.test(lastUserText)) {
+    return '機器が故障して、その場で対応できなかった出来事なのですね。操作上の問題と、助けを頼む相手との関係は、別々に考えられます。故障に一人で対応できなかったことだけで、あなたの仕事ぶり全体を評価することはできません。\n\n対応方法が分からなかったことや誰かに助けを頼むことなど、その場で一番つらかったのは何でしたか？';
+  }
+  if (/何も(?:しない|したく)|何もしません/.test(lastUserText)) {
+    return '今は何もしたくないという返答ですね。こちらから次の行動を求めすぎました。無理に誰かへ話しかけたり、今日中に結論を出したりする必要はありません。仕事での出来事について話すだけでもよく、対処方法を決めるのは後にできます。今は新しい課題を増やさず、あなたが話したい内容を聞きます。';
+  }
+  if (/気持ち|心の問題|本当は嫌|話したくない|一緒に仕事/.test(lastUserText) ||
+      (reportsResponseDissatisfaction(lastUserText) && /気持ち|心の問題/.test(context))) {
+    return '仕事の手順よりも、その人と関わる時のつらさについて話したいのですね。前の返答では、対処方法を先に出してしまいました。仕事上必要で助けを頼むことと、その人を信頼したり親しくしたりすることは別です。関わりたくない気持ちがあるままでも、必要な対応をしたことまで否定する必要はありません。今すぐ相手と話すための課題を増やさず、気持ちの話を続けられます。';
+  }
+  if (/退職|辞め|やめ/.test(previousAssistant) &&
+      /^(?:はい|ええ|うん|そうです)(?:[、, ]?そうです)?[。！!]*$/.test(lastUserText.trim())) {
+    return '人間関係がつらくなった時、退職を選ぶことが多かったのですね。それだけで、あなたの性格が原因だとは判断できません。職場ごとの条件や相手の言動も異なるため、同じ結果になったことと、原因が同じであることは分けて考える必要があります。\n\n退職を考え始める前に、困っていることを話せる人はいましたか？';
+  }
+  if (/相談/.test(previousAssistant) && /来月|発表|予定|いつ/.test(previousAssistant) &&
+      /近々|今週|近日|早め/.test(lastUserText)) {
+    const timing = /今週/.test(lastUserText) ? '今週' : /早め/.test(lastUserText) ? '早め' : '近いうち';
+    return `相談するのは${timing}がよいということですね。前の返答では、待ってから相談する予定だと受け取ってしまいました。勤務を変更できるかどうかと、困っている状況を責任者へ伝える時期は別です。変更の可否がまだ決まっていなくても、相談を始めたいというあなたの希望は伝えられます。\n\n責任者には、まずどの出来事を知ってほしいですか？`;
+  }
+  return '';
+}
+
 export function buildFinalVerifiedQualityFallback(
   lastUserText: string,
   historyMessages: CoachingChatMessage[]
 ): string {
+  const workplaceFallback = buildWorkplaceConflictContinuationFallback(lastUserText, historyMessages);
+  if (workplaceFallback && assessCoachingResponseQuality({
+    text: workplaceFallback, lastUserText, historyMessages,
+  }).issues.length === 0) return workplaceFallback;
   const childSafetyFallback = buildChildSafetyContinuationFallback(
     lastUserText, historyMessages
   );
