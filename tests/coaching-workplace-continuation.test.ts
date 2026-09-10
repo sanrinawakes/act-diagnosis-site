@@ -92,6 +92,19 @@ describe('workplace conflict recovery', () => {
       h.push({role:'user',content:lastUserText},{role:'assistant',content:text});
     }
   });
+  it.each(['minimal','legacy'])('recovers a truncated past-tense acknowledgement in %s mode',mode=>{
+    vi.stubEnv('COACHING_OUTPUT_PIPELINE_MODE',mode);
+    const lastUserText='以前の職場でも人間関係がつらくて退職することが多かったです。';
+    const text='退職することが多かっのですね。今の職場で続けるかどうかをすぐ決める必要はありません。以前の経験と今の状況を分けて考えられます。今の職場で困っていることを責任者へ話す機会はありますか？';
+    const issues=assessCoachingResponseQuality({text,lastUserText,historyMessages:history}).issues;
+    expect(issues).toContain('fragmented_expression');
+    const result=ensureVerifiedCoachingResolution({resolution:{text,usage:{},modelName:'test',repairAttempted:false,repairAccepted:false,initialIssues:issues,finalIssues:issues},lastUserText,historyMessages:history});
+    expect(result.finalIssues).toEqual([]);
+    expect(result.text).not.toContain('かっの');
+  });
+  it('does not flag a correctly inflected past-tense acknowledgement',()=>{
+    expect(assessCoachingResponseQuality({text:'以前も人間関係で退職することが多かったのですね。',lastUserText:'以前も退職することが多かったです。',historyMessages:history}).issues).not.toContain('fragmented_expression');
+  });
   it('retains the concern while the user describes several practical details', () => {
     const h: CoachingChatMessage[] = [...history];
     for (const content of ['昼の勤務です。','責任者は不在です。','お客さんがいます。','その場で判断します。','後には回せません。','うまく説明できません。','具体的な出来事を話します。']) {
