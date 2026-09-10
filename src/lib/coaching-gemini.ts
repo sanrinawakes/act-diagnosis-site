@@ -4361,15 +4361,16 @@ function buildConcretePlanningContinuationFallback(lastUserText: string, history
   const users = historyMessages.slice(boundary < 0 ? 0 : boundary).filter((message) => message.role === 'user' && !message.content.startsWith('以下は過去の会話の保存済み要約です。')).slice(-8);
   const context = [...users.map((message) => message.content), lastUserText].join('\n');
   if (/資料/.test(context) && /説明|サービス|利用目的|利用手順/.test(context)) {
+    const documentName = /企画/.test(context) ? '企画の説明資料' : '説明資料';
     const deadline = lastUserText.match(/(?:月|火|水|木|金|土|日)曜(?:日)?(?:午前|午後)?[0-9０-９]{1,2}時(?:[0-9０-９]{1,2}分)?/)?.[0];
     if (deadline && /まで|締切|期限/.test(lastUserText)) {
       return `資料の締切は${deadline}と伝えられたのですね。これは内容への助言ではなく、作業を終える期限の情報です。期限までに全体を読める状態にするため、まず各ページに必要な説明があるかを確認し、細かな表現の調整はその後に回せます。\n\n今の資料で、まだ説明を書けていないページはありますか？`;
     }
     if (/初めて|初回|初心者/.test(lastUserText) && /対象|使う|利用/.test(lastUserText)) {
-      return '資料を読むのは、初めてサービスを使う人なのですね。読者が仕組みや用語を知っている前提を置かず、「何ができるか」「最初に何をするか」の順で説明すると理解しやすくなります。機能をすべて紹介する前に、読者が最初に達成したいことを決めると、必要な説明を選べます。\n\nその資料を読んだ人に、まず何ができるようになってほしいですか？';
+      return `${documentName}を読むのは、初めてサービスを使う人なのですね。読者が仕組みや用語を知っている前提を置かず、「何ができるか」「最初に何をするか」の順で説明すると理解しやすくなります。機能をすべて紹介する前に、読者が最初に達成したいことを決めると、必要な説明を選べます。\n\nその資料を読んだ人に、まず何ができるようになってほしいですか？`;
     }
     if (/説明資料.{0,12}(?:作|制作)|資料を作/.test(lastUserText)) {
-      return '説明資料を作っているのですね。最初に読み手と資料の目的を決めると、載せる情報や説明の順番を選びやすくなります。すでに内容を書き始めていても、読み手が知っていることと、資料で初めて知ることを分けて確認できます。\n\nその資料は、誰に何を伝えるためのものですか？';
+      return `${documentName}を作っているのですね。最初に読み手と資料の目的を決めると、載せる情報や説明の順番を選びやすくなります。すでに内容を書き始めていても、読み手が知っていることと、資料で初めて知ることを分けて確認できます。\n\nその資料は、誰に何を伝えるためのものですか？`;
     }
   }
   if (/友人|友達/.test(context) && /断/.test(context)) {
