@@ -2603,6 +2603,7 @@ export function assessCoachingResponseQuality(params: {
           /「[^」]{4,}」/.test(paragraph)
       );
   if (
+    /かっ(?:のです|んです|のだ|んだ)/.test(text) ||
     /(?:^|\n{2,})(?:だ|なの)と思います[。！？]?(?:\n{2,}|$)|あなた自分(?:が|は|を)/.test(
       text
     ) ||
