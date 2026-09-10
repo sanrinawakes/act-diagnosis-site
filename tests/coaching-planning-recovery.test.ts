@@ -3,6 +3,22 @@ import { assessCoachingResponseQuality, buildFinalVerifiedQualityFallback, ensur
 import type { CoachingChatMessage } from '../src/lib/coaching-gemini';
 describe('concrete planning recovery', () => {
   afterEach(()=>vi.unstubAllEnvs());
+  it.each(['minimal','legacy'])('rejects a missing copula in a refusal example in %s mode',mode=>{
+    vi.stubEnv('COACHING_OUTPUT_PIPELINE_MODE',mode);
+    const lastUserText='仕事の依頼を断る言い方を一つ教えてください。';
+    const text='「お声がけありがとうございます。あいにく現在の業務で手がいっぱいため、今回はお引き受けできません。」';
+    const issues=assessCoachingResponseQuality({text,lastUserText,historyMessages:[]}).issues;
+    expect(issues).toContain('fragmented_expression');
+    const result=ensureVerifiedCoachingResolution({resolution:{text,usage:{},modelName:'test',repairAttempted:false,repairAccepted:false,initialIssues:issues,finalIssues:issues},lastUserText,historyMessages:[]});
+    expect(result.text).not.toContain('いっぱいため');
+    expect(result.finalIssues).toEqual([]);
+  });
+  it.each(['準備が必要ため、今日は確認してください。','操作が複雑ので、手順をメモしてください。'])('rejects missing copulas: %s',text=>{
+    expect(assessCoachingResponseQuality({text,lastUserText:'次に何をすればよいですか。',historyMessages:[]}).issues).toContain('fragmented_expression');
+  });
+  it.each(['手がいっぱいのため、今回はお引き受けできません。','準備が必要なので、今日は確認してください。'])('preserves grammatical reasons: %s',text=>{
+    expect(assessCoachingResponseQuality({text,lastUserText:'言い方を教えてください。',historyMessages:[]}).issues).not.toContain('fragmented_expression');
+  });
   it.each(['minimal','legacy'])('rejects an unrelated English word replacing a Japanese duration in %s mode',mode=>{
     vi.stubEnv('COACHING_OUTPUT_PIPELINE_MODE',mode);
     const lastUserText='来月から勤務開始が一時間早くなります。通勤には四十分かかり、朝食準備も私が担当しています。';

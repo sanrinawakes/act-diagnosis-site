@@ -2618,6 +2618,7 @@ export function assessCoachingResponseQuality(params: {
   );
   if (
     hasMalformedJapaneseQuantity ||
+    /(?:いっぱい|必要|重要|大切|大丈夫|困難|簡単|複雑)(?:ため|ので)/.test(text) ||
     /([一-龯][ぁ-ん]{1,2})\1(?=[たてるま])/.test(text) ||
     /かっ(?:のです|んです|のだ|んだ)/.test(text) ||
     /(?:^|\n{2,})(?:だ|なの)と思います[。！？]?(?:\n{2,}|$)|あなた自分(?:が|は|を)/.test(
