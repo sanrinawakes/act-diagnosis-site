@@ -10,6 +10,8 @@ describe('concrete planning recovery', () => {
     ['断ると関係が悪くなる気がします。',['友人の誘いを断りたいのに返事を先延ばしにしています。'],/友人/],
     ['そうかも。',['友人の誘いを断りたいです。','断ると関係が悪くなる気がします。'],/友人/],
     ['仕事の締切が重なり、優先順位を決めたいです。',[],/締切/],
+    ['来月から勤務開始が一時間早くなります。通勤には四十分かかり、朝食準備も私が担当しています。',[],/勤務|通勤/],
+    ['来週から出勤時間が遅くなります。通勤と家事の時間について話したいです。',[],/勤務|通勤/],
   ];
   it.each(cases)('keeps the subject and avoids canned recovery: %s',(lastUserText,users,expected)=>{
     const historyMessages: CoachingChatMessage[]=users.map(content=>({role:'user',content}));
@@ -21,6 +23,14 @@ describe('concrete planning recovery', () => {
   it('does not import a presentation topic after a topic switch',()=>{
     const historyMessages: CoachingChatMessage[]=[{role:'user',content:'サービスの説明資料を作ります。'},{role:'user',content:'別件です。友人の誕生日会について話します。'}];
     expect(buildFinalVerifiedQualityFallback('金曜午後3時までです。',historyMessages)).not.toContain('資料の締切');
+  });
+  it.each(['minimal','legacy'])('recovers a changed morning schedule in %s mode',mode=>{
+    vi.stubEnv('COACHING_OUTPUT_PIPELINE_MODE',mode);
+    const lastUserText='来月から勤務開始が一時間早くなります。通勤には四十分かかり、朝食準備も私が担当しています。';
+    const result=ensureVerifiedCoachingResolution({resolution:{text:'という相談ですね。',usage:{},modelName:'test',repairAttempted:false,repairAccepted:false,initialIssues:['too_short'],finalIssues:['too_short']},lastUserText,historyMessages:[]});
+    expect(result.text).toContain('勤務時間');
+    expect(result.text).not.toMatch(/という相談ですね|まだ書かれていない|不安|心細/);
+    expect(result.finalIssues).toEqual([]);
   });
   it.each(['minimal','legacy'])('recovers presentation introductions at the %s delivery boundary',mode=>{
     vi.stubEnv('COACHING_OUTPUT_PIPELINE_MODE',mode);
