@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { assessCoachingResponseQuality, buildFinalVerifiedQualityFallback, ensureVerifiedCoachingResolution } from '../src/lib/coaching-gemini';
+import { assessCoachingResponseQuality, buildFinalVerifiedQualityFallback, ensureVerifiedCoachingResolution, normalizeCoachingOutput } from '../src/lib/coaching-gemini';
 import type { CoachingChatMessage } from '../src/lib/coaching-gemini';
 
 const history: CoachingChatMessage[] = [
@@ -58,6 +58,23 @@ describe('workplace conflict recovery', () => {
     const text=buildFinalVerifiedQualityFallback(history[0].content,[]);
     expect(text).toContain('無視される相手');
     expect(text).not.toContain('という相談ですね');
+  });
+  it('does not append a question when asked to listen without tasks', () => {
+    const lastUserText='今は課題を出さずに、話を聞いてほしいです。';
+    const body='今は話を聞いてほしいのですね。仕事で起きたことを、すぐ行動計画に変える必要はありません。答えたくないことは答えなくてよく、話の順番が前後しても構いません。こちらから質問を重ねず、あなたの話の続きを聞きます。';
+    const text=normalizeCoachingOutput(body,lastUserText,history);
+    expect(text).not.toMatch(/[？?]|変えてほしいですか/);
+    expect(assessCoachingResponseQuality({text,lastUserText,historyMessages:history}).issues).toEqual([]);
+    expect(buildFinalVerifiedQualityFallback(lastUserText,history)).not.toMatch(/[？?]|という相談ですね/);
+  });
+  it('rejects an added question after an explicit listening request', () => {
+    const lastUserText='今は話を聞いてほしいです。';
+    expect(assessCoachingResponseQuality({text:'それでは、その相手にどのような行動を変えてほしいですか？',lastUserText,historyMessages:history}).issues).toContain('repeats_rejected_move');
+  });
+  it('preserves an explicitly requested question while listening', () => {
+    const lastUserText='話を聞いてほしいです。最後に質問を一つしてください。';
+    const text=normalizeCoachingOutput('今の話を聞きます。どの場面から話したいですか？',lastUserText,history);
+    expect(text).toMatch(/[？?]/);
   });
   it.each(['別の話です。旅行の計画を立てたいです。','今日はここで終わります。'])('does not hijack a changed or closed topic: %s', (lastUserText) => {
     expect(buildFinalVerifiedQualityFallback(lastUserText,history)).not.toMatch(/同僚|職場|故障/);
