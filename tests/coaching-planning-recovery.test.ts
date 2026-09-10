@@ -3,6 +3,26 @@ import { assessCoachingResponseQuality, buildFinalVerifiedQualityFallback, ensur
 import type { CoachingChatMessage } from '../src/lib/coaching-gemini';
 describe('concrete planning recovery', () => {
   afterEach(()=>vi.unstubAllEnvs());
+  it.each(['minimal','legacy'])('rejects an unrelated English word replacing a Japanese duration in %s mode',mode=>{
+    vi.stubEnv('COACHING_OUTPUT_PIPELINE_MODE',mode);
+    const lastUserText='来月から勤務開始が一時間早くなります。通勤には四十分かかり、朝食準備も私が担当しています。';
+    const text='来月から勤務開始が一時間早くなり、通勤の四十 milkと朝食の準備をあなたが担当されているのですね。\n\nこの勤務開始が一時間早くなることについて、あなたはどのように感じていますか。';
+    const issues=assessCoachingResponseQuality({text,lastUserText,historyMessages:[]}).issues;
+    expect(issues).toContain('fragmented_expression');
+    const result=ensureVerifiedCoachingResolution({resolution:{text,usage:{},modelName:'test',repairAttempted:false,repairAccepted:false,initialIssues:issues,finalIssues:issues},lastUserText,historyMessages:[]});
+    expect(result.text).not.toContain('milk');
+    expect(result.text).toMatch(/勤務|通勤/);
+    expect(result.finalIssues).toEqual([]);
+  });
+  it.each(['移動に三十bananaかかるのですね。','準備に二十 appleかかるのですね。'])('detects malformed Japanese quantities: %s',text=>{
+    expect(assessCoachingResponseQuality({text,lastUserText:'朝の予定について話します。',historyMessages:[]}).issues).toContain('fragmented_expression');
+  });
+  it.each(['五 km走る予定なのですね。','二十 kgの荷物なのですね。'])('preserves ordinary unit notation: %s',text=>{
+    expect(assessCoachingResponseQuality({text,lastUserText:'明日の予定について話します。',historyMessages:[]}).issues).not.toContain('fragmented_expression');
+  });
+  it('preserves an English word explicitly supplied by the user',()=>{
+    expect(assessCoachingResponseQuality({text:'「四十 milk」と書いてあるのですね。',lastUserText:'資料には四十 milkと書いてあります。',historyMessages:[]}).issues).not.toContain('fragmented_expression');
+  });
   const cases: [string,string[],RegExp][] = [
     ['新サービスの説明資料を作っています。',[],/資料/],
     ['対象は初めて利用する人です。',['新サービスの説明資料を作っています。'],/初めて/],

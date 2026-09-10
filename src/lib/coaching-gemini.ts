@@ -2610,7 +2610,14 @@ export function assessCoachingResponseQuality(params: {
           hasConcreteAction(paragraph, lastUserText) ||
           /「[^」]{4,}」/.test(paragraph)
       );
+  const hasMalformedJapaneseQuantity = Array.from(
+    text.matchAll(/[一二三四五六七八九十百千万億]+\s*([a-z]{2,})\b/g)
+  ).some((match) =>
+    !/^(?:mm|cm|km|mg|kg|ml|ms|sec|min|mph|kcal)$/i.test(match[1]) &&
+    !new RegExp(`\\b${match[1]}\\b`, 'i').test(userEmotionContext)
+  );
   if (
+    hasMalformedJapaneseQuantity ||
     /([一-龯][ぁ-ん]{1,2})\1(?=[たてるま])/.test(text) ||
     /かっ(?:のです|んです|のだ|んだ)/.test(text) ||
     /(?:^|\n{2,})(?:だ|なの)と思います[。！？]?(?:\n{2,}|$)|あなた自分(?:が|は|を)/.test(
