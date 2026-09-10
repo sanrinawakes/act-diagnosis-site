@@ -203,7 +203,7 @@ async function runUrgentSafetyConversation() {
 }
 
 async function runConcurrentConversations() {
-  return Promise.all(
+  const settled = await Promise.allSettled(
     Array.from({ length: 5 }, async (_, index) => {
       const email = uniqueEmail(`concurrent-${index + 1}`);
       createdEmails.push(email);
@@ -223,6 +223,11 @@ async function runConcurrentConversations() {
       });
     })
   );
+  const failures = settled.filter((result) => result.status === 'rejected');
+  if (failures.length > 0) {
+    throw new AggregateError(failures.map((result) => result.reason), 'Concurrent smoke requests failed');
+  }
+  return settled.map((result) => result.value);
 }
 
 async function sendStreamRequest({
@@ -1135,6 +1140,18 @@ function requestsExplicitClosingQuestionInSmoke(text) {
 
 async function cleanup() {
   if (!admin || createdEmails.length === 0) return;
+
+  // A timed-out createUser request can still commit on the Auth service.
+  // Resolve only this run's exact test emails before deleting owned accounts.
+  const { data: ownedProfiles, error: ownedProfileError } = await admin
+    .from('profiles').select('id').in('email', createdEmails);
+  if (ownedProfileError) {
+    console.error(`Failed to identify owned smoke test accounts: ${ownedProfileError.message}`);
+    process.exitCode = 1;
+  }
+  for (const profile of ownedProfiles || []) {
+    if (!createdUserIds.includes(profile.id)) createdUserIds.push(profile.id);
+  }
 
   if (createdSessionIds.length > 0) {
     const { error: sessionDeleteError } = await admin

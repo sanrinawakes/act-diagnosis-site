@@ -13,6 +13,30 @@ const cases = [
 ] as const;
 describe('workplace conflict recovery', () => {
   afterEach(() => vi.unstubAllEnvs());
+  it.each(['minimal', 'legacy'])('does not add unspoken loneliness when listening in %s mode', (mode) => {
+    vi.stubEnv('COACHING_OUTPUT_PIPELINE_MODE', mode);
+    const lastUserText = '今は課題を出さずに、話を聞いてほしいです。';
+    const text = normalizeCoachingOutput('今は話を聞いてほしいのですね。どれほど心細い思いをされていることかと思います。話の順番が前後しても構いません。', lastUserText, history);
+    expect(text).not.toContain('心細');
+    expect(text).toContain('聞');
+  });
+  it('retains loneliness that the user actually described', () => {
+    const text = normalizeCoachingOutput('心細い思いをしているのですね。話の順番が前後しても構いません。', '心細いので、話を聞いてほしいです。', history);
+    expect(text).toContain('心細');
+  });
+  it.each(['minimal', 'legacy'])('checks unspoken feelings at the delivery boundary in %s mode', (mode) => {
+    vi.stubEnv('COACHING_OUTPUT_PIPELINE_MODE', mode);
+    const lastUserText = '今は課題を出さずに、話を聞いてほしいです。';
+    const text = '今は話を聞いてほしいのですね。どれほど心細い思いをされていることかと思います。こちらから新しい課題や質問を増やすことはしません。話の順番が前後しても構いません。あなたの話の続きを聞きます。';
+    const issues = assessCoachingResponseQuality({ text, lastUserText, historyMessages: history }).issues;
+    expect(issues).toContain('context_mismatch');
+    const result = ensureVerifiedCoachingResolution({ resolution: { text, usage: {}, modelName: 'test', repairAttempted: false, repairAccepted: false, initialIssues: issues, finalIssues: issues }, lastUserText, historyMessages: history });
+    expect(result.text).not.toContain('心細');
+    expect(result.finalIssues).toEqual([]);
+  });
+  it('does not treat a question about feelings as an assertion', () => {
+    expect(assessCoachingResponseQuality({ text: '心細い気持ちはありますか？', lastUserText: '今の気持ちについて質問してください。', historyMessages: [] }).issues).not.toContain('context_mismatch');
+  });
   it.each(cases)('grounds recovery in the current concern: %s', (lastUserText, expected) => {
     const text = buildFinalVerifiedQualityFallback(lastUserText, history);
     expect(text).toMatch(expected);
