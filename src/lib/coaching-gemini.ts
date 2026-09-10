@@ -2342,6 +2342,14 @@ export function assessCoachingResponseQuality(params: {
   if (containsInternalCoachingContextExposure(text)) {
     issues.push('internal_context_exposure');
   }
+  const userEmotionContext = [...historyMessages
+    .filter((message) => message.role === 'user' &&
+      !message.content.startsWith('以下は過去の会話の保存済み要約です。'))
+    .map((message) => message.content), lastUserText].join('\n');
+  if (/心細/.test(text.replace(/[^。！？?\n]*[？?]/g, '')) &&
+      !/心細/.test(userEmotionContext)) {
+    issues.push('context_mismatch');
+  }
 
   if (
     !isSpecialShortResponse &&
@@ -8522,6 +8530,7 @@ function removeUnsupportedPsychologicalInference(
       supportedBy: /やり場のない|一人で抱え|ひとりで抱え|肩にかか/,
     },
     { output: /孤独感|孤独/, supportedBy: /孤独/ },
+    { output: /心細/, supportedBy: /心細/ },
     { output: /追い詰められ/, supportedBy: /追い詰め/ },
     { output: /未練/, supportedBy: /未練/ },
     { output: /不公平感|不公平/, supportedBy: /不公平/ },
