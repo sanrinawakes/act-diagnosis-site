@@ -39,6 +39,26 @@ describe('workplace conflict recovery', () => {
     expect(text).not.toMatch(/という相談ですね|原因を推測/);
     expect(assessCoachingResponseQuality({text,lastUserText:'いいえ、できれば今週です。',historyMessages:h}).issues).toEqual([]);
   });
+  it('does not reinterpret a future resignation preference as repeated past resignations', () => {
+    const h: CoachingChatMessage[] = [...history,{role:'assistant',content:'今の職場を退職したいですか？'}];
+    expect(buildFinalVerifiedQualityFallback('はい',h)).not.toContain('退職を選ぶことが多かった');
+  });
+  it('responds to a direct account of repeated resignations', () => {
+    const text=buildFinalVerifiedQualityFallback('前の職場でも人間関係に悩んで退職することが多かったです。',history);
+    expect(text).toContain('退職を選ぶことが多かった');
+    expect(text).not.toContain('という相談ですね');
+  });
+  it('accepts a timing preference after a suggestion, without inventing an earlier misunderstanding', () => {
+    const h: CoachingChatMessage[]=[...history,{role:'assistant',content:'責任者に勤務の相談をしてみてください。'}];
+    const text=buildFinalVerifiedQualityFallback('今週のうちに相談したいです。',h);
+    expect(text).toContain('今週');
+    expect(text).not.toMatch(/受け取ってしま|という相談ですね/);
+  });
+  it('opens a workplace-conflict discussion without a generic planning directive', () => {
+    const text=buildFinalVerifiedQualityFallback(history[0].content,[]);
+    expect(text).toContain('無視される相手');
+    expect(text).not.toContain('という相談ですね');
+  });
   it.each(['別の話です。旅行の計画を立てたいです。','今日はここで終わります。'])('does not hijack a changed or closed topic: %s', (lastUserText) => {
     expect(buildFinalVerifiedQualityFallback(lastUserText,history)).not.toMatch(/同僚|職場|故障/);
   });
