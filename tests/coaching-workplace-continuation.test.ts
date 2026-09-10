@@ -129,6 +129,25 @@ describe('workplace conflict recovery', () => {
   it('does not flag a correctly inflected past-tense acknowledgement',()=>{
     expect(assessCoachingResponseQuality({text:'以前も人間関係で退職することが多かったのですね。',lastUserText:'以前も退職することが多かったです。',historyMessages:history}).issues).not.toContain('fragmented_expression');
   });
+  it.each(['minimal','legacy'])('rejects a duplicated wake-up verb in %s mode',mode=>{
+    vi.stubEnv('COACHING_OUTPUT_PIPELINE_MODE',mode);
+    const lastUserText='明日の朝に始める行動を一つだけ、質問なしで答えてください。';
+    const text='明日の朝、起き起きたら最初に今日最優先で進める作業を一つだけメモに書き出してください。';
+    const issues=assessCoachingResponseQuality({text,lastUserText,historyMessages:[]}).issues;
+    expect(issues).toContain('fragmented_expression');
+    const result=ensureVerifiedCoachingResolution({resolution:{text,usage:{},modelName:'test',repairAttempted:false,repairAccepted:false,initialIssues:issues,finalIssues:issues},lastUserText,historyMessages:[]});
+    expect(result.text).not.toContain('起き起き');
+    expect(result.finalIssues).toEqual([]);
+  });
+  it('accepts a normal wake-up verb',()=>{
+    expect(assessCoachingResponseQuality({text:'明日の朝、起きたら最優先の作業を一つだけメモに書いてください。',lastUserText:'明日の朝に始める行動を一つだけ答えてください。',historyMessages:[]}).issues).not.toContain('fragmented_expression');
+  });
+  it.each(['明日の予定をメモに書き書きます。','明日の朝、メモの最初の行を読み読みます。'])('rejects repeated stems before inflection: %s',text=>{
+    expect(assessCoachingResponseQuality({text,lastUserText:'明日の行動を一つだけ教えてください。',historyMessages:[]}).issues).toContain('fragmented_expression');
+  });
+  it('preserves natural Japanese reduplication',()=>{
+    expect(assessCoachingResponseQuality({text:'一つ一つの出来事を話す時、生き生きとしていましたね。',lastUserText:'一つ一つ話している時は生き生きしていました。',historyMessages:[]}).issues).not.toContain('fragmented_expression');
+  });
   it('retains the concern while the user describes several practical details', () => {
     const h: CoachingChatMessage[] = [...history];
     for (const content of ['昼の勤務です。','責任者は不在です。','お客さんがいます。','その場で判断します。','後には回せません。','うまく説明できません。','具体的な出来事を話します。']) {
