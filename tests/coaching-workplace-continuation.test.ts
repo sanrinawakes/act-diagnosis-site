@@ -148,6 +148,33 @@ describe('workplace conflict recovery', () => {
   it('preserves natural Japanese reduplication',()=>{
     expect(assessCoachingResponseQuality({text:'一つ一つの出来事を話す時、生き生きとしていましたね。',lastUserText:'一つ一つ話している時は生き生きしていました。',historyMessages:[]}).issues).not.toContain('fragmented_expression');
   });
+  it.each(['minimal','legacy'])('avoids unverified claims about a prior question in listening-only %s replies',mode=>{
+    vi.stubEnv('COACHING_OUTPUT_PIPELINE_MODE',mode);
+    const lastUserText='今は相手に何かを伝える課題は出さず、話を聞いてほしいです。';
+    const h:CoachingChatMessage[]=[...history,{role:'assistant',content:'以前の職場では、どのようなことが一番つらかったですか？'}];
+    const text='今は話を聞いてほしいのですね。前回の質問で相手へ伝える内容を聞いてしまい、負担をかけてしまいました。今は新しい課題を決めず、これまでの職場での出来事や気持ちの話を聞きます。';
+    const issues=assessCoachingResponseQuality({text,lastUserText,historyMessages:h}).issues;
+    expect(issues).toContain('context_mismatch');
+    const result=ensureVerifiedCoachingResolution({resolution:{text,usage:{},modelName:'test',repairAttempted:false,repairAccepted:false,initialIssues:issues,finalIssues:issues},lastUserText,historyMessages:h});
+    expect(result.text).not.toMatch(/前回の質問|[？?]/);
+    expect(result.text).toContain('話');
+    expect(result.finalIssues).toEqual([]);
+  });
+  it('also rejects a retrospective claim about the previous response',()=>{
+    expect(assessCoachingResponseQuality({text:'先ほどの返答で伝え方を求めてしまいました。今は話を聞きます。',lastUserText:'課題は出さず、話を聞いてほしいです。',historyMessages:history}).issues).toContain('context_mismatch');
+  });
+  it('preserves listening without an invented description of the prior turn',()=>{
+    expect(assessCoachingResponseQuality({text:'今は新しい課題を決めず、これまで職場で起きたことや、その時に感じたことの続きを聞きます。',lastUserText:'課題は出さず、話を聞いてほしいです。',historyMessages:history}).issues).not.toContain('context_mismatch');
+  });
+  it('does not block an explicitly requested account of the previous question',()=>{
+    expect(assessCoachingResponseQuality({text:'前回の質問は、以前の職場で一番つらかったことについてでした。',lastUserText:'前回何を質問したのか教えてください。',historyMessages:history}).issues).not.toContain('context_mismatch');
+  });
+  it.each(['仕事上の対処はできました。そうではなく、その人に頼るのが嫌だった気持ちの話です。','今は何もしたくありません。'])('does not invent a previous assistant mistake in local recovery: %s',lastUserText=>{
+    const h:CoachingChatMessage[]=[...history,{role:'assistant',content:'その時、何が一番つらかったですか？'}];
+    const text=buildFinalVerifiedQualityFallback(lastUserText,h);
+    expect(text).not.toMatch(/前の返答では|こちらから次の行動を求めすぎ/);
+    expect(assessCoachingResponseQuality({text,lastUserText,historyMessages:h}).issues).toEqual([]);
+  });
   it('retains the concern while the user describes several practical details', () => {
     const h: CoachingChatMessage[] = [...history];
     for (const content of ['昼の勤務です。','責任者は不在です。','お客さんがいます。','その場で判断します。','後には回せません。','うまく説明できません。','具体的な出来事を話します。']) {

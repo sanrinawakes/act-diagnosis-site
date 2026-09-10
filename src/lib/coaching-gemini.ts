@@ -2334,6 +2334,10 @@ export function assessCoachingResponseQuality(params: {
   const isConversationTurn = historyMessages.length >= 2;
   const userReportsDissatisfaction =
     reportsResponseDissatisfaction(lastUserText);
+  if (requestsListeningWithoutTasks(lastUserText) &&
+      /(?:前回|直前|前|先ほど|さっき)の(?:質問|返答|回答)/.test(text)) {
+    issues.push('context_mismatch');
+  }
   const isConcreteCompactResponse =
     compactText.length >= 50 &&
     hasExplicitCoachingAction(text) &&
@@ -4345,11 +4349,11 @@ function buildWorkplaceConflictContinuationFallback(
     return '機器が故障して、その場で対応できなかった出来事なのですね。操作上の問題と、助けを頼む相手との関係は、別々に考えられます。故障に一人で対応できなかったことだけで、あなたの仕事ぶり全体を評価することはできません。\n\n対応方法が分からなかったことや誰かに助けを頼むことなど、その場で一番つらかったのは何でしたか？';
   }
   if (/何も(?:しない|したく)|何もしません/.test(lastUserText)) {
-    return '今は何もしたくないという返答ですね。こちらから次の行動を求めすぎました。無理に誰かへ話しかけたり、今日中に結論を出したりする必要はありません。仕事での出来事について話すだけでもよく、対処方法を決めるのは後にできます。今は新しい課題を増やさず、あなたが話したい内容を聞きます。';
+    return '今は何もしたくないという返答ですね。無理に誰かへ話しかけたり、今日中に結論を出したりする必要はありません。仕事での出来事について話すだけでもよく、対処方法を決めるのは後にできます。今は新しい課題を増やさず、あなたが話したい内容を聞きます。';
   }
   if (/気持ち|心の問題|本当は嫌|話したくない|一緒に仕事/.test(lastUserText) ||
       (reportsResponseDissatisfaction(lastUserText) && /気持ち|心の問題/.test(context))) {
-    return '仕事の手順よりも、その人と関わる時のつらさについて話したいのですね。前の返答では、対処方法を先に出してしまいました。仕事上必要で助けを頼むことと、その人を信頼したり親しくしたりすることは別です。関わりたくない気持ちがあるままでも、必要な対応をしたことまで否定する必要はありません。今すぐ相手と話すための課題を増やさず、気持ちの話を続けられます。';
+    return '仕事の手順よりも、その人と関わる時のつらさについて話したいのですね。仕事上必要で助けを頼むことと、その人を信頼したり親しくしたりすることは別です。関わりたくない気持ちがあるままでも、必要な対応をしたことまで否定する必要はありません。今すぐ相手と話すための課題を増やさず、気持ちの話を続けられます。';
   }
   const reportsPastResignations = /(?:退職|辞め|やめ).{0,16}(?:多かった|繰り返|何度も)/.test(lastUserText) &&
     !/ない|ありません|なかった/.test(lastUserText);
