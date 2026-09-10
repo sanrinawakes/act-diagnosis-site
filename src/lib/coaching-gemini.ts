@@ -4395,6 +4395,11 @@ function buildConcretePlanningContinuationFallback(lastUserText: string, history
   if (/仕事|作業/.test(lastUserText) && /締切|期限/.test(lastUserText) && /優先順位/.test(lastUserText)) {
     return '仕事の締切が重なり、どれから進めるかを決めたいのですね。期限の早さだけでなく、作業に必要な時間や、他の人の作業を止めているかも判断材料になります。まず仕事ごとに締切と所要時間を並べ、期限内に収まらないものがあれば、順番を工夫するだけでなく日程や分担を相談する対象として分けてください。';
   }
+  if (/(?:勤務|出勤)(?:開始|時間)/.test(lastUserText) &&
+      /早くなり|遅くなり|変わり|変わる/.test(lastUserText) &&
+      /通勤/.test(lastUserText) && /朝食|家事|準備/.test(lastUserText)) {
+    return '勤務時間が変わる中で、通勤だけでなく家での準備にかかる時間も必要なのですね。新しい勤務時刻に合わせて何を変える必要があるのか、具体的な予定と、それについて感じていることの両方を話せます。\n\n勤務時間の変更について、今いちばん気になっていることは何ですか？';
+  }
   return '';
 }
 
