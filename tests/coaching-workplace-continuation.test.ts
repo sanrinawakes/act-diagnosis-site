@@ -83,6 +83,15 @@ describe('workplace conflict recovery', () => {
     const h: CoachingChatMessage[] = [{role:'user',content:'以下は過去の会話の保存済み要約です。職場の同僚に無視された。'}];
     expect(buildFinalVerifiedQualityFallback('はい',h)).not.toContain('同僚');
   });
+  it('verifies recovery through every turn even when all model candidates are rejected', () => {
+    const h: CoachingChatMessage[]=[];
+    for(const lastUserText of [history[0].content, cases[0][0], cases[1][0], '責任者に勤務をずらせるか相談したいです。', 'できれば今週中に相談したいです。', '以前の職場でも人間関係がつらくて退職することが多かったです。', '今は課題を出さずに、話を聞いてほしいです。']) {
+      const text=buildFinalVerifiedQualityFallback(lastUserText,h);
+      expect(text).not.toMatch(/という相談ですね|まだ書かれていない原因|次に決める項目/);
+      expect(assessCoachingResponseQuality({text,lastUserText,historyMessages:h}).issues).toEqual([]);
+      h.push({role:'user',content:lastUserText},{role:'assistant',content:text});
+    }
+  });
   it('retains the concern while the user describes several practical details', () => {
     const h: CoachingChatMessage[] = [...history];
     for (const content of ['昼の勤務です。','責任者は不在です。','お客さんがいます。','その場で判断します。','後には回せません。','うまく説明できません。','具体的な出来事を話します。']) {

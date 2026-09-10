@@ -1,7 +1,8 @@
-import { describe, expect, it } from 'vitest';
-import { assessCoachingResponseQuality, buildFinalVerifiedQualityFallback } from '../src/lib/coaching-gemini';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { assessCoachingResponseQuality, buildFinalVerifiedQualityFallback, ensureVerifiedCoachingResolution } from '../src/lib/coaching-gemini';
 import type { CoachingChatMessage } from '../src/lib/coaching-gemini';
 describe('concrete planning recovery', () => {
+  afterEach(()=>vi.unstubAllEnvs());
   const cases: [string,string[],RegExp][] = [
     ['新サービスの説明資料を作っています。',[],/資料/],
     ['対象は初めて利用する人です。',['新サービスの説明資料を作っています。'],/初めて/],
@@ -20,5 +21,15 @@ describe('concrete planning recovery', () => {
   it('does not import a presentation topic after a topic switch',()=>{
     const historyMessages: CoachingChatMessage[]=[{role:'user',content:'サービスの説明資料を作ります。'},{role:'user',content:'別件です。友人の誕生日会について話します。'}];
     expect(buildFinalVerifiedQualityFallback('金曜午後3時までです。',historyMessages)).not.toContain('資料の締切');
+  });
+  it.each(['minimal','legacy'])('recovers presentation introductions at the %s delivery boundary',mode=>{
+    vi.stubEnv('COACHING_OUTPUT_PIPELINE_MODE',mode);
+    const h:CoachingChatMessage[]=[];
+    for(const lastUserText of ['新しい企画の説明資料を作っています。','対象は初めてサービスを使う人です。']){
+      const result=ensureVerifiedCoachingResolution({resolution:{text:'という相談ですね。',usage:{},modelName:'test',repairAttempted:false,repairAccepted:false,initialIssues:['too_short'],finalIssues:['too_short']},lastUserText,historyMessages:h});
+      expect(result.text).not.toMatch(/という相談ですね|仕事全体について結論/);
+      expect(result.finalIssues).toEqual([]);
+      h.push({role:'user',content:lastUserText},{role:'assistant',content:result.text});
+    }
   });
 });
