@@ -4319,6 +4319,9 @@ function buildWorkplaceConflictContinuationFallback(
       !/無視|攻撃|人間関係|嫌な人|嫌だった|つら|辛/.test(context)) return '';
   const previousAssistant = [...historyMessages].reverse()
     .find((message) => message.role === 'assistant')?.content || '';
+  if (requestsListeningWithoutTasks(lastUserText)) {
+    return '今は相手へ伝える方法や新しい課題を決めず、話を聞いてほしいのですね。仕事上の対応を考えることより、これまでの出来事やその時の気持ちを話すことを優先します。話した内容をすぐ行動計画に変える必要はありません。答えたくないことは答えなくてよく、話の順番が前後しても構いません。こちらから新しい質問を重ねず、あなたの話の続きを聞きます。';
+  }
   if (/故障|壊れ|動かなく/.test(lastUserText) &&
       /機械|機器|端末|レジ|受付/.test(lastUserText)) {
     return '機器が故障して、その場で対応できなかった出来事なのですね。操作上の問題と、助けを頼む相手との関係は、別々に考えられます。故障に一人で対応できなかったことだけで、あなたの仕事ぶり全体を評価することはできません。\n\n対応方法が分からなかったことや誰かに助けを頼むことなど、その場で一番つらかったのは何でしたか？';
@@ -4349,10 +4352,45 @@ function buildWorkplaceConflictContinuationFallback(
   return '';
 }
 
+function buildConcretePlanningContinuationFallback(lastUserText: string, historyMessages: CoachingChatMessage[]) {
+  if (/話を変|別の話|別件|ところで/.test(lastUserText) || requestsSessionClose(lastUserText)) return '';
+  const boundary = historyMessages.findLastIndex((message) => message.role === 'user' && /話を変|別の話|別件|ところで/.test(message.content));
+  const users = historyMessages.slice(boundary < 0 ? 0 : boundary).filter((message) => message.role === 'user' && !message.content.startsWith('以下は過去の会話の保存済み要約です。')).slice(-8);
+  const context = [...users.map((message) => message.content), lastUserText].join('\n');
+  if (/資料/.test(context) && /説明|サービス|利用目的|利用手順/.test(context)) {
+    const deadline = lastUserText.match(/(?:月|火|水|木|金|土|日)曜(?:日)?(?:午前|午後)?[0-9０-９]{1,2}時(?:[0-9０-９]{1,2}分)?/)?.[0];
+    if (deadline && /まで|締切|期限/.test(lastUserText)) {
+      return `資料の締切は${deadline}と伝えられたのですね。これは内容への助言ではなく、作業を終える期限の情報です。期限までに全体を読める状態にするため、まず各ページに必要な説明があるかを確認し、細かな表現の調整はその後に回せます。\n\n今の資料で、まだ説明を書けていないページはありますか？`;
+    }
+    if (/初めて|初回|初心者/.test(lastUserText) && /対象|使う|利用/.test(lastUserText)) {
+      return '資料を読むのは、初めてサービスを使う人なのですね。読者が仕組みや用語を知っている前提を置かず、「何ができるか」「最初に何をするか」の順で説明すると理解しやすくなります。機能をすべて紹介する前に、読者が最初に達成したいことを決めると、必要な説明を選べます。\n\nその資料を読んだ人に、まず何ができるようになってほしいですか？';
+    }
+    if (/説明資料.{0,12}(?:作|制作)|資料を作/.test(lastUserText)) {
+      return '説明資料を作っているのですね。最初に読み手と資料の目的を決めると、載せる情報や説明の順番を選びやすくなります。すでに内容を書き始めていても、読み手が知っていることと、資料で初めて知ることを分けて確認できます。\n\nその資料は、誰に何を伝えるためのものですか？';
+    }
+  }
+  if (/友人|友達/.test(context) && /断/.test(context)) {
+    const fearsRelationshipDamage = /関係が悪|嫌われ|疎遠/.test(lastUserText);
+    const tentativeFollowup = isTentativeAgreementReply(lastUserText) && /関係が悪|嫌われ|疎遠/.test(users.at(-1)?.content || '');
+    if (fearsRelationshipDamage) {
+      return '断った後に友人との関係が悪くなるのではないか、と気になっているのですね。断る言葉が決まっても、その後の反応が心配なら返事をためらうことがあります。ただ、今回も関係が悪くなるかどうかは、まだ分かりません。\n\n以前その友人の誘いを断った時、実際にどのような反応がありましたか？';
+    }
+    if (tentativeFollowup) {
+      return 'まだはっきり言い切れるわけではないのですね。友人との関係を大切にしたいことと、今回の予定を断りたいことは両方あってよいものです。今すぐ返答の文面を決めなくても構いません。断った後に起きそうだと考えていることと、これまで実際に起きたことを分けると、心配している点を具体的に話せます。';
+    }
+  }
+  if (/仕事|作業/.test(lastUserText) && /締切|期限/.test(lastUserText) && /優先順位/.test(lastUserText)) {
+    return '仕事の締切が重なり、どれから進めるかを決めたいのですね。期限の早さだけでなく、作業に必要な時間や、他の人の作業を止めているかも判断材料になります。まず仕事ごとに締切と所要時間を並べ、期限内に収まらないものがあれば、順番を工夫するだけでなく日程や分担を相談する対象として分けてください。';
+  }
+  return '';
+}
+
 export function buildFinalVerifiedQualityFallback(
   lastUserText: string,
   historyMessages: CoachingChatMessage[]
 ): string {
+  const planningFallback = buildConcretePlanningContinuationFallback(lastUserText, historyMessages);
+  if (planningFallback && assessCoachingResponseQuality({text: planningFallback, lastUserText, historyMessages}).issues.length === 0) return planningFallback;
   const workplaceFallback = buildWorkplaceConflictContinuationFallback(lastUserText, historyMessages);
   if (workplaceFallback && assessCoachingResponseQuality({
     text: workplaceFallback, lastUserText, historyMessages,
@@ -5563,7 +5601,7 @@ function buildContextualDissatisfactionFallback(
     cleanPreviousText.length > 72
       ? `${cleanPreviousText.slice(0, 72)}…`
       : cleanPreviousText;
-  const opening = `前の返答は短い質問だけで、何を言いたいのか分からない内容になっていました。申し訳ありません。「${previousExcerpt}」という悩みについて、考え方を先に示します。`;
+  const opening = `前の返答では、すでに試したことを踏まえた説明ができていませんでした。申し訳ありません。「${previousExcerpt}」という悩みについて、考え方を先に示します。`;
   const recentUserContext = historyMessages
     .filter((message) => message.role === 'user')
     .map((message) => stripAttachmentMarkdown(message.content))
@@ -5709,15 +5747,15 @@ function buildExplicitDeeperQuestionFallback(
   }
 
   if (/定型的な整理ではなく、もう少し深く聞いてほしい/.test(lastUserText)) {
-    return 'では条件整理ではなく、迷いの芯を見ます。新しい役割を引き受けることで何が増えるかより、何を失いそうで止まっているのかを先に見た方が、本当の迷いに近づけます。\n\n新しい役割を引き受けた時に、いちばん失いたくないものは何ですか？';
+    return 'もう少し深く、あなたが迷っている理由を聞いてほしいのですね。引き受ける場合と断る場合を思い浮かべて、それぞれで大切にしたいことを話せます。迷う理由をこちらで決めず、あなた自身の考えを出発点にします。\n\n引き受ける場合も断る場合も、後悔したくないことは何ですか？';
   }
 
   if (/条件の一覧より/.test(lastUserText)) {
-    return '条件の一覧を増やすより、先に迷いの中心を言葉にしたいのですね。今止まっているのは情報不足だけではなく、新しい役割を受けた時に何か大事なものが崩れる感覚があるからです。条件比較に戻る前に、その引っかかりを先に見ます。\n\n新しい役割を引き受けることで、何が崩れそうで引っかかっていますか？';
+    return '条件の一覧より、自分が迷っている理由を話したいのですね。まだ理由を一つに決める必要はありません。引き受けたい気持ち、ためらう気持ち、まだよく分からない点のうち、今いちばん言葉にしやすいところから聞きたいです。\n\n新しい役割を引き受けると考えた時、最初にどんな気持ちになりますか？';
   }
 
   if (/新しい役割を引き受けるか迷っています/.test(lastUserText)) {
-    return '新しい役割を引き受けるか迷っているのですね。条件の比較に入る前に、その役割を受けた時に何を失いそうで止まっているのかを見た方が、本当の迷いに近づけます。\n\n引き受けた時に、いちばん守りたいものは何ですか？';
+    return '新しい役割を引き受けるか迷っているのですね。まだ、条件について確認したいのか、自分の気持ちについて話したいのかは分かりません。どちらも判断の材料になるので、今気になっている点から考えられます。\n\nその役割を引き受けるかどうかで、いちばん迷っているのはどの点ですか？';
   }
 
   return '';
@@ -5746,7 +5784,7 @@ function buildTopicSwitchActionFallback(
   }
 
   if (/家族に朝の準備を頼んでも、返事だけで動いてくれません。/.test(lastUserText)) {
-    return '返事はあるのに朝の準備が動かないなら、問題は気持ちではなく、誰が何をいつまでにやるかが曖昧なことです。次を決めるために、朝の準備の中で相手に担当してほしいことを一つだけ固定します。\n\n明日の朝に相手へ任せたい準備を一つだけ書いてください。';
+    return '返事があっても朝の準備をしてもらえないのですね。まだ実行されない理由は分かりません。担当と時間を共有できているかを確認すると、頼む内容が伝わっていないのか、別の事情があるのかを考えやすくなります。\n\n明日の朝に相手へ任せたい準備を一つだけ書いてください。';
   }
 
   if (
@@ -7054,6 +7092,7 @@ function shouldAvoidForcedCoachingMove(
   historyMessages: CoachingChatMessage[]
 ) {
   const normalized = lastUserText.replace(/\s+/g, ' ').trim();
+  if (requestsListeningWithoutTasks(normalized)) return true;
   const hasPreviousAssistant = historyMessages.some(
     (message) => message.role === 'assistant'
   );
@@ -7063,6 +7102,11 @@ function shouldAvoidForcedCoachingMove(
     explicitlyRejectsPreviousCoachingMove(normalized) ||
     reportsResponseDissatisfaction(normalized)
   );
+}
+
+function requestsListeningWithoutTasks(text: string) {
+  return /(?:話|気持ち)を(?:ただ|今は|まずは)?(?:聞|聴)いて(?:ほしい|欲しい|ください)|(?:聞|聴)いて(?:ほしい|欲しい|ください)だけ/.test(text) &&
+    !/質問して|質問を.{0,8}(?:して|お願い)|助言も|提案も/.test(text);
 }
 
 function explicitlyRejectsPreviousCoachingMove(text: string) {
@@ -8803,6 +8847,8 @@ function buildGroundedStatementContinuationFallback(
       normalized
     );
   if (reportsReceivedFeedback) {
+    const planningResponse = buildConcretePlanningContinuationFallback(lastUserText, historyMessages);
+    if (planningResponse) return planningResponse;
     return '誰かから受けた助言を共有してくれたのですね。その言葉をそのまま正解にせず、自分が納得した点と、まだ違和感がある点を分けると、他人の評価に引っ張られずに次の行動を選べます。今の話で大切なのは、言われた内容の復唱ではなく、本人が実際の伝え方をどう変えたいと思ったかです。\n\n次に相手へ説明する時、最初に変える一文はどこですか？';
   }
 

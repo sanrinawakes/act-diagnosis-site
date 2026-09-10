@@ -390,8 +390,8 @@ describe('final verified quality fallback', () => {
       historyMessages
     );
 
-    expect(result).toContain('迷いの芯');
-    expect(result).toContain('失いたくないもの');
+    expect(result).toContain('迷っている理由');
+    expect(result).toContain('後悔したくないこと');
     expect(result).not.toContain('一覧');
     expect(
       assessCoachingResponseQuality({
@@ -412,9 +412,9 @@ describe('final verified quality fallback', () => {
       historyMessages
     );
 
-    expect(result).toContain('迷いの中心');
-    expect(result).toContain('何か大事なものが崩れる');
-    expect(result).toContain('何が崩れそう');
+    expect(result).toContain('迷っている理由');
+    expect(result).not.toContain('何か大事なものが崩れる');
+    expect(result).toContain('どんな気持ち');
     expect(
       assessCoachingResponseQuality({
         text: result,
