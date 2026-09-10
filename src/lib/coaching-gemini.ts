@@ -138,13 +138,19 @@ export const COACHING_RESPONSE_SPEED_INSTRUCTION = [
   '- 本人が書いていない感情や因果を共感として補わない。',
   '- 本人が明言した感情を、近い別の感情へ言い換えたり追加したりしない。本人の感情を評価する表現も足さない。',
   '- 「気持ちを受け止めます」「状況を受け止めます」のようにAI側の姿勢を宣言しない。本人が話した感情や事実を一文でそのまま拾う。',
-  '- 具体的な出来事と感情を本人がすでに述べた後は、どの場面でその感情になったかを聞き直さない。相手に変えてほしい行動、または次に守りたい現実を一つ尋ねる。',
+  '- 具体的な出来事と感情を本人がすでに述べた後は、どの場面でその感情になったかを聞き直さない。相手に変えてほしい行動、またはその場で優先したい対応を一つ尋ねる。',
   '- ユーザーが一言や言い方を求めていない段階では、引用文や伝え方を先回りして提案しない。今の発言に直接つながる質問または整理で一段だけ進める。',
   '- 質問で閉じる返答には、「一つずつ確認していきましょう」「整理していきましょう」「話していきましょう」のような進行宣言を質問前へ足さない。質問一つで会話を進める。',
   '- 返答本文では「〜していきましょう」という進行宣言を使わない。本人の発言へ直接つながる理解または一問から始める。',
   '- 具体的な提案の前に「方法があります」「提案があります」と予告しない。実行する一文を直接示す。',
   '- 支払い、契約、法的手続きなど生活への影響が大きい相談では、条件や合意を確認せず、支払い停止、契約変更、名義変更などの高影響の手続きを提案しない。確認できる事実と合意を整理し、必要なら公的・専門窓口への相談を案内する。',
   '- 質問や行動提案が会話を前へ進めない時は、無理に付け足さず、具体的な理解と役に立つ整理で自然に閉じる。',
+].join('\n');
+
+const COACHING_FACT_AND_LANGUAGE_INSTRUCTION = [
+  '現在の曜日や今日・明日の日付は、利用者が示していない場合に推測しないでください。明示された締切をそのまま使い、現在の曜日を補わないでください。',
+  '自分が前回何を質問・提案したかを、会話履歴にない内容で説明したり謝罪したりしないでください。話を聞いてほしいという希望には、今の希望に沿って返答してください。',
+  '出力前に各文を読み返し、動詞の重複、助詞・接続語の欠落、数量への無関係な英単語の混入を除いてください。利用者が述べていない感情は断定しないでください。',
 ].join('\n');
 
 const alertLastSentAt = new Map<string, number>();
@@ -176,7 +182,7 @@ export function getCoachingGeminiModel(
 
   return getGenAI().getGenerativeModel({
     model: modelName,
-    systemInstruction: `${systemPrompt}${COACHING_RESPONSE_SPEED_INSTRUCTION}`,
+    systemInstruction: `${systemPrompt}${COACHING_RESPONSE_SPEED_INSTRUCTION}\n${COACHING_FACT_AND_LANGUAGE_INSTRUCTION}`,
     generationConfig,
   });
 }
@@ -2350,6 +2356,14 @@ export function assessCoachingResponseQuality(params: {
     .filter((message) => message.role === 'user' &&
       !message.content.startsWith('以下は過去の会話の保存済み要約です。'))
     .map((message) => message.content), lastUserText].join('\n');
+  const relativeWeekdays = (value: string) => Array.from(
+    value.matchAll(/(今日|本日|今|明日|あす|昨日)(?:は|が|の)?[、,\s]*([日月火水木金土])曜(?:日)?/g),
+    (match) => `${/今日|本日|今/.test(match[1]) ? '今日' : match[1] === 'あす' ? '明日' : match[1]}:${match[2]}`
+  );
+  const statedRelativeWeekdays = new Set(relativeWeekdays(userEmotionContext));
+  if (relativeWeekdays(text).some((claim) => !statedRelativeWeekdays.has(claim))) {
+    issues.push('context_mismatch');
+  }
   if (/心細/.test(text.replace(/[^。！？?\n]*[？?]/g, '')) &&
       !/心細/.test(userEmotionContext)) {
     issues.push('context_mismatch');
@@ -3902,6 +3916,7 @@ async function generateGeminiQualityRepair(params: {
     model: textConfig.model,
     systemInstruction: [
       'あなたはACTI AIコーチの最終編集者です。',
+      COACHING_FACT_AND_LANGUAGE_INSTRUCTION,
       '会話履歴と最新発言を正確に読み、返答案の問題だけを直してください。',
       '利用者が明言した事実・感情・希望を一つ以上使い、言い換えだけでなく役に立つ新しい整理を加えてください。',
       '拒否済み・実行済みの提案、同じ質問、汎用的な本音質問、内容のないメモ課題を繰り返さないでください。',

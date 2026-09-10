@@ -3,6 +3,30 @@ import { assessCoachingResponseQuality, buildFinalVerifiedQualityFallback, ensur
 import type { CoachingChatMessage } from '../src/lib/coaching-gemini';
 describe('concrete planning recovery', () => {
   afterEach(()=>vi.unstubAllEnvs());
+  it.each(['minimal','legacy'])('does not invent the current weekday while planning in %s mode',mode=>{
+    vi.stubEnv('COACHING_OUTPUT_PIPELINE_MODE',mode);
+    const lastUserText='担当者から、資料は火曜午前10時までと言われました。';
+    const historyMessages:CoachingChatMessage[]=[{role:'user',content:'新サービスの説明資料を作っています。'}];
+    const text='火曜午前10時が資料の提出期限なのですね。今は日曜日ですので、月曜日のうちに完成させるスケジュールで動くと余裕が持てます。\n\n明日の月曜日はどの作業から始めますか？';
+    const issues=assessCoachingResponseQuality({text,lastUserText,historyMessages}).issues;
+    expect(issues).toContain('context_mismatch');
+    const result=ensureVerifiedCoachingResolution({resolution:{text,usage:{},modelName:'test',repairAttempted:false,repairAccepted:false,initialIssues:issues,finalIssues:issues},lastUserText,historyMessages});
+    expect(result.text).not.toMatch(/今は日曜|明日の月曜/);
+    expect(result.text).toContain('火曜午前10時');
+    expect(result.finalIssues).toEqual([]);
+  });
+  it('rejects an unsupported tomorrow weekday',()=>{
+    expect(assessCoachingResponseQuality({text:'明日の月曜日に作業を始めてください。',lastUserText:'明日の最初の作業を教えてください。',historyMessages:[]}).issues).toContain('context_mismatch');
+  });
+  it('does not treat an assistant-invented weekday as a user fact',()=>{
+    expect(assessCoachingResponseQuality({text:'今日は日曜日なので、予定を確認してください。',lastUserText:'資料の準備を続けます。',historyMessages:[{role:'assistant',content:'今日は日曜日ですね。'}]}).issues).toContain('context_mismatch');
+  });
+  it.each([['本日は日曜日です。','今日は日曜なので、予定を確認してください。'],['明日は月曜日です。','あすの月曜日に予定を確認してください。']])('preserves a weekday explicitly supplied by the user: %s',(lastUserText,text)=>{
+    expect(assessCoachingResponseQuality({text,lastUserText,historyMessages:[]}).issues).not.toContain('context_mismatch');
+  });
+  it('preserves a stated deadline without inferring the current weekday',()=>{
+    expect(assessCoachingResponseQuality({text:'火曜午前10時の締切に向けて、一枚目の説明を見直してください。',lastUserText:'締切は火曜午前10時です。',historyMessages:[]}).issues).not.toContain('context_mismatch');
+  });
   it.each(['minimal','legacy'])('rejects a missing copula in a refusal example in %s mode',mode=>{
     vi.stubEnv('COACHING_OUTPUT_PIPELINE_MODE',mode);
     const lastUserText='仕事の依頼を断る言い方を一つ教えてください。';
