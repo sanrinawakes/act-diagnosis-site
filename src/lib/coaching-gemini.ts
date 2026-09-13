@@ -2024,6 +2024,17 @@ function buildImmediateCoachingResponse(
   }
   if (options.allowNonSafetyResponses === false) return null;
 
+  const morningPreparationResponse = /明日からどう対応すればいいですか/.test(text)
+    ? buildTopicSwitchActionFallback(text, historyMessages)
+    : '';
+  if (morningPreparationResponse) {
+    return {
+      text: morningPreparationResponse,
+      modelName: 'local-morning-preparation',
+      finishReason: 'LOCAL_MORNING_PREPARATION',
+    };
+  }
+
   const typedSelfUnderstandingResponse = buildTypedSelfUnderstandingResponse(text);
   if (typedSelfUnderstandingResponse) {
     return {
@@ -5874,7 +5885,7 @@ function buildTopicSwitchActionFallback(
     /明日からどう対応すればいいですか/.test(lastUserText) &&
     /家族に朝の準備を頼んでも、返事だけで動いてくれません。/.test(context)
   ) {
-    return '明日の朝は、「明日は7時までに朝食の皿を並べてほしい。難しいなら6時半までに教えてほしい」と一文で伝えてください。頼む内容と返答期限を同時に決めると、返事だけで終わりにくくなります。';
+    return '明日の朝は、家族に任せたい準備を一つ選び、「この準備をお願いしたい。いつ始められるか教えて」と伝えてください。相手が返事をしたら、始める時刻と実際に担当する内容をその場で確認してください。';
   }
 
   return '';

@@ -446,7 +446,7 @@ describe('final verified quality fallback', () => {
     ).toEqual([]);
   });
 
-  it('家族の朝準備の相談では明日の依頼文と返答期限を一文で返す', () => {
+  it('家族の朝準備の相談では未提示の時刻や準備内容を作らずに返す', async () => {
     const historyMessages = [
       { role: 'user' as const, content: '仕事の締切が重なり、優先順位を決めたいです。' },
       { role: 'user' as const, content: '仕事の整理はできました。今度は家での相談です。' },
@@ -461,9 +461,8 @@ describe('final verified quality fallback', () => {
       historyMessages
     );
 
-    expect(result).toContain('7時まで');
-    expect(result).toContain('6時半まで');
-    expect(result).toContain('一文で伝えてください');
+    expect(result).toContain('いつ始められるか');
+    expect(result).not.toMatch(/7時|6時半|カバン|朝食の皿/);
     expect(
       assessCoachingResponseQuality({
         text: result,
@@ -471,6 +470,14 @@ describe('final verified quality fallback', () => {
         historyMessages,
       }).issues
     ).toEqual([]);
+
+    const direct = await generateCoachingText({
+      systemPrompt: 'test', historyMessages,
+      lastUserParts: [{ text: lastUserText }],
+    });
+    expect(direct.text).toContain('いつ始められるか');
+    expect(direct.text).not.toMatch(/7時|6時半|カバン|朝食の皿/);
+    expect(direct.qualityFinalIssues).toEqual([]);
   });
 
   it('聞き直しの後に同じ質問を繰り返された本番事故文脈でも内容のある返答へ戻す', () => {
