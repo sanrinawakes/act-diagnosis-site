@@ -5692,6 +5692,13 @@ function buildContextualDissatisfactionFallback(
     .join('\n');
 
   if (
+    /家賃|支払/.test(dissatisfactionContext) &&
+    /その伝え方はもう毎月|同じ提案|同じ質問/.test(lastUserText)
+  ) {
+    return '前の返答では、毎月すでに伝えていることを踏まえられていませんでした。申し訳ありません。家賃の支払い不足が続くなら、言い方を変える提案は繰り返しません。まず直近3か月の家賃額、相手の支払額、不足額を記録してください。その記録を使い、今後の負担額と支払期日について書面で回答を求める方法があります。';
+  }
+
+  if (
     /講座/.test(recentUserContext) &&
     /スピリチュアル/.test(recentUserContext) &&
     /お金が入ってこな/.test(recentUserContext)

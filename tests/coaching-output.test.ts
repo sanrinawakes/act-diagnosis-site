@@ -2710,6 +2710,23 @@ describe('normalizeCoachingOutput', () => {
     ).toEqual([]);
   });
 
+  it('家賃負担の繰り返しを指摘された時に一般的な家族相談へ戻さない', async () => {
+    const historyMessages = [
+      { role: 'user' as const, content: '家賃は76000円ですが、夫は毎月20000円くらいしか払わず、私が不足分を負担しています。' },
+      { role: 'assistant' as const, content: 'ご主人は、決めた金額を支払わない理由を何と説明していますか？' },
+      { role: 'user' as const, content: '夫には毎月、家賃を全額払ってほしいと伝えています。それでも払われません。' },
+      { role: 'assistant' as const, content: 'ご主人が支払うと明確に了承した毎月の金額はいくらですか？' },
+    ];
+    const result = await generateCoachingText({
+      systemPrompt: 'test', historyMessages,
+      lastUserParts: [{ text: 'その伝え方はもう毎月やっています。同じ提案や同じ質問はしないでください。' }],
+    });
+    expect(result.text).toContain('家賃');
+    expect(result.text).toContain('書面');
+    expect(result.text).not.toContain('家族の悩みでは');
+    expect(result.qualityFinalIssues).toEqual([]);
+  });
+
   it('一つだけ指定でカーテンを開けて朝日を浴びる二動作を残さない', () => {
     const result = normalizeCoachingOutput(
       '明日の朝一番に始める行動は、スマートフォンのアラームが鳴ったらすぐに、カーテンを開けて朝日を浴びることです。',
