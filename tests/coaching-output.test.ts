@@ -7000,6 +7000,37 @@ describe('normalizeCoachingOutput', () => {
     );
   });
 
+  it('最新のタイプ別自己理解の質問を優先し、前の職場相談へ戻さない', async () => {
+    const historyMessages = [
+      { role: 'user' as const, content: '今は上司はいない' },
+      { role: 'assistant' as const, content: 'その相手に、まずどの行動を変えてほしいですか？' },
+    ];
+    const lastUserText = 'SME-3の自己理解について教えて';
+    const staleAnswer = '「今は上司はいない」という相談ですね。仕事全体について結論を急がず、実際に困った場面を確認します。';
+    expect(assessCoachingResponseQuality({ text: staleAnswer, lastUserText, historyMessages }).issues)
+      .toContain('context_mismatch');
+
+    const result = await generateCoachingText({
+      systemPrompt: 'test', historyMessages, lastUserParts: [{ text: lastUserText }],
+    });
+    expect(result.modelName).toBe('local-typed-self-understanding');
+    expect(result.qualityFinalIssues).toEqual([]);
+    expect(result.text).toContain('SME-3の自己理解');
+    expect(result.text).toContain('感性豊かな癒し手');
+    expect(result.text).not.toContain('上司');
+  });
+
+  it('タイプ別自己理解の応答では他タイプの軸を混ぜない', async () => {
+    const result = await generateCoachingText({
+      systemPrompt: 'test', historyMessages: [],
+      lastUserParts: [{ text: 'PGA-4の自己理解を説明してください' }],
+    });
+    expect(result.text).toContain('Pは外向型');
+    expect(result.text).toContain('Gは現実型');
+    expect(result.text).toContain('Aは論理型');
+    expect(result.text).not.toContain('Sは内向型');
+  });
+
   it.each([
     '行動パターンは？',
     '日常での行動傾向',

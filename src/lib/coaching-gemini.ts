@@ -1987,6 +1987,21 @@ function buildThemeSelectionResponse(
   return hasThemeMenuContext ? template : '';
 }
 
+function buildTypedSelfUnderstandingResponse(lastUserText: string) {
+  const normalized = stripAttachmentMarkdown(lastUserText).normalize('NFKC').toUpperCase();
+  const match = normalized.match(/\b([SMP][VMG][AME])[-‐‑–—]?([1-6])\b/);
+  if (!match || !/自己理解/.test(lastUserText) || !/(?:教えて|解説|説明|知りたい)/.test(lastUserText)) return '';
+  const [, code, levelText] = match;
+  const name = typeNames[code];
+  if (!name) return '';
+  const [energy, thinking, evaluation] = code.split('') as [
+    keyof typeof axisDescriptions.axis1,
+    keyof typeof axisDescriptions.axis2,
+    keyof typeof axisDescriptions.axis3,
+  ];
+  return `${code}-${levelText}の自己理解について説明します。ACT診断では「${name}」という名称です。${energy}は${axisDescriptions.axis1[energy]}、${thinking}は${axisDescriptions.axis2[thinking]}、${evaluation}は${axisDescriptions.axis3[evaluation]}を表します。末尾の${levelText}は意識レベル${levelText}「${levelNames[Number(levelText)]}」です。これは診断時点の傾向を示すもので、性格や行動を断定するものではありません。\n\n自己理解では、診断結果の説明と実際の行動が合う場面、合わない場面を一つずつ見てください。最近、自分の判断で決めたことと、周囲に合わせて決めたことを比べると、今の強みと課題を具体的に考えられます。思い当たる出来事はありますか？`;
+}
+
 function buildImmediateCoachingResponse(
   text: string,
   historyMessages: CoachingChatMessage[] = [],
@@ -2008,6 +2023,15 @@ function buildImmediateCoachingResponse(
     };
   }
   if (options.allowNonSafetyResponses === false) return null;
+
+  const typedSelfUnderstandingResponse = buildTypedSelfUnderstandingResponse(text);
+  if (typedSelfUnderstandingResponse) {
+    return {
+      text: typedSelfUnderstandingResponse,
+      modelName: 'local-typed-self-understanding',
+      finishReason: 'LOCAL_TYPED_SELF_UNDERSTANDING',
+    };
+  }
 
   const themeSelectionResponse = buildThemeSelectionResponse(
     text,
@@ -2340,6 +2364,10 @@ export function assessCoachingResponseQuality(params: {
   const isConversationTurn = historyMessages.length >= 2;
   const userReportsDissatisfaction =
     reportsResponseDissatisfaction(lastUserText);
+  if (buildTypedSelfUnderstandingResponse(lastUserText) &&
+      (!/自己理解/.test(text) || !/\b[SMP][VMG][AME][-‐‑–—]?[1-6]\b/i.test(text))) {
+    issues.push('context_mismatch');
+  }
   if (requestsListeningWithoutTasks(lastUserText) &&
       /(?:前回|直前|前|先ほど|さっき)の(?:質問|返答|回答)/.test(text)) {
     issues.push('context_mismatch');
@@ -4435,6 +4463,8 @@ export function buildFinalVerifiedQualityFallback(
   lastUserText: string,
   historyMessages: CoachingChatMessage[]
 ): string {
+  const typedSelfUnderstandingFallback = buildTypedSelfUnderstandingResponse(lastUserText);
+  if (typedSelfUnderstandingFallback) return typedSelfUnderstandingFallback;
   const planningFallback = buildConcretePlanningContinuationFallback(lastUserText, historyMessages);
   if (planningFallback && assessCoachingResponseQuality({text: planningFallback, lastUserText, historyMessages}).issues.length === 0) return planningFallback;
   const workplaceFallback = buildWorkplaceConflictContinuationFallback(lastUserText, historyMessages);
