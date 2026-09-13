@@ -1490,6 +1490,12 @@ function getLocalTurnExpectation(label, pipelineMode = 'legacy') {
       finishReason: 'LOCAL_PROMPT_GUARD',
     };
   }
+  if (label === 'topic-switch-fact-insight-action-4') {
+    return {
+      modelName: 'local-morning-preparation',
+      finishReason: 'LOCAL_MORNING_PREPARATION',
+    };
+  }
   return { modelName: '', finishReason: 'STOP' };
 }
 
