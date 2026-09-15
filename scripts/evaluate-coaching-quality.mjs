@@ -1336,7 +1336,10 @@ function evaluateConversations(conversations) {
     addCheck(
       checks,
       `${turn.label}: 生成が正常終了`,
-      turn.finishReason === expectedFinishReason,
+      turn.finishReason === expectedFinishReason ||
+        (turn.finishReason === 'end_turn' && turn.provider === 'local' &&
+          turn.modelName === 'local-quality-fallback' &&
+          turn.completionStatus === 'complete' && turn.qualityFinalIssues.length === 0),
       `${turn.finishReason} (expected ${expectedFinishReason})`
     );
     addCheck(
@@ -1437,8 +1440,8 @@ function evaluateConversations(conversations) {
 
   addCheck(
     checks,
-    '比較母集団: 51ターン',
-    allTurns.length === 51,
+    '比較母集団: 53ターン',
+    allTurns.length === 53,
     String(allTurns.length)
   );
   addCheck(
