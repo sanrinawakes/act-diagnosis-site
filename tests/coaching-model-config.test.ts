@@ -72,3 +72,13 @@ describe('coaching model configuration', () => {
     expect(GEMINI_IMAGE_TIMEOUT_MS).toBe(20000);
   });
 });
+
+
+describe('Gemini 3.6 latency defaults', () => {
+  it('uses minimal thinking for 3.6 when no level is configured', () => {
+    expect(getCoachingTextModelConfig({ COACHING_TEXT_MODEL: 'gemini-3.6-flash' }).thinkingLevel).toBe('minimal');
+  });
+  it.each(['minimal', 'low', 'medium'] as const)('preserves explicit %s for 3.6', (level) => {
+    expect(getCoachingTextModelConfig({ COACHING_TEXT_MODEL: 'gemini-3.6-flash', COACHING_TEXT_THINKING_LEVEL: level }).thinkingLevel).toBe(level);
+  });
+});

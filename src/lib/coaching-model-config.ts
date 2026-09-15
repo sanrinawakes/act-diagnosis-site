@@ -31,9 +31,12 @@ type CoachingModelEnvironment = {
 export function getCoachingTextModelConfig(
   env: CoachingModelEnvironment = process.env as CoachingModelEnvironment
 ): CoachingTextModelConfig {
+  const model = env.COACHING_TEXT_MODEL?.trim() || DEFAULT_COACHING_TEXT_MODEL;
+  const defaultThinkingLevel = model === 'gemini-3.6-flash'
+    ? 'minimal' : DEFAULT_COACHING_TEXT_THINKING_LEVEL;
   return {
-    model: env.COACHING_TEXT_MODEL?.trim() || DEFAULT_COACHING_TEXT_MODEL,
-    thinkingLevel: parseThinkingLevel(env.COACHING_TEXT_THINKING_LEVEL),
+    model,
+    thinkingLevel: parseThinkingLevel(env.COACHING_TEXT_THINKING_LEVEL, defaultThinkingLevel),
     temperature: parseBoundedNumber(
       env.COACHING_TEXT_TEMPERATURE,
       DEFAULT_COACHING_TEXT_TEMPERATURE,
@@ -58,12 +61,13 @@ export function getCoachingTextModelConfig(
 }
 
 function parseThinkingLevel(
-  value: string | undefined
+  value: string | undefined,
+  fallback: CoachingTextThinkingLevel
 ): CoachingTextThinkingLevel {
   const normalized = value?.trim().toLowerCase();
-  return normalized === 'minimal' || normalized === 'medium'
+  return normalized === 'minimal' || normalized === 'low' || normalized === 'medium'
     ? normalized
-    : DEFAULT_COACHING_TEXT_THINKING_LEVEL;
+    : fallback;
 }
 
 function parseBoundedNumber(
