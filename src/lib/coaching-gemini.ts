@@ -2351,6 +2351,32 @@ export function stripInternalResponseStyleHint(text: string) {
     .trim();
 }
 
+// Interpret an existence answer only against the immediately preceding turn.
+// Older assistant questions and saved summaries must not supply its subject.
+function getAnsweredExistenceQuestion(text: string, history: CoachingChatMessage[]) {
+  if (!/^(?:ない|ないです|ありません|まだない|まだないです|まだありません)[。！!\s]*$/.test(text.trim())) return '';
+  const previous = history[history.length - 1];
+  if (previous?.role !== 'assistant' || containsProtectedInternalContent(previous.content) ||
+      containsInternalCoachingContextExposure(previous.content)) return '';
+  const sentences = previous.content.trim().split(/(?<=[。！？?])|\n/u).filter((part) => part.trim());
+  const question = sentences.at(-1)?.trim() || '';
+  return question.length <= 160 && /(?:ありましたか|ありますか|あった|ある)[？?]$/.test(question)
+    ? question : '';
+}
+
+function correctsConsultationFraming(text: string) {
+  return /^(?:相談(?:では|じゃ)ない[。！!\s]*|相談(?:では|じゃ)なくて[、,\s]*(?:聞かれたから|質問に)答えただけ(?:です)?[。！!\s]*)$/.test(text.trim());
+}
+
+function buildFactualReplyFallback(text: string, history: CoachingChatMessage[]) {
+  if (correctsConsultationFraming(text) && history.some((message) => message.role === 'assistant')) {
+    return 'こちらの質問へのお返事を、新しい相談として扱ってしまいました。すみません。今話してくださった内容は、質問に答えて伝えてくださった事実として理解しました。解決策や追加の説明を求める話だと決めつけずに伺います。';
+  }
+  const question = getAnsweredExistenceQuestion(text, history);
+  if (!question) return '';
+  return `先ほどの「${question}」へのお返事ですね。まだないとのこと、わかりました。質問の答えとして伺った内容なので、そこから理由やお気持ちまでは決めつけません。`;
+}
+
 export function assessCoachingResponseQuality(params: {
   text: string;
   lastUserText: string;
@@ -2361,7 +2387,21 @@ export function assessCoachingResponseQuality(params: {
   const compactText = text.replace(/\s+/g, '');
   const lastUserText = params.lastUserText.replace(/\s+/g, ' ').trim();
   const issues: CoachingQualityIssue[] = [];
+  const answeredQuestion = getAnsweredExistenceQuestion(lastUserText, historyMessages);
+  const factualReplyFallback = buildFactualReplyFallback(lastUserText, historyMessages);
+  const groundedShortAnswer = Boolean(answeredQuestion) && compactText.length >= 35 &&
+    ['連絡', '案内', '予定', '経験', '機会', '変化', '作業', '実習'].some(
+      (subject) => answeredQuestion.includes(subject) && text.includes(subject)
+    ) && /ない|ありません|届いていな/.test(text);
+  if (answeredQuestion && /原因を推測|次に困る場面|という相談|相談したい出来事/.test(text)) {
+    issues.push('context_mismatch');
+  }
+  if (correctsConsultationFraming(lastUserText) && /という相談|相談したい出来事|今の相談について/.test(text)) {
+    issues.push('context_mismatch');
+  }
   const isSpecialShortResponse =
+    (Boolean(factualReplyFallback) && text === factualReplyFallback) ||
+    groundedShortAnswer ||
     /一言(?:だけ|で)|短く(?:答|教|返)|(?:一つ|ひとつ|1つ)(?:だけ)?.{0,24}(?:教|提案|答|挙|示|伝|お願)/.test(
       lastUserText
     ) ||
@@ -4474,6 +4514,8 @@ export function buildFinalVerifiedQualityFallback(
   lastUserText: string,
   historyMessages: CoachingChatMessage[]
 ): string {
+  const factualReplyFallback = buildFactualReplyFallback(lastUserText, historyMessages);
+  if (factualReplyFallback) return factualReplyFallback;
   const typedSelfUnderstandingFallback = buildTypedSelfUnderstandingResponse(lastUserText);
   if (typedSelfUnderstandingFallback) return typedSelfUnderstandingFallback;
   const planningFallback = buildConcretePlanningContinuationFallback(lastUserText, historyMessages);
@@ -6283,6 +6325,9 @@ function buildCustomerSafeLocalFallback(
   if (requestsInternalPromptDisclosure(lastUserText)) {
     return 'その内容は公開できません。代わりに、今抱えている悩みや目標について一緒に考えます。今いちばん相談したいことは何ですか？';
   }
+
+  const factualReplyFallback = buildFactualReplyFallback(lastUserText, historyMessages);
+  if (factualReplyFallback) return factualReplyFallback;
 
   const recentUserContext = historyMessages
     .filter((message) => message.role === 'user')
