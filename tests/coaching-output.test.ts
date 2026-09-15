@@ -7813,3 +7813,66 @@ describe('normalizeCoachingOutput', () => {
     expect(result.text).not.toBe('');
   });
 });
+
+describe('factual replies and conversation corrections', () => {
+  const historyMessages = [
+    { role: 'user' as const, content: '講座で実習を一度終えました。' },
+    { role: 'assistant' as const, content: '講座から次の実習についての連絡はありましたか？' },
+  ];
+  it.each(['ない', 'ありません。', 'まだないです'])('短い否定 %s を直前の質問への回答として扱う', (lastUserText) => {
+    const text = buildFinalVerifiedQualityFallback(lastUserText, historyMessages);
+    expect(text).toContain('連絡');
+    expect(text).not.toMatch(/原因を推測|困る場面|書いてください|という相談/);
+    expect(assessCoachingResponseQuality({ text, lastUserText, historyMessages }).issues).toEqual([]);
+  });
+  it('相談という扱いへの訂正を定型の相談開始文へ戻さない', () => {
+    const lastUserText = '相談じゃなくて、聞かれたから答えただけです。';
+    const text = buildFinalVerifiedQualityFallback(lastUserText, historyMessages);
+    expect(text).toMatch(/質問へのお返事|質問に答え/);
+    expect(text).not.toMatch(/書いてください|教えてください|という相談|[？?]/);
+    expect(assessCoachingResponseQuality({ text, lastUserText, historyMessages }).issues).toEqual([]);
+  });
+  it('直前の質問に根拠のある短い返答を文字数だけで棄却しない', () => {
+    const text = '講座からの次の実習についての連絡は、まだないのですね。実習を終えてから今まで、追加の案内は届いていないということですね。';
+    expect(assessCoachingResponseQuality({ text, lastUserText: 'ない', historyMessages }).issues).not.toContain('too_short');
+  });
+  it('文脈と無関係な定型文は短い返事への回答として認めない', () => {
+    const text = 'まだ書かれていない原因を推測せず、実際に起きたことと、次に困る場面を分けると、具体的な対応を選びやすくなります。';
+    expect(assessCoachingResponseQuality({ text, lastUserText: 'ない', historyMessages }).issues).toContain('context_mismatch');
+  });
+});
+
+
+describe('factual reply delivery boundaries', () => {
+  it('末尾が利用者の発言なら古い質問を回答の主語に使わない', () => {
+    const text = buildFinalVerifiedQualityFallback('ない', [
+      { role: 'assistant', content: '配送の連絡はありましたか？' },
+      { role: 'user', content: '次は趣味の話をします。' },
+    ]);
+    expect(text).not.toContain('配送');
+  });
+  it('否定の語を含む別の依頼を短い回答と誤認しない', () => {
+    const text = buildFinalVerifiedQualityFallback('ないものを買いたいので選び方を教えて', [
+      { role: 'assistant', content: '配送の連絡はありましたか？' },
+    ]);
+    expect(text).not.toContain('配送');
+  });
+  it('最終検証と正規化を通しても質問への回答を維持する', () => {
+    const historyMessages = [
+      { role: 'user' as const, content: '研修を受け終えました。' },
+      { role: 'assistant' as const, content: '担当者から次の予定について案内はありましたか？' },
+    ];
+    const lastUserText = 'ありません';
+    const result = ensureVerifiedCoachingResolution({
+      resolution: { text: '', usage: {}, modelName: 'test', repairAttempted: true,
+        repairAccepted: false, initialIssues: ['too_short'], finalIssues: ['too_short'] },
+      lastUserText, historyMessages,
+    });
+    expect(result.text).toContain('案内');
+    expect(result.finalIssues).toEqual([]);
+    expect(result.text).not.toMatch(/原因を推測|書いてください/);
+    const normalized = normalizeCoachingOutput(result.text, lastUserText, historyMessages);
+    expect(normalized).toContain('案内');
+    expect(normalized.length).toBeGreaterThan(35);
+  });
+});

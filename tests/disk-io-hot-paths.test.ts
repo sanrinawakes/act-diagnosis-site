@@ -37,7 +37,7 @@ describe('Disk IO hot-path controls', () => {
     expect(route).not.toContain('const MONITOR_HISTORY_PAIRS = 40;');
   });
 
-  it('runs the coaching monitor four times a day without slowing AWAKES access checks', () => {
+  it('runs the coaching monitor at the required ten-minute observation interval', () => {
     const config = JSON.parse(read('vercel.json')) as {
       crons: Array<{ path: string; schedule: string }>;
     };
@@ -45,7 +45,7 @@ describe('Disk IO hot-path controls', () => {
     expect(
       config.crons.find((cron) => cron.path === '/api/monitor/coaching')
         ?.schedule
-    ).toBe('0 */6 * * *');
+    ).toBe('*/10 * * * *');
     expect(
       config.crons.find((cron) => cron.path === '/api/cron/awakes-access')
         ?.schedule

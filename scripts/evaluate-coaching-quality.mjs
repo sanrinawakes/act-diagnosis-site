@@ -62,6 +62,22 @@ try {
   conversations.push(await runExplicitClosingQuestionScenario());
   conversations.push(await runRejectedSuggestionScenario());
   conversations.push(await runShortAnswerSubjectScenario());
+  conversations.push(await runConversation({
+    name: 'factual-negative-answer', diagnosisCode: 'MME-3',
+    seedHistory: [
+      { role: 'user', content: '講座で実習を一度終えました。' },
+      { role: 'assistant', content: '講座から次の実習についての連絡はありましたか？' },
+    ],
+    inputs: [{ content: 'ありません。' }],
+  }));
+  conversations.push(await runConversation({
+    name: 'consultation-framing-correction', diagnosisCode: 'MME-3',
+    seedHistory: [
+      { role: 'user', content: '講座で実習を終えました。' },
+      { role: 'assistant', content: '実習についての相談ですね。次に困っていることを教えてください。' },
+    ],
+    inputs: [{ content: '相談ではない。' }],
+  }));
   conversations.push(await runImageScenario());
   conversations.push(await runThreeLargeImagesScenario());
   conversations.push(await runMidSessionMemoryScenario());
@@ -1050,9 +1066,12 @@ function authenticatedJsonRequest(body) {
   });
 }
 
-async function runConversation({ name, diagnosisCode, inputs }) {
+async function runConversation({ name, diagnosisCode, inputs, seedHistory = [] }) {
   const sessionId = await createSession(name);
-  const messages = [];
+  const messages = [...seedHistory];
+  for (const message of seedHistory) {
+    await insertMessage(sessionId, message.role, message.content);
+  }
   const turns = [];
 
   for (let index = 0; index < inputs.length; index += 1) {
@@ -1291,6 +1310,15 @@ function evaluateConversations(conversations) {
       localExpectation.modelName ||
       (isImageTurn ? expectedImageModel : expectedTextModel);
     const minimumOutputChars = 1;
+    if (turn.conversationName === 'factual-negative-answer') {
+      addCheck(checks, `${turn.label}: 質問への短い返事を文脈に結び付ける`,
+        /連絡|実習/.test(turn.message) && !/原因を推測|次に困る場面|という相談/.test(turn.message));
+    }
+    if (turn.conversationName === 'consultation-framing-correction') {
+      addCheck(checks, `${turn.label}: 相談扱いへの訂正を尊重する`,
+        !/書いてください|教えてください|という相談|今の相談について/.test(turn.message));
+    }
+
 
     addCheck(
       checks,
