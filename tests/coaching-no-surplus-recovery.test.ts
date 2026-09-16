@@ -50,10 +50,14 @@ describe('no-surplus savings response recovery', () => {
 
   it('asks about the writer rather than changing a friend when declining plans', () => {
     const lastUserText = '友人に断りたい予定があるのに、返事を先延ばしにしています。';
-    const inventedExcuse = '「せっかく誘ってもらったんだけど、その日は都合が悪くて行けなくなっちゃった、本当にごめんね。」';
-    expect(assessCoachingResponseQuality({
-      text: inventedExcuse, lastUserText, historyMessages: [],
-    }).issues).toContain('context_mismatch');
+    for (const inventedExcuse of [
+      '「せっかく誘ってもらったんだけど、その日は都合が悪くて行けなくなっちゃった、本当にごめんね。」',
+      '「せっかく誘ってくれたのに申し訳ないんだけど、その日は都合が合わなくて行けないんだ。」',
+    ]) {
+      expect(assessCoachingResponseQuality({
+        text: inventedExcuse, lastUserText, historyMessages: [],
+      }).issues).toContain('context_mismatch');
+    }
     const direct = buildFinalVerifiedQualityFallback(lastUserText, []);
     expect(assessCoachingResponseQuality({ text: direct, lastUserText, historyMessages: [] }).issues).toEqual([]);
     const result = ensureVerifiedCoachingResolution({
