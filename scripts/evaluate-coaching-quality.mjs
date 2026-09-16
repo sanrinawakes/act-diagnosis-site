@@ -117,6 +117,7 @@ try {
     checks,
     'short-reply-continuation: 断る本人の迷いを聞く',
     /断|返事/.test(friendDeclineAnswer) &&
+      !/^「[^」]{8,100}」[。]?$/.test(friendDeclineAnswer.trim()) &&
       !/相手に、まずどの行動を変えて|という相談ですね/.test(friendDeclineAnswer)
   );
   const failed = checks.filter((check) => !check.passed);

@@ -77,4 +77,15 @@ describe('no-surplus savings response recovery', () => {
     const text = '「誘ってくれてありがとう。その日は都合が悪くて行けません。また別の機会にお願いします。」';
     expect(assessCoachingResponseQuality({ text, lastUserText, historyMessages: [] }).issues).not.toContain('context_mismatch');
   });
+
+  it('rejects a quoted restatement when no reply wording was requested', () => {
+    const lastUserText = '友人に断りたい予定があるのに、返事を先延ばしにしています。';
+    const quotedRestatement = '「友人に断りたい予定があるのですが、返事を先延ばしにしています。」';
+    const issues = assessCoachingResponseQuality({
+      text: quotedRestatement,
+      lastUserText,
+      historyMessages: [],
+    }).issues;
+    expect(issues).toContain('latest_user_echo');
+  });
 });
