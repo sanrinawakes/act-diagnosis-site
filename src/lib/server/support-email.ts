@@ -52,6 +52,7 @@ export async function deliverSupportReply(params: {
   statusOnSuccess: 'open' | 'in_progress' | 'resolved';
   automationRunId?: string;
   evidence?: string;
+  expectedUpdatedAt?: string;
 }) {
   if (!RESEND_API_KEY) {
     throw new Error('RESEND_API_KEY is not configured');
@@ -74,6 +75,13 @@ export async function deliverSupportReply(params: {
       ticket,
       resend: { status: 200, id: null },
     };
+  }
+
+  if (
+    params.expectedUpdatedAt !== undefined &&
+    params.expectedUpdatedAt !== ticket.updated_at
+  ) {
+    throw new Error('Ticket changed before sending; regenerate the reply from the current ticket.');
   }
 
   const abortController = new AbortController();

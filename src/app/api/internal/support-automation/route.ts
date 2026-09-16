@@ -269,7 +269,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === 'claim') {
-      return claimTicket(client, ticketId, runId);
+      return claimTicket(client, ticketId, runId, body.expected_updated_at);
     }
     if (action === 'heartbeat') {
       return heartbeatTicket(client, ticketId, runId);
@@ -488,9 +488,16 @@ async function resolveQualityIncident(
 async function claimTicket(
   client: SupabaseClient,
   ticketId: string,
-  runId: string
+  runId: string,
+  expectedUpdatedAt?: unknown
 ) {
   const ticket = await getTicket(client, ticketId);
+  if (expectedUpdatedAt !== undefined && expectedUpdatedAt !== ticket.updated_at) {
+    return NextResponse.json(
+      { error: 'Ticket changed before claim' },
+      { status: 409 }
+    );
+  }
   if (ticket.status === 'resolved' || ticket.status === 'closed') {
     return NextResponse.json(
       { error: `Ticket is already ${ticket.status}` },
@@ -541,18 +548,16 @@ async function claimTicket(
           note: '自動調査を開始しました。',
         })
       );
-  let query = client
+  const query = client
     .from('support_tickets')
     .update({
       message: nextMessage,
       status: 'in_progress',
       updated_at: claimedAt,
     })
-    .eq('id', ticketId);
-  query =
-    ticket.status === 'open'
-      ? query.eq('status', 'open')
-      : query.eq('updated_at', ticket.updated_at);
+    .eq('id', ticketId)
+    .eq('status', ticket.status)
+    .eq('updated_at', ticket.updated_at);
 
   const { data, error } = await query.select().maybeSingle();
   if (error) throw error;
@@ -814,6 +819,16 @@ async function replyToTicket(
       return NextResponse.json({ error: ownershipError }, { status: 409 });
     }
   }
+  if (
+    !duplicateReply &&
+    body.expected_updated_at !== undefined &&
+    body.expected_updated_at !== ticket.updated_at
+  ) {
+    return NextResponse.json(
+      { error: 'Ticket changed before reply' },
+      { status: 409 }
+    );
+  }
   const parsedMessage = splitSupportMessage(ticket.message || '');
   const policy = evaluateSupportAutomationPolicy({
     category: ticket.category,
@@ -949,6 +964,7 @@ async function replyToTicket(
     statusOnSuccess,
     automationRunId: runId,
     evidence: buildEvidenceSummary(resolutionKind, evidence),
+    expectedUpdatedAt: ticket.updated_at,
   });
 
   return NextResponse.json(result, { status: result.success ? 200 : 502 });
