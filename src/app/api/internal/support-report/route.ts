@@ -14,7 +14,8 @@ export async function GET(request: NextRequest) {
     const rows: Record<string, unknown>[] = [];
     for (let offset = 0; offset < 10000; offset += 250) {
       let query = db.from(table).select(columns).order(clock).order('id').range(offset, offset + 249);
-      query = open ? query.not('status', 'in', '(resolved,closed)') : query.gte(clock, window!.since).lt(clock, window!.until);
+      if (open && table === 'support_tickets') query = query.in('status', ['open', 'in_progress']).gte('updated_at', '2026-07-25T00:00:00.000Z');
+      else query = open ? query.not('status', 'in', '(resolved,closed)') : query.gte(clock, window!.since).lt(clock, window!.until);
       const { data, error } = await query;
       if (error) throw new Error('report_read_failed');
       const batch = (data || []) as unknown as Record<string, unknown>[];
