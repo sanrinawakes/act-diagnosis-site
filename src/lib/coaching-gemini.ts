@@ -2610,6 +2610,14 @@ export function assessCoachingResponseQuality(params: {
     lastUserText,
   ].join('\n');
   if (
+    /友人|友達/.test(userContext) &&
+    /断りたい|断る|断り方/.test(userContext) &&
+    /都合が悪|都合がつか|行けなくな|予定が入|用事があ/.test(text) &&
+    !/都合|行けない|行けなく|予定が入|用事があ/.test(userContext)
+  ) {
+    issues.push('context_mismatch');
+  }
+  if (
     (/追い詰められ/.test(text) && !/追い詰め/.test(userContext)) ||
     (/未練/.test(text) && !/未練/.test(userContext))
   ) {
