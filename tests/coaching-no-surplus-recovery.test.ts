@@ -100,4 +100,11 @@ describe('no-surplus savings response recovery', () => {
       text, lastUserText, historyMessages: [],
     }).issues).toContain('context_mismatch');
   });
+
+  it('still writes a reply when the user explicitly asks for wording', () => {
+    const lastUserText = '友人に断りたい予定があるのに、返事を先延ばしにしています。返事の文面を作ってください。';
+    const text = buildFinalVerifiedQualityFallback(lastUserText, []);
+    expect(text).not.toContain('何が気になって送れなくなりますか');
+    expect(text).toMatch(/「[^」]+」/);
+  });
 });

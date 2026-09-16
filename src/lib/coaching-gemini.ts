@@ -4543,7 +4543,8 @@ export function buildFinalVerifiedQualityFallback(
   if (/友人|友達/.test(lastUserText) &&
       /断りたい/.test(lastUserText) &&
       /返事/.test(lastUserText) &&
-      /先延ばし|遅らせ/.test(lastUserText)) {
+      /先延ばし|遅らせ/.test(lastUserText) &&
+      !requestsDirectWording(lastUserText)) {
     return '友人との予定を断りたいのに、返事を先延ばしにしているのですね。断りたいという意思はすでに書かれているので、断るべきかどうかをもう一度考える必要はありません。どの時点で返事を止めてしまうかが分かれば、次に考えることを絞れます。返事を書こうとした時、何が気になって送れなくなりますか？';
   }
   const noSurplusSavingsFallback = buildNoSurplusSavingsFallback(lastUserText, historyMessages);
