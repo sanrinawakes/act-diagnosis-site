@@ -1458,8 +1458,8 @@ function evaluateConversations(conversations) {
 
   addCheck(
     checks,
-    '比較母集団: 53ターン',
-    allTurns.length === 53,
+    '比較母集団: 54ターン',
+    allTurns.length === 54,
     String(allTurns.length)
   );
   addCheck(
