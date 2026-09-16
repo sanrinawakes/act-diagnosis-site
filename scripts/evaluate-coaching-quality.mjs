@@ -1343,16 +1343,16 @@ function evaluateConversations(conversations) {
       turn.label,
       expectedPipelineMode
     );
-    const usesLegacyScenarioExpectation =
-      expectedPipelineMode !== 'minimal';
+    const usesImmediateScenarioExpectation =
+      ['legacy', 'minimal', 'observe'].includes(expectedPipelineMode);
     const expectedFinishReason =
-      (usesLegacyScenarioExpectation && turn.expectedFinishReason) ||
+      (usesImmediateScenarioExpectation && turn.expectedFinishReason) ||
       localExpectation.finishReason;
     const isImageTurn =
       turn.label.startsWith('inline-image') ||
       turn.label.startsWith('three-large-images');
     const expectedModel =
-      (usesLegacyScenarioExpectation && turn.expectedModelName) ||
+      (usesImmediateScenarioExpectation && turn.expectedModelName) ||
       localExpectation.modelName ||
       (isImageTurn ? expectedImageModel : expectedTextModel);
     const minimumOutputChars = 1;
@@ -1486,8 +1486,8 @@ function evaluateConversations(conversations) {
 
   addCheck(
     checks,
-    '比較母集団: 54ターン',
-    allTurns.length === 54,
+    '比較母集団: 56ターン',
+    allTurns.length === 56,
     String(allTurns.length)
   );
   addCheck(
@@ -1555,7 +1555,7 @@ function evaluateConversations(conversations) {
 }
 
 function getLocalTurnExpectation(label, pipelineMode = 'legacy') {
-  if (pipelineMode !== 'minimal' && label === 'short-emotional-message-1') {
+  if (['legacy', 'minimal', 'observe'].includes(pipelineMode) && label === 'short-emotional-message-1') {
     return {
       modelName: 'local-rest',
       finishReason: 'LOCAL_REST_RESPONSE',
