@@ -86,6 +86,18 @@ try {
     ],
     inputs: [{ content: '毎月貯金をしたくても、余裕がないです。' }],
   }));
+  conversations.push(await runConversation({
+    name: 'course-creation-goal', diagnosisCode: 'SMM-3',
+    inputs: [{ content: '写真の講座をつくりたい' }],
+  }));
+  conversations.push(await runConversation({
+    name: 'short-relationship-action', diagnosisCode: 'SMM-3',
+    seedHistory: [
+      { role: 'user', content: '人間関係について相談したいです' },
+      { role: 'assistant', content: '最後に困った場面で、相手が実際にしたことを一つ教えてください。' },
+    ],
+    inputs: [{ content: 'むしする' }],
+  }));
   conversations.push(await runImageScenario());
   conversations.push(await runThreeLargeImagesScenario());
   conversations.push(await runMidSessionMemoryScenario());
@@ -120,6 +132,12 @@ try {
       !/^「[^」]{8,100}」[。]?$/.test(friendDeclineAnswer.trim()) &&
       !/相手に、まずどの行動を変えて|という相談ですね/.test(friendDeclineAnswer)
   );
+  for (const name of ['course-creation-goal', 'short-relationship-action']) {
+    const answer = conversations.find(conversation => conversation.name === name)?.turns[0]?.message || '';
+    addCheck(checks, `${name}: 相談に沿って答え、定型の原因分析へ逃げない`,
+      answer.length >= 80 && !/まだ書かれていない原因|という相談ですね/.test(answer) &&
+      (name === 'course-creation-goal' ? /講座|受講|学ぶ/.test(answer) : /返事|反応|無視/.test(answer)));
+  }
   const failed = checks.filter((check) => !check.passed);
 
   const summary = {

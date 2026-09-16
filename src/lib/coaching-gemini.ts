@@ -2462,6 +2462,8 @@ export function assessCoachingResponseQuality(params: {
   }
 
   if (
+    (/まだ書かれていない原因を推測せず/.test(text) &&
+      (compactText.length < 80 || Boolean(buildGoalOrShortActionFallback(lastUserText, historyMessages)))) ||
     /いちばん見過ごしたくない本音|今いちばん気になっていることを一文だけメモ|何か(?:具体的に)?話したいことはありますか|今(?:、)?(?:最も|いちばん)話したいことは何ですか|この関係の中で[、,]?自分が本当に大切にしたいことは何ですか/.test(
       text
     )
@@ -4536,10 +4538,29 @@ function buildConcretePlanningContinuationFallback(lastUserText: string, history
   return '';
 }
 
+// A short action answers the immediately preceding question; older topics
+// must not supply a subject after the conversation has moved on.
+function buildGoalOrShortActionFallback(text: string, history: CoachingChatMessage[]): string {
+  const latest = stripAttachmentMarkdown(text).trim();
+  if (/(?:講座|教室|セミナー|ワークショップ).{0,16}(?:つくりたい|作りたい|開きたい|開催したい)/.test(latest)) {
+    return '講座をつくるには、受講する人が何を学びたいかによって、扱う内容や説明の詳しさが変わります。初めて学ぶ人向けなのか、経験がある人向けなのかでも、必要な教材は違います。まず対象が決まると、教えたいことの中から講座に入れる内容を選びやすくなります。どんな人に受講してほしいと考えていますか？';
+  }
+  if (!/^(?:むし|無視)(?:する|される|されます|します|した|された)[。！!\s]*$/.test(latest)) return '';
+  const previous = history.at(-1);
+  const question = previous?.role === 'assistant' ? previous.content : '';
+  const askedAboutOther = /相手が実際にしたこと|相手(?:は|が).{0,25}(?:した|言った|反応)|どのような反応/.test(question);
+  if (askedAboutOther || /される|されます|された/.test(latest)) {
+    return '相手から返事や反応がない、ということですね。返事がない理由までは、このやり取りだけでは分かりません。挨拶への反応がないのか、必要な連絡にも返事がないのかで、困っている内容や考えられる対応が変わります。最近、どんな言葉をかけた時に返事がありませんでしたか？';
+  }
+  return '「無視する」という言葉について、誰の行動を指しているのか確認したいです。ご自身が相手に返事をしないという意味なのか、相手から返事がないという意味なのかで、お話の受け止め方が変わります。ここを取り違えないようにしたいので、どちらの意味で書いてくださったのか教えてください。';
+}
+
 export function buildFinalVerifiedQualityFallback(
   lastUserText: string,
   historyMessages: CoachingChatMessage[]
 ): string {
+  const contextualRecovery = buildGoalOrShortActionFallback(lastUserText, historyMessages);
+  if (contextualRecovery) return contextualRecovery;
   if (/友人|友達/.test(lastUserText) &&
       /断りたい/.test(lastUserText) &&
       /返事/.test(lastUserText) &&
@@ -6326,11 +6347,16 @@ export function ensureVerifiedCoachingResolution(params: {
   const nonEmptyFallbackText = fallbackText.trim()
     ? fallbackText
     : customerSafeFallbackText;
-  const safeFallbackText = fallbackIsSafeAndClean
+  // Never deliver a known stock cause-analysis paragraph as a successful
+  // recovery. Its length can pass checks even when it ignores the request.
+  const selectedFallbackText = fallbackIsSafeAndClean
     ? fallbackText
     : customerFallbackIsSafeAndClean
       ? customerSafeFallbackText
       : nonEmptyFallbackText;
+  const safeFallbackText = assessCoachingResponseQuality({text: selectedFallbackText, lastUserText, historyMessages}).issues.includes('generic_canned_close')
+    ? buildCustomerSafeLocalFallback(lastUserText, historyMessages)
+    : selectedFallbackText;
   const safeFallbackQuality = assessCoachingResponseQuality({
     text: safeFallbackText,
     lastUserText,
