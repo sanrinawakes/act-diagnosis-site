@@ -4548,7 +4548,7 @@ function buildGoalOrShortActionFallback(text: string, history: CoachingChatMessa
   if (!/^(?:むし|無視)(?:する|される|されます|します|した|された)[。！!\s]*$/.test(latest)) return '';
   const previous = history.at(-1);
   const question = previous?.role === 'assistant' ? previous.content : '';
-  const askedAboutOther = /相手が実際にしたこと|相手(?:は|が).{0,25}(?:した|言った|反応)|どのような反応/.test(question);
+  const askedAboutOther = /相手が実際にしたこと|相手(?:は|が).{0,25}(?:した|言った|反応)|相手.{0,12}どのような反応/.test(question);
   if (askedAboutOther || /される|されます|された/.test(latest)) {
     return '相手から返事や反応がない、ということですね。返事がない理由までは、このやり取りだけでは分かりません。挨拶への反応がないのか、必要な連絡にも返事がないのかで、困っている内容や考えられる対応が変わります。最近、どんな言葉をかけた時に返事がありませんでしたか？';
   }

@@ -30,6 +30,14 @@ describe('contextual recovery instead of generic cause analysis', () => {
   it('flags the stock explanation even when padded enough to pass length checks', () => {
     expect(assessCoachingResponseQuality({text:`「写真の講座をつくりたい」という相談ですね。${generic}今の情報だけで原因や相手の意図を決めつけず、確認できる出来事から整理します。`,lastUserText:'写真の講座をつくりたい'}).issues).toContain('generic_canned_close');
   });
+  it('does not attribute the user own reaction to the other person', () => {
+    const text=buildFinalVerifiedQualityFallback('むしする',[
+      {role:'user',content:'相手が話しかけてきます'},
+      {role:'assistant',content:'あなたはどのような反応をしますか？'},
+    ]);
+    expect(text).not.toContain('相手から返事や反応がない、ということですね');
+    expect(text).toContain('どちらの意味');
+  });
   it('does not borrow a relationship subject across a topic switch', () => {
     const switched:CoachingChatMessage[]=[...history,{role:'user',content:'話を変えて、通知の設定についてです'},{role:'assistant',content:'通知をどうしたいですか？'}];
     const text=buildFinalVerifiedQualityFallback('むしする',switched);
