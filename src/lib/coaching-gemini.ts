@@ -4514,6 +4514,8 @@ export function buildFinalVerifiedQualityFallback(
   lastUserText: string,
   historyMessages: CoachingChatMessage[]
 ): string {
+  const noSurplusSavingsFallback = buildNoSurplusSavingsFallback(lastUserText, historyMessages);
+  if (noSurplusSavingsFallback) return noSurplusSavingsFallback;
   const factualReplyFallback = buildFactualReplyFallback(lastUserText, historyMessages);
   if (factualReplyFallback) return factualReplyFallback;
   const typedSelfUnderstandingFallback = buildTypedSelfUnderstandingResponse(lastUserText);
@@ -5157,6 +5159,28 @@ export function buildFinalVerifiedQualityFallback(
     historyMessages,
     { recoverInternalContext: false }
   );
+}
+
+function buildNoSurplusSavingsFallback(
+  lastUserText: string,
+  historyMessages: CoachingChatMessage[]
+): string {
+  const latest = stripAttachmentMarkdown(lastUserText).replace(/\s+/g, ' ');
+  const priorUserText = historyMessages
+    .filter((message) => message.role === 'user')
+    .slice(-4)
+    .map((message) => stripAttachmentMarkdown(message.content))
+    .join(' ');
+  const priorAssistantText = [...historyMessages]
+    .reverse()
+    .find((message) => message.role === 'assistant')?.content || '';
+  const savingsContext = /貯金|貯蓄/.test(latest) ||
+    (/貯金|貯蓄/.test(priorUserText) && /貯金|貯蓄|毎月いくら貯め/.test(priorAssistantText));
+  if (!savingsContext ||
+      !/余裕がない|余裕がありません|回せない|回せません|精一杯|かつかつ/.test(latest)) {
+    return '';
+  }
+  return '毎月の生活費で手元にお金が残らないなら、今すぐ貯金額を決める必要はありません。まず手取り収入と、食費や住居費など欠かせない支出の差を確認すると、毎月どのくらい不足しているか、または余る月があるかが分かります。無理に支出を削る前に、その差を把握するところから始めましょう。';
 }
 
 function buildProcessCompletionFallback(

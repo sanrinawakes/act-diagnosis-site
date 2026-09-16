@@ -78,6 +78,14 @@ try {
     ],
     inputs: [{ content: '相談ではない。' }],
   }));
+  conversations.push(await runConversation({
+    name: 'savings-with-no-surplus', diagnosisCode: 'MME-3',
+    seedHistory: [
+      { role: 'user', content: '毎月少しずつ貯金したいです。' },
+      { role: 'assistant', content: '毎月いくら貯められそうですか？' },
+    ],
+    inputs: [{ content: '毎月貯金をしたくても、余裕がないです。' }],
+  }));
   conversations.push(await runImageScenario());
   conversations.push(await runThreeLargeImagesScenario());
   conversations.push(await runMidSessionMemoryScenario());
@@ -92,6 +100,16 @@ try {
 
   const conversationEvaluation = evaluateConversations(conversations);
   const checks = [...apiContractChecks, ...conversationEvaluation.checks];
+  const noSurplusAnswer = conversations.find(
+    (conversation) => conversation.name === 'savings-with-no-surplus'
+  )?.turns[0]?.message || '';
+  addCheck(
+    checks,
+    'savings-with-no-surplus: 余裕のない家計に貯金額を要求しない',
+    /貯金|生活費/.test(noSurplusAnswer) &&
+      /収入|支出|手取り|現状/.test(noSurplusAnswer) &&
+      !/という相談ですね|毎月いくら貯め/.test(noSurplusAnswer)
+  );
   const failed = checks.filter((check) => !check.passed);
 
   const summary = {
