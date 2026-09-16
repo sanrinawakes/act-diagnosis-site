@@ -2618,6 +2618,16 @@ export function assessCoachingResponseQuality(params: {
     lastUserText,
   ].join('\n');
   if (
+    /友人|友達/.test(lastUserText) &&
+    /断りたい/.test(lastUserText) &&
+    /返事/.test(lastUserText) &&
+    /先延ばし|遅らせ/.test(lastUserText) &&
+    !requestsDirectWording(lastUserText) &&
+    /^「[^」]{4,180}」[。]?$/.test(text.trim())
+  ) {
+    issues.push('context_mismatch');
+  }
+  if (
     /友人|友達/.test(userContext) &&
     /断りたい|断る|断り方/.test(userContext) &&
     /都合が(?:悪|つか|合わ)|行けなくな|行けない|予定が入|用事があ/.test(text) &&

@@ -92,4 +92,12 @@ describe('no-surplus savings response recovery', () => {
     }).issues;
     expect(issues).toContain('latest_user_echo');
   });
+
+  it('rejects an unrequested reply draft even without an invented reason', () => {
+    const lastUserText = '友人に断りたい予定があるのに、返事を先延ばしにしています。';
+    const text = '「誘ってくれてありがとう。でも今回は行かないことにしたよ。」';
+    expect(assessCoachingResponseQuality({
+      text, lastUserText, historyMessages: [],
+    }).issues).toContain('context_mismatch');
+  });
 });
