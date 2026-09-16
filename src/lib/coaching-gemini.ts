@@ -2590,6 +2590,14 @@ export function assessCoachingResponseQuality(params: {
     );
   if (
     acknowledgementOnly ||
+    (/友人|友達/.test(lastUserText) &&
+      /断りたい/.test(lastUserText) &&
+      /返事/.test(lastUserText) &&
+      /先延ばし/.test(lastUserText) &&
+      /^「[^」]{8,100}」[。]?$/.test(text.trim()) &&
+      /断りたい/.test(text) &&
+      /返事/.test(text) &&
+      /先延ばし/.test(text)) ||
     (canonicalUserText.length >= 8 &&
       canonicalResponseText === canonicalUserText)
   ) {
@@ -2610,9 +2618,19 @@ export function assessCoachingResponseQuality(params: {
     lastUserText,
   ].join('\n');
   if (
+    /友人|友達/.test(lastUserText) &&
+    /断りたい/.test(lastUserText) &&
+    /返事/.test(lastUserText) &&
+    /先延ばし|遅らせ/.test(lastUserText) &&
+    !requestsDirectWording(lastUserText) &&
+    /^「[^」]{4,180}」[。]?$/.test(text.trim())
+  ) {
+    issues.push('context_mismatch');
+  }
+  if (
     /友人|友達/.test(userContext) &&
     /断りたい|断る|断り方/.test(userContext) &&
-    /都合が悪|都合がつか|行けなくな|予定が入|用事があ/.test(text) &&
+    /都合が(?:悪|つか|合わ)|行けなくな|行けない|予定が入|用事があ/.test(text) &&
     !/都合|行けない|行けなく|予定が入|用事があ/.test(userContext)
   ) {
     issues.push('context_mismatch');
@@ -8418,7 +8436,7 @@ function requestsDirectWording(text: string) {
   ) {
     return false;
   }
-  return /最初の一言|断(?:る|りたい|り方)[^。！？\n]{0,24}(?:一言|言い方|文面|返事|言葉|文章)|(?:一言|言い方|文面|返事|言葉|文章)[^。！？\n]{0,28}(?:教えて|提案して|考えて|作って|示して|どうすれば|どうしたら)|(?:教えて|提案して|考えて|作って|示して)[^。！？\n]{0,28}(?:一言|言い方|文面|返事|言葉|文章)|(?:どんな|どういう)(?:文章|反応|返し方|返事|言い方)[^。！？\n]{0,28}(?:にしたら|にすれば|が良い|がいい|がよい|なら良い|ならいい|ならよい)|(?:どう|何と|なんて)(?:言|伝え)(?:え|たら|れば|る|う)|どう返せば|(?:言わずに|かわす)方法/.test(
+  return /最初の一言|断(?:る|りたい|り方)[^。！？\n]{0,24}(?:一言|言い方|文面|言葉|文章)|(?:一言|言い方|文面|返事|言葉|文章)[^。！？\n]{0,28}(?:教えて|提案して|考えて|作って|示して|どうすれば|どうしたら)|(?:教えて|提案して|考えて|作って|示して)[^。！？\n]{0,28}(?:一言|言い方|文面|返事|言葉|文章)|(?:どんな|どういう)(?:文章|反応|返し方|返事|言い方)[^。！？\n]{0,28}(?:にしたら|にすれば|が良い|がいい|がよい|なら良い|ならいい|ならよい)|(?:どう|何と|なんて)(?:言|伝え)(?:え|たら|れば|る|う)|どう返せば|(?:言わずに|かわす)方法/.test(
     text
   );
 }

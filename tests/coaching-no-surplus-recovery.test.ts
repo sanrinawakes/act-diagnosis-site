@@ -50,10 +50,14 @@ describe('no-surplus savings response recovery', () => {
 
   it('asks about the writer rather than changing a friend when declining plans', () => {
     const lastUserText = '友人に断りたい予定があるのに、返事を先延ばしにしています。';
-    const inventedExcuse = '「せっかく誘ってもらったんだけど、その日は都合が悪くて行けなくなっちゃった、本当にごめんね。」';
-    expect(assessCoachingResponseQuality({
-      text: inventedExcuse, lastUserText, historyMessages: [],
-    }).issues).toContain('context_mismatch');
+    for (const inventedExcuse of [
+      '「せっかく誘ってもらったんだけど、その日は都合が悪くて行けなくなっちゃった、本当にごめんね。」',
+      '「せっかく誘ってくれたのに申し訳ないんだけど、その日は都合が合わなくて行けないんだ。」',
+    ]) {
+      expect(assessCoachingResponseQuality({
+        text: inventedExcuse, lastUserText, historyMessages: [],
+      }).issues).toContain('context_mismatch');
+    }
     const direct = buildFinalVerifiedQualityFallback(lastUserText, []);
     expect(assessCoachingResponseQuality({ text: direct, lastUserText, historyMessages: [] }).issues).toEqual([]);
     const result = ensureVerifiedCoachingResolution({
@@ -76,5 +80,24 @@ describe('no-surplus savings response recovery', () => {
     const lastUserText = '友人の誘いを断りたいです。その日は都合が悪くて行けません。';
     const text = '「誘ってくれてありがとう。その日は都合が悪くて行けません。また別の機会にお願いします。」';
     expect(assessCoachingResponseQuality({ text, lastUserText, historyMessages: [] }).issues).not.toContain('context_mismatch');
+  });
+
+  it('rejects a quoted restatement when no reply wording was requested', () => {
+    const lastUserText = '友人に断りたい予定があるのに、返事を先延ばしにしています。';
+    const quotedRestatement = '「友人に断りたい予定があるのですが、返事を先延ばしにしています。」';
+    const issues = assessCoachingResponseQuality({
+      text: quotedRestatement,
+      lastUserText,
+      historyMessages: [],
+    }).issues;
+    expect(issues).toContain('latest_user_echo');
+  });
+
+  it('rejects an unrequested reply draft even without an invented reason', () => {
+    const lastUserText = '友人に断りたい予定があるのに、返事を先延ばしにしています。';
+    const text = '「誘ってくれてありがとう。でも今回は行かないことにしたよ。」';
+    expect(assessCoachingResponseQuality({
+      text, lastUserText, historyMessages: [],
+    }).issues).toContain('context_mismatch');
   });
 });
