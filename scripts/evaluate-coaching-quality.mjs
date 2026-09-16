@@ -110,6 +110,15 @@ try {
       /収入|支出|手取り|現状/.test(noSurplusAnswer) &&
       !/という相談ですね|毎月いくら貯め/.test(noSurplusAnswer)
   );
+  const friendDeclineAnswer = conversations.find(
+    (conversation) => conversation.name === 'short-reply-continuation'
+  )?.turns[0]?.message || '';
+  addCheck(
+    checks,
+    'short-reply-continuation: 断る本人の迷いを聞く',
+    /断|返事/.test(friendDeclineAnswer) &&
+      !/相手に、まずどの行動を変えて|という相談ですね/.test(friendDeclineAnswer)
+  );
   const failed = checks.filter((check) => !check.passed);
 
   const summary = {
@@ -1458,8 +1467,8 @@ function evaluateConversations(conversations) {
 
   addCheck(
     checks,
-    '比較母集団: 53ターン',
-    allTurns.length === 53,
+    '比較母集団: 54ターン',
+    allTurns.length === 54,
     String(allTurns.length)
   );
   addCheck(

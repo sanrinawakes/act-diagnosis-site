@@ -47,4 +47,24 @@ describe('no-surplus savings response recovery', () => {
     expect(text).not.toContain('という相談ですね');
     expect(assessCoachingResponseQuality({ text, lastUserText, historyMessages: shorterHistory }).issues).toEqual([]);
   });
+
+  it('asks about the writer rather than changing a friend when declining plans', () => {
+    const lastUserText = '友人に断りたい予定があるのに、返事を先延ばしにしています。';
+    const direct = buildFinalVerifiedQualityFallback(lastUserText, []);
+    expect(assessCoachingResponseQuality({ text: direct, lastUserText, historyMessages: [] }).issues).toEqual([]);
+    const result = ensureVerifiedCoachingResolution({
+      resolution: {
+        text: '「友人に断りたい予定があるのに、返事を先延ばしにしています」という相談ですね。',
+        usage: {}, modelName: 'test', repairAttempted: false,
+        repairAccepted: false, initialIssues: ['too_short'],
+        finalIssues: ['too_short', 'latest_user_echo'],
+      },
+      lastUserText,
+      historyMessages: [],
+    });
+    expect(result.finalIssues).toEqual([]);
+    expect(result.text).not.toMatch(/相手に、まずどの行動を変えて|という相談ですね/);
+    expect(result.text).toMatch(/断る|返事/);
+    expect(result.text).toContain('何が気になって');
+  });
 });
