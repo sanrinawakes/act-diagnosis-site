@@ -50,6 +50,10 @@ describe('no-surplus savings response recovery', () => {
 
   it('asks about the writer rather than changing a friend when declining plans', () => {
     const lastUserText = '友人に断りたい予定があるのに、返事を先延ばしにしています。';
+    const inventedExcuse = '「せっかく誘ってもらったんだけど、その日は都合が悪くて行けなくなっちゃった、本当にごめんね。」';
+    expect(assessCoachingResponseQuality({
+      text: inventedExcuse, lastUserText, historyMessages: [],
+    }).issues).toContain('context_mismatch');
     const direct = buildFinalVerifiedQualityFallback(lastUserText, []);
     expect(assessCoachingResponseQuality({ text: direct, lastUserText, historyMessages: [] }).issues).toEqual([]);
     const result = ensureVerifiedCoachingResolution({
@@ -66,5 +70,11 @@ describe('no-surplus savings response recovery', () => {
     expect(result.text).not.toMatch(/相手に、まずどの行動を変えて|という相談ですね/);
     expect(result.text).toMatch(/断る|返事/);
     expect(result.text).toContain('何が気になって');
+  });
+
+  it('allows a decline reason the user actually supplied', () => {
+    const lastUserText = '友人の誘いを断りたいです。その日は都合が悪くて行けません。';
+    const text = '「誘ってくれてありがとう。その日は都合が悪くて行けません。また別の機会にお願いします。」';
+    expect(assessCoachingResponseQuality({ text, lastUserText, historyMessages: [] }).issues).not.toContain('context_mismatch');
   });
 });
