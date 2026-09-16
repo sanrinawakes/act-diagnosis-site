@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { reportAuthorized, reportWindow } from '@/lib/support-report-access';
+import { reportAuthorized, reportWindow, redactSupportReportMessage } from '@/lib/support-report-access';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
@@ -18,6 +18,7 @@ export async function GET(request: NextRequest) {
       const { data, error } = await query;
       if (error) throw new Error('report_read_failed');
       const batch = (data || []) as unknown as Record<string, unknown>[];
+      if (table === 'support_tickets') for (const row of batch) row.message = redactSupportReportMessage(row.message);
       rows.push(...batch); if (batch.length < 250) return rows;
     }
     throw new Error('report_limit_exceeded');

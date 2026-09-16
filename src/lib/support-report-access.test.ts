@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { reportAuthorized, reportWindow } from './support-report-access';
+import { reportAuthorized, reportWindow, redactSupportReportMessage } from './support-report-access';
 describe('read-only report boundary', () => {
   const secret = 'x'.repeat(64);
   it('requires the separate report credential', () => {
@@ -16,4 +16,10 @@ describe('read-only report boundary', () => {
     expect(reportWindow(null, '2099-01-01', now)).toBeNull();
     expect(reportWindow('2026-09-16T18:00:00Z', null, now)).toBeNull();
   });
+});
+
+it('omits technical diagnostics and email addresses from report content', () => {
+  const value = '質問\n----- ACTI SUPPORT TECHNICAL CONTEXT -----\nprivate diagnostic\n----- ACTI SUPPORT REPLY LOG -----\n送信者: someone@example.com\n本文: 回答';
+  const actual = redactSupportReportMessage(value);
+  expect(actual).toContain('質問'); expect(actual).toContain('本文: 回答'); expect(actual).not.toContain('private diagnostic'); expect(actual).not.toContain('someone@example.com');
 });
