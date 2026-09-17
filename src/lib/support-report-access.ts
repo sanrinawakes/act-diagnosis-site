@@ -1,4 +1,11 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
+export const DEFAULT_SUPPORT_AUTOMATION_START_AT = '2026-07-25T00:00:00.000Z';
+export function supportAutomationStartAt(configured?: string | null) {
+  const timestamp = Date.parse(configured || DEFAULT_SUPPORT_AUTOMATION_START_AT);
+  return Number.isFinite(timestamp)
+    ? new Date(timestamp).toISOString()
+    : DEFAULT_SUPPORT_AUTOMATION_START_AT;
+}
 export function reportAuthorized(header: string | null, secret: string | undefined) {
   if (!secret || secret.length < 32 || !header?.startsWith('Bearer ')) return false;
   const hash = (s: string) => createHash('sha256').update(s).digest();
