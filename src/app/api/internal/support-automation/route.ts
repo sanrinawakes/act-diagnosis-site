@@ -1,4 +1,4 @@
-import { timingSafeEqual } from 'node:crypto';
+import { supportAccessScope, supportWorkerActionError } from '@/lib/support-worker-access';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import {
@@ -227,6 +227,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
     }
 
+    if (supportAccessScope(request.headers.get('authorization'), process.env.SUPPORT_AUTOMATION_SECRET, process.env.SUPPORT_WORKER_SECRET) === 'worker') {
+      const workerError = supportWorkerActionError(body);
+      if (workerError) return NextResponse.json({ error: workerError }, { status: 403 });
+    }
+
     const action = toSafeText(body.action, 40);
     const runId = toSafeText(body.run_id, 120);
     if (!/^[A-Za-z0-9_-]{8,120}$/.test(runId)) {
@@ -246,7 +251,7 @@ export async function POST(request: NextRequest) {
         );
       }
       if (action === 'quality_claim') {
-        return claimQualityIncident(client, incidentId, runId);
+        return claimQualityIncident(client, incidentId, runId, body.expected_updated_at);
       }
       if (action === 'quality_heartbeat') {
         return heartbeatQualityIncident(client, incidentId, runId);
@@ -300,9 +305,13 @@ export async function POST(request: NextRequest) {
 async function claimQualityIncident(
   client: SupabaseClient,
   incidentId: string,
-  runId: string
+  runId: string,
+  expectedUpdatedAt?: unknown
 ) {
   const incident = await getQualityIncident(client, incidentId);
+  if (expectedUpdatedAt !== undefined && expectedUpdatedAt !== incident.updated_at) {
+    return NextResponse.json({ error: 'Quality incident changed before claim' }, { status: 409 });
+  }
   if (incident.status === 'resolved' || incident.status === 'ignored') {
     return NextResponse.json(
       { error: `Quality incident is already ${incident.status}` },
@@ -343,7 +352,8 @@ async function claimQualityIncident(
       claimed_at: claimedAt,
       updated_at: claimedAt,
     })
-    .eq('id', incidentId);
+    .eq('id', incidentId)
+    .eq('updated_at', incident.updated_at);
   query =
     incident.status === 'open'
       ? query.eq('status', 'open')
@@ -1105,22 +1115,10 @@ async function getQualityIncident(
 }
 
 function validateAutomationAuthorization(request: NextRequest) {
-  const expectedSecret = process.env.SUPPORT_AUTOMATION_SECRET || '';
-  if (!expectedSecret) return 'Support automation secret is not configured';
-
-  const authHeader = request.headers.get('authorization') || '';
-  const providedSecret = authHeader.startsWith('Bearer ')
-    ? authHeader.slice('Bearer '.length)
-    : '';
-  const expected = Buffer.from(expectedSecret);
-  const provided = Buffer.from(providedSecret);
-  if (
-    expected.length === provided.length &&
-    timingSafeEqual(expected, provided)
-  ) {
-    return '';
-  }
-  return 'Unauthorized';
+  const admin = process.env.SUPPORT_AUTOMATION_SECRET;
+  const worker = process.env.SUPPORT_WORKER_SECRET;
+  if (!admin && !worker) return 'Support automation secret is not configured';
+  return supportAccessScope(request.headers.get('authorization'), admin, worker) ? '' : 'Unauthorized';
 }
 
 function toSafeText(value: unknown, maxLength: number) {
