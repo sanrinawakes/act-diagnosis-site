@@ -25,6 +25,7 @@ import { extractSupportInboundCustomerMessages } from '@/lib/support-inbound';
 import { deliverSupportDecisionRequest } from '@/lib/server/support-decision-email';
 import { deliverSupportReply } from '@/lib/server/support-email';
 import { hasCoachingAccess } from '@/lib/coaching-access';
+import { supportAutomationStartAt } from '@/lib/support-report-access';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -36,7 +37,6 @@ const MAX_SUPPORT_SCAN_ITEMS = 500;
 const MAX_RECENT_MONITOR_FAILURES = 200;
 const MAX_QUALITY_INCIDENT_SCAN_ITEMS = 200;
 const RECENT_MONITOR_FAILURE_WINDOW_MS = 24 * 60 * 60 * 1000;
-const DEFAULT_AUTOMATION_START_AT = '2026-07-25T00:00:00.000Z';
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
@@ -1389,12 +1389,7 @@ async function verifyAccountResolution(
 }
 
 function getCreatedAfter(requestedValue: string | null) {
-  const configuredValue =
-    requestedValue ||
-    process.env.SUPPORT_AUTOMATION_START_AT ||
-    DEFAULT_AUTOMATION_START_AT;
-  const timestamp = new Date(configuredValue).getTime();
-  return Number.isFinite(timestamp)
-    ? new Date(timestamp).toISOString()
-    : DEFAULT_AUTOMATION_START_AT;
+  return supportAutomationStartAt(
+    requestedValue || process.env.SUPPORT_AUTOMATION_START_AT
+  );
 }

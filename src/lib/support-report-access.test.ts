@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { reportAuthorized, reportWindow, redactSupportReportMessage } from './support-report-access';
+import { reportAuthorized, reportWindow, redactSupportReportMessage, supportAutomationStartAt } from './support-report-access';
 describe('read-only report boundary', () => {
   const secret = 'x'.repeat(64);
   it('requires the separate report credential', () => {
@@ -15,6 +15,11 @@ describe('read-only report boundary', () => {
     expect(reportWindow('2020-01-01', null, now)).toBeNull();
     expect(reportWindow(null, '2099-01-01', now)).toBeNull();
     expect(reportWindow('2026-09-16T18:00:00Z', null, now)).toBeNull();
+  });
+  it('uses one start boundary for support automation and report counts', () => {
+    expect(supportAutomationStartAt()).toBe('2026-07-25T00:00:00.000Z');
+    expect(supportAutomationStartAt('2026-09-01')).toBe('2026-09-01T00:00:00.000Z');
+    expect(supportAutomationStartAt('invalid')).toBe('2026-07-25T00:00:00.000Z');
   });
 });
 
