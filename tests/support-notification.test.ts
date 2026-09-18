@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildSupportNotificationEmail } from '@/lib/support-notification';
+import { buildSupportNotificationEmail, getActiOperatorNotificationRecipients } from '@/lib/support-notification';
 import { normalizeSupportTechnicalContext } from '@/lib/support-ticket-context';
 
 const baseInput = {
@@ -12,9 +12,13 @@ const baseInput = {
   attachmentText: '',
   sentAt: '2026/8/4 18:04:02',
   adminUrl: 'https://act-diagnosis-site.vercel.app/admin/support',
+  ownerDecisionRequired: false,
 };
 
 describe('support notification email', () => {
+  it('has only the requested operator recipient', () => {
+    expect(getActiOperatorNotificationRecipients()).toEqual(['181wyc@gmail.com']);
+  });
   it('identifies a generic ACTI support-form notification', () => {
     const email = buildSupportNotificationEmail({
       ...baseInput,
@@ -26,8 +30,9 @@ describe('support notification email', () => {
     });
 
     expect(email.subject).toBe(
-      '[ACTI内フォーム受付] 不具合の報告: 途中から同じ返事をかえしてくる。意味不明'
+      '【ACTI・受付通知】途中から同じ返事をかえしてくる。意味不明'
     );
+    expect(email.text).toContain('このメールは受付通知です。今すぐあなたが返信・判断する依頼ではありません。');
     expect(email.text).toContain('対象サービス: ACTI');
     expect(email.text).toContain('受付経路: ACTIのサポート画面');
     expect(email.text).toContain(
@@ -36,6 +41,21 @@ describe('support notification email', () => {
     expect(email.text).toContain('受付画面: /support');
     expect(email.text).toContain('会話ID: なし');
     expect(email.text).not.toContain('受付元: support');
+  });
+
+  it('makes a business decision request unmistakable', () => {
+    const email = buildSupportNotificationEmail({
+      ...baseInput,
+      categoryLabel: 'お支払い',
+      subject: '返金について',
+      ownerDecisionRequired: true,
+      technicalContext: normalizeSupportTechnicalContext({ source: 'support' }),
+    });
+
+    expect(email.subject).toBe('【ACTI・要判断】返金について');
+    expect(email.text).toContain('あなたの判断が必要です');
+    expect(email.text).toContain('とともにCodexへ伝えてください');
+    expect(email.text).not.toContain('技術調査・修正・検証・顧客返信はACTI自動対応タスクが処理します');
   });
 
   it('identifies a conversation-linked ACTI coaching report', () => {

@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { reportAuthorized, reportWindow, redactSupportReportMessage, supportAutomationStartAt } from '@/lib/support-report-access';
+import { evaluateSupportAutomationPolicy } from '@/lib/support-automation-policy';
+import { getSupportDecisionState, splitSupportMessage } from '@/lib/support-reply-log';
+import { extractSupportInboundCustomerMessages } from '@/lib/support-inbound';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
@@ -20,7 +23,20 @@ export async function GET(request: NextRequest) {
       const { data, error } = await query;
       if (error) throw new Error('report_read_failed');
       const batch = (data || []) as unknown as Record<string, unknown>[];
-      if (table === 'support_tickets') for (const row of batch) row.message = redactSupportReportMessage(row.message);
+      if (table === 'support_tickets') for (const row of batch) {
+        const ticketId = String(row.id || '');
+        const rawMessage = String(row.message || '');
+        const parsed = splitSupportMessage(rawMessage);
+        const policy = evaluateSupportAutomationPolicy({
+          category: String(row.category || ''),
+          subject: String(row.subject || ''),
+          message: [parsed.customerMessage, ...extractSupportInboundCustomerMessages(parsed.replyLog)].filter(Boolean).join('\n\n'),
+        });
+        const decision = getSupportDecisionState(rawMessage, ticketId);
+        row.ownerActionRequired = (policy.decisionRequired || decision.pending) && !decision.provided;
+        row.ownerDecisionReasons = row.ownerActionRequired ? policy.reasons : [];
+        row.message = redactSupportReportMessage(rawMessage);
+      }
       rows.push(...batch); if (batch.length < 250) return rows;
     }
     throw new Error('report_limit_exceeded');

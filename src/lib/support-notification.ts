@@ -1,5 +1,8 @@
 import type { SupportTechnicalContext } from '@/lib/support-ticket-context';
 
+export const ACTI_OPERATOR_NOTIFICATION_EMAIL = '181wyc@gmail.com';
+export const getActiOperatorNotificationRecipients = () => [ACTI_OPERATOR_NOTIFICATION_EMAIL];
+
 type SupportNotificationInput = {
   ticketId: string;
   categoryLabel: string;
@@ -11,6 +14,7 @@ type SupportNotificationInput = {
   technicalContext: SupportTechnicalContext;
   sentAt: string;
   adminUrl: string;
+  ownerDecisionRequired: boolean;
 };
 
 export function buildSupportNotificationEmail(
@@ -18,9 +22,21 @@ export function buildSupportNotificationEmail(
 ) {
   const sourceLabel = getSupportSourceLabel(input.technicalContext);
   const pagePath = input.technicalContext.pagePath || '不明';
+  const action = input.ownerDecisionRequired
+    ? [
+        'あなたの判断が必要です。料金・返金・契約などについて、受付確認を除き、顧客への回答や確約を保留しています。',
+        `問い合わせを確認し、判断内容をチケットID ${input.ticketId} とともにCodexへ伝えてください。`,
+      ]
+    : [
+        'このメールは受付通知です。今すぐあなたが返信・判断する依頼ではありません。',
+        '問い合わせの処理状況は管理画面と日次レポートで確認できます。',
+      ];
   const text = `
-ACTI内の問い合わせフォームから、新しいサポートチケットを受け付けました。
+ACTIの利用者から、問い合わせフォームに質問が届きました。
 ※これは顧客から運営メールアドレスへ直接送られたメールではありません。
+
+■ あなたに必要な対応
+${action.join('\n')}
 
 ━━━━━━━━━━━━━━━━━━━━
 対象サービス: ACTI
@@ -48,13 +64,12 @@ ${input.attachmentText}
 ━━━━━━━━━━━━━━━━━━━━
 送信日時: ${input.sentAt}
 管理画面: ${input.adminUrl}
-技術調査・修正・検証・顧客返信はACTI自動対応タスクが処理します。
-返金、料金、契約、解約など判断が必要な内容だけ自動送信せず保留します。
+このメールをお客様へ転送しないでください。
 ━━━━━━━━━━━━━━━━━━━━
 `.trim();
 
   return {
-    subject: `[ACTI内フォーム受付] ${input.categoryLabel}: ${input.subject}`,
+    subject: `${input.ownerDecisionRequired ? '【ACTI・要判断】' : '【ACTI・受付通知】'}${input.subject}`,
     text,
   };
 }
