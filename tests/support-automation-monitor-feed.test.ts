@@ -156,6 +156,37 @@ describe('GET /api/internal/support-automation monitor feed', () => {
     );
   });
 
+  it('does not requeue legacy tickets merely because a manual reply updated them', async () => {
+    mocks.createClient.mockReturnValue(
+      createQueueClient([], [], [
+        {
+          id: '11111111-1111-4111-8111-111111111111',
+          user_id: null,
+          name: '既存顧客',
+          email: 'legacy@example.com',
+          category: 'bug',
+          subject: '古い問い合わせ',
+          message: '確認中',
+          status: 'in_progress',
+          created_at: '2026-04-15T04:50:36.151Z',
+          updated_at: '2026-09-17T14:47:38.096Z',
+        },
+      ])
+    );
+
+    const response = await GET(
+      new NextRequest(
+        'https://act-diagnosis-site.vercel.app/api/internal/support-automation',
+        { headers: { Authorization: 'Bearer automation-test-secret' } }
+      )
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.queue_count).toBe(0);
+    expect(body.tickets).toEqual([]);
+  });
+
   it('returns semantic HTTP 200 failures in the unattended automation queue', async () => {
     const qualityIncidents = [
       {
@@ -217,12 +248,14 @@ function createQueueClient(
             return {
               in() {
                 return {
-                  gte() {
+                  gte(column: string, value: string) {
                     return {
                       order() {
                         return {
                           limit: async () => ({
-                            data: supportTickets,
+                            data: supportTickets.filter((ticket) =>
+                              String(ticket[column]) >= value
+                            ),
                             error: null,
                           }),
                         };
