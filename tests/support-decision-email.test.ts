@@ -17,12 +17,10 @@ const ticket = {
 };
 
 describe('support business decision notification', () => {
-  it('deduplicates and validates configured recipients', () => {
-    expect(
-      getSupportDecisionEmails(
-        '181wyc@gmail.com, 181wyc@gmail.com, invalid,STAFF@example.com'
-      )
-    ).toEqual(['181wyc@gmail.com', 'staff@example.com']);
+  it('keeps the owner as the sole recipient even when old recipient settings exist', () => {
+    vi.stubEnv('SUPPORT_DECISION_EMAILS', 'awakes2025@gmail.com,staff@example.com');
+    expect(getSupportDecisionEmails()).toEqual(['181wyc@gmail.com']);
+    vi.unstubAllEnvs();
   });
 
   it('builds a concrete question with the ticket identifier and admin link', () => {
@@ -35,7 +33,7 @@ describe('support business decision notification', () => {
 
     expect(text).toContain(ticket.id);
     expect(text).toContain(ticket.subject);
-    expect(text).toContain('判断してほしいこと');
+    expect(text).toContain('あなたの回答・判断が必要です');
     expect(text).toContain('追加100回の価格');
     expect(text).toContain('/admin/support');
     expect(text).toContain('顧客への確約や料金・契約の変更は行いません');
@@ -45,9 +43,7 @@ describe('support business decision notification', () => {
     const fetchImpl = vi.fn(async (_url: string, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
       expect(body.to).toEqual(['181wyc@gmail.com']);
-      expect(body.subject).toBe(
-        '[ACTI 判断依頼] 追加利用の料金について'
-      );
+      expect(body.subject).toBe('【ACTI・要判断】追加利用の料金について');
       expect(
         (init?.headers as Record<string, string>)['Idempotency-Key']
       ).toBe(`support-decision-${ticket.id}`);
@@ -63,7 +59,6 @@ describe('support business decision notification', () => {
       reason: '料金を決定してください。',
       apiKey: 'resend-test-key',
       fromEmail: 'noreply@silversense.cc',
-      recipients: ['181wyc@gmail.com'],
       fetchImpl: fetchImpl as typeof fetch,
     });
 
@@ -89,7 +84,6 @@ describe('support business decision notification', () => {
         ticket,
         reason: '料金を決定してください。',
         apiKey: 'resend-test-key',
-        recipients: ['181wyc@gmail.com'],
         fetchImpl: fetchImpl as typeof fetch,
       })
     ).rejects.toThrow('Decision notification failed (403)');

@@ -27,9 +27,9 @@ it('keeps legacy open tickets in the legacy count after a recent manual reply', 
     },
     {
       id: '22222222-2222-4222-8222-222222222222',
-      subject: 'New issue',
+      subject: '返金を希望します',
       status: 'open',
-      category: 'bug',
+      category: 'billing',
       created_at: '2026-08-15T04:50:36.151Z',
       updated_at: recent,
       message: 'New question',
@@ -83,5 +83,7 @@ it('keeps legacy open tickets in the legacy count after a recent manual reply', 
   expect(body.openTickets.map((ticket: { id: string }) => ticket.id)).toEqual([
     supportTickets[1].id,
   ]);
+  expect(body.openTickets[0].ownerActionRequired).toBe(true);
+  expect(body.openTickets[0].ownerDecisionReasons).toContain('refund');
   expect(body.legacyOpenCount).toBe(1);
 });

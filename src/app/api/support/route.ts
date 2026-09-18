@@ -17,15 +17,14 @@ import {
   deliverSupportReply,
 } from '@/lib/server/support-email';
 import { buildSupportReceiptMessage } from '@/lib/support-receipt';
-import { buildSupportNotificationEmail } from '@/lib/support-notification';
+import { buildSupportNotificationEmail, getActiOperatorNotificationRecipients } from '@/lib/support-notification';
+import { evaluateSupportAutomationPolicy } from '@/lib/support-automation-policy';
 
 export const runtime = 'nodejs';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-const DEFAULT_SUPPORT_NOTIFICATION_EMAIL = 'silversense.fzco@gmail.com';
-const DEFAULT_SUPPORT_NOTIFICATION_CC_EMAILS = ['awakes2025@gmail.com'];
-const SUPPORT_NOTIFICATION_EMAILS = getSupportNotificationEmails();
+const SUPPORT_NOTIFICATION_EMAILS = getActiOperatorNotificationRecipients();
 const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
 // Resend's onboarding@resend.dev sender is testing-only and fails for external recipients.
 // Use the same verified sender domain as welcome/deactivation emails.
@@ -243,13 +242,12 @@ export async function POST(request: NextRequest) {
     // Send email notification via Resend (if email settings are configured)
     if (RESEND_API_KEY && SUPPORT_NOTIFICATION_EMAILS.length > 0) {
       try {
-        if (!process.env.SUPPORT_NOTIFICATION_EMAIL) {
-          console.log(
-            `SUPPORT_NOTIFICATION_EMAIL not configured - using default ${DEFAULT_SUPPORT_NOTIFICATION_EMAIL}`
-          );
-        }
-
         const categoryLabel = getCategoryLabel(category);
+        const ownerDecisionRequired = evaluateSupportAutomationPolicy({
+          category,
+          subject,
+          message,
+        }).decisionRequired;
         const attachmentText = uploadedAttachments.length
           ? [
               '',
@@ -274,6 +272,7 @@ export async function POST(request: NextRequest) {
             timeZone: 'Asia/Tokyo',
           }),
           adminUrl: `${process.env.NEXT_PUBLIC_SITE_URL || 'https://act-diagnosis-site.vercel.app'}/admin/support`,
+          ownerDecisionRequired,
         });
 
         const emailResponse = await fetch('https://api.resend.com/emails', {
@@ -344,21 +343,6 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
-}
-
-function getSupportNotificationEmails(): string[] {
-  const primaryEmails = process.env.SUPPORT_NOTIFICATION_EMAIL || DEFAULT_SUPPORT_NOTIFICATION_EMAIL;
-  const ccEmails =
-    process.env.SUPPORT_NOTIFICATION_CC_EMAILS || DEFAULT_SUPPORT_NOTIFICATION_CC_EMAILS.join(',');
-
-  return Array.from(
-    new Set(
-      `${primaryEmails},${ccEmails}`
-        .split(',')
-        .map((email) => email.trim().toLowerCase())
-        .filter(Boolean)
-    )
-  );
 }
 
 type ParsedSupportRequest = {

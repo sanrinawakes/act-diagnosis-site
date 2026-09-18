@@ -1,6 +1,6 @@
 import 'server-only';
+import { getActiOperatorNotificationRecipients } from '@/lib/support-notification';
 
-const DEFAULT_SUPPORT_DECISION_EMAIL = '181wyc@gmail.com';
 const RESEND_TIMEOUT_MS = 10_000;
 
 type DecisionTicket = {
@@ -13,20 +13,8 @@ type DecisionTicket = {
 
 type FetchLike = typeof fetch;
 
-export function getSupportDecisionEmails(
-  configuredEmails =
-    process.env.SUPPORT_DECISION_EMAILS ||
-    process.env.SUPPORT_DECISION_EMAIL ||
-    DEFAULT_SUPPORT_DECISION_EMAIL
-) {
-  return Array.from(
-    new Set(
-      configuredEmails
-        .split(',')
-        .map((email) => email.trim().toLowerCase())
-        .filter((email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
-    )
-  );
+export function getSupportDecisionEmails() {
+  return getActiOperatorNotificationRecipients();
 }
 
 export function buildSupportDecisionEmailText(params: {
@@ -35,8 +23,8 @@ export function buildSupportDecisionEmailText(params: {
   adminUrl: string;
 }) {
   return [
-    'ACTIサポートで、経営判断が必要な問い合わせを保留しました。',
-    '技術調査や事実確認は自動対応を継続し、料金・返金・契約・利用条件などの決定だけを確認します。',
+    'ACTIの利用者から届いた問い合わせについて、あなたの回答・判断が必要です。',
+    'この案件は受付確認を除き、顧客への回答や確約を保留しています。',
     '',
     '━━━━━━━━━━━━━━━━━━━━',
     `チケットID: ${params.ticket.id}`,
@@ -45,12 +33,13 @@ export function buildSupportDecisionEmailText(params: {
     `件名: ${params.ticket.subject}`,
     '━━━━━━━━━━━━━━━━━━━━',
     '',
-    '■ 判断してほしいこと',
+    '■ あなたに判断してほしいこと',
     params.reason,
     '',
     `確認画面: ${params.adminUrl}`,
     '',
-    '判断内容をCodexへ伝える際は、上記チケットIDを添えてください。',
+    '管理画面で内容を確認し、判断内容を上記チケットIDとともにCodexへ伝えてください。',
+    'この通知メールへの返信だけでは、判断内容はチケットに登録されません。',
     '判断が確定するまで、顧客への確約や料金・契約の変更は行いません。',
   ].join('\n');
 }
@@ -61,13 +50,12 @@ export async function deliverSupportDecisionRequest(params: {
   siteUrl?: string;
   apiKey?: string;
   fromEmail?: string;
-  recipients?: string[];
   fetchImpl?: FetchLike;
 }) {
   const apiKey = params.apiKey ?? process.env.RESEND_API_KEY ?? '';
   const fromEmail =
     params.fromEmail ?? process.env.FROM_EMAIL ?? 'noreply@silversense.cc';
-  const recipients = params.recipients ?? getSupportDecisionEmails();
+  const recipients = getSupportDecisionEmails();
   const fetchImpl = params.fetchImpl ?? fetch;
 
   if (!apiKey) {
@@ -98,7 +86,7 @@ export async function deliverSupportDecisionRequest(params: {
       body: JSON.stringify({
         from: `ACTI 判断確認 <${fromEmail}>`,
         to: recipients,
-        subject: `[ACTI 判断依頼] ${params.ticket.subject}`,
+        subject: `【ACTI・要判断】${params.ticket.subject}`,
         text: buildSupportDecisionEmailText({
           ticket: params.ticket,
           reason: params.reason,
