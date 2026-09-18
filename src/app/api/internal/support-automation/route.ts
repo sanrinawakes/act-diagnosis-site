@@ -103,7 +103,7 @@ export async function GET(request: NextRequest) {
       .from('support_tickets')
       .select('*')
       .in('status', ['open', 'in_progress'])
-      .gte('updated_at', createdAfter)
+      .gte('created_at', createdAfter)
       .order('updated_at', { ascending: true })
       .limit(MAX_SUPPORT_SCAN_ITEMS);
 
