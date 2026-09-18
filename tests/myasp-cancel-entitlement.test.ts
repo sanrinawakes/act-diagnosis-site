@@ -95,11 +95,18 @@ function configureClient(primaryProfile: Profile | null) {
   mocks.findMyaspProfile.mockResolvedValue({ data: null, error: null });
 }
 
-function cancellationRequest(secret = 'myasp-cancel-test-secret') {
+function cancellationRequest(
+  secret = 'myasp-cancel-test-secret',
+  eventType: string | null = 'paid_contract_cancelled'
+) {
   return new NextRequest('https://acti.example.test/api/myasp/cancel', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ mail: 'member@example.test', secret }),
+    body: JSON.stringify({
+      mail: 'member@example.test',
+      secret,
+      ...(eventType === null ? {} : { event_type: eventType }),
+    }),
   });
 }
 
@@ -110,6 +117,89 @@ describe('POST /api/myasp/cancel', () => {
     mocks.cancelMembership.mockResolvedValue({ error: null });
     mocks.deactivateProfile.mockResolvedValue({ data: null, error: null });
     mocks.sendDeactivationEmail.mockResolvedValue({ success: true });
+  });
+
+  it('does not revoke paid access for an email unsubscribe', async () => {
+    configureClient({
+      id: 'c88e012a-44bf-4529-962d-068ca69d0bc5',
+      email: 'member@example.test',
+      display_name: 'Member',
+      subscription_status: 'active',
+      is_active: true,
+    });
+
+    const response = await POST(cancellationRequest(undefined, 'mail_unsubscribed'));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      success: true,
+      action: 'mail_unsubscribed_access_unchanged',
+    });
+    expect(mocks.removePending).not.toHaveBeenCalled();
+    expect(mocks.cancelMembership).not.toHaveBeenCalled();
+    expect(mocks.deactivateProfile).not.toHaveBeenCalled();
+    expect(mocks.sendDeactivationEmail).not.toHaveBeenCalled();
+  });
+
+  it('refuses an event without explicit paid-contract cancellation evidence', async () => {
+    configureClient(null);
+
+    const response = await POST(cancellationRequest(undefined, null));
+
+    expect(response.status).toBe(422);
+    expect(mocks.removePending).not.toHaveBeenCalled();
+    expect(mocks.cancelMembership).not.toHaveBeenCalled();
+  });
+
+  it('rejects an ambiguous reason even when the secret is valid', async () => {
+    configureClient(null);
+    const response = await POST(new NextRequest('https://acti.example.test/api/myasp/cancel', {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        mail: 'member@example.test',
+        secret: 'myasp-cancel-test-secret',
+        reason: '配信解除',
+      }),
+    }));
+
+    expect(response.status).toBe(422);
+    expect(mocks.removePending).not.toHaveBeenCalled();
+    expect(mocks.cancelMembership).not.toHaveBeenCalled();
+  });
+
+  it('rejects a malformed event type without touching the entitlement', async () => {
+    configureClient(null);
+    const response = await POST(new NextRequest('https://acti.example.test/api/myasp/cancel', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        mail: 'member@example.test',
+        secret: 'myasp-cancel-test-secret',
+        event_type: 123,
+      }),
+    }));
+
+    expect(response.status).toBe(422);
+    expect(mocks.removePending).not.toHaveBeenCalled();
+    expect(mocks.cancelMembership).not.toHaveBeenCalled();
+  });
+
+  it('accepts an explicitly typed contract cancellation sent as form data', async () => {
+    configureClient(null);
+    const response = await POST(new NextRequest('https://acti.example.test/api/myasp/cancel', {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        mail: 'member@example.test',
+        secret: 'myasp-cancel-test-secret',
+        event_type: 'paid_contract_cancelled',
+      }),
+    }));
+
+    expect(response.status).toBe(200);
+    expect(mocks.removePending).toHaveBeenCalledWith('email', 'member@example.test');
+    expect(mocks.cancelMembership).toHaveBeenCalledWith('email', 'member@example.test');
   });
 
   it('revokes a pending entitlement even before an ACTI account exists', async () => {

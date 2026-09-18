@@ -18,14 +18,16 @@ function createAdminClient() {
 /**
  * MyASP Cancellation Webhook
  *
- * Called only when a user cancels their subscription on MyASP. Recurring
- * payment failures use /api/myasp/payment-state so they can be restored by a
+ * Called only when a user explicitly cancels their paid subscription on MyASP.
+ * Unsubscribing from a MyASP email scenario is not a paid-contract cancellation.
+ * Recurring payment failures use /api/myasp/payment-state so they can be restored by a
  * later successful retry without being confused with an explicit cancellation.
  * - Finds user by email and deactivates their account
  *
  * MyASP sends POST with form data (application/x-www-form-urlencoded):
  *   - mail: user's email address
  *   - secret: webhook secret for verification
+ *   - event_type: paid_contract_cancelled (required to change access)
  *   - reason: cancellation reason (optional, depends on MyASP config)
  */
 export async function POST(request: NextRequest) {
@@ -67,6 +69,26 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: 'Email (mail) is required' },
         { status: 400 }
+      );
+    }
+
+    // MyASP calls a scenario "cancelled" after email delivery is unsubscribed.
+    // That state alone is not proof that the customer's paid contract ended.
+    // A missing or unexpected type must fail closed before any entitlement write.
+    const eventType = typeof body.event_type === 'string'
+      ? body.event_type.trim()
+      : undefined;
+    if (eventType === 'mail_unsubscribed') {
+      return NextResponse.json({
+        success: true,
+        action: 'mail_unsubscribed_access_unchanged',
+      });
+    }
+    if (eventType !== 'paid_contract_cancelled') {
+      console.error('MyASP cancellation webhook rejected without paid-contract event');
+      return NextResponse.json(
+        { error: 'Explicit paid-contract cancellation event is required' },
+        { status: 422 }
       );
     }
 
