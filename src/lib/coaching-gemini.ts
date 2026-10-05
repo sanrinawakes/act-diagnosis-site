@@ -504,16 +504,23 @@ export async function generateCoachingText(params: {
     }
   );
   if (immediateResponse) {
-    return {
+    const verifiedImmediateResponse = verifyImmediateCoachingResponse({
       text: immediateResponse.text,
-      usage: {},
       modelName: immediateResponse.modelName,
-      provider: 'local',
-      qualityRepairAttempted: false,
-      qualityRepairAccepted: false,
-      qualityInitialIssues: [],
-      qualityFinalIssues: [],
-      qualitySafetyHold: false,
+      lastUserText,
+      historyMessages: params.historyMessages,
+    });
+    return {
+      text: verifiedImmediateResponse.text,
+      usage: {},
+      modelName: verifiedImmediateResponse.modelName,
+      provider: verifiedImmediateResponse.provider,
+      qualityRepairAttempted: verifiedImmediateResponse.repairAttempted,
+      qualityRepairAccepted: verifiedImmediateResponse.repairAccepted,
+      qualityInitialIssues: verifiedImmediateResponse.initialIssues,
+      qualityFinalIssues: verifiedImmediateResponse.finalIssues,
+      qualitySafetyHold: verifiedImmediateResponse.qualitySafetyHold,
+      chargeable: verifiedImmediateResponse.chargeable,
       completionStatus: 'complete' as const,
       finishReason: immediateResponse.finishReason,
     };
@@ -749,19 +756,28 @@ export function createJsonLineStream(params: {
           }
         );
         if (immediateResponse) {
-          fullText = immediateResponse.text;
+          const verifiedImmediateResponse = verifyImmediateCoachingResponse({
+            text: immediateResponse.text,
+            modelName: immediateResponse.modelName,
+            lastUserText,
+            historyMessages: params.historyMessages,
+          });
+          fullText = verifiedImmediateResponse.text;
           writeVerifiedChunk(fullText);
           const finalization = await resolveDonePayload(params.onDone, {}, {
             message: fullText,
             completionStatus: 'complete',
             finishReason: immediateResponse.finishReason,
-            modelName: immediateResponse.modelName,
-            qualityInitialIssues: [],
-            qualityFinalIssues: [],
-            qualitySafetyHold: false,
+            modelName: verifiedImmediateResponse.modelName,
+            provider: verifiedImmediateResponse.provider,
+            qualityInitialIssues: verifiedImmediateResponse.initialIssues,
+            qualityFinalIssues: verifiedImmediateResponse.finalIssues,
+            qualitySafetyHold: verifiedImmediateResponse.qualitySafetyHold,
+            chargeable: verifiedImmediateResponse.chargeable,
           });
           logChatTelemetry('done', params.telemetry, {
-            modelName: immediateResponse.modelName,
+            modelName: verifiedImmediateResponse.modelName,
+            provider: verifiedImmediateResponse.provider,
             completionStatus: 'complete',
             elapsedMs: Date.now() - startedAt,
             firstChunkMs,
@@ -776,12 +792,14 @@ export function createJsonLineStream(params: {
           });
           write({
             type: 'done',
-            modelName: immediateResponse.modelName,
-            qualityRepairAttempted: false,
-            qualityRepairAccepted: false,
-            qualityInitialIssues: [],
-            qualityFinalIssues: [],
-            qualitySafetyHold: false,
+            modelName: verifiedImmediateResponse.modelName,
+            provider: verifiedImmediateResponse.provider,
+            qualityRepairAttempted: verifiedImmediateResponse.repairAttempted,
+            qualityRepairAccepted: verifiedImmediateResponse.repairAccepted,
+            qualityInitialIssues: verifiedImmediateResponse.initialIssues,
+            qualityFinalIssues: verifiedImmediateResponse.finalIssues,
+            qualitySafetyHold: verifiedImmediateResponse.qualitySafetyHold,
+            chargeable: verifiedImmediateResponse.chargeable,
             completionStatus: 'complete',
             finalizationStatus: finalization.status,
             finishReason: immediateResponse.finishReason,
@@ -3771,6 +3789,44 @@ function resolveObservedCoachingResponseQuality(params: {
     qualitySafetyHold: false,
     chargeable: true,
   };
+}
+
+// Local immediate replies bypass the model stream, but they are still customer
+// output. Run them through the same final verifier so a short echo or a
+// repeated canned prompt cannot be persisted or displayed as a successful turn.
+export function verifyImmediateCoachingResponse(params: {
+  text: string;
+  modelName: string;
+  lastUserText: string;
+  historyMessages: CoachingChatMessage[];
+}) {
+  if (['local-safety', 'local-guard', 'local-rest'].includes(params.modelName)) {
+    return {
+      text: params.text,
+      usage: {},
+      modelName: params.modelName,
+      provider: 'local',
+      repairAttempted: false,
+      repairAccepted: false,
+      initialIssues: [],
+      finalIssues: [],
+      qualitySafetyHold: false,
+      chargeable: false,
+    };
+  }
+  const observed = resolveObservedCoachingResponseQuality({
+    rawText: params.text,
+    historyMessages: params.historyMessages,
+    lastUserText: params.lastUserText,
+    usage: {},
+    modelName: params.modelName,
+    provider: 'local',
+  });
+  return ensureVerifiedCoachingResolution({
+    resolution: observed,
+    lastUserText: params.lastUserText,
+    historyMessages: params.historyMessages,
+  });
 }
 
 async function resolveCoachingResponseQuality(params: {
