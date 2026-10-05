@@ -182,6 +182,7 @@ import {
   assessCoachingResponseQuality,
   createJsonLineStream,
   generateCoachingText,
+  verifyImmediateCoachingResponse,
 } from '../src/lib/coaching-gemini';
 import { DEFAULT_GEMINI_TEXT_TIMEOUT_MS } from '../src/lib/coaching-model-config';
 
@@ -750,6 +751,24 @@ describe('createJsonLineStream', () => {
       message:
         '明日の朝、SNSで最初に伝えたい内容を一文だけメモに書いてください。',
     });
+  });
+
+  it('即時応答でも直前と同じ定型文は最終品質ゲートを通す', () => {
+    vi.stubEnv('COACHING_OUTPUT_PIPELINE_MODE', 'minimal');
+    const repeated = 'はい';
+    const result = verifyImmediateCoachingResponse({
+      text: repeated,
+      modelName: 'local-long-history-action',
+      lastUserText: '自分を整えたいと思っています。今の自分に必要なものを一緒に考えてください。',
+      historyMessages: [
+        { role: 'user', content: '自分を整えたいと思っています。' },
+      ],
+    });
+
+    expect(result).toMatchObject({
+      modelName: 'local-quality-fallback',
+    });
+    expect(result.text).not.toBe(repeated);
   });
 
   it('話題ずれを指摘されたら直近の相談へ即時に戻す', async () => {
