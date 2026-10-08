@@ -7812,6 +7812,36 @@ describe('normalizeCoachingOutput', () => {
     expect(result.text.trim().length).toBeGreaterThan(0);
     expect(result.text).not.toBe('');
   });
+
+  it('最終フォールバックも品質不合格なら、不合格文を保存せず再送案内へ切り替える', () => {
+    process.env.COACHING_OUTPUT_PIPELINE_MODE = 'minimal';
+    const repeated =
+      '今の相談について、まだ書かれていない事情を決めつけず、実際に起きたことと今いちばん困っていることを分けて考えます。最初に、相談したい出来事の中から、確認できる事実を一つだけこの画面に書いてください。相手の意図や自分の評価ではなく、実際に起きたことだけで大丈夫です。';
+    const historyMessages = [
+      { role: 'user' as const, content: '仕事の進め方に悩んでいます。' },
+      { role: 'assistant' as const, content: repeated },
+      { role: 'user' as const, content: '売上を上げたいです。' },
+      { role: 'assistant' as const, content: repeated },
+    ];
+    const result = ensureVerifiedCoachingResolution({
+      resolution: {
+        text: repeated,
+        usage: {},
+        modelName: 'local-test',
+        provider: 'local',
+        repairAttempted: false,
+        repairAccepted: false,
+        initialIssues: ['repeated_closing_move'],
+        finalIssues: ['repeated_closing_move'],
+      },
+      lastUserText: 'お金の流れが遅くなっています。',
+      historyMessages,
+    });
+
+    expect(result.text).not.toBe(repeated);
+    expect(result.finalIssues).toEqual([]);
+    expect(result.qualitySafetyHold).toBe(false);
+  });
 });
 
 describe('factual replies and conversation corrections', () => {

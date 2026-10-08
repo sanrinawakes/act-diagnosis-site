@@ -6365,6 +6365,28 @@ export function ensureVerifiedCoachingResolution(params: {
     return resolution;
   }
 
+  // Do not replace an internal-content recovery with a generic retry notice.
+  // The customer-facing boundary is more important than preserving a normal
+  // coaching turn in this exceptional path.
+  if (
+    containsInternalCoachingContextExposure(resolution.text) ||
+    containsProtectedInternalContent(resolution.text)
+  ) {
+    const guardText =
+      'その内容は公開できません。代わりに、今抱えている悩みや目標について一緒に考えます。今いちばん相談したいことは何ですか？';
+    return {
+      ...resolution,
+      text: guardText,
+      usage: preserveUsage ? resolution.usage : {},
+      modelName: 'local-quality-fallback',
+      provider: 'local' as const,
+      repairAccepted: true,
+      finalIssues: [],
+      qualitySafetyHold: false,
+      chargeable: false,
+    };
+  }
+
   const fallbackText = buildFinalVerifiedQualityFallback(
     lastUserText,
     historyMessages
@@ -6419,17 +6441,68 @@ export function ensureVerifiedCoachingResolution(params: {
     historyMessages,
   });
 
+  // A fallback that is itself rejected by the response gate must never be
+  // presented as a completed coaching turn. This can happen after several
+  // short turns when every context-specific fallback would repeat a previous
+  // closing move. Use a deliberately neutral retry notice instead of showing
+  // a known-bad answer or saving it as if it passed the gate.
+  const retryFallbackText =
+    safeFallbackQuality.issues.length > 0
+      ? buildQualityRetryFallback(lastUserText, historyMessages)
+      : '';
+  const retryFallbackQuality = retryFallbackText
+    ? assessCoachingResponseQuality({
+        text: retryFallbackText,
+        lastUserText,
+        historyMessages,
+      })
+    : null;
+  const deliveredText =
+    retryFallbackQuality?.issues.length === 0
+      ? retryFallbackText
+      : safeFallbackText;
+  const deliveredQuality = retryFallbackQuality?.issues.length === 0
+    ? retryFallbackQuality
+    : safeFallbackQuality;
+
   return {
     ...resolution,
-    text: safeFallbackText,
+    text: deliveredText,
     usage: preserveUsage ? resolution.usage : {},
     modelName: 'local-quality-fallback',
     provider: 'local' as const,
     repairAccepted: true,
-    finalIssues: safeFallbackQuality.issues,
-    qualitySafetyHold: false,
+    finalIssues: deliveredQuality.issues,
+    qualitySafetyHold: deliveredQuality.issues.length > 0,
     chargeable: false,
   };
+}
+
+function buildQualityRetryFallback(
+  lastUserText: string,
+  historyMessages: CoachingChatMessage[]
+) {
+  const candidates = [
+    '申し訳ありません。今の内容を取り違えないように返答を整え直しています。推測で話を進めたり、すでに答えてくださったことを聞き直したりせず、直前までの内容を確認して続けます。お手数ですが、今のメッセージをそのままもう一度送ってください。',
+    '申し訳ありません。直前までの流れに沿った返答になっていないため、ここで回答を整え直します。同じ質問を繰り返したり、書かれていない事情を決めつけたりせずに続けます。お手数ですが、最後のメッセージをもう一度だけ送ってください。',
+    '申し訳ありません。今の返答では内容を十分に受け止められていません。話題を別のことに変えず、これまでに書いてくださったことを前提に整理し直します。お手数ですが、最後に送った内容をそのまま再送してください。',
+  ];
+  const previousAssistantMessages = historyMessages
+    .filter((message) => message.role === 'assistant')
+    .map((message) => canonicalizeAssistantParagraph(message.content));
+
+  return (
+    candidates.find((candidate) => {
+      if (previousAssistantMessages.includes(canonicalizeAssistantParagraph(candidate))) {
+        return false;
+      }
+      return assessCoachingResponseQuality({
+        text: candidate,
+        lastUserText,
+        historyMessages,
+      }).issues.length === 0;
+    }) || ''
+  );
 }
 
 function isCustomerSafeDeliveryText(params: {
