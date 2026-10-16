@@ -7,6 +7,7 @@ import {
 import { sendCoachingAlert } from '@/lib/coaching-alerts';
 import { COACHING_SCOPE_GUIDANCE } from '@/lib/coaching-scope';
 import { containsDeadlineOutcomeAssurance, stripAttributedDeadlineQuotes } from '@/lib/coaching-deadline-language.mjs';
+import { containsUnsupportedEmotionIntensity, removeUnsupportedEmotionIntensity } from '@/lib/coaching-emotion-language.mjs';
 import {
   getCoachingOutputPipelineConfig,
   type CoachingOutputPipelineMode,
@@ -162,6 +163,7 @@ const COACHING_FACT_AND_LANGUAGE_INSTRUCTION = [
   '締切が分かっても、残作業量・所要時間・使える時間が未確認なら、期限に間に合うとも間に合わないとも断定しないでください。資料の構成案があることだけでも、完成の見込みは断定できません。条件文・誘導する質問・相手への返答例にも新しい保証を足さず、必要な作業と時間を確認してください。見積もりがある場合も確実な結果とは扱わず、その前提と不確実性を示してください。締切は現在の話題で利用者が最後に明言したものだけを使い、訂正・否定された期限やAI側の発言を根拠にしないでください。',
   '自分が前回何を質問・提案したかを、会話履歴にない内容で説明したり謝罪したりしないでください。話を聞いてほしいという希望には、今の希望に沿って返答してください。',
   '利用者が希望した金額や負担と、相手が了承した金額や負担を混同しないでください。希望を伝えたことだけから、合意や約束が成立したとは扱わず、合意の有無が不明ならその有無を確認してください。',
+  '迷いや理由を話したいという希望だけから、「心がかき乱される」「激しく動揺している」など感情の種類や強さを追加しないでください。本人が明言した感情をその強さのまま使い、第三者の言葉やAI自身の以前の推測を本人の状態へ変えないでください。',
   '出力前に各文を読み返し、動詞の重複、助詞・接続語の欠落、数量への無関係な英単語の混入を除いてください。利用者が述べていない感情は断定しないでください。',
 ].join('\n');
 
@@ -2526,6 +2528,9 @@ export function assessCoachingResponseQuality(params: {
   if (hasUnsupportedDeadlineClaim(text, lastUserText, historyMessages)) {
     issues.push('context_mismatch');
   }
+  if (containsUnsupportedEmotionIntensity(text, getCurrentPlanningUserTexts(lastUserText, historyMessages))) {
+    issues.push('context_mismatch');
+  }
   const relativeWeekdays = (value: string) => Array.from(
     value.matchAll(/(今日|本日|今|明日|あす|昨日)(?:は|が|の)?[、,\s]*([日月火水木金土])曜(?:日)?/g),
     (match) => `${/今日|本日|今/.test(match[1]) ? '今日' : match[1] === 'あす' ? '明日' : match[1]}:${match[2]}`
@@ -4533,6 +4538,11 @@ function buildSafeQualityFallback(
     if (planningFallback && assessCoachingResponseQuality({
       text: planningFallback, lastUserText, historyMessages,
     }).issues.length === 0) return planningFallback;
+
+    const deeperQuestionFallback = buildExplicitDeeperQuestionFallback(lastUserText, historyMessages);
+    if (deeperQuestionFallback && assessCoachingResponseQuality({
+      text: deeperQuestionFallback, lastUserText, historyMessages,
+    }).issues.length === 0) return deeperQuestionFallback;
 
     const focusedShortResponse = limitUnrequestedCoachingMoves(
       withoutUngroundedCategorization,
@@ -9204,7 +9214,9 @@ function removeUnsupportedPsychologicalInference(
       .map((message) => stripAttachmentMarkdown(message.content)),
     lastUserText,
   ].join('\n');
-  let candidateText = text;
+  let candidateText = removeUnsupportedEmotionIntensity(
+    text, getCurrentPlanningUserTexts(lastUserText, historyMessages)
+  );
   if (hasUnsupportedDeclineCapacity(candidateText, lastUserText, historyMessages)) {
     candidateText = buildDirectWordingFallback(lastUserText, userContext, historyMessages);
   }
@@ -9401,7 +9413,7 @@ function removeUnsupportedPsychologicalInference(
     { output: /しんどい/, supportedBy: /しんどい/ },
     { output: /つらい|辛い/, supportedBy: /つらい|辛い/ },
     { output: /悲し/, supportedBy: /悲し/ },
-    { output: /悔し/, supportedBy: /悔し/ },
+    { output: /(?<!後)悔し/, supportedBy: /(?<!後)悔し/ },
     { output: /不安/, supportedBy: /不安/ },
     { output: /焦り|焦っ/, supportedBy: /焦り|焦っ/ },
     { output: /寂し/, supportedBy: /寂し/ },

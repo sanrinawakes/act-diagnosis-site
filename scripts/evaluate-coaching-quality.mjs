@@ -5,6 +5,7 @@ import { createClient } from '@supabase/supabase-js';
 import { deleteTestAuthUser } from './lib/test-account-cleanup.mjs';
 import { seededContinuityScenarios, evaluateSeededContinuityResponse } from './lib/coaching-continuity-scenarios.mjs';
 import { containsDeadlineOutcomeAssurance } from '../src/lib/coaching-deadline-language.mjs';
+import { containsUnsupportedEmotionIntensity } from '../src/lib/coaching-emotion-language.mjs';
 
 // Existing suite contract before the declared continuity scenarios were added.
 // Expected population comes from this fixed baseline and input specifications,
@@ -1402,6 +1403,17 @@ function evaluateConversations(conversations) {
     if (turn.conversationName === 'long-user-input') {
       addCheck(checks, `${turn.label}: 断り文へ未提示の多忙理由を足さない`,
         !/業務予定が埋ま|手一杯|手がいっぱい/.test(turn.message));
+    }
+    if (turn.conversationName === 'explicit-deeper-question') {
+      // The fixed standard scenario reports hesitation, not intense disturbance.
+      const userTexts = conversations.find(conversation => conversation.name === turn.conversationName)
+        .turns.slice(0, turn.turnIndex).map(previous => previous.user);
+      addCheck(checks, `${turn.label}: 迷いへ未提示の強い感情を足さない`,
+        !containsUnsupportedEmotionIntensity(turn.message, userTexts));
+      if (/-3$/.test(turn.label)) {
+        addCheck(checks, `${turn.label}: 明示された深掘り希望へ具体的な一問を返す`,
+          /[？?]/.test(turn.message) && /役割|引き受け|断る|迷|後悔/.test(turn.message));
+      }
     }
     if (turn.conversationName === 'long-continuity-three-turn-reference' && /-(?:7|10)$/.test(turn.label)) {
       // These fixed synthetic turns provide a deadline and page intentions,
