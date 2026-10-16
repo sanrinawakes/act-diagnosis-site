@@ -164,6 +164,7 @@ const COACHING_FACT_AND_LANGUAGE_INSTRUCTION = [
   '自分が前回何を質問・提案したかを、会話履歴にない内容で説明したり謝罪したりしないでください。話を聞いてほしいという希望には、今の希望に沿って返答してください。',
   '利用者が希望した金額や負担と、相手が了承した金額や負担を混同しないでください。希望を伝えたことだけから、合意や約束が成立したとは扱わず、合意の有無が不明ならその有無を確認してください。',
   '迷いや理由を話したいという希望だけから、「心がかき乱される」「激しく動揺している」など感情の種類や強さを追加しないでください。本人が明言した感情をその強さのまま使い、第三者の言葉やAI自身の以前の推測を本人の状態へ変えないでください。',
+  '職種や出来事への事実回答だけから、本人が対応に迷っているとは扱わないでください。「どのような対応で迷っていますか」という質問も迷いの存在を前提にします。本人がまだ述べていない場合は、必要な確認や話したい点を中立的に尋ねてください。',
   '出力前に各文を読み返し、動詞の重複、助詞・接続語の欠落、数量への無関係な英単語の混入を除いてください。利用者が述べていない感情は断定しないでください。',
 ].join('\n');
 
@@ -2461,6 +2462,9 @@ export function assessCoachingResponseQuality(params: {
   const workAnswerContext = getClosedWorkAnswerContext(lastUserText, historyMessages);
   const newTopicFocus = getExplicitNewTopicFocus(lastUserText);
   const groundedShortFollowup = isGroundedShortFollowup(text, workAnswerContext, newTopicFocus);
+  if (workAnswerContext && hasUnreportedServiceHesitation(text, lastUserText, historyMessages)) {
+    issues.push('context_mismatch');
+  }
   const answeredQuestion = getAnsweredExistenceQuestion(lastUserText, historyMessages);
   const factualReplyFallback = buildFactualReplyFallback(lastUserText, historyMessages);
   const groundedDeadlineBriefReply = buildGroundedDeadlineBriefReply(lastUserText);
@@ -4827,6 +4831,18 @@ function getClosedWorkAnswerContext(lastUserText: string, history: CoachingChatM
 function asksCancellationReason(text: string) {
   const question = text.match(/[^。！？?\n]+[？?]/g)?.at(-1) || '';
   return /理由|なぜ|どうして|何のため/.test(question);
+}
+
+function hasUnreportedServiceHesitation(text: string, lastUserText: string, history: CoachingChatMessage[]) {
+  // A profession answer grounds the cancellation scene, not a new mental state.
+  // Keep this to the observed presupposing question and direct, user-owned
+  // reports about responding; this is not a general emotion classifier.
+  if (!/(?:どのような|どんな|どの)(?:対応|点)[^。！？?\n]{0,16}迷(?:って|われ)/.test(text)) return false;
+  const ownState = getCurrentPlanningUserTexts(lastUserText, history)
+    .flatMap(value => value.replace(/「[^」]*」|『[^』]*』/g, '').split(/[。！？?\n]/))
+    .map(value => value.trim())
+    .findLast(value => /^(?:(?:私|自分)は[、,\s]*)?(?:今は[、,\s]*|もう[、,\s]*)?(?:(?:対応|返答)(?:で|に)|(?:どう|どのように)対応(?:する|すべき|すればよい)か)迷/.test(value));
+  return !ownState || !/迷(?:っています|っている|います)$/.test(ownState);
 }
 
 function isGroundedShortFollowup(
