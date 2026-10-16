@@ -1,5 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { randomUUID } from 'node:crypto';
+import { currentTopicUserTexts } from '../src/lib/coaching-emotion-language.mjs';
+import { containsUnsupportedSituationPremise, containsUngroundedTaskAssumption } from '../src/lib/coaching-action-language.mjs';
 import { deleteTestAuthUser } from './lib/test-account-cleanup.mjs';
 
 const args = new Map(
@@ -357,6 +359,7 @@ async function sendStreamRequest({
             .map((item) => item.trim())
             .includes(paragraph)
       ),
+    currentUserTexts: currentTopicUserTexts(messages.filter(message => message.role === 'user').map(message => message.content)),
     userGrounding: {
       expectation: messages.some(
         (message) => message.role === 'user' && /期待|応え/.test(message.content)
@@ -721,6 +724,10 @@ function assertResults(results) {
       throw new Error(
         `${result.label} returned a vague action target: ${result.message}`
       );
+    }
+    if (containsUnsupportedSituationPremise(result.message, result.currentUserTexts) ||
+        containsUngroundedTaskAssumption(result.message, result.currentUserTexts)) {
+      throw new Error(`${result.label} invented an unsupported situation or task premise: ${result.message}`);
     }
     if (/仕事のタスク/.test(result.message)) {
       throw new Error(

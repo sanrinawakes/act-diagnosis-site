@@ -928,7 +928,8 @@ describe('createJsonLineStream', () => {
       completionStatus: 'complete',
       finalizationStatus: 'complete',
     });
-    expect(done.message).toContain('最初に見直す点を一つ');
+    expect(done.message).toContain('次の一言が怖い');
+    expect(done.message).not.toMatch(/前回のご指摘|言葉を出す前に止ま/);
     expect(done.message.length).toBeGreaterThanOrEqual(90);
   });
 
@@ -1013,7 +1014,7 @@ describe('createJsonLineStream', () => {
     ).toEqual([]);
   });
 
-  it('品質フォールバックでも上司への具体的な確認文を一般化しない', async () => {
+  it('品質フォールバックでも上司を保持しAI提案を実指摘へ変えない', async () => {
     const stream = createJsonLineStream({
       systemPrompt: 'テスト用指示',
       historyMessages: [
@@ -1046,7 +1047,7 @@ describe('createJsonLineStream', () => {
 
     expect(done.qualityFinalIssues).toEqual([]);
     expect(done.message).toBe(
-      '明日の朝、上司に「前回のご指摘について、最初に見直す点を一つだけ挙げてもらえますか」と確認してください。'
+      '明日の朝、上司に次に伝えたいことを一文だけメモに書いてください。'
     );
     expect(done.message).not.toContain('相手に最初に伝える');
   });
