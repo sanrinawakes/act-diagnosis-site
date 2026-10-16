@@ -435,7 +435,8 @@ describe('final verified quality fallback', () => {
     );
 
     expect(result).toContain('家の話に切り替えます');
-    expect(result).toContain('出来事を、一つだけ具体的に');
+    expect(result).toContain('どのような出来事について相談したいですか');
+    expect(result).not.toContain('止まっている');
     expect(result).not.toContain('仕事全体');
     expect(
       assessCoachingResponseQuality({
@@ -1814,7 +1815,7 @@ describe('ensureVerifiedCoachingResolution', () => {
     const resolution: Parameters<
       typeof ensureVerifiedCoachingResolution
     >[0]['resolution'] = {
-      text: '明日の朝、上司に「前回のご指摘について、最初に見直す点を一つだけ挙げてもらえますか」と確認してください。',
+      text: '明日の朝、上司に次に伝えたいことを一文だけメモに書いてください。',
       usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
       modelName: 'gemini-3.5-flash',
       provider: 'gemini' as const,
@@ -5825,7 +5826,7 @@ describe('normalizeCoachingOutput', () => {
     expect(result).not.toMatch(/ステップ|だけ[^\n]{0,30}だけ/);
   });
 
-  it('上司への確認文を決めた後の翌朝行動を、曖昧な相手の一文へ戻さない', () => {
+  it('AIの確認文を本人の実指摘へ昇格せず、上司への翌朝の一動作を返す', () => {
     const result = normalizeCoachingOutput(
       '明日の朝、相手に最初に伝える一文だけをメモに書いてください。',
       'では、明日まず何をすればいいか一つだけ教えてください。',
@@ -5844,7 +5845,7 @@ describe('normalizeCoachingOutput', () => {
     );
 
     expect(result).toBe(
-      '明日の朝、上司に「前回のご指摘について、最初に見直す点を一つだけ挙げてもらえますか」と確認してください。'
+      '明日の朝、上司に次に伝えたいことを一文だけメモに書いてください。'
     );
     expect(result).not.toContain('相手に最初に伝える');
   });

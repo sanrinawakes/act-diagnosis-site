@@ -8,7 +8,7 @@ import { sendCoachingAlert } from '@/lib/coaching-alerts';
 import { COACHING_SCOPE_GUIDANCE } from '@/lib/coaching-scope';
 import { containsDeadlineOutcomeAssurance, stripAttributedDeadlineQuotes } from '@/lib/coaching-deadline-language.mjs';
 import { containsUnsupportedEmotionIntensity, removeUnsupportedEmotionIntensity, containsUnsupportedConcernPremise, removeUnsupportedConcernPremise, currentTopicUserTexts } from '@/lib/coaching-emotion-language.mjs';
-import { containsCircularSingleAction } from '@/lib/coaching-action-language.mjs';
+import { containsCircularSingleAction, containsUnsupportedSituationPremise, containsUngroundedTaskAssumption, hasCurrentUserSituationEvidence } from '@/lib/coaching-action-language.mjs';
 import {
   getCoachingOutputPipelineConfig,
   type CoachingOutputPipelineMode,
@@ -167,6 +167,7 @@ const COACHING_FACT_AND_LANGUAGE_INSTRUCTION = [
   '迷いや理由を話したいという希望だけから、「心がかき乱される」「激しく動揺している」など感情の種類や強さを追加しないでください。本人が明言した感情をその強さのまま使い、第三者の言葉やAI自身の以前の推測を本人の状態へ変えないでください。',
   '出来事や希望の報告だけから、本人が迷っている、困っている、不安であるとは扱わないでください。「どの言葉の言い換えに迷っていますか」「どのような対応で迷っていますか」のような問いも状態を前提にします。現在の話題で本人が述べた状態だけを使い、否定・訂正や第三者の発言、AI自身の推測を根拠にしないでください。未申告なら「どの言葉を言い換えたいですか」のように本人の希望を中立的に尋ねてください。',
   '行動を一つ求められた場合は、何にどう手を動かすかを示してください。「最初に行う作業に着手してください」のように依頼を言い換えるだけで終えないでください。既に伝えた締切時刻も踏まえるよう明示された場合は、現在の話題で本人が最後に示した時刻を返答にも残してください。',
+  '怖いという本人の感情だけから、実際に言葉を出せず止まっている、何を言っても再び否定される、具体的な指摘を受けて直す必要があるとは扱わないでください。新しい家の相談では、出来事を聞く前に停止状況を補わないでください。AI自身の提案は本人が実行した事実ではありません。行動を提案する際も、本人が述べていない残作業や作成済みリストを前提にせず、必要なら新しく一つ書く動作にしてください。',
   '出力前に各文を読み返し、動詞の重複、助詞・接続語の欠落、数量への無関係な英単語の混入を除いてください。利用者が述べていない感情は断定しないでください。',
 ].join('\n');
 
@@ -1896,6 +1897,14 @@ export function classifyGeminiCompletion(finishReason?: string) {
     : ('partial' as const);
 }
 
+function buildNextWordsFearQuestion(lastUserText: string, historyMessages: CoachingChatMessage[]) {
+  const userTexts = getCurrentPlanningUserTexts(lastUserText, historyMessages);
+  if (hasCurrentUserSituationEvidence(userTexts, /上司(?:に|から)否定され(?:た|て|ました)/u)) {
+    return '上司に否定されたように感じて、次の一言が怖いんですね。\n\n次にその上司へ話す時、いちばん避けたいことは何ですか？';
+  }
+  return '次の一言が怖いんですね。\n\n次に話す時、いちばん避けたいことは何ですか？';
+}
+
 export function buildIncompleteGenerationRecoveryResponse(
   lastUserText: string,
   historyMessages: CoachingChatMessage[] = []
@@ -1912,7 +1921,7 @@ export function buildIncompleteGenerationRecoveryResponse(
   }
 
   if (/次の一言が怖/.test(lastUserText)) {
-    return '上司に否定されたように感じて、次の一言が怖いんですね。\n\n次にその上司へ話す時、いちばん避けたいことは何ですか？';
+    return buildNextWordsFearQuestion(lastUserText, historyMessages);
   }
 
   if (requestsSingleAnswerFormat(lastUserText)) {
@@ -2467,6 +2476,9 @@ export function assessCoachingResponseQuality(params: {
   if (containsUnsupportedConcernPremise(text, getCurrentPlanningUserTexts(lastUserText, historyMessages))) {
     issues.push('context_mismatch');
   }
+  if (containsUnsupportedSituationPremise(text, getCurrentPlanningUserTexts(lastUserText, historyMessages))) {
+    issues.push('context_mismatch');
+  }
   const answeredQuestion = getAnsweredExistenceQuestion(lastUserText, historyMessages);
   const factualReplyFallback = buildFactualReplyFallback(lastUserText, historyMessages);
   const groundedDeadlineBriefReply = buildGroundedDeadlineBriefReply(lastUserText);
@@ -2886,12 +2898,7 @@ export function assessCoachingResponseQuality(params: {
   ) {
     issues.push('vague_action_target');
   }
-  const ungroundedTaskPattern =
-    /(?:今日|昨日|前回)[^。！？\n]{0,40}(?:やり残|終わらなかった|未完了)|(?:やり残した|未完了の|残っている)(?:タスク|作業|仕事)/;
-  if (
-    ungroundedTaskPattern.test(text) &&
-    !ungroundedTaskPattern.test(userContext)
-  ) {
+  if (containsUngroundedTaskAssumption(text, getCurrentPlanningUserTexts(lastUserText, historyMessages))) {
     issues.push('ungrounded_task_assumption');
   }
   const ungroundedArtifactRules = [
@@ -5803,13 +5810,13 @@ function buildSubstantiveShortFallback(lastUserText: string) {
     return '仕事のことで少し落ち込んでいるのですね。原因を決めつけず、まず落ち込むきっかけになった出来事を一つ確認します。\n\n仕事で、今いちばん気になっている出来事は何ですか？';
   }
 
-  if (
-    /上司/.test(lastUserText) &&
-    /否定/.test(lastUserText) &&
-    /次の一言/.test(lastUserText) &&
-    /怖/.test(lastUserText)
-  ) {
-    return '上司に否定されたように感じ、次に何を言ってもまた否定されるのではないかと、言葉を出す前に止まっているのですね。今必要なのは、上司の意図を推測することより、どの指摘から直せばよいかを具体的に確認することです。\n\n次に話す時は、「前回のご指摘について、最初に見直す点を一つだけ挙げてもらえますか」と伝えてください。';
+  if (/次の一言が怖(?:い|くて)/.test(lastUserText)) {
+    const question = buildNextWordsFearQuestion(lastUserText, []).split('\n\n').at(-1);
+    const bossDenied = hasCurrentUserSituationEvidence([lastUserText], /上司(?:に|から)否定され(?:た|て|ました)/u);
+    const acknowledgement = bossDenied
+      ? '上司に否定されたように感じて、次の一言が怖いのですね。'
+      : '次の一言が怖いのですね。';
+    return `${acknowledgement}次に話す内容を考える時は、相手の反応をこちらで決めつけず、あなたがその会話で避けたいことをはっきりさせると、伝えたい内容や言葉を選ぶ手掛かりになります。\n\n${question}`;
   }
 
   if (
@@ -6373,7 +6380,7 @@ function buildTopicSwitchActionFallback(
   }
 
   if (/仕事の整理はできました。今度は家での相談です。/.test(lastUserText)) {
-    return '仕事の整理はいったん区切れたのですね。ここからは家の話に切り替えます。家の相談では、相手の気持ちを広く考える前に、今止まっている出来事を一つに絞った方が次の対応を決めやすくなります。\n\n家で今いちばん止まっている出来事を、一つだけ具体的に教えてください。';
+    return '仕事の整理ができたのですね。ここからは家の話に切り替えます。家での出来事や、そこでどうしたいかは、まだ聞いていません。仕事の相談で出た状況を当てはめず、これから話したい内容をもとに考えたいです。\n\n家でのどのような出来事について相談したいですか？';
   }
 
   if (/家族に朝の準備を頼んでも、返事だけで動いてくれません。/.test(lastUserText)) {
@@ -7302,7 +7309,7 @@ function selectSingleAnswerBlock(
       historicalAssistantText
     )
   ) {
-    return '明日の朝、上司に「前回のご指摘について、最初に見直す点を一つだけ挙げてもらえますか」と確認してください。';
+    return '明日の朝、上司に次に伝えたいことを一文だけメモに書いてください。';
   }
   if (
     requestsConcreteSuggestion(lastUserText) &&
@@ -7422,12 +7429,7 @@ function isSingleActionRelevantToContext(
   ) {
     return false;
   }
-  const ungroundedTaskPattern =
-    /(?:今日|昨日|前回)[^。！？\n]{0,40}(?:やり残|終わらなかった|未完了)|(?:やり残した|未完了の|残っている)(?:タスク|作業|仕事)/;
-  if (
-    ungroundedTaskPattern.test(answer) &&
-    !ungroundedTaskPattern.test(userContext)
-  ) {
+  if (containsUngroundedTaskAssumption(answer, getCurrentPlanningUserTexts(lastUserText, historyMessages))) {
     return false;
   }
   if (/[「『]今日確認したいこと[」』]/.test(answer) && !/確認/.test(userContext)) {
@@ -8349,11 +8351,11 @@ function buildNoQuestionFallback(
           message
         )
     );
+
   const historicalAssistantContext = historyMessages
     .filter((message) => message.role === 'assistant')
     .map((message) => stripAttachmentMarkdown(message.content))
     .join('\n');
-
   if (requestsDirectWording(lastUserText)) {
     return buildDirectWordingFallback(
       lastUserText,
@@ -8389,7 +8391,7 @@ function buildNoQuestionFallback(
       historicalAssistantContext
     )
   ) {
-    return '明日の朝、上司に「前回のご指摘について、最初に見直す点を一つだけ挙げてもらえますか」と確認してください。';
+    return '明日の朝、上司に次に伝えたいことを一文だけメモに書いてください。';
   }
 
   if (/直前/.test(lastUserText)) {
@@ -8792,7 +8794,7 @@ function rewriteContextualClosingQuestion(
       !requestsDirectWording(lastUserText) &&
       !requestsSingleAnswerFormat(lastUserText)
     ) {
-      return '上司に否定されたように感じて、次の一言が怖いんですね。\n\n次にその上司へ話す時、いちばん避けたいことは何ですか？';
+      return buildNextWordsFearQuestion(lastUserText, historyMessages);
     }
     return directText
       .replace(
