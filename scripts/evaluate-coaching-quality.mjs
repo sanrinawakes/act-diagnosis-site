@@ -5,6 +5,17 @@ import { createClient } from '@supabase/supabase-js';
 import { deleteTestAuthUser } from './lib/test-account-cleanup.mjs';
 import { seededContinuityScenarios, evaluateSeededContinuityResponse } from './lib/coaching-continuity-scenarios.mjs';
 
+// Existing suite contract before the declared continuity scenarios were added.
+// Expected population comes from this fixed baseline and input specifications,
+// never from the conversations that happened to finish in the current run.
+const BASELINE_QUALITY_POPULATION = Object.freeze({ conversations: 28, turns: 56 });
+const EXPECTED_QUALITY_POPULATION = Object.freeze({
+  conversations: BASELINE_QUALITY_POPULATION.conversations + seededContinuityScenarios.length,
+  turns: BASELINE_QUALITY_POPULATION.turns + seededContinuityScenarios.reduce(
+    (sum, scenario) => sum + scenario.inputs.length, 0
+  ),
+});
+
 const args = new Map(
   process.argv.slice(2).map((arg) => {
     const [key, ...rest] = arg.replace(/^--/, '').split('=');
@@ -1513,9 +1524,26 @@ function evaluateConversations(conversations) {
 
   addCheck(
     checks,
-    '比較母集団: 56ターン',
-    allTurns.length === 56,
+    `比較母集団: ${EXPECTED_QUALITY_POPULATION.conversations}会話`,
+    conversations.length === EXPECTED_QUALITY_POPULATION.conversations,
+    String(conversations.length)
+  );
+  addCheck(
+    checks,
+    `比較母集団: ${EXPECTED_QUALITY_POPULATION.turns}ターン`,
+    allTurns.length === EXPECTED_QUALITY_POPULATION.turns,
     String(allTurns.length)
+  );
+  const uniqueConversationNames = new Set(conversations.map((conversation) => conversation.name));
+  const seededPopulationMatches = uniqueConversationNames.size === conversations.length && seededContinuityScenarios.every((scenario) => {
+    const actual = conversations.filter((conversation) => conversation.name === scenario.name);
+    return actual.length === 1 && actual[0].turns.length === scenario.inputs.length &&
+      actual[0].turns.every((turn, index) => turn.label === `${scenario.name}-${index + 1}`);
+  });
+  addCheck(
+    checks,
+    `比較母集団: 会話名が一意で、追加${seededContinuityScenarios.length}会話を仕様どおり実行`,
+    seededPopulationMatches
   );
   addCheck(
     checks,
