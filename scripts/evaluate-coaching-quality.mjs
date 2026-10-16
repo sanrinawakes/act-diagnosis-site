@@ -1449,9 +1449,10 @@ function evaluateConversations(conversations) {
       checks,
       `${turn.label}: 生成が正常終了`,
       turn.finishReason === expectedFinishReason ||
-        (turn.finishReason === 'end_turn' && turn.provider === 'local' &&
+        (expectedFinishReason === 'STOP' && ['end_turn', 'completed'].includes(turn.finishReason) && turn.provider === 'local' &&
           turn.modelName === 'local-quality-fallback' &&
-          turn.completionStatus === 'complete' && turn.qualityFinalIssues.length === 0),
+          turn.completionStatus === 'complete' && turn.finalizationStatus === 'complete' &&
+          turn.qualityFinalIssues.length === 0),
       `${turn.finishReason} (expected ${expectedFinishReason})`
     );
     addCheck(

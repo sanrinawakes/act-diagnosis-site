@@ -207,9 +207,22 @@ async function streamCandidate(scenario: { raw: string; latest: string; history:
 }
 describe('captured short contextual followups through full streaming pipeline', () => {
   for (const mode of ['minimal', 'legacy', 'observe']) {
-    it.each(capturedSyntheticCases.filter((scenario) => repairedNames.has(scenario.name)))('preserves a useful short candidate in '+mode+': $name', async (scenario) => {
+    it.each(capturedSyntheticCases.filter((scenario) => repairedNames.has(scenario.name)))('verifies the captured short candidate in '+mode+': $name', async (scenario) => {
       vi.stubEnv('COACHING_OUTPUT_PIPELINE_MODE', mode);
       const done = await streamCandidate(scenario);
+      if (scenario.name === 'actor-particle-is-not-a-reason') {
+        expect(done.qualityInitialIssues).toContain('context_mismatch');
+        if (mode === 'observe') {
+          expect(done.message).toBe(scenario.raw);
+          // Observe records the issue in initial metadata and keeps the text.
+          expect(done.qualityFinalIssues).toEqual([]);
+        } else {
+          expect(done.message).not.toContain('迷っていますか');
+          expect(done.message).toContain('キャンセル');
+          expect(done.qualityFinalIssues).toEqual([]);
+        }
+        return;
+      }
       expect(done.message).toBe(scenario.raw);
       expect(done.qualityInitialIssues).toEqual([]); expect(done.qualityFinalIssues).toEqual([]);
       expect(done.qualitySafetyHold).toBe(false); expect(transport.repairs).toBe(0);
@@ -220,12 +233,55 @@ describe('captured short contextual followups through full streaming pipeline', 
 const customerCase = capturedSyntheticCases.find((scenario) => scenario.name === 'actor-particle-is-not-a-reason')!;
 const topicCase = capturedSyntheticCases.find((scenario) => scenario.name === 'explicit-topic-switch-after-opening-question')!;
 const customerHistory = customerCase.history.map((message) => ({ ...message })) as CoachingChatMessage[];
+const neutralCustomerQuestion = 'そのキャンセル連絡について、どのような対応が必要になっていますか？';
+
+// Observed public delivery from the fixed synthetic production scenario. This
+// is not a captured pre-normalization provider candidate.
+const observedUnstatedServiceConcern = 'お客様から予約キャンセルの連絡を受けたことについて、どのような対応で迷っていますか？';
+describe('observed profession answer without a reported concern', () => {
+  it('detects the unprovided hesitation premise independently of short length', () => {
+    expect(assessCoachingResponseQuality({ text: observedUnstatedServiceConcern,
+      lastUserText: customerCase.latest, historyMessages: customerHistory }).issues).toContain('context_mismatch');
+  });
+  it.each(['minimal', 'legacy', 'observe'])('records or repairs the unprovided concern through full delivery in %s', async mode => {
+    vi.stubEnv('COACHING_OUTPUT_PIPELINE_MODE', mode);
+    const done = await streamCandidate({ raw: observedUnstatedServiceConcern, latest: customerCase.latest, history: customerHistory });
+    expect(done.qualityInitialIssues).toContain('context_mismatch');
+    if (mode === 'observe') {
+      expect(done.message).toBe(observedUnstatedServiceConcern);
+      expect(done.qualityFinalIssues).toEqual([]);
+    } else {
+      expect(done.message).toContain('キャンセル');
+      expect(done.message).not.toMatch(/迷って|明日|まだ書かれていない原因|仕事全体/);
+      expect(done.qualityFinalIssues).toEqual([]);
+      expect(done.qualitySafetyHold).toBe(false);
+    }
+  });
+  it('fails the same fixed standard semantic scenario despite clean numeric metadata', () => {
+    expect(evaluateSeededContinuityResponse('seeded-actor-particle-is-not-a-reason', observedUnstatedServiceConcern)
+      .some(check => !check.passed)).toBe(true);
+  });
+  it('preserves the same question only when the user directly reports their own hesitation', () => {
+    const history = [...customerHistory.slice(0, -1), { role: 'user', content: '私は対応に迷っています。' }, customerHistory.at(-1)!] as CoachingChatMessage[];
+    expect(assessCoachingResponseQuality({ text: observedUnstatedServiceConcern, lastUserText: customerCase.latest, historyMessages: history }).issues).toEqual([]);
+  });
+  it('does not use an assistant-only hesitation claim as the user report', () => {
+    const history = [...customerHistory.slice(0, -1), { role: 'assistant', content: '対応に迷っているのですね。' }, customerHistory.at(-1)!] as CoachingChatMessage[];
+    expect(assessCoachingResponseQuality({ text: observedUnstatedServiceConcern, lastUserText: customerCase.latest, historyMessages: history }).issues).toContain('context_mismatch');
+  });
+});
 
 describe('all captured contexts retain meaning through the complete stream', () => {
   for (const mode of ['minimal', 'legacy', 'observe']) {
     it.each(capturedSyntheticCases)('keeps the seeded context in '+mode+': $name', async (scenario) => {
       vi.stubEnv('COACHING_OUTPUT_PIPELINE_MODE', mode);
       const done = await streamCandidate(scenario);
+      if (scenario.name === 'actor-particle-is-not-a-reason' && mode === 'observe') {
+        expect(done.qualityInitialIssues).toContain('context_mismatch');
+        expect(done.qualityFinalIssues).toEqual([]);
+        expect(evaluateSeededContinuityResponse(`seeded-${scenario.name}`, done.message).some(check => !check.passed)).toBe(true);
+        return;
+      }
       expect(evaluateSeededContinuityResponse(`seeded-${scenario.name}`, done.message).filter((check) => !check.passed), done.message).toEqual([]);
       expect(done.qualityFinalIssues).toEqual([]);
       expect(done.qualitySafetyHold).toBe(false);
@@ -235,7 +291,7 @@ describe('all captured contexts retain meaning through the complete stream', () 
 
 describe('bounded short followup eligibility and delivery', () => {
   it.each(['はい。', 'はい、接客の仕事です。', 'いいえ。', 'いいえ、接客ではありません。'])('keeps only the established scene after the immediate profession answer: %s', (latest) => {
-    expect(assessCoachingResponseQuality({ text: customerCase.raw, lastUserText: latest, historyMessages: customerHistory }).issues).toEqual([]);
+    expect(assessCoachingResponseQuality({ text: neutralCustomerQuestion, lastUserText: latest, historyMessages: customerHistory }).issues).toEqual([]);
   });
 
   it('does not interpret any work statement as an answer to the older profession question', () => {
@@ -310,6 +366,18 @@ describe('bounded short followup eligibility and delivery', () => {
       const history = scenario.history.map((message) => ({ ...message })) as CoachingChatMessage[];
       const quality = assessCoachingResponseQuality({ text: scenario.raw, lastUserText: scenario.latest, historyMessages: history });
       const result = ensureVerifiedCoachingResolution({ resolution: { text: scenario.raw, usage: {}, modelName: 'synthetic', repairAttempted: false, repairAccepted: false, initialIssues: quality.issues, finalIssues: quality.issues }, lastUserText: scenario.latest, historyMessages: history });
+      if (scenario.name === 'actor-particle-is-not-a-reason') {
+        if (mode === 'observe') {
+          expect(result.text).toBe(scenario.raw);
+          expect(result.initialIssues).toContain('context_mismatch');
+          expect(result.finalIssues).toEqual([]);
+        } else {
+          expect(result.text).not.toContain('迷っていますか');
+          expect(result.text).toContain('キャンセル');
+          expect(result.finalIssues).toEqual([]);
+        }
+        continue;
+      }
       expect(result.text).toBe(scenario.raw); expect(result.finalIssues).toEqual([]);
     }
   });

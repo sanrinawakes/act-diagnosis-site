@@ -240,6 +240,8 @@ export function evaluateSeededContinuityResponse(name, message) {
       !questions.some((question) => /理由|なぜ|どうして|何のため/.test(question)));
   }
   if (name === 'seeded-actor-particle-is-not-a-reason') {
+    add('職種への事実回答から未提示の迷いを前提にしない',
+      !/(?:どのような|どんな|どの)(?:対応|点)[^。！？?\n]{0,16}迷(?:って|われ)/.test(message));
     add('相手からという出所を理由の説明済みと扱わない',
       !/理由も伝えて|理由を聞いた|希望と理由を聞いた/.test(message) &&
       !(message.match(/[^。！？?\n]+[。！？?]?/g) || []).some((sentence) =>
