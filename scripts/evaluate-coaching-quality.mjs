@@ -1362,7 +1362,23 @@ function evaluateConversations(conversations) {
     }
     if (turn.conversationName === 'consultation-framing-correction') {
       addCheck(checks, `${turn.label}: 相談扱いへの訂正を尊重する`,
-        !/書いてください|教えてください|という相談|今の相談について/.test(turn.message));
+        !/書いてください|教えてください|という相談|今の相談について|質問への(?:お)?返事|質問に答えて|問いへの答え/.test(turn.message));
+    }
+    if (turn.conversationName === 'rejected-suggestion-and-direct-answer' && /-[12]$/.test(turn.label)) {
+      addCheck(checks, `${turn.label}: 支払希望を成立済みの合意へ変えない`,
+        !/決めた金額|実際に合意した負担額|明確に了承した毎月の金額|合意した負担が/.test(turn.message));
+    }
+    if (turn.conversationName === 'short-reply-continuation' && /-2$/.test(turn.label)) {
+      addCheck(checks, `${turn.label}: 過去の断り経験を前提にしない`,
+        !/以前その友人の誘いを断った時|今回も関係が悪/.test(turn.message));
+    }
+    if (turn.conversationName === 'six-turn-paid-conversation' && /-2$/.test(turn.label)) {
+      addCheck(checks, `${turn.label}: 未提示の対応時期や予定を足さない`,
+        !/対応時期が決まらず|あなたの予定が後回し/.test(turn.message));
+    }
+    if (turn.conversationName === 'long-user-input') {
+      addCheck(checks, `${turn.label}: 断り文へ未提示の多忙理由を足さない`,
+        !/業務予定が埋ま|手一杯|手がいっぱい/.test(turn.message));
     }
 
 

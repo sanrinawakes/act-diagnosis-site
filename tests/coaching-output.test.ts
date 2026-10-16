@@ -1993,7 +1993,7 @@ describe('assessCoachingResponseQuality', () => {
   it('一言の実用文・事実回答と「ご主人」を文脈不一致にしない', () => {
     const cases = [
       {
-        text: '「ありがとうございます。ただ、今は手一杯のため、今回はお引き受けできません。」',
+        text: '「ありがとうございます。今回はお引き受けできません。」',
         lastUserText:
           '明日また急な仕事を頼まれた時に、角を立てずに断る一言を一つだけ提案してください。',
         historyMessages: [],
@@ -3890,7 +3890,7 @@ describe('normalizeCoachingOutput', () => {
     );
 
     expect(result).toBe(
-      '「ありがとうございます。ただ、今は手一杯のため、今回はお引き受けできません。」'
+      '「ありがとうございます。今回はお引き受けできません。」'
     );
     expect(result).not.toContain('明日でもよいですか');
   });
@@ -3902,7 +3902,7 @@ describe('normalizeCoachingOutput', () => {
     );
 
     expect(result).toBe(
-      '「ありがとうございます。ただ、今は手一杯のため、今回はお引き受けできません。」'
+      '「ありがとうございます。今回はお引き受けできません。」'
     );
     expect(result).not.toMatch(/または|本日中/);
   });
@@ -3952,7 +3952,7 @@ describe('normalizeCoachingOutput', () => {
     );
 
     expect(result).toBe(
-      '「ありがとうございます。ただ、今は手一杯のため、今回はお引き受けできません。」'
+      '「ありがとうございます。今回はお引き受けできません。」'
     );
     expect(result).not.toContain('このように伝えて');
     expect(result.split(/\n{2,}/)).toHaveLength(1);
@@ -3965,7 +3965,7 @@ describe('normalizeCoachingOutput', () => {
     );
 
     expect(result).toBe(
-      '「ありがとうございます。ただ、今は手一杯のため、今回はお引き受けできません。」'
+      '「ありがとうございます。今回はお引き受けできません。」'
     );
     expect(result).not.toContain('5分だけ取り組んで');
   });
@@ -3980,7 +3980,7 @@ describe('normalizeCoachingOutput', () => {
     );
 
     expect(result).toBe(
-      '「ありがとうございます。ただ、今は手一杯のため、今回はお引き受けできません。」'
+      '「ありがとうございます。今回はお引き受けできません。」'
     );
     expect(result).not.toMatch(/開始時刻|予定表/);
   });
@@ -4004,7 +4004,7 @@ describe('normalizeCoachingOutput', () => {
     );
 
     expect(result).toBe(
-      '「ありがとうございます。ただ、今は手一杯のため、今回はお引き受けできません。」'
+      '「ありがとうございます。今回はお引き受けできません。」'
     );
     expect(result).not.toContain('明日以降');
   });
@@ -4016,7 +4016,7 @@ describe('normalizeCoachingOutput', () => {
     );
 
     expect(result).toBe(
-      '「ありがとうございます。ただ、今は手一杯のため、今回はお引き受けできません。」'
+      '「ありがとうございます。今回はお引き受けできません。」'
     );
     expect(result).not.toContain('明日以降');
     expect(result).not.toContain('お引き受けできます');
@@ -5178,7 +5178,7 @@ describe('normalizeCoachingOutput', () => {
 
   it('明日の断り文は読み上げる文だけを返し、外側に明日を付けない', () => {
     const result = normalizeCoachingOutput(
-      '「ありがとうございます。ただ、今は手一杯のため、今回はお引き受けできません。」',
+      '「ありがとうございます。今回はお引き受けできません。」',
       '明日また急な依頼をされた時に、角を立てずに断る一言を一つだけ提案してください。'
     );
 
@@ -5608,9 +5608,9 @@ describe('normalizeCoachingOutput', () => {
       '家事そのものより、私の時間を軽く扱われているように感じることが嫌なんです。'
     );
 
-    expect(result).toBe(
-      '家事そのものより、自分の時間を軽く扱われているように感じることが嫌なんですね。家事の量ではなく、頼んだ後の返答や対応時期が決まらず、あなたの予定が後回しになる点が問題です。\n\n夫に、家事を頼んだ時どんな返答をしてほしいですか？'
-    );
+    expect(result).toContain('自分の時間を軽く扱われているように感じることが嫌');
+    expect(result).toContain('どんな返答をしてほしいですか？');
+    expect(result).not.toMatch(/対応時期が決まらず|あなたの予定が後回し/);
     expect(result).not.toMatch(/気づかれた|大切な本音/);
   });
 
@@ -6001,7 +6001,8 @@ describe('normalizeCoachingOutput', () => {
       history
     );
 
-    expect(result).toMatch(/不足額|合意した負担/);
+    expect(result).toContain('希望する負担額');
+    expect(result).not.toContain('合意した負担が実行されていない');
     expect(result).not.toMatch(
       /見過ごしたくない本音|メモ|伝えて(?:ください|みてください)|[？?]/
     );
@@ -6221,7 +6222,7 @@ describe('normalizeCoachingOutput', () => {
     const lastUserText =
       '本当に相談したいのは、明日また急な依頼をされた時に、角を立てずに断る一言です。一つだけ提案してください。';
     const text =
-      '「ありがとうございます。ただ、今は手一杯のため、今回はお引き受けできません。」';
+      '「ありがとうございます。今回はお引き受けできません。」';
     const assessment = assessCoachingResponseQuality({
       text,
       lastUserText,
@@ -7179,7 +7180,8 @@ describe('normalizeCoachingOutput', () => {
       '夫は家賃を毎月20000円くらいしか払わず、全額払ってほしいと伝えています。'
     );
 
-    expect(result).toContain('決めた金額を支払わない理由');
+    expect(result).toContain('希望する金額を支払っていない理由');
+    expect(result).not.toContain('決めた金額');
     expect(result).not.toMatch(/払えない|やりきれない|言葉が届いていない|軽く流され/);
   });
 
@@ -7858,7 +7860,7 @@ describe('factual replies and conversation corrections', () => {
   it('相談という扱いへの訂正を定型の相談開始文へ戻さない', () => {
     const lastUserText = '相談じゃなくて、聞かれたから答えただけです。';
     const text = buildFinalVerifiedQualityFallback(lastUserText, historyMessages);
-    expect(text).toMatch(/質問へのお返事|質問に答え/);
+    expect(text).toContain('相談だと受け取ったのは、こちらの取り違え');
     expect(text).not.toMatch(/書いてください|教えてください|という相談|[？?]/);
     expect(assessCoachingResponseQuality({ text, lastUserText, historyMessages }).issues).toEqual([]);
   });
