@@ -446,6 +446,20 @@ const knownBatchRegressions = [
 ];
 
 describe('known batch deadline premises and faithful short replies', () => {
+  it.each([
+    '期限に間に合うかは、残作業と使える時間を確認しないと判断できません。今の資料で、まだ説明を書けていないページはありますか？',
+    '期限に間に合わせるため、まず各ページに必要な説明があるか確認してください。',
+    '期限に仕上げられるかは、残作業と使える時間の確認が必要です。',
+  ])('keeps legacy planning recovery free of generic length padding: %s', async raw => {
+    vi.stubEnv('COACHING_OUTPUT_PIPELINE_MODE', 'legacy'); transport.raw = raw;
+    const stream = createJsonLineStream({systemPrompt:'Synthetic existing planning allowance.',historyMessages:deadlineHistory,
+      lastUserParts:buildGeminiParts(deadlineLatest,[],deadlineHistory),onDone:async()=>({})});
+    const reader=stream.getReader();const decoder=new TextDecoder();let wire='';
+    while(true){const chunk=await reader.read();if(chunk.done)break;wire+=decoder.decode(chunk.value);}
+    const done=wire.trim().split('\n').map(line=>JSON.parse(line)).find(event=>event.type==='done');
+    expect(done.message).not.toMatch(/まだ書かれていない原因|次に困る場面|という相談ですね/);
+    expect(done.message).toMatch(/資料/);expect(done.message).toMatch(/時間/);expect(done.qualityFinalIssues).toEqual([]);
+  });
   const currentDeadline: CoachingChatMessage[] = [{ role: 'user', content: '説明資料の締切は火曜午前10時です。' }, { role: 'user', content: '締切はなくなりました。' }];
   it.each([
     'もし金曜午後3時が締切なら、一枚目の利用目的を先に見直してください。',

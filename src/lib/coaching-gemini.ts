@@ -4529,6 +4529,11 @@ function buildSafeQualityFallback(
     const substantiveFallback = buildSubstantiveShortFallback(lastUserText);
     if (substantiveFallback) return substantiveFallback;
 
+    const planningFallback = buildConcretePlanningContinuationFallback(lastUserText, historyMessages);
+    if (planningFallback && assessCoachingResponseQuality({
+      text: planningFallback, lastUserText, historyMessages,
+    }).issues.length === 0) return planningFallback;
+
     const focusedShortResponse = limitUnrequestedCoachingMoves(
       withoutUngroundedCategorization,
       lastUserText
