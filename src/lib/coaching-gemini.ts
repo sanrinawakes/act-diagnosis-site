@@ -6,6 +6,7 @@ import {
 } from '@/lib/attachments';
 import { sendCoachingAlert } from '@/lib/coaching-alerts';
 import { COACHING_SCOPE_GUIDANCE } from '@/lib/coaching-scope';
+import { containsDeadlineOutcomeAssurance, stripAttributedDeadlineQuotes } from '@/lib/coaching-deadline-language.mjs';
 import {
   getCoachingOutputPipelineConfig,
   type CoachingOutputPipelineMode,
@@ -158,6 +159,7 @@ export const COACHING_RESPONSE_SPEED_INSTRUCTION = [
 
 const COACHING_FACT_AND_LANGUAGE_INSTRUCTION = [
   '現在の曜日や今日・明日の日付は、利用者が示していない場合に推測しないでください。明示された締切をそのまま使い、現在の曜日を補わないでください。',
+  '締切が分かっても、残作業量・所要時間・使える時間が未確認なら、期限に間に合うとも間に合わないとも断定しないでください。資料の構成案があることだけでも、完成の見込みは断定できません。条件文・誘導する質問・相手への返答例にも新しい保証を足さず、必要な作業と時間を確認してください。見積もりがある場合も確実な結果とは扱わず、その前提と不確実性を示してください。締切は現在の話題で利用者が最後に明言したものだけを使い、訂正・否定された期限やAI側の発言を根拠にしないでください。',
   '自分が前回何を質問・提案したかを、会話履歴にない内容で説明したり謝罪したりしないでください。話を聞いてほしいという希望には、今の希望に沿って返答してください。',
   '利用者が希望した金額や負担と、相手が了承した金額や負担を混同しないでください。希望を伝えたことだけから、合意や約束が成立したとは扱わず、合意の有無が不明ならその有無を確認してください。',
   '出力前に各文を読み返し、動詞の重複、助詞・接続語の欠落、数量への無関係な英単語の混入を除いてください。利用者が述べていない感情は断定しないでください。',
@@ -2405,6 +2407,13 @@ function buildFactualReplyFallback(text: string, history: CoachingChatMessage[])
   return `先ほどの「${question}」へのお返事ですね。まだないとのこと、わかりました。質問の答えとして伺った内容なので、そこから理由やお気持ちまでは決めつけません。`;
 }
 
+function buildPastDeadlineAcknowledgement(text: string) {
+  // A complete, standalone past-outcome report is not a new request to plan
+  // the old work. Do not close a turn that also contains another request.
+  const report = stripAttachmentMarkdown(text).trim().match(/^((?:(?:昨日|今日|先ほど|今回)の)?(?:資料の)?提出(?:は|が)(?:締[め]?切[り]?|期限)(?:に|までに))間に合(?:いました|った)[。！!]*$/);
+  return report ? `${report[1]}間に合ったのですね。` : '';
+}
+
 export function assessCoachingResponseQuality(params: {
   text: string;
   lastUserText: string;
@@ -2430,6 +2439,9 @@ export function assessCoachingResponseQuality(params: {
   const groundedShortFollowup = isGroundedShortFollowup(text, workAnswerContext, newTopicFocus);
   const answeredQuestion = getAnsweredExistenceQuestion(lastUserText, historyMessages);
   const factualReplyFallback = buildFactualReplyFallback(lastUserText, historyMessages);
+  const pastDeadlineAcknowledgement = buildPastDeadlineAcknowledgement(lastUserText);
+  const groundedRestAcknowledgement = requestsShortRestResponse(lastUserText) &&
+    /^(?:今日はゆっくり休んでください|今日はここで終えて大丈夫です)[。！!]*$/.test(text);
   const groundedShortAnswer = Boolean(answeredQuestion) && compactText.length >= 35 &&
     ['連絡', '案内', '予定', '経験', '機会', '変化', '作業', '実習'].some(
       (subject) => answeredQuestion.includes(subject) && text.includes(subject)
@@ -2447,6 +2459,7 @@ export function assessCoachingResponseQuality(params: {
   }
   const isSpecialShortResponse =
     groundedShortFollowup ||
+    (Boolean(pastDeadlineAcknowledgement) && text === pastDeadlineAcknowledgement) ||
     (Boolean(factualReplyFallback) && text === factualReplyFallback) ||
     groundedShortAnswer ||
     /一言(?:だけ|で)|短く(?:答|教|返)|(?:一つ|ひとつ|1つ)(?:だけ)?.{0,24}(?:教|提案|答|挙|示|伝|お願)/.test(
@@ -2486,6 +2499,9 @@ export function assessCoachingResponseQuality(params: {
     issues.push('context_mismatch');
   }
   if (hasUnsupportedDeclineCapacity(text, lastUserText, historyMessages)) {
+    issues.push('context_mismatch');
+  }
+  if (hasUnsupportedDeadlineClaim(text, lastUserText, historyMessages)) {
     issues.push('context_mismatch');
   }
   const relativeWeekdays = (value: string) => Array.from(
@@ -2755,6 +2771,7 @@ export function assessCoachingResponseQuality(params: {
     },
   ].filter((check) => check.present);
   if (
+    !groundedRestAcknowledgement &&
     !requestsFactualShortAnswer(lastUserText) &&
     !requestsDirectWording(lastUserText) &&
     !requestsOnePhraseAnswer(lastUserText) &&
@@ -3237,8 +3254,11 @@ export function normalizeCoachingOutput(
   }
 
   if (requestsShortRestResponse(lastUserText)) {
+    if (/^今日はここで終えて大丈夫です[。！!]*$/.test(text.trim())) return text.trim();
     return '今日はゆっくり休んでください。';
   }
+  const pastDeadlineAcknowledgement = buildPastDeadlineAcknowledgement(lastUserText);
+  if (pastDeadlineAcknowledgement) return pastDeadlineAcknowledgement;
 
   if (
     /仕事|職場|業務|会社|タスク/.test(lastUserText) &&
@@ -4617,16 +4637,70 @@ function buildWorkplaceConflictContinuationFallback(
   return '';
 }
 
+const PLANNING_TOPIC_BOUNDARY = /話題を変|話を変|別の話|別件|ところで|今度は/;
+const EXPLICIT_DEADLINE_TIME = /[月火水木金土日]曜(?:日)?(?:午前|午後)?[0-9０-９]{1,2}時(?:[0-9０-９]{1,2}分)?/g;
+
+function getCurrentPlanningUserTexts(lastUserText: string, historyMessages: CoachingChatMessage[]) {
+  const users = [...historyMessages.filter(message => message.role === 'user' &&
+    !message.content.startsWith('以下は過去の会話の保存済み要約です。')).map(message => message.content), lastUserText];
+  const boundary = users.findLastIndex(text => PLANNING_TOPIC_BOUNDARY.test(text));
+  const current = users.slice(boundary < 0 ? 0 : boundary);
+  if (boundary >= 0) {
+    const marker = [...current[0].matchAll(new RegExp(PLANNING_TOPIC_BOUNDARY.source, 'g'))].at(-1)!;
+    current[0] = current[0].slice(marker.index);
+  }
+  return current;
+}
+
+function getCurrentUserDeadline(userTexts: string[]) {
+  let deadline = '';
+  for (const text of userTexts) {
+    for (const statement of text.split(/(?<=[。！？?\n])/u)) {
+      if (/[？?]|(?:です|ます)か[。\s]*$/.test(statement)) continue;
+      if (!/締[め]?切[り]?|期限|まで/.test(statement) && !(deadline && /変更/.test(statement))) continue;
+      let affirmative = statement;
+      if (/では(?:ありま|ない|なく)|じゃ(?:ありま|ない|なく)|とは言ってい|と言われてい|と聞いてい|未定|未確認|確認できま|取り消|撤回|なくな|決まってい|まだ決ま|分から|わから|分かりません/.test(statement)) {
+        deadline = '';
+        const corrected = statement.split(/ではなく|じゃなく/).at(-1) || '';
+        if (corrected === statement || !/変更|です[。\s]*$|になりました/.test(corrected)) continue;
+        affirmative = corrected;
+      }
+      // A proposed or hypothetical date is not an established deadline.
+      if (/もし|(?:なら|だったら)|(?:に|までに)(?:したい|できたら)|かもしれ/.test(affirmative)) continue;
+      // A confirmed revision invalidates the old precise time even when the
+      // new message only supplies a weekday. Never carry its old hour across.
+      if (/(?:変更(?:されました|しました|された|した)|変わりました|変わった)(?=[。！、,\s]|が|ので|ため|$)/.test(affirmative) ||
+          /(?:締[め]?切[り]?|期限)(?:は|が)[月火水木金土日]曜(?:日)?(?:です|になります|になりました)[。\s]*$/.test(affirmative)) deadline = '';
+      const dates = [...affirmative.matchAll(EXPLICIT_DEADLINE_TIME)];
+      if (dates.length) deadline = dates.at(-1)![0];
+    }
+  }
+  return deadline;
+}
+
+function hasUnsupportedDeadlineClaim(text: string, lastUserText: string, historyMessages: CoachingChatMessage[]) {
+  const users = getCurrentPlanningUserTexts(lastUserText, historyMessages);
+  const context = users.join('\n');
+  if (!/資料|作業|仕事|制作|提出/.test(context) || !/締[め]?切[り]?|期限|まで/.test(context + '\n' + text)) return false;
+  const deadline = getCurrentUserDeadline(users);
+  const normalizedTime = (value: string) => value.normalize('NFKC').replace('曜日', '曜').replace(/時0分$/, '時');
+  if (containsDeadlineOutcomeAssurance(text, users)) return true;
+  return stripAttributedDeadlineQuotes(text, users).split(/(?<=[。！？?\n])/u).some(statement => {
+    if (/[？?]|(?:です|ます)か[。\s]*$|もし|なら|だったら/.test(statement)) return false;
+    if (!/締[め]?切[り]?|期限/.test(statement)) return false;
+    return [...statement.matchAll(EXPLICIT_DEADLINE_TIME)].some(match => normalizedTime(match[0]) !== normalizedTime(deadline));
+  });
+}
+
 function buildConcretePlanningContinuationFallback(lastUserText: string, historyMessages: CoachingChatMessage[]) {
-  if (/話を変|別の話|別件|ところで/.test(lastUserText) || requestsSessionClose(lastUserText)) return '';
-  const boundary = historyMessages.findLastIndex((message) => message.role === 'user' && /話を変|別の話|別件|ところで/.test(message.content));
-  const users = historyMessages.slice(boundary < 0 ? 0 : boundary).filter((message) => message.role === 'user' && !message.content.startsWith('以下は過去の会話の保存済み要約です。')).slice(-8);
-  const context = [...users.map((message) => message.content), lastUserText].join('\n');
+  if (PLANNING_TOPIC_BOUNDARY.test(lastUserText) || requestsSessionClose(lastUserText)) return '';
+  const userTexts = getCurrentPlanningUserTexts(lastUserText, historyMessages).slice(-9);
+  const context = userTexts.join('\n');
   if (/資料/.test(context) && /説明|サービス|利用目的|利用手順/.test(context)) {
     const documentName = /企画/.test(context) ? '企画の説明資料' : '説明資料';
-    const deadline = lastUserText.match(/(?:月|火|水|木|金|土|日)曜(?:日)?(?:午前|午後)?[0-9０-９]{1,2}時(?:[0-9０-９]{1,2}分)?/)?.[0];
-    if (deadline && /まで|締切|期限/.test(lastUserText)) {
-      return `資料の締切は${deadline}と伝えられたのですね。これは内容への助言ではなく、作業を終える期限の情報です。期限までに全体を読める状態にするため、まず各ページに必要な説明があるかを確認し、細かな表現の調整はその後に回せます。\n\n今の資料で、まだ説明を書けていないページはありますか？`;
+    const deadline = getCurrentUserDeadline([lastUserText]);
+    if (deadline) {
+      return `資料の締切は${deadline}なのですね。期限までに仕上げられるかは、資料の進み具合と使える時間を確認する必要があります。載せる内容を決める作業、文章を書く作業、全体を読み返す作業を分けると、あと何が必要かを確認できます。\n\n今の資料で、まだ書き終えていない部分はどこですか？`;
     }
     if (/初めて|初回|初心者/.test(lastUserText) && /対象|使う|利用/.test(lastUserText)) {
       return `${documentName}を読むのは、初めてサービスを使う人なのですね。読者が仕組みや用語を知っている前提を置かず、「何ができるか」「最初に何をするか」の順で説明すると理解しやすくなります。機能をすべて紹介する前に、読者が最初に達成したいことを決めると、必要な説明を選べます。\n\nその資料を読んだ人に、まず何ができるようになってほしいですか？`;
@@ -4637,7 +4711,7 @@ function buildConcretePlanningContinuationFallback(lastUserText: string, history
   }
   if (/友人|友達/.test(context) && /断/.test(context)) {
     const fearsRelationshipDamage = /関係が悪|嫌われ|疎遠/.test(lastUserText);
-    const tentativeFollowup = isTentativeAgreementReply(lastUserText) && /関係が悪|嫌われ|疎遠/.test(users.at(-1)?.content || '');
+    const tentativeFollowup = isTentativeAgreementReply(lastUserText) && /関係が悪|嫌われ|疎遠/.test(userTexts.at(-2) || '');
     if (fearsRelationshipDamage) {
       return '断った後に友人との関係が悪くなる気がして、返事をためらっているのですね。これから起きるかもしれないことと、実際に起きたことは分けて考えられます。今の段階では、断った時の反応をこちらで決めつけることはできません。\n\n断ると、友人からどんな反応があると考えていますか？';
     }
@@ -4796,6 +4870,11 @@ export function buildFinalVerifiedQualityFallback(
   lastUserText: string,
   historyMessages: CoachingChatMessage[]
 ): string {
+  const pastDeadlineAcknowledgement = buildPastDeadlineAcknowledgement(lastUserText);
+  if (pastDeadlineAcknowledgement) return pastDeadlineAcknowledgement;
+  if (requestsShortRestResponse(lastUserText) && !buildUrgentSafetyResponse(lastUserText) && !requestsInternalPromptDisclosure(lastUserText)) {
+    return '今日はゆっくり休んでください。';
+  }
   const newTopicFocus = getExplicitNewTopicFocus(lastUserText);
   if (newTopicFocus) return `${newTopicFocus}について、どのような点を相談したいですか？`;
   const differentPaymentResponse = buildDifferentPaymentProposalResponse(lastUserText, historyMessages);
@@ -6150,12 +6229,10 @@ function buildLongContinuityReferenceFallback(
   lastUserText: string,
   historyMessages: CoachingChatMessage[]
 ) {
-  const recentContext = [
-    ...historyMessages.map((message) => stripAttachmentMarkdown(message.content)),
-    lastUserText,
-  ].join('\n');
+  const userTexts = getCurrentPlanningUserTexts(lastUserText, historyMessages);
+  const recentContext = userTexts.join('\n');
   if (
-    !/資料|説明資料|利用目的|利用手順|専門用語|締切|火曜午前10時/.test(
+    !/資料|説明資料|利用目的|利用手順|専門用語/.test(
       recentContext
     )
   ) {
@@ -6183,14 +6260,16 @@ function buildLongContinuityReferenceFallback(
   }
 
   if (/目的の説明が長くなりすぎています/.test(lastUserText)) {
-    return '火曜午前10時の締切までに今日最初に直すのは、一枚目の利用目的です。一枚目の説明を「このサービスで何ができるか」が一文で伝わる長さまで削り、その後で補足が必要かを見直してください。';
+    const deadline = getCurrentUserDeadline(userTexts);
+    return `${deadline ? `${deadline}の締切に向けて、` : ''}今日最初に直すのは、一枚目の利用目的です。読み手がサービスで何をできるのかをつかめるよう、一枚目の長い説明から「このサービスで何ができるか」を示す一文だけを選び、ほかの説明はいったん外してください。`;
   }
 
   if (
     /3回前に伝えた締切時刻/.test(lastUserText) &&
     /質問なしで答えてください/.test(lastUserText)
   ) {
-    return '火曜午前10時の締切に間に合わせるなら、今日最初に直すのは一枚目の利用目的です。いま長くなっている説明を、「このサービスで何ができるか」が一文で伝わる長さまで削ってください。';
+    const deadline = getCurrentUserDeadline(userTexts);
+    return `${deadline ? `${deadline}の締切に向けて、` : ''}今日最初に直すのは一枚目の利用目的です。一枚目の利用目的を、「このサービスで何ができるか」が一文で伝わる形にまとめてください。`;
   }
 
   return '';
@@ -7760,6 +7839,7 @@ function selectRelevantFallbackSource(
   const cleanCurrent = stripAttachmentMarkdown(lastUserText)
     .replace(/\s+/g, ' ')
     .trim();
+  if (buildPastDeadlineAcknowledgement(cleanCurrent) || requestsShortRestResponse(cleanCurrent)) return lastUserText;
   const currentIsSubstantive =
     (cleanCurrent.length >= 18 || currentTopicPattern.test(cleanCurrent)) &&
     !reportsResponseDissatisfaction(cleanCurrent);
@@ -9393,8 +9473,12 @@ function removeUnsupportedPsychologicalInference(
   return grounded || buildNoQuestionFallback(lastUserText, historyMessages);
 }
 
+function explicitlyStopsThinkingPolitely(text: string) {
+  return /(?:^|[。！!\n])(?:今日は|もう|今日はもう)?[、,\s]*(?:何も|もう)考えたくありません[。！!\s]*$/.test(text.trim());
+}
+
 function requestsRestWithoutQuestions(text: string) {
-  return /何も考えたくない|もう考えたくない|今日はもう(?:無理|限界)|疲れ(?:た|ました)|しんどい|休みたい/.test(
+  return explicitlyStopsThinkingPolitely(text) || /何も考えたくない|もう考えたくない|今日はもう(?:無理|限界)|疲れ(?:た|ました)|しんどい|休みたい/.test(
     text
   );
 }
@@ -9824,7 +9908,7 @@ function requestsShortRestResponse(text: string) {
   if (!requestsRestWithoutQuestions(text)) return false;
 
   const explicitlyRequestsRest =
-    /何も考えたくない|もう考えたくない|今日はもう(?:無理|限界)|休みたい/.test(
+    explicitlyStopsThinkingPolitely(text) || /何も考えたくない|もう考えたくない|今日はもう(?:無理|限界)|休みたい/.test(
       text
     );
   if (!explicitlyRequestsRest && requestsConcreteSuggestion(text)) {

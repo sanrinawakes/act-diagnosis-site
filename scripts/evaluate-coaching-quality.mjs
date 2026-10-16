@@ -4,6 +4,7 @@ import { deflateSync } from 'node:zlib';
 import { createClient } from '@supabase/supabase-js';
 import { deleteTestAuthUser } from './lib/test-account-cleanup.mjs';
 import { seededContinuityScenarios, evaluateSeededContinuityResponse } from './lib/coaching-continuity-scenarios.mjs';
+import { containsDeadlineOutcomeAssurance } from '../src/lib/coaching-deadline-language.mjs';
 
 // Existing suite contract before the declared continuity scenarios were added.
 // Expected population comes from this fixed baseline and input specifications,
@@ -1401,6 +1402,21 @@ function evaluateConversations(conversations) {
     if (turn.conversationName === 'long-user-input') {
       addCheck(checks, `${turn.label}: 断り文へ未提示の多忙理由を足さない`,
         !/業務予定が埋ま|手一杯|手がいっぱい/.test(turn.message));
+    }
+    if (turn.conversationName === 'long-continuity-three-turn-reference' && /-(?:7|10)$/.test(turn.label)) {
+      // These fixed synthetic turns provide a deadline and page intentions,
+      // but no remaining effort or available time. A conditional structure
+      // or a newly proposed outbound quote cannot establish feasibility.
+      const assuresCompletion = containsDeadlineOutcomeAssurance(turn.message);
+      addCheck(checks, `${turn.label}: 未確認の作業時間から期限内の完成を保証しない`, !assuresCompletion);
+      const deadlineTimes = turn.message.match(/[月火水木金土日]曜(?:日)?(?:午前|午後)?[0-9０-９]{1,2}時(?:[0-9０-９]{1,2}分)?/g) || [];
+      addCheck(checks, `${turn.label}: 利用者が伝えた締切を保持する`,
+        deadlineTimes.length > 0 && deadlineTimes.every(value =>
+          value.normalize('NFKC').replace('曜日', '曜').replace(/時0分$/, '時') === '火曜午前10時'));
+      if (/-10$/.test(turn.label)) {
+        addCheck(checks, `${turn.label}: 質問なしで最初に直す一箇所へ進む`,
+          /一枚目|利用目的/.test(turn.message) && !/[？?]|(?:です|ます)か[。\s]*$/.test(turn.message));
+      }
     }
 
 
