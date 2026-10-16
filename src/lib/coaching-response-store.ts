@@ -28,6 +28,24 @@ export type CoachingResponseClaim =
   | { status: 'owner'; marker: string }
   | Exclude<CoachingResponseState, { status: 'missing' }>;
 
+export async function validateCoachingSessionOwnership(params: {
+  supabaseAdmin: SupabaseClient;
+  userId: string;
+  sessionId: string;
+}) {
+  const { data, error } = await params.supabaseAdmin
+    .from('chat_sessions')
+    .select('id')
+    .eq('id', params.sessionId)
+    .eq('user_id', params.userId)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`CHAT_SESSION_LOOKUP_FAILED: ${error.message}`);
+  }
+  return Boolean(data);
+}
+
 export async function validateCoachingRequestOwnership(params: {
   supabaseAdmin: SupabaseClient;
   userId: string;

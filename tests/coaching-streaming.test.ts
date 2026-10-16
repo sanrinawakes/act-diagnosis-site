@@ -817,7 +817,8 @@ describe('createJsonLineStream', () => {
       completionStatus: 'complete',
       finalizationStatus: 'complete',
     });
-    expect(done.message).toContain('講座への申し込みを保留');
+    expect(done.message).toContain('講座');
+    expect(done.message).not.toContain('申し込みを保留');
     expect(done.message).toContain('現在の収入源');
     expect(done.message).toContain('今月必要な金額');
     expect(done.message).not.toMatch(/支払い分担|不足額|支払日/);
@@ -1248,7 +1249,8 @@ describe('createJsonLineStream', () => {
     expect(state.externalCalls).toBe(0);
     expect(done.message.length).toBeGreaterThanOrEqual(80);
     expect(done.message).toContain('仕事のことで悩んでいます');
-    expect(done.message).toContain('考え方を先に示します');
+    expect(done.message).toContain('具体的に考えます');
+    expect(done.message).not.toContain('すでに試した');
     expect(done.message).not.toMatch(/環境の要因|個人の要因|分類/);
   });
 
