@@ -41,12 +41,23 @@ export function containsChainedEditingInstructions(text, lastUserText = '') {
 export function containsChainedPreparationInstructions(text, lastUserText = '') {
   if (requestsMultipleCoachingActions(lastUserText)) return false;
   const outside = stripJapaneseQuotationContent(text, true).replace(/"[^"]*"|'[^']*'/gu, quote => ' '.repeat(quote.length));
-  // These two bounded families come from the observed topic-recovery and rent
+  // These bounded families come from the observed topic-recovery and rent
   // fallbacks. A past action, a quoted report, or two objects of one check do
   // not establish a new preparatory instruction.
   const holdThenCheck = /保留にし(?:[、,]|て(?:から|ください[。！!]))[^。！？?\n]{0,100}(?:確認して|見直して)(?:みて)?ください(?:ね)?(?=[。！!\n]|$)/u;
   const recordThenAct = /(?:記録し|一覧にし|記録にまとめ)(?:[、,]|て(?:から|ください[。！!]))[^。！？?\n]{0,120}(?:書面で[^。！？?\n]{0,40}(?:回答|合意)を求める(?:方法があります|段階です)|(?:確認して|決めて|選んで)(?:みて)?ください)(?:ね)?(?=[。！!\n]|$)/u;
-  return holdThenCheck.test(outside) || recordThenAct.test(outside);
+  // Opening a writing/reference artifact and then acting on it are two
+  // instructions even when the first verb uses the conjunctive form 開き、.
+  // A quoted report or wording to convey remains content. A standalone quoted
+  // instruction, or asking to try/execute that instruction, is still an action.
+  const openingThenAct = /(?:ノート|メモ帳|手帳|資料|ファイル|ページ)(?:を|は)[^。！？?、,\n]{0,20}開(?:き[、,]|いて(?:から[、,]?|[、,]))[^。！？?\n]{0,100}(?:(?:書き出して|書いて|書き直して|記録して|確認して|見直して|読み返して|読んで|選んで|まとめて)(?:みて)?ください|(?:書き出し|書き|書き直し|記録し|確認し|見直し|読み返し|読み|選び|まとめ)ましょう)(?:ね)?[ \t]*(?=[。！!\n」』"']|$)/u;
+  const openingChain = splitOutsideJapaneseQuotations(text.replace(/\r?\n/g, ' ')).some(segment => {
+    const outsideSegment = stripJapaneseQuotationContent(segment, true)
+      .replace(/"[^"]*"|'[^']*'/gu, quote => ' '.repeat(quote.length));
+    const quoteIsNewOperation = /^\s*(?:例えば[、,]?\s*)?(?:[。！!\s]*|を(?:試して|やってみて|実行して)(?:みて)?ください[。！!\s]*)$/u.test(outsideSegment);
+    return openingThenAct.test(quoteIsNewOperation ? segment : outsideSegment);
+  });
+  return holdThenCheck.test(outside) || recordThenAct.test(outside) || openingChain;
 }
 
 // These are concrete premises from the observed fallback failures, rather than

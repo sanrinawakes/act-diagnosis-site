@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { writeFileSync } from 'node:fs';
+import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import { containsUnsupportedConcernPremise, currentTopicUserTexts } from '../src/lib/coaching-emotion-language.mjs';
 import { containsCircularSingleAction } from '../src/lib/coaching-action-language.mjs';
 const transport = vi.hoisted(() => ({ raw: '', external: 0 }));
@@ -8,7 +9,8 @@ vi.mock('@/lib/openai', () => ({ getGenAI: () => ({ getGenerativeModel: () => ({
 }) }) }) }));
 vi.mock('@/lib/coaching-provider-candidates', () => ({ generateCoachingProviderCandidate: async () => { transport.external++; throw new Error('NETWORK_DISABLED'); } }));
 vi.mock('@/lib/coaching-alerts', () => ({ sendCoachingAlert: async () => { throw new Error('ALERT_DISABLED'); } }));
-import { assessCoachingResponseQuality, buildGeminiParts, createJsonLineStream, type CoachingChatMessage } from '../src/lib/coaching-gemini';
+import { assessCoachingResponseQuality, ensureVerifiedCoachingResolution, normalizeCoachingOutput, buildGeminiParts, createJsonLineStream, type CoachingChatMessage } from '../src/lib/coaching-gemini';
+import { getContextualizedPrompt } from '../src/data/coaching-system-prompt';
 // Fixed synthetic standard-suite public deliveries, not original provider text.
 export const observedGroundingCases = [
   {
@@ -291,5 +293,128 @@ describe('concrete action and requested target are different contracts', () => {
     const history: CoachingChatMessage[] = [...item.history.map(message=>({...message})), {role:'user', content:latest}];
     const text = `${deadline ? deadline+'の締切に向けて、' : ''}今日最初に直す箇所は、一枚目にある利用目的の説明文です。`;
     expect(assessCoachingResponseQuality({text,lastUserText:item.latest,historyMessages:history}).issues).not.toContain('requested_time_mismatch');
+  });
+});
+
+
+// No live cases or model calls are added.
+// trace22126-80 is captured PUBLIC delivery; provider-original text was not saved.
+const openingWriteObserved = {
+  latest: '同時接続テスト3です。明日の朝に始める行動を一つだけ、質問なしで答えてください。',
+  candidate: '明日の朝起きたら、ノートを一冊開き、今日一番優先したい作業の名前を一つだけ書き出してください。',
+  history: [] as CoachingChatMessage[],
+};
+const openingWriteSeen: unknown[] = [];
+afterAll(() => {
+  const output = process.env.ACTI_OPEN_WRITE_REPLAY_OUTPUT;
+  if (output) writeFileSync(output, JSON.stringify({
+    scope: 'Exact synthetic public delivery plus bounded opening/write grammar controls',
+    providerOriginalRaw: 'NOT_CAPTURED', newLiveCases: 0, actuals: openingWriteSeen,
+  }, null, 2) + '\n', { flag: 'wx', mode: 0o600 });
+});
+function assessOpeningWrite(text: string, latest = openingWriteObserved.latest) {
+  return assessCoachingResponseQuality({ text, lastUserText: latest, historyMessages: [] });
+}
+function verifyOpeningWrite(text: string) {
+  const quality = assessOpeningWrite(text);
+  return ensureVerifiedCoachingResolution({
+    resolution: { text, usage: {}, modelName: 'local-public-fixture', provider: 'local',
+      repairAttempted: false, repairAccepted: false,
+      initialIssues: quality.issues, finalIssues: quality.issues },
+    lastUserText: openingWriteObserved.latest, historyMessages: [],
+  });
+}
+function expectOneSelfContainedMorningAction(text: string) {
+  expect(text).not.toBe(openingWriteObserved.candidate);
+  expect(text).toContain('明日の朝');
+  expect(text).toMatch(/(?:一つ|1つ|ひとつ)だけ/);
+  expect(text).toMatch(/(?:紙|メモ)に(?:書いて|書き出して)(?:みて)?ください/);
+  expect(text).not.toMatch(/開き|開い|今日|本日|[？?]|(?:リスト|メモ)を確認|もう一度送って|という相談ですね/);
+  expect(assessOpeningWrite(text).issues).toEqual([]);
+}
+async function streamOpeningWrite(mode: string) {
+  vi.stubEnv('COACHING_OUTPUT_PIPELINE_MODE', mode);
+  let forbiddenFetchAttempts = 0;
+  vi.stubGlobal('fetch', async () => { forbiddenFetchAttempts++; throw Error('NETWORK_DISABLED'); });
+  transport.raw = openingWriteObserved.candidate;
+  const callbacks: Array<{message: string}> = [];
+  const reader = createJsonLineStream({
+    systemPrompt: getContextualizedPrompt('MGA-3'), historyMessages: [],
+    lastUserParts: buildGeminiParts(openingWriteObserved.latest, [], []),
+    onDone: async (_usage, completion) => { callbacks.push(completion); return {}; },
+  }).getReader();
+  const decoder = new TextDecoder(); let wire = '';
+  while (true) { const chunk = await reader.read(); if (chunk.done) break; wire += decoder.decode(chunk.value, {stream: true}); }
+  wire += decoder.decode();
+  const events = wire.trim().split('\n').map(line => JSON.parse(line));
+  const dones = events.filter(event => event.type === 'done'); const done = dones[0];
+  // Save the actual wire and callback before any assertion, including failures.
+  openingWriteSeen.push({stage: 'mock-fullstream', mode, ...openingWriteObserved,
+    injectedCandidateKind: 'captured-public-final-not-original-provider',
+    wire, events, callbacks, done, final: done?.message, forbiddenFetchAttempts,
+    externalProviderAttempts: transport.external});
+  expect(dones).toHaveLength(1); expect(callbacks).toHaveLength(1);
+  expect(done.completionStatus).toBe('complete'); expect(done.finalizationStatus).toBe('complete');
+  expect(events.filter(event => event.type === 'chunk').map(event => event.text).join('')).toBe(done.message);
+  expect(callbacks[0].message).toBe(done.message);
+  expect(forbiddenFetchAttempts).toBe(0); expect(transport.external).toBe(0);
+  return done;
+}
+describe('observed one-action request rejects notebook opening plus writing', () => {
+  it.each(['minimal', 'legacy', 'observe'])('detects the exact public candidate in %s', mode => {
+    vi.stubEnv('COACHING_OUTPUT_PIPELINE_MODE', mode);
+    const quality = assessOpeningWrite(openingWriteObserved.candidate);
+    openingWriteSeen.push({stage: 'assess', mode, ...openingWriteObserved, quality});
+    expect(quality.issues).toContain('multiple_coaching_moves');
+  });
+  it.each(['minimal', 'legacy', 'observe'])('retains direct and normalized verification evidence in %s', mode => {
+    vi.stubEnv('COACHING_OUTPUT_PIPELINE_MODE', mode);
+    const normalized = normalizeCoachingOutput(openingWriteObserved.candidate, openingWriteObserved.latest, []);
+    const direct = verifyOpeningWrite(openingWriteObserved.candidate);
+    const normalizedVerified = verifyOpeningWrite(normalized);
+    openingWriteSeen.push({stage: 'verified-two-paths', mode, ...openingWriteObserved,
+      normalized, normalizedQuality: assessOpeningWrite(normalized), direct, normalizedVerified});
+    if (mode === 'observe') {
+      expect(direct.text).toBe(openingWriteObserved.candidate);
+      expect(direct.initialIssues).toContain('multiple_coaching_moves');
+      return; // This is known-bad detection-only, not semantic delivery PASS.
+    }
+    expectOneSelfContainedMorningAction(direct.text);
+    expectOneSelfContainedMorningAction(normalizedVerified.text);
+    expect(direct.qualitySafetyHold).not.toBe(true);
+    expect(normalizedVerified.qualitySafetyHold).not.toBe(true);
+  });
+  it.each(['minimal', 'legacy', 'observe'])('records full mock delivery in %s', async mode => {
+    const done = await streamOpeningWrite(mode);
+    expect(done.qualityInitialIssues).toContain('multiple_coaching_moves');
+    if (mode === 'observe') { expect(done.message).toBe(openingWriteObserved.candidate); return; }
+    expectOneSelfContainedMorningAction(done.message);
+    expect(done.qualityFinalIssues).toEqual([]); expect(done.qualitySafetyHold).not.toBe(true);
+  });
+});
+describe('bounded opening/write connective and quotation contracts', () => {
+  it.each([
+    '明日の朝、ノートを開き、用事を一つだけ書いてください。',
+    '「ノートを開き、用事を一つだけ書いてください。」',
+    '「ノートを開き、用事を一つだけ書いてください」を試してみてください。',
+  ])('detects two instructed operations without relying on the ambiguous day: %s', text => {
+    const quality = assessOpeningWrite(text);
+    openingWriteSeen.push({stage: 'opening-grammar-reject', text, latest: openingWriteObserved.latest, quality});
+    expect(quality.issues).toContain('multiple_coaching_moves');
+  });
+  it.each([
+    {name: 'single-write', text: '明日の朝、終わらせたい用事を一つだけ紙に書いてください。', latest: openingWriteObserved.latest},
+    {name: 'single-open', text: '明日の朝、ノートを一冊だけ開いてください。', latest: openingWriteObserved.latest},
+    {name: 'past-report', text: 'ノートを開き、一文を書いたのですね。', latest: 'ノートを開き、一文を書きました。'},
+    {name: 'faithful-quoted-report', text: '「ノートを開き、一文を書いてください」とAIに言われたのですね。', latest: '「ノートを開き、一文を書いてください」とAIに言われました。'},
+    {name: 'one-conveyed-utterance', text: '「ノートを開き、一文を書いてください」とだけ伝えてください。', latest: '相手に伝える一言を一つだけ教えてください。'},
+    {name: 'opening-method-noun', text: 'ノートの開き方を確認してください。', latest: openingWriteObserved.latest},
+    {name: 'no-opening-and-writing-required', text: 'ノートを開き、一文を書く必要はありません。', latest: openingWriteObserved.latest},
+    {name: 'explicit-multiple-request', text: 'ノートを開き、用事を一つだけ書いてください。', latest: 'ノートを開いて一文を書く手順を、二つの操作に分けて説明してください。'},
+  ])('does not turn $name into two newly instructed operations', item => {
+    const quality = assessOpeningWrite(item.text, item.latest);
+    openingWriteSeen.push({stage: 'opening-grammar-preserve', ...item, quality});
+    expect(quality.issues).not.toContain('multiple_coaching_moves');
+    if (item.name === 'single-write') expect(quality.issues).toEqual([]);
   });
 });
