@@ -1807,8 +1807,9 @@ describe('ensureVerifiedCoachingResolution', () => {
     expect(result.finalIssues).toEqual([]);
     expect(result.text).not.toMatch(/過去の別の話題|サポートからご連絡/);
     expect(result.text).toContain('応募');
-    expect(result.text).toContain('一件');
-    expect(result.text).toContain('最初の項目');
+    expect(result.text).toContain('一文');
+    expect(result.text).not.toMatch(/入力欄|最初の項目|応募ページ/);
+    expect(result.text).toContain('経験');
   });
 
   it('最終候補が合格済みならそのまま返す', () => {

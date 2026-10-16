@@ -1,3 +1,4 @@
+import { stripJapaneseQuotationContent, containsUnbalancedJapaneseQuotation } from '../src/lib/coaching-quotation-language.mjs';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import vm from 'node:vm';
@@ -96,7 +97,7 @@ const source = readFileSync(resolve(process.cwd(),'scripts/smoke-coaching-chat.m
 // authentication, cleanup, process, file-system or network capability in the VM.
 const assertions = source.slice(source.indexOf('function assertResults('),source.indexOf('async function cleanup('));
 const assertResults = vm.runInNewContext(`${assertions}\nassertResults`, {
-  ...actionLanguage, expectedTextModel:'', maxFirstChunkMs:10000, maxTotalMs:15000,
+  ...actionLanguage, stripJapaneseQuotationContent, containsUnbalancedJapaneseQuotation, expectedTextModel:'', maxFirstChunkMs:10000, maxTotalMs:15000,
 });
 const request = 'では、明日まず何をすればいいか一つだけ教えてください。';
 const history = [{role:'user' as const,content:observed.lastUserText}];

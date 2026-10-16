@@ -1,3 +1,4 @@
+import { stripJapaneseQuotationContent, containsUnbalancedJapaneseQuotation, splitOutsideJapaneseQuotations, softenAcknowledgementsOutsideQuotations } from '@/lib/coaching-quotation-language.mjs';
 import { getGenAI } from '@/lib/openai';
 import { axisDescriptions, levelNames, typeNames } from '@/data/type-names';
 import {
@@ -8,7 +9,7 @@ import { sendCoachingAlert } from '@/lib/coaching-alerts';
 import { COACHING_SCOPE_GUIDANCE } from '@/lib/coaching-scope';
 import { containsDeadlineOutcomeAssurance, stripAttributedDeadlineQuotes } from '@/lib/coaching-deadline-language.mjs';
 import { containsUnsupportedEmotionIntensity, removeUnsupportedEmotionIntensity, containsUnsupportedConcernPremise, removeUnsupportedConcernPremise, currentTopicUserTexts } from '@/lib/coaching-emotion-language.mjs';
-import { containsCircularSingleAction, containsUnsupportedSituationPremise, containsUngroundedTaskAssumption, hasCurrentUserSituationEvidence, containsConversationRestriction, containsAmbiguousFutureActionDayReference, alignFutureActionDayReferences } from '@/lib/coaching-action-language.mjs';
+import { containsChainedEditingInstructions, containsChainedCommunicationInstructions, containsCircularSingleAction, containsUnsupportedProcedureInterfacePremise, containsUnsupportedSituationPremise, containsUngroundedTaskAssumption, hasCurrentUserSituationEvidence, containsConversationRestriction, containsAmbiguousFutureActionDayReference, alignFutureActionDayReferences } from '@/lib/coaching-action-language.mjs';
 import {
   getCoachingOutputPipelineConfig,
   type CoachingOutputPipelineMode,
@@ -2481,6 +2482,9 @@ export function assessCoachingResponseQuality(params: {
   if (containsUnsupportedSituationPremise(text, getCurrentPlanningUserTexts(lastUserText, historyMessages))) {
     issues.push('context_mismatch');
   }
+  if (containsUnsupportedProcedureInterfacePremise(text, getCurrentPlanningUserTexts(lastUserText, historyMessages))) {
+    issues.push('context_mismatch');
+  }
   const answeredQuestion = getAnsweredExistenceQuestion(lastUserText, historyMessages);
   const factualReplyFallback = buildFactualReplyFallback(lastUserText, historyMessages);
   const groundedDeadlineBriefReply = buildGroundedDeadlineBriefReply(lastUserText);
@@ -2881,6 +2885,7 @@ export function assessCoachingResponseQuality(params: {
     !new RegExp(`\\b${match[1]}\\b`, 'i').test(userEmotionContext)
   );
   if (
+    containsUnbalancedJapaneseQuotation(text) ||
     hasMalformedJapaneseQuantity ||
     /(?:いっぱい|必要|重要|大切|大丈夫|困難|簡単|複雑)(?:ため|ので)/.test(text) ||
     /([一-龯][ぁ-ん]{1,2})\1(?=[たてるま])/.test(text) ||
@@ -3030,6 +3035,9 @@ export function assessCoachingResponseQuality(params: {
     issues.push('invented_follow_through');
   }
 
+  if ((containsChainedCommunicationInstructions(text, lastUserText) || containsChainedEditingInstructions(text, lastUserText)) && !buildUrgentSafetyResponse(lastUserText)) {
+    issues.push('multiple_coaching_moves');
+  }
   const coachingMoveCount = countExplicitCoachingMoves(text);
   const singleQuotedCommunicationAction =
     isSingleQuotedCommunicationAction(text);
@@ -3104,9 +3112,11 @@ function hasUnsafeHighImpactAdvice(text: string) {
 }
 
 function countExplicitCoachingMoves(text: string) {
-  return (text.match(/[^。！？?\n]+[。！？?]?/g) || []).filter((segment) => {
-    const trimmed = segment.trim();
+  return splitOutsideJapaneseQuotations(text).filter((segment) => {
+    const trimmed = stripJapaneseQuotedContent(segment).trim();
+    const standaloneQuotedAction = /^[。！!\s]*$/.test(trimmed) && /(?:ください|ましょう|お願い|[？?])/.test(segment);
     return (
+      standaloneQuotedAction ||
       isQuestionSegment(trimmed) ||
       /(?:してください|してみてください|しましょう|してみましょう|(?:て|で)いきましょう|から始めてください)[。！]?$/.test(
         trimmed
@@ -3364,7 +3374,7 @@ export function normalizeCoachingOutput(
     lastUserText,
     historyMessages
   );
-  const naturalText = deduplicatedText
+  const naturalText = softenAcknowledgementsOutsideQuotations(deduplicatedText)
     .replace(/\*\*/g, '')
     .replace(/下書きの(?:さらに)?下書き/g, '下書き')
     .replace(/タタスク/g, 'タスク')
@@ -3383,9 +3393,6 @@ export function normalizeCoachingOutput(
       /(?:その)?(?:お気持ち|気持ち)[、,]?(?:とても)?よく(?:分|わ)かります[。]?/g,
       '気持ちが伝わります。'
     )
-    .replace(/承知いたしました[。]?/g, 'わかりました。')
-    .replace(/[、,]?と承知しました[。]?/g, '、確認しました。')
-    .replace(/承知しました[。]?/g, 'わかりました。')
     .replace(
       /^([^。、,\n]{1,12})[、,]?と教えてくださり[、,]?ありがとうございます[。]?/gm,
       '$1、確認しました。'
@@ -3649,9 +3656,7 @@ export function normalizeCoachingOutput(
         paragraph
       );
     });
-  const segments = paragraphs
-    .join('\n\n')
-    .match(/[^。！？?\n]+[。！？?]?|\n+/g) || [];
+  const segments = splitOutsideJapaneseQuotations(paragraphs.join('\n\n'));
   let quoteDepth = 0;
   const segmentMetadata = segments.map((segment) => {
     const opens = countMatches(segment, /[「『]/g);
@@ -3660,8 +3665,8 @@ export function normalizeCoachingOutput(
       !requiresClosingQuestion &&
       isQuestionInsideJapaneseQuote(segment, quoteDepth);
     const questionCount =
-      isQuestionSegment(segment) && !questionIsQuoted
-        ? Math.max(1, countMatches(segment, /[？?]/g))
+      isQuestionSegment(stripJapaneseQuotedContent(segment)) && !questionIsQuoted
+        ? Math.max(1, countMatches(stripJapaneseQuotedContent(segment), /[？?]/g))
         : 0;
     quoteDepth = Math.max(0, quoteDepth + opens - closes);
     return {
@@ -4901,7 +4906,7 @@ function buildCancellationConversationContinuation(
   const shortApology = /^(?:すみません|ごめんなさい|申し訳(?:ありません|ないです))[。！!]*$/.test(latest);
   if (answersOpeningQuestion) {
     const phrase = latest.replace(/[「」『』]/g, '').replace(/[。！？!]+$/g, '');
-    return `「${phrase}」を最初に伝える言葉の案として考えたのですね。仕事で${request}の希望を受けた場面では、まず今回の希望を受け取ったことが相手に伝わる返答を置けます。理由が既に伝えられている場合は聞き直さず、確認が必要な点だけを残せます。\n\n最初は${acknowledgement}と伝え、その後に必要な確認が残っている場合だけ、一つ尋ねてください。`;
+    return `「${phrase}」を最初に伝える言葉の案として考えたのですね。仕事で${request}の希望を受けた場面では、まず今回の希望を受け取ったことが相手に伝わる返答を置けます。理由が既に伝えられている場合は聞き直さず、確認が必要な点だけを残せます。\n\n最初は${acknowledgement}と伝えてください。`;
   }
   if (shortApology) {
     return `${actor}から${request}を求められた場面について、ここまでの話を続けられます。相手の希望はすでに書かれているので、同じ出来事を説明し直す必要はありません。理由が既に伝えられている場合は聞き直さず、まず希望を受け取ったことを伝える言葉に絞れます。\n\n最初の返答は${acknowledgement}と短く伝えてください。`;
@@ -5840,7 +5845,7 @@ function buildSubstantiveShortFallback(lastUserText: string) {
     /応募/.test(lastUserText) &&
     /踏み出せ|踏み出せない|ためら|迷|怖/.test(lastUserText)
   ) {
-    return '応募の候補はあるのに、送る直前で手が止まっているのですね。今必要なのは気持ちを整えることより、応募を始める手順を一段だけ小さくすることです。\n\n今いちばん応募しやすい候補を一件開いて、応募に必要な最初の項目だけ埋めてください。';
+    return '応募に向けて一歩を踏み出す時は、応募全体ではなく、伝える内容を一つに絞れます。応募方法にかかわらず、自分の経験を短く言葉にしておくと、相手に何を伝えるかが具体的になります。\n\n応募先に伝えたい自分の経験を、一文だけメモに書いてください。';
   }
 
   if (/能力がないと思われるのが悔し/.test(lastUserText)) {
@@ -6314,20 +6319,22 @@ function buildLongContinuityReferenceFallback(
   }
 
   if (/一枚目には利用目的を書く予定です/.test(lastUserText)) {
-    return '一枚目を利用目的にする方針で揃っているのですね。初めて使う人向けの資料なら、一枚目は「このサービスで何ができるか」を一文で言い切る役割に固定した方が、後ろの手順ページも組みやすくなります。まず一枚目の見出しと説明を見直し、利用目的が一文で読める形に絞ってください。';
+    return '一枚目を利用目的にする方針で揃っているのですね。初めて使う人向けの資料なら、一枚目は「このサービスで何ができるか」を一文で言い切る役割に固定した方が、後ろの手順ページも組みやすくなります。まず一枚目の利用目的を、「このサービスで何ができるか」が伝わる一文で書いてください。';
   }
 
   if (/二枚目には利用手順を書く予定です/.test(lastUserText)) {
-    return 'この企画の説明資料は、一枚目で利用目的を伝え、二枚目で利用手順を見せる並びですね。初めてサービスを使う人向けなら、二枚目は説明を増やすより、「1. 何を押すか」「2. 何が表示されるか」「3. 次に何をするか」の三段で読める形にした方が、専門用語に引っかからず流れを追いやすくなります。まず二枚目の手順を三段だけに絞って書き出してください。';
+    const documentName = /企画/.test(recentContext) ? '企画の説明資料' : '説明資料';
+    const reader = /初めてサービスを使う人/.test(recentContext) ? '初めてサービスを使う人' : '資料を読む人';
+    return `${documentName}の二枚目には利用手順を書く予定なのですね。${reader}が流れを追えるよう、「最初にすること」「その結果」「次にすること」の三段を整理の枠として使えます。実際の手順の数や動作は、サービスの内容に合わせて考えます。まず二枚目の利用手順を、この並びに沿って書き出してください。`;
   }
 
   if (/今日は一枚目から直そうと思います/.test(lastUserText)) {
-    return '今日は一枚目から直す方針で良いです。最初に直すのは、一枚目の利用目的を一文に絞ることです。「このサービスで何ができるか」を一文だけ残し、説明を足す前に他の文をいったん削ってください。';
+    return '今日は一枚目から直す方針で良いです。最初に直すのは、一枚目の利用目的を一文に絞ることです。一枚目の利用目的を、「このサービスで何ができるか」が一文で伝わる形に書き直してください。';
   }
 
   if (/目的の説明が長くなりすぎています/.test(lastUserText)) {
     const deadline = getCurrentUserDeadline(userTexts);
-    return `${deadline ? `${deadline}の締切に向けて、` : ''}今日最初に直すのは、一枚目の利用目的です。読み手がサービスで何をできるのかをつかめるよう、一枚目の長い説明から「このサービスで何ができるか」を示す一文だけを選び、ほかの説明はいったん外してください。`;
+    return `${deadline ? `${deadline}の締切に向けて、` : ''}今日最初に直すのは、一枚目の利用目的です。読み手がサービスで何をできるのかをつかめるよう、一枚目の利用目的を、「このサービスで何ができるか」が一文で伝わる形に書き直してください。`;
   }
 
   if (
@@ -7161,7 +7168,7 @@ function limitUnrequestedCoachingMoves(text: string, lastUserText: string) {
     if (standaloneSuggestedWording) return standaloneSuggestedWording;
   }
 
-  const segments = text.match(/[^。！？?\n]+[。！？?]?|\n+/g) || [];
+  const segments = splitOutsideJapaneseQuotations(text);
   const moveIndices: number[] = [];
   const moveScores = new Map<number, number>();
   let quoteDepth = 0;
@@ -7175,7 +7182,9 @@ function limitUnrequestedCoachingMoves(text: string, lastUserText: string) {
     const isDirective =
       unquoted.length > 0 &&
       /(?:ください|ましょう)[。！]?$/.test(unquoted);
-    const isSuggestedWording =
+    const standaloneQuotedAction = /^[。！!\s]*$/.test(unquoted) && /(?:ください|ましょう|お願い|[？?])/.test(segment);
+    const isSuggestedWording = standaloneQuotedAction ||
+      !/と(?:返す|伝える|送る|話す)(?:前|言葉の案として)|と(?:考えた|言った|書いた)/.test(unquoted) &&
       (/「[^」]{4,}(?:お願い|してほしい|話したい|伝えたい|聞いてほしい|できる[？?]|ませんか)[^」]*」/.test(
         segment.trim()
       ) ||
@@ -7234,7 +7243,7 @@ function containsAlternativeRequestedActions(text: string) {
 }
 
 function stripJapaneseQuotedContent(text: string) {
-  return text.replace(/「[^」]*」|『[^』]*』/g, '');
+  return stripJapaneseQuotationContent(text);
 }
 
 function isSingleQuotedCommunicationAction(text: string) {
@@ -7437,6 +7446,9 @@ function isSingleActionRelevantToContext(
       userContext
     )
   ) {
+    return false;
+  }
+  if (containsUnsupportedProcedureInterfacePremise(answer, getCurrentPlanningUserTexts(lastUserText, historyMessages))) {
     return false;
   }
   if (containsUngroundedTaskAssumption(answer, getCurrentPlanningUserTexts(lastUserText, historyMessages))) {
@@ -8440,7 +8452,7 @@ function buildNoQuestionFallback(
     /求人|応募|面接|履歴書|職務経歴書/.test(userContext) &&
     /踏み出せ|踏み出せない|ためら|迷|怖|動け|進め/.test(lastUserText)
   ) {
-    return '今いちばん応募したい求人を1件開いて、応募ページの最初の入力欄だけ埋めてください。';
+    return '応募先に伝えたい自分の経験を、一文だけメモに書いてください。';
   }
   if (/仕事|職場|業務|会社|タスク|企画|資料/.test(userContext)) {
     return '明日の朝、今いちばん気になる仕事に5分だけ取り組んでください。';
@@ -8988,6 +9000,11 @@ function removeOrphanedResponseFragments(text: string) {
 }
 
 function balanceJapaneseDelimitersByParagraph(text: string) {
+  // A complete quotation may legitimately span paragraphs. Repair only an
+  // actually incomplete quote per paragraph; do not close a valid one early.
+  if (/[「『]/.test(text) && !containsUnbalancedJapaneseQuotation(text)) {
+    return balanceJapaneseDelimiters(text).replace(/\n{3,}/g, '\n\n').trim();
+  }
   return text
     .split(/(\n{2,})/)
     .map((part) => (/^\n+$/.test(part) ? part : balanceJapaneseDelimiters(part)))

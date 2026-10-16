@@ -1,3 +1,4 @@
+import { stripJapaneseQuotationContent, containsUnbalancedJapaneseQuotation } from '../src/lib/coaching-quotation-language.mjs';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import vm from 'node:vm';
@@ -23,13 +24,13 @@ const { containsAmbiguousFutureActionDayReference, alignFutureActionDayReference
 const smokeSource = readFileSync(resolve(process.cwd(), 'scripts/smoke-coaching-chat.mjs'), 'utf8');
 const smokeAssertions = smokeSource.slice(smokeSource.indexOf('function assertResults('), smokeSource.indexOf('async function cleanup('));
 const assertSmokeResults = vm.runInNewContext(`${smokeAssertions}\nassertResults`, {
-  ...actionLanguage, expectedTextModel: '', maxFirstChunkMs: 10000, maxTotalMs: 15000,
+  ...actionLanguage, stripJapaneseQuotationContent, containsUnbalancedJapaneseQuotation, expectedTextModel: '', maxFirstChunkMs: 10000, maxTotalMs: 15000,
 });
 const evaluatorSource = readFileSync(resolve(process.cwd(), 'scripts/evaluate-coaching-quality.mjs'), 'utf8');
 const specification = evaluatorSource.slice(evaluatorSource.indexOf('const BASELINE_QUALITY_POPULATION ='), evaluatorSource.indexOf('const args ='));
 const evaluation = evaluatorSource.slice(evaluatorSource.indexOf('function evaluateConversations('), evaluatorSource.indexOf('function getLocalTurnExpectation('));
 const evaluate = vm.runInNewContext(`${specification}\n${evaluation}\nevaluateConversations`, {
-  ...actionLanguage, ...emotionLanguage, containsDeadlineOutcomeAssurance,
+  ...actionLanguage, stripJapaneseQuotationContent, containsUnbalancedJapaneseQuotation, ...emotionLanguage, containsDeadlineOutcomeAssurance,
   seededContinuityScenarios, evaluateSeededContinuityResponse,
   getLocalTurnExpectation: () => ({ finishReason: 'STOP' }), countCoachingMoves: () => 0,
   addCheck: (checks: unknown[], name: string, passed: boolean) => checks.push({ name, passed }),

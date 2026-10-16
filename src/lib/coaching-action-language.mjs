@@ -1,7 +1,40 @@
+import { stripJapaneseQuotationContent } from './coaching-quotation-language.mjs';
+
 /** A start verb with only an unspecified task restates the requested action. */
 export function containsCircularSingleAction(text) {
   const unquoted = text.replace(/「[^」]*」|『[^』]*』/gu, '').replace(/\s+/gu, '');
   return /(?:最初に(?:行う|する|取り組む)|最初の)(?:作業|タスク|行動)(?:に|を)(?:(?:一|1|ひと)つだけ)?(?:着手して|取り組んで|始めて|開始して|進めて)(?:みて)?ください[。！!]*$/u.test(unquoted);
+}
+
+function requestsMultipleCoachingActions(lastUserText) {
+  const ownRequest = stripJapaneseQuotationContent(lastUserText, true).replace(/"[^"]*"|'[^']*'/gu, '');
+  const single = /一つ|ひとつ|1つ|一動作|一問|一言だけ|質問なし/u.test(ownRequest);
+  let multipleRequested = false;
+  for (const clause of ownRequest.split(/(?<=[。！？?\n])|[、,]|しかし|ただし/u)) {
+    if (!/複数|いくつか|両方|二つ|2つ|手順|順番|ステップ/u.test(clause)) continue;
+    if (/しない|しません|やめて|不要|いらない|必要(?:は)?ありません|必要ない|禁止|ではなく|(?:頼んで|求めて|お願いして|言って|依頼して)(?:いません|いない)/u.test(clause)) {
+      multipleRequested = false;
+      continue;
+    }
+    if (/(?:複数|いくつか|両方|二つ|2つ|手順|順番|ステップ)[^。！？?\n]{0,24}(?:(?:教えて|提案して|説明して|示して|挙げて|答えて)(?:ください|ほしい(?:です)?|もらえますか|もらえませんか)?|(?:を)?お願いします)(?:ね)?[。！!？?\s]*$/u.test(clause)) multipleRequested = true;
+  }
+  return !single && multipleRequested;
+}
+
+/** A conditional follow-up is still a second instructed communication action. */
+export function containsChainedCommunicationInstructions(text, lastUserText = '') {
+  if (requestsMultipleCoachingActions(lastUserText)) return false;
+  // Draft content can itself describe a sequence. Only instructions outside
+  // the quoted wording count, including instructions after a closing quote.
+  const outside = stripJapaneseQuotationContent(text, true).replace(/"[^"]*"|'[^']*'/gu, quote => ' '.repeat(quote.length));
+  return /(?:伝え(?:し)?|話し|説明し|答え|返事(?:を)?し)(?:てから|た後(?:に|で)?|[、,]\s*(?:その後|続いて|次に))[^。！？?\n]{0,80}(?:(?:尋ね|質問し|確認し)(?:て(?:みて)?ください|ましょう|てみませんか|てはどうでしょうか)|聞(?:いて(?:みて)?ください|きましょう))/u.test(outside);
+}
+
+/** Selecting/reviewing/retaining text and then editing it are separate actions. */
+export function containsChainedEditingInstructions(text, lastUserText = '') {
+  if (requestsMultipleCoachingActions(lastUserText)) return false;
+  const outside = stripJapaneseQuotationContent(text, true).replace(/"[^"]*"|'[^']*'/gu, quote => ' '.repeat(quote.length));
+  return /(?:(?:選び|見直し|残し)[、,]|(?:選んで|見直して|残して)(?:みて)?ください[。！!])\s*[^。！？?\n]{0,100}(?:外して|削って|絞って)(?:みて)?ください(?:ね)?(?=[。！!\n]|$)/u.test(outside);
 }
 
 // These are concrete premises from the observed fallback failures, rather than
@@ -45,6 +78,62 @@ const TASK_ASSUMPTION = /(?:今日|昨日|前回)[^。！？\n]{0,40}(?:やり�
 
 export function containsUngroundedTaskAssumption(text, currentUserTexts) {
   return TASK_ASSUMPTION.test(text) && !hasCurrentUserSituationEvidence(currentUserTexts, TASK_ASSUMPTION);
+}
+
+// A service-use document does not establish a screen or a button. Keep this
+// check bounded to procedure advice; the ACTI composer is not the service being
+// described. Callers supply current-topic user words, never assistant history.
+const PROCEDURE_CONTEXT = /説明資料|利用手順|操作手順|手順書|使い方|利用ガイド/u;
+const INTERFACE_PREMISES = [
+  {
+    output: /何を(?:押す|クリックする|タップする)か|(?:ボタン|メニュー|アイコン|画面)[^。！？?\n「」『』、,]{0,16}(?:押(?:す|し|せ|さ)|クリック|タップ)|(?:押す|クリックする|タップする)(?:ボタン|メニュー|アイコン|場所)|ボタン操作/gu,
+    evidence: /ボタン|クリック|タップ|押す操作/u,
+  },
+  {
+    output: /何が表示されるか|(?:画面|ページ|メニュー)[^。！？?\n「」『』、,]{0,16}表示|表示され(?:る|た)(?:画面|内容|もの)|画面(?:に|の)(?:表示|内容|変化)|表示内容|操作画面|画面操作/gu,
+    evidence: /画面|表示|アプリ|ブラウザ|ウェブサイト|Webサイト/iu,
+  },
+];
+const INTERFACE_DENIAL = /(?:は|が|も)(?:まだ|現在|今は|今のところ)?(?:ありません|ない|存在しません|存在しない)|使いません|使わない|使って(?:いません|いない)|使用し(?:ません|ない)|ではなく|では(?:ありません|ない)|とは(?:言って|述べて)(?:いません|いない)|とは(?:限りません|限らない)|という意味では/u;
+
+function hasProcedureInterfaceEvidence(userTexts, expression) {
+  let supported = false;
+  for (const text of userTexts) {
+    const ownWords = text.replace(/「[^」]*」|『[^』]*』|"[^"]*"|'[^']*'/gu, '');
+    for (const statement of ownWords.split(/(?<=[。！？?\n])|[、,]|しかし|ただし|(?<=ません|ない|あります|です)が/u)) {
+      if (!expression.test(statement)) continue;
+      if (/(?:あるか|存在するか|使うか|使用するか)[^。！？?\n]{0,16}(?:分かりません|わかりません|分からない|わからない|不明|未確認|未定)/u.test(statement)) {
+        supported = false;
+        continue;
+      }
+      // Questions, hypothetical examples and another service cannot establish
+      // a property of the current service. A later explicit denial cancels it.
+      if (/[？?]|(?:です|ます|ある|いる)か[。\s]*$|もし|仮に|なら|場合|あれば|あったら|例えば|たとえば|一例|別の(?:サービス|資料)|他のサービス|と(?:AIに|言われ|言って|書かれ|提案され)|かもしれ/u.test(statement)) continue;
+      supported = !INTERFACE_DENIAL.test(statement);
+    }
+  }
+  return supported;
+}
+
+export function containsUnsupportedProcedureInterfacePremise(text, currentUserTexts = []) {
+  if (!PROCEDURE_CONTEXT.test(currentUserTexts.join('\n'))) return false;
+  return INTERFACE_PREMISES.some(({ output, evidence }) => {
+    if (hasProcedureInterfaceEvidence(currentUserTexts, evidence)) return false;
+    // Quoted labels in an instruction still impose a premise. Do not strip
+    // them: the observed defect placed both invented UI steps inside quotes.
+    return (text.match(/[^。！？?\n]+[。！？?]?/gu) || []).some(statement =>
+      [...statement.matchAll(output)].some(match => {
+        const suffix = statement.slice(match.index + match[0].length);
+        if (/^(?:とは(?:限りません|限らない)|(?:という意味)?では(?:ありません|ない)|(?:こと|操作)?(?:は|が|も)?(?:ありません|ない|不要です|必要ありません))/u.test(suffix)) return false;
+        if (/^(?:は|が)(?:あります|ある|存在します|存在する)(?:か|でしょうか)[？?。\s]*$/u.test(suffix)) return false;
+        if (/^(?:が(?:ある|ない)(?:サービス)?(?:なら|場合|とき|時)|が(?:あれば|あったら)|を(?:使う|使用する|操作する|押す)(?:サービス)?(?:なら|場合|とき|時))/u.test(suffix)) return false;
+        const prefix = statement.slice(0, match.index).split(/しかし|ただし|が[、,]/u).at(-1);
+        const conditional = new RegExp(`(?:${evidence.source})(?:操作|表示)?(?:が(?:ある(?:サービス)?(?:なら|場合|とき|時)|あれば|あったら)|を(?:使う|使用する|操作する|押す)(?:サービス)?(?:なら|場合|とき|時))[^。！？?\\n]*$`, evidence.flags);
+        // Only a condition on the UI property itself qualifies. A condition on
+        // the reader ("初めて使う人なら") does not establish an interface.
+        return !conditional.test(prefix);
+      }));
+  });
 }
 
 /** Restricting the conversation itself is different from naming something to avoid within it. */

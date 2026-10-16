@@ -1,7 +1,8 @@
+import { stripJapaneseQuotationContent, containsUnbalancedJapaneseQuotation } from '../src/lib/coaching-quotation-language.mjs';
 import { createClient } from '@supabase/supabase-js';
 import { randomUUID } from 'node:crypto';
 import { currentTopicUserTexts } from '../src/lib/coaching-emotion-language.mjs';
-import { containsUnsupportedSituationPremise, containsUngroundedTaskAssumption, containsConversationRestriction, containsAmbiguousFutureActionDayReference } from '../src/lib/coaching-action-language.mjs';
+import { containsChainedEditingInstructions, containsChainedCommunicationInstructions, containsUnsupportedProcedureInterfacePremise, containsUnsupportedSituationPremise, containsUngroundedTaskAssumption, containsConversationRestriction, containsAmbiguousFutureActionDayReference } from '../src/lib/coaching-action-language.mjs';
 import { deleteTestAuthUser } from './lib/test-account-cleanup.mjs';
 
 const args = new Map(
@@ -626,9 +627,12 @@ function assertResults(results) {
         `${result.label} returned more than one coaching move: ${result.message}`
       );
     }
+    // Polite wording inside a proposed message is not the coach's voice.
+    const toneCheckedText = result.message.replace(/承知(?:いた)?しました/g, (match, index) =>
+      containsUnbalancedJapaneseQuotation(result.message.slice(0, index)) ? '' : match);
     if (
       /お察し(?:いた)?します|承知(?:いた)?しました|お見受けします|いらっしゃる|差し支えなければ|よろしければ|(?:お聞かせ|聞かせて|教えて|お話し|話して)いただけますか|お聞かせいただけますでしょうか|させていただけますでしょうか|となっております|お伺いいたします|お気軽に(?:ご質問|お尋ね|ご相談)|頑張られ|(?:素晴らしい|大切な)一歩|大切な視点|大切な本音|本音が隠れて|気づかれたのですね|(?:提案|方法|行動)があります|それだけ[^。！？?\n]{0,80}(?:大切|重要)[^。！？?\n]{0,12}(?:から|ため)|サポートさせていただきます|ご無理なさらず|ご安心ください|お過ごしください|(?:教えて|伝えて|書いて|声をかけて|相談して|お話しして|話して)くださ(?:り|って)[、,]?ありがとうございます|(?:気持ち|状況|悩み)を言葉にしていただけて(?:よかった|うれしい)です|(?:お気持ち|気持ち).{0,8}よく(?:分|わ)かります|何か(?:具体的に|続けて)?(?:お話し|話して)(?:みたい|したい)?ことはありますか|何か[、,]?(?:今)?(?:感じていることや[、,]?)?(?:話したい|話してみたい)ことはありますか|今[、,]?(?:この瞬間に)?(?:最も|一番)?(?:話したい|話してみたい)ことは何ですか|この(?:提案|方法|考え)(?:について)?[、,]?(?:どのように|どう)(?:感じ|思い)ますか|この[^。！？?\n]{0,80}(?:いかがでしょうか|いかがですか|試せそうでしょうか|試せそうですか|できそうでしょうか|できそうですか|どう思いますか)|最後に[、,]?自分で判断を深めるための質問です|その[^。！？?\n]{0,80}気持ちが伝わります|姿勢は(?:とても)?素敵です|あなたの言葉一つ一つを大切に受け止めています|受け止めさせてください|受け止めたいと思います|細かく分析する前に|見捨てられ|承認欲求|トラウマ|幼少期|愛着障害|共依存|我慢.{0,12}証拠|という喧嘩|タタスク|タースク|タムスケジュール/.test(
-        result.message
+        toneCheckedText
       )
     ) {
       throw new Error(
@@ -724,6 +728,18 @@ function assertResults(results) {
       throw new Error(
         `${result.label} returned a vague action target: ${result.message}`
       );
+    }
+    if (containsUnbalancedJapaneseQuotation(result.message)) {
+      throw new Error(`${result.label} returned an incomplete Japanese quotation: ${result.message}`);
+    }
+    if (containsChainedEditingInstructions(result.message, result.lastUserText)) {
+      throw new Error(`${result.label} returned chained editing instructions: ${result.message}`);
+    }
+    if (containsChainedCommunicationInstructions(result.message, result.lastUserText)) {
+      throw new Error(`${result.label} returned chained communication instructions: ${result.message}`);
+    }
+    if (containsUnsupportedProcedureInterfacePremise(result.message, result.currentUserTexts)) {
+      throw new Error(`${result.label} invented an unsupported procedure interface: ${result.message}`);
     }
     if (containsUnsupportedSituationPremise(result.message, result.currentUserTexts) ||
         containsUngroundedTaskAssumption(result.message, result.currentUserTexts)) {
@@ -1037,14 +1053,13 @@ function hasStandaloneSuggestedWordingAndQuestion(text) {
     .split(/\n{2,}/)
     .map((paragraph) => paragraph.trim())
     .filter(Boolean);
-  return (
-    paragraphs.some((paragraph) =>
-      /^(?:例えば[、,]?\s*)?「[^」]{8,}」(?:と[^。！？?\n]{0,30})?[。！]?$/.test(
-        paragraph
-      )
-    ) &&
-    countSemanticQuestions(text) > 0
+  const proposalIndex = paragraphs.findIndex((paragraph) =>
+    /^(?:例えば[、,]?\s*)?「[^」]{8,}」(?:と[^。！？?\n]{0,30})?[。！]?$/.test(paragraph)
   );
+  // A question that proposes sending this wording is the same move. Only a
+  // separate question outside that proposal adds another coaching move.
+  return proposalIndex >= 0 && paragraphs.some((paragraph, index) =>
+    index !== proposalIndex && countSemanticQuestions(paragraph) > 0);
 }
 
 function countSemanticQuestions(text) {
@@ -1065,11 +1080,13 @@ function countSemanticQuestions(text) {
 }
 
 function countCoachingMoves(text) {
-  const quotedWordingMoves = (
-    text.match(
-      /「[^」]{4,}(?:お願い|してほしい|話したい|伝えたい|聞いてほしい|できる[？?]|ませんか)[^」]*」/g
-    ) || []
-  ).length;
+  // Acknowledging the user's proposed phrase is a report,
+  // not another instruction. Its later suggested acknowledgement still counts.
+  const quotedWordingMoves = [...text.matchAll(
+    /「[^」]{4,}(?:お願い|してほしい|話したい|伝えたい|聞いてほしい|できる[？?]|ませんか)[^」]*」/g
+  )].filter(match => !/^(?:を(?:最初に伝える)?言葉の案として考えたのですね|と(?:返す|伝える|送る|話す)前に)/u.test(
+    text.slice(match.index + match[0].length)
+  )).length;
   const unquoted = stripJapaneseQuotedContent(text);
   const segments = unquoted.match(/[^。！？?\n]+[。！？?]?|\n+/g) || [];
   return quotedWordingMoves + segments.reduce((total, segment) => {
@@ -1113,7 +1130,7 @@ function containsMultipleRequestedTargets(text) {
 }
 
 function stripJapaneseQuotedContent(text) {
-  return text.replace(/「[^」]*」|『[^』]*』/g, '');
+  return stripJapaneseQuotationContent(text);
 }
 
 function hasBalancedJapaneseDelimiters(text) {

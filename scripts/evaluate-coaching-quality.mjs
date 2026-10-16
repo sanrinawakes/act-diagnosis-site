@@ -1,3 +1,4 @@
+import { stripJapaneseQuotationContent, containsUnbalancedJapaneseQuotation } from '../src/lib/coaching-quotation-language.mjs';
 import { randomUUID } from 'node:crypto';
 import { writeFile } from 'node:fs/promises';
 import { deflateSync } from 'node:zlib';
@@ -6,7 +7,7 @@ import { deleteTestAuthUser } from './lib/test-account-cleanup.mjs';
 import { seededContinuityScenarios, evaluateSeededContinuityResponse } from './lib/coaching-continuity-scenarios.mjs';
 import { containsDeadlineOutcomeAssurance } from '../src/lib/coaching-deadline-language.mjs';
 import { containsUnsupportedEmotionIntensity, containsUnsupportedConcernPremise, currentTopicUserTexts } from '../src/lib/coaching-emotion-language.mjs';
-import { containsCircularSingleAction, containsUnsupportedSituationPremise, containsUngroundedTaskAssumption, containsAmbiguousFutureActionDayReference } from '../src/lib/coaching-action-language.mjs';
+import { containsChainedEditingInstructions, containsCircularSingleAction, containsChainedCommunicationInstructions, containsUnsupportedProcedureInterfacePremise, containsUnsupportedSituationPremise, containsUngroundedTaskAssumption, containsAmbiguousFutureActionDayReference } from '../src/lib/coaching-action-language.mjs';
 
 // Existing suite contract before the declared continuity scenarios were added.
 // Expected population comes from this fixed baseline and input specifications,
@@ -1378,6 +1379,12 @@ function evaluateConversations(conversations) {
       localExpectation.modelName ||
       (isImageTurn ? expectedImageModel : expectedTextModel);
     const minimumOutputChars = 1;
+    addCheck(checks, `${turn.label}: 日本語の引用を途中で切らない`, !containsUnbalancedJapaneseQuotation(turn.message));
+    addCheck(checks, `${turn.label}: 文章を選ぶ準備と編集を一度に指示しない`, !containsChainedEditingInstructions(turn.message, turn.user));
+    addCheck(checks, `${turn.label}: 連絡の後に条件付きの質問指示を重ねない`,
+      !containsChainedCommunicationInstructions(turn.message, turn.user));
+    addCheck(checks, `${turn.label}: 未提示の操作画面やボタンを前提にしない`,
+      !containsUnsupportedProcedureInterfacePremise(turn.message, turn.currentUserTexts));
     addCheck(checks, `${turn.label}: 本人未申告の停止状況や実指摘を前提にしない`,
       !containsUnsupportedSituationPremise(turn.message, turn.currentUserTexts));
     addCheck(checks, `${turn.label}: 明日の行動対象日を今日と曖昧にしない`,
@@ -1678,7 +1685,7 @@ function getLocalTurnExpectation(label, pipelineMode = 'legacy') {
 }
 
 function stripJapaneseQuotedContent(text) {
-  return text.replace(/「[^」]*」|『[^』]*』/g, '');
+  return stripJapaneseQuotationContent(text);
 }
 
 function addCheck(checks, name, passed, detail = '') {
