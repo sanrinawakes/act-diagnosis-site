@@ -159,6 +159,7 @@ export const COACHING_RESPONSE_SPEED_INSTRUCTION = [
 const COACHING_FACT_AND_LANGUAGE_INSTRUCTION = [
   '現在の曜日や今日・明日の日付は、利用者が示していない場合に推測しないでください。明示された締切をそのまま使い、現在の曜日を補わないでください。',
   '自分が前回何を質問・提案したかを、会話履歴にない内容で説明したり謝罪したりしないでください。話を聞いてほしいという希望には、今の希望に沿って返答してください。',
+  '利用者が希望した金額や負担と、相手が了承した金額や負担を混同しないでください。希望を伝えたことだけから、合意や約束が成立したとは扱わず、合意の有無が不明ならその有無を確認してください。',
   '出力前に各文を読み返し、動詞の重複、助詞・接続語の欠落、数量への無関係な英単語の混入を除いてください。利用者が述べていない感情は断定しないでください。',
 ].join('\n');
 
@@ -2392,12 +2393,12 @@ function getAnsweredExistenceQuestion(text: string, history: CoachingChatMessage
 }
 
 function correctsConsultationFraming(text: string) {
-  return /^(?:相談(?:では|じゃ)ない[。！!\s]*|相談(?:では|じゃ)なくて[、,\s]*(?:聞かれたから|質問に)答えただけ(?:です)?[。！!\s]*)$/.test(text.trim());
+  return /^(?:相談(?:ではない|ではありません|じゃない)[。！!\s]*|相談(?:では|じゃ)なくて[、,\s]*(?:聞かれたから|質問に)答えただけ(?:です)?[。！!\s]*)$/.test(text.trim());
 }
 
 function buildFactualReplyFallback(text: string, history: CoachingChatMessage[]) {
   if (correctsConsultationFraming(text) && history.some((message) => message.role === 'assistant')) {
-    return 'こちらの質問へのお返事を、新しい相談として扱ってしまいました。すみません。今話してくださった内容は、質問に答えて伝えてくださった事実として理解しました。解決策や追加の説明を求める話だと決めつけずに伺います。';
+    return '相談だと受け取ったのは、こちらの取り違えでした。すみません。書いてくださった内容から、困り事があるとも、助言や追加の質問を求めているとも決めつけません。';
   }
   const question = getAnsweredExistenceQuestion(text, history);
   if (!question) return '';
@@ -2436,6 +2437,11 @@ export function assessCoachingResponseQuality(params: {
   if (correctsConsultationFraming(lastUserText) && /という相談|相談したい出来事|今の相談について/.test(text)) {
     issues.push('context_mismatch');
   }
+  if (correctsConsultationFraming(lastUserText) &&
+      !/答え|返事|聞かれ/.test(lastUserText) &&
+      /質問への(?:お)?(?:返事|答え)|質問に答えて|問いへの答え/.test(text)) {
+    issues.push('context_mismatch');
+  }
   const isSpecialShortResponse =
     (Boolean(factualReplyFallback) && text === factualReplyFallback) ||
     groundedShortAnswer ||
@@ -2472,6 +2478,12 @@ export function assessCoachingResponseQuality(params: {
     .filter((message) => message.role === 'user' &&
       !message.content.startsWith('以下は過去の会話の保存済み要約です。'))
     .map((message) => message.content), lastUserText].join('\n');
+  if (hasUngroundedPaymentAgreement(text, userEmotionContext)) {
+    issues.push('context_mismatch');
+  }
+  if (hasUnsupportedDeclineCapacity(text, lastUserText, historyMessages)) {
+    issues.push('context_mismatch');
+  }
   const relativeWeekdays = (value: string) => Array.from(
     value.matchAll(/(今日|本日|今|明日|あす|昨日)(?:は|が|の)?[、,\s]*([日月火水木金土])曜(?:日)?/g),
     (match) => `${/今日|本日|今/.test(match[1]) ? '今日' : match[1] === 'あす' ? '明日' : match[1]}:${match[2]}`
@@ -4384,7 +4396,7 @@ function buildSafeQualityFallback(
         )
     );
     if (alreadyRecordedShortfall) {
-      return '口頭で伝える方法では変わらなかったため、次は回答期限を付けた書面で確認する方法へ切り替える段階です。家賃76,000円を全額負担してほしいこと、毎月の支払日、不足した場合の扱い、回答期限を一通にまとめます。\n\n回答がない場合は、その書面と手元で確認できる支払記録を持って、夫婦問題や家計相談の窓口へ相談してください。';
+      return '口頭で伝える方法では変わらなかったため、次は回答期限を付けた書面で確認する方法へ切り替える段階です。希望する家賃の負担額、毎月の支払日、不足した場合の扱い、回答期限を一通にまとめます。\n\n回答がない場合は、その書面と手元で確認できる支払記録を持って、夫婦問題や家計相談の窓口へ相談してください。';
     }
     return '毎月伝えても支払い不足が続くなら、言い方だけでは解決しません。まず、直近3か月の家賃額、相手の支払額、不足額を一覧にしてください。その一覧を使い、今後支払う金額、期日、不足した場合の対応について、書面で合意を求める段階です。';
   }
@@ -4416,7 +4428,7 @@ function buildSafeQualityFallback(
     /20000|20,000/.test(lastUserText) &&
     /不足分|負担/.test(lastUserText)
   ) {
-    return '家賃76,000円のうち、ご主人の支払いが約20,000円で、毎月およそ56,000円を自分が負担しているのですね。現在の負担が毎月大きく偏っていることが問題です。\n\nご主人は、決めた金額を支払わない理由を何と説明していますか？';
+    return '家賃76,000円のうち、ご主人の支払いが約20,000円で、毎月およそ56,000円を自分が負担しているのですね。希望する負担額とは別に、二人で合意できている内容があるかを確認できます。\n\n家賃の負担について、ご主人からどのような返答がありましたか？';
   }
 
   if (
@@ -4425,7 +4437,7 @@ function buildSafeQualityFallback(
     /全額払ってほしいと伝え/.test(lastUserText) &&
     /それでも払われません/.test(lastUserText)
   ) {
-    return '毎月、家賃を全額払ってほしいと伝えても支払いが変わらないのですね。ここでは、希望を伝えたかではなく、ご主人が実際に合意した負担額を確認する必要があります。\n\nご主人が支払うと明確に了承した毎月の金額はいくらですか？';
+    return '毎月、家賃を全額払ってほしいと伝えても支払いが変わらないのですね。伝えた希望が、そのまま相手との合意になったとは限りません。\n\n支払い分担について、これまで二人で決めたことはありますか？';
   }
 
   if (issues.includes('vague_action_target')) {
@@ -4600,7 +4612,7 @@ function buildConcretePlanningContinuationFallback(lastUserText: string, history
     const fearsRelationshipDamage = /関係が悪|嫌われ|疎遠/.test(lastUserText);
     const tentativeFollowup = isTentativeAgreementReply(lastUserText) && /関係が悪|嫌われ|疎遠/.test(users.at(-1)?.content || '');
     if (fearsRelationshipDamage) {
-      return '断った後に友人との関係が悪くなるのではないか、と気になっているのですね。断る言葉が決まっても、その後の反応が心配なら返事をためらうことがあります。ただ、今回も関係が悪くなるかどうかは、まだ分かりません。\n\n以前その友人の誘いを断った時、実際にどのような反応がありましたか？';
+      return '断った後に友人との関係が悪くなる気がして、返事をためらっているのですね。これから起きるかもしれないことと、実際に起きたことは分けて考えられます。今の段階では、断った時の反応をこちらで決めつけることはできません。\n\n断ると、友人からどんな反応があると考えていますか？';
     }
     if (tentativeFollowup) {
       return 'まだはっきり言い切れるわけではないのですね。友人との関係を大切にしたいことと、今回の予定を断りたいことは両方あってよいものです。今すぐ返答の文面を決めなくても構いません。断った後に起きそうだと考えていることと、これまで実際に起きたことを分けると、心配している点を具体的に話せます。';
@@ -5632,7 +5644,7 @@ function buildSubstantiveShortFallback(lastUserText: string) {
     /家事そのものより/.test(lastUserText) &&
     reportsTimeTreatedLightly(lastUserText)
   ) {
-    return '家事そのものより、自分の時間を軽く扱われているように感じることが嫌なんですね。家事の量ではなく、頼んだ後の返答や対応時期が決まらず、あなたの予定が後回しになる点が問題です。\n\n夫に、家事を頼んだ時どんな返答をしてほしいですか？';
+    return '家事そのものより、自分の時間を軽く扱われているように感じることが嫌なんですね。家事の量に加えて、頼んだ時にどのように応じてほしいかも、話し合う内容になります。\n\n夫に、家事を頼んだ時どんな返答をしてほしいですか？';
   }
 
   return '';
@@ -6258,14 +6270,23 @@ function buildClarificationCorrectionFallback(
     previousExcerpt.length > 36
       ? `${previousExcerpt.slice(0, 36)}…`
       : previousExcerpt;
+  const previousUserIndex = historyMessages.findLastIndex((message) => message.role === 'user');
+  const previousQuestion = historyMessages[previousUserIndex - 1];
+  const userStatedDraft = historyMessages.slice(0, previousUserIndex).some((message) =>
+    message.role === 'user' && /(?:私|わたし)も大好きだよ/.test(message.content)
+  );
   if (
+    /答え|聞かれ|返事した/.test(lastUserText) &&
+    previousQuestion?.role === 'assistant' &&
+    /彼/.test(previousQuestion.content) && /表情|反応/.test(previousQuestion.content) &&
+    hasAnyCoachingQuestion(previousQuestion.content) && userStatedDraft &&
     /彼|夫|妻|大好き|告白|結婚/.test(previousUserText) &&
     /大好き|告白|恋愛|結婚|返事|反応/.test(previousUserText)
   ) {
     return `わかりました。さっきの内容は新しい相談ではなく、彼の反応について答えてくれた内容だったのですね。\n\n彼がその反応を見せそうだと感じているなら、次は気持ちを推測し直すより、「私も大好きだよ」と返すのか、別の言葉にするのかを一つに決める段階です。彼へ返したい言葉を一つだけ教えてください。`;
   }
 
-  return `わかりました。「${clippedPreviousExcerpt}」は新しい相談ではなく、直前の問いへの答えだったのですね。\n\nその答えを踏まえて次に整理したい点がどこか、一つだけ教えてください。`;
+  return `わかりました。「${clippedPreviousExcerpt}」についての受け取り方が違っていたのですね。今の訂正を踏まえ、こちらで相談の意図や、追加の説明を求めているとは決めつけません。`;
 }
 
 function buildSubscriptionCancellationFallback(
@@ -7284,6 +7305,37 @@ function selectGroundingStatement(historyMessages: CoachingChatMessage[]) {
   return bestSentence;
 }
 
+function hasStatedDeclineCapacity(userContext: string) {
+  const currentContext = userContext.split(/話題を変|話を変|別の話|別件|今度は/).at(-1) || '';
+  // Retain a supplied reason only for a direct current statement by the user.
+  // Do not turn somebody else's workload, a quote, or past busyness into one.
+  const latestStatement = currentContext.replace(/[「『][^」』]*[」』]/g, '')
+    .split(/[。！？?\n]/).map((sentence) => sentence.trim()).findLast((sentence) =>
+      /^(?:(?:私|わたし)(?:は|が)[、,\s]*)?(?:もう|今(?:は)?|現在(?:は)?|本日(?:は)?)?[、,\s]*(?:(?:仕事|業務)(?:が|で))?(?:手一杯|手が(?:一杯|いっぱい)|(?:業務)?予定が埋ま)/.test(sentence)
+    );
+  // A later direct denial cancels an older affirmative statement in the same
+  // topic. Do not search backward for a more convenient reason after it.
+  if (latestStatement && /(?:とは|と)[、,\s]*(?:言って|述べて|伝えて)(?:いない|いません)|という意味(?:では|じゃ)(?:ない|ありません)/.test(latestStatement)) {
+    return false;
+  }
+  return Boolean(latestStatement &&
+    /^(?:(?:私|わたし)(?:は|が)[、,\s]*)?(?:もう|今(?:は)?|現在(?:は)?|本日(?:は)?)?[、,\s]*(?:(?:仕事|業務)(?:が|で))?(?:(?:手一杯|手が(?:一杯|いっぱい))(?:です(?=$|[、,\s]|が|ので)|だ(?=$|[、,\s]|から|けど)|なので|のため)|(?:業務)?予定が埋まって(?:います|いる)(?=$|[、,\s]|が|ので|から|ため))/.test(latestStatement)
+  );
+}
+
+function hasUnsupportedDeclineCapacity(
+  text: string,
+  lastUserText: string,
+  historyMessages: CoachingChatMessage[]
+) {
+  if (!requestsDirectWording(lastUserText) || !/断る|断り/.test(lastUserText)) return false;
+  const assertedCapacity = /手一杯|手が(?:一杯|いっぱい)|(?:業務)?予定が埋ま/.test(text);
+  if (!assertedCapacity) return false;
+  const userContext = [...historyMessages.filter((message) => message.role === 'user')
+    .map((message) => message.content), lastUserText].join('\n');
+  return !hasStatedDeclineCapacity(userContext);
+}
+
 function isGroundedDirectWording(
   answer: string,
   historyMessages: CoachingChatMessage[],
@@ -7295,6 +7347,8 @@ function isGroundedDirectWording(
       .map((message) => stripAttachmentMarkdown(message.content)),
     lastUserText,
   ].join('\n');
+
+  if (hasUnsupportedDeclineCapacity(answer, lastUserText, historyMessages)) return false;
 
   if (
     /断(?:る|りたい|り方)|断る一言/.test(lastUserText) &&
@@ -7684,6 +7738,42 @@ function hasPaymentObligationContext(text: string) {
   );
 }
 
+function hasUngroundedPaymentAgreement(text: string, userContext: string) {
+  // This guard covers the observed request-to-agreement substitution. It is
+  // not a general classifier of whether a financial agreement is valid.
+  if (!hasPaymentObligationContext(userContext) ||
+      !/(?:支払って|払って|負担して)ほしい|(?:全額|負担額|支払額|金額)[^。！？?\n]{0,30}(?:ほしい|希望)/.test(userContext)) return false;
+  const agreementClaim = /決めた(?:金額|負担額|分担)|合意した(?:金額|負担額|負担|支払|分担)|了承した(?:毎月の)?(?:金額|負担額)/;
+  const assumesAgreement = text.split(/[。！？?\n]/).some((sentence) => {
+    const claim = sentence.match(agreementClaim);
+    if (!claim || claim.index === undefined) return false;
+    const afterClaim = sentence.slice(claim.index + claim[0].length);
+    // Asking whether an agreement exists, denying one, or discussing one
+    // conditionally does not assert that the requested amount was accepted.
+    return !/^(?:が|は)?(?:まだ)?(?:ありますか|ある(?:か|場合)|ありません|ない|不明|未確認)/.test(afterClaim);
+  });
+  if (!assumesAgreement) return false;
+  return !hasExplicitCurrentPaymentAgreement(userContext);
+}
+
+function hasExplicitCurrentPaymentAgreement(userContext: string) {
+  // Only the user's affirmative account can ground an agreement. An older AI
+  // assumption, quoted claim, question, or third-party example cannot do so.
+  const currentContext = userContext.split(/話題を変|話を変|別の話|別件|今度は/).at(-1) || '';
+  const agreementStatements = (currentContext.replace(/[「『][^」』]*[」』]/g, '')
+    .match(/[^。！？?\n]+[。！？?]?/g) || []).filter((sentence) =>
+      /(?:合意|同意|了承|約束)(?:し|は|が)|二人で決め|双方で決め|話し合って決め/.test(sentence) &&
+      !/友人(?:は|が)|知人(?:は|が)|同僚(?:は|が)|例文|例として/.test(sentence)
+    );
+  const latestStatement = agreementStatements.at(-1) || '';
+  return (
+    /^(?:家賃(?:は|を)(?:夫|妻|主人|私)(?:が|と)|(?:私|わたし)(?:たち)?(?:は|が)|(?:夫|妻|主人)(?:と私|とわたし)|(?:二人|双方)(?:で|は|が)|毎月[0-9０-９][0-9０-９,，]*円)/.test(latestStatement.trim()) &&
+    (hasPaymentObligationContext(latestStatement) || /[0-9０-９][0-9０-９,，]*円/.test(latestStatement)) &&
+    /(?:合意|同意|了承|約束)(?:し(?:た|ました|ている|ています)|済み)|(?:二人|双方|話し合って)(?:で)?決め(?:た|ました|ている|ています)/.test(latestStatement) &&
+    !/ない|ません|未確認|不明|ほしい|求め|つもり|予定|かどうか|か分か|仮に|もし|[？?]|(?:ました|います|いる|た)か[。]?\s*$/.test(latestStatement)
+  );
+}
+
 function buildRejectedMoveFallback(
   lastUserText: string,
   historyMessages: CoachingChatMessage[]
@@ -7711,9 +7801,9 @@ function buildRejectedMoveFallback(
         )
     );
     if (alreadyRecordedShortfall) {
-      return '口頭で伝える方法では変わらなかったため、次は回答期限を付けた書面で確認する方法へ切り替える段階です。家賃76,000円を全額負担してほしいこと、毎月の支払日、不足した場合の扱い、回答期限を一通にまとめます。\n\n回答がない場合は、その書面と手元で確認できる支払記録を持って、夫婦問題や家計相談の窓口へ相談してください。';
+      return '口頭で伝える方法では変わらなかったため、次は回答期限を付けた書面で確認する方法へ切り替える段階です。希望する家賃の負担額、毎月の支払日、不足した場合の扱い、回答期限を一通にまとめます。\n\n回答がない場合は、その書面と手元で確認できる支払記録を持って、夫婦問題や家計相談の窓口へ相談してください。';
     }
-    return '毎月伝えているなら、問題は伝え方ではなく、合意した負担が実行されていないことです。同じお願いを増やすのではなく、過去数か月の不足額とやり取りを記録し、金額・支払日・不足時の扱いを文面で確認する段階です。守られない場合に第三者へ相談する基準まで決め、対応を相手の意思だけに任せないことが必要です。';
+    return '毎月希望を伝えても、支払いが変わっていないのですね。同じお願いを増やすのではなく、希望する負担額、確認できる合意、実際の支払いとやり取りを分けて記録してください。その記録を使って負担額と支払日を文面で確認する方法があります。';
   }
 
   return '直前の提案は、すでに試したか、今は実行できない方法だったと受け取ります。同じ提案や質問は繰り返さず、ここまでに分かっている事実から別の方法を考え直します。';
@@ -7877,7 +7967,7 @@ function buildClosingCoachingQuestion(
     if (/理由|なぜ|何と言|説明/.test(previousAssistantText)) {
       return '現在の支払い分担について、口頭のお願い以外に確認できる合意や記録はありますか？';
     }
-    return '相手は、決めた金額を支払わない理由を何と説明していますか？';
+    return '支払いの負担について、相手からどのような返答がありましたか？';
   }
 
   if (reportsTimeTreatedLightly(lastUserText)) {
@@ -8107,7 +8197,7 @@ function buildDirectWordingFallback(
     return '「こだわりのジュースなんですね」';
   }
   if (/断る|断り|引き受けられ|引き受けでき/.test(userContext)) {
-    return '「ありがとうございます。ただ、今は手一杯のため、今回はお引き受けできません。」';
+    return '「ありがとうございます。今回はお引き受けできません。」';
   }
   if (/会議|提案/.test(userContext)) {
     return '「前回は提案の説明が途中で終わったため、今回は内容を最後までお伝えしてから、ご意見をいただけると助かります。」';
@@ -8290,7 +8380,7 @@ function rewriteContextualClosingQuestion(
     /20000|20,000/.test(lastUserText) &&
     /不足分|負担/.test(lastUserText)
   ) {
-    return '家賃76,000円のうち、ご主人の支払いが約20,000円で、毎月およそ56,000円を自分が負担しているのですね。現在の負担が毎月大きく偏っていることが問題です。\n\nご主人は、決めた金額を支払わない理由を何と説明していますか？';
+    return '家賃76,000円のうち、ご主人の支払いが約20,000円で、毎月およそ56,000円を自分が負担しているのですね。希望する負担額とは別に、二人で合意できている内容があるかを確認できます。\n\n家賃の負担について、ご主人からどのような返答がありましたか？';
   }
 
   if (
@@ -8299,7 +8389,7 @@ function rewriteContextualClosingQuestion(
     /全額払ってほしいと伝え/.test(lastUserText) &&
     /それでも払われません/.test(lastUserText)
   ) {
-    return '毎月、家賃を全額払ってほしいと伝えても支払いが変わらないのですね。ここでは、希望を伝えたかではなく、ご主人が実際に合意した負担額を確認する必要があります。\n\nご主人が支払うと明確に了承した毎月の金額はいくらですか？';
+    return '毎月、家賃を全額払ってほしいと伝えても支払いが変わらないのですね。伝えた希望が、そのまま相手との合意になったとは限りません。\n\n支払い分担について、これまで二人で決めたことはありますか？';
   }
 
   if (
@@ -8315,7 +8405,7 @@ function rewriteContextualClosingQuestion(
       lastUserText
     )
   ) {
-    return '口頭で伝える方法では変わらなかったため、次は回答期限を付けた書面で確認する方法へ切り替える段階です。家賃76,000円を全額負担してほしいこと、毎月の支払日、不足した場合の扱い、回答期限を一通にまとめます。\n\n回答がない場合は、その書面と手元で確認できる支払記録を持って、夫婦問題や家計相談の窓口へ相談してください。';
+    return '口頭で伝える方法では変わらなかったため、次は回答期限を付けた書面で確認する方法へ切り替える段階です。希望する家賃の負担額、毎月の支払日、不足した場合の扱い、回答期限を一通にまとめます。\n\n回答がない場合は、その書面と手元で確認できる支払記録を持って、夫婦問題や家計相談の窓口へ相談してください。';
   }
 
   if (
@@ -8399,7 +8489,7 @@ function rewriteContextualClosingQuestion(
       if (/準備(?:に使った)?時間/.test(lastUserText)) {
         return '準備に使った時間を軽く扱われたことに腹が立っているのですね。問題は提案が却下されたことだけではなく、準備した内容を最後まで検討されなかった点です。\n\n次の会議で、意見を出す前に相手へ守ってほしい進め方は何ですか？';
       }
-      return '家事そのものより、自分の時間を軽く扱われているように感じることが嫌なんですね。家事の量ではなく、頼んだ後の返答や対応時期が決まらず、あなたの予定が後回しになる点が問題です。\n\n夫に、家事を頼んだ時どんな返答をしてほしいですか？';
+      return '家事そのものより、自分の時間を軽く扱われているように感じることが嫌なんですね。家事の量に加えて、頼んだ時にどのように応じてほしいかも、話し合う内容になります。\n\n夫に、家事を頼んだ時どんな返答をしてほしいですか？';
     }
     const rewritten = directText.replace(
       /今の話の中で[、,]?いちばん見過ごしたくない本音は何ですか[？?]?/g,
@@ -8870,13 +8960,16 @@ function removeUnsupportedPsychologicalInference(
     lastUserText,
   ].join('\n');
   let candidateText = text;
+  if (hasUnsupportedDeclineCapacity(candidateText, lastUserText, historyMessages)) {
+    candidateText = buildDirectWordingFallback(lastUserText, userContext, historyMessages);
+  }
   if (
     /払わない|支払われない|しか払/.test(userContext) &&
     !/払えない|支払えない/.test(userContext)
   ) {
     candidateText = candidateText.replace(
       /(?:家賃を)?(?:全額)?払えない理由/g,
-      '決めた金額を支払わない理由'
+      '希望する金額を支払っていない理由'
     );
   }
   if (!/ミス|失敗/.test(userContext)) {
