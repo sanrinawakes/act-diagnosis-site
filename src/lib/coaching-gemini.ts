@@ -2407,11 +2407,33 @@ function buildFactualReplyFallback(text: string, history: CoachingChatMessage[])
   return `先ほどの「${question}」へのお返事ですね。まだないとのこと、わかりました。質問の答えとして伺った内容なので、そこから理由やお気持ちまでは決めつけません。`;
 }
 
-function buildPastDeadlineAcknowledgement(text: string) {
+function buildGroundedDeadlineBriefReply(text: string) {
   // A complete, standalone past-outcome report is not a new request to plan
   // the old work. Do not close a turn that also contains another request.
-  const report = stripAttachmentMarkdown(text).trim().match(/^((?:(?:昨日|今日|先ほど|今回)の)?(?:資料の)?提出(?:は|が)(?:締[め]?切[り]?|期限)(?:に|までに))間に合(?:いました|った)[。！!]*$/);
-  return report ? `${report[1]}間に合ったのですね。` : '';
+  const latest = stripAttachmentMarkdown(text).trim();
+  const report = latest.match(/^((?:(?:昨日|今日|先ほど|今回)の)?(?:資料の)?提出(?:は|が)(?:締[め]?切[り]?|期限)(?:に|までに))間に合(?:いました|った)[。！!]*$/);
+  if (report) return `${report[1]}間に合ったのですね。`;
+  const concern = latest.match(/^((?:(?:期限|締切)に)?間に合(?:わない|う)かもしれない)と心配(?:です|しています)[。！!]*$/);
+  if (concern) return `「${concern[1]}」と心配しているのですね。`;
+  const attributed = latest.match(/^([^「」『』。！？\n]{1,30})(「[^」]+」|『[^』]+』)と言われました(?:[。！]|$)([\s\S]*)$/);
+  if (attributed && /期限|締切|間に合|完成|終わ/.test(attributed[2]) &&
+      /^[。！\s]*(?:資料の作業について考えています[。！\s]*)?$/.test(attributed[3]) &&
+      !hasUnsafeHighImpactAdvice(attributed[2]) && !containsProtectedInternalContent(attributed[2])) {
+    return `${attributed[1]}${attributed[2]}と言われたのですね。`;
+  }
+  // The two quantities must be explicit in the latest user report. This is
+  // estimate arithmetic, never a promise of completing the actual work.
+  const estimate = latest.match(/^残作業の見積もりは([0-9]+)分[、,]\s*締切まで確保済みの作業時間は([0-9]+)時間です[。！!]*$/);
+  if (estimate) {
+    const remaining = Number(estimate[1]); const availableHours = Number(estimate[2]);
+    if (remaining <= 1440 && availableHours <= 24 && availableHours * 60 >= remaining) {
+      const difference = availableHours * 60 - remaining;
+      const hours = Math.floor(difference / 60); const minutes = difference % 60;
+      const duration = hours > 0 ? `${hours}時間${minutes === 30 ? '半' : minutes ? `${minutes}分` : ''}` : `${minutes}分`;
+      return `その見積もりでは、確保した${availableHours}時間から${remaining}分を引くと${duration}が残ります。見積もりが変われば余裕も変わります。`;
+    }
+  }
+  return '';
 }
 
 export function assessCoachingResponseQuality(params: {
@@ -2439,7 +2461,7 @@ export function assessCoachingResponseQuality(params: {
   const groundedShortFollowup = isGroundedShortFollowup(text, workAnswerContext, newTopicFocus);
   const answeredQuestion = getAnsweredExistenceQuestion(lastUserText, historyMessages);
   const factualReplyFallback = buildFactualReplyFallback(lastUserText, historyMessages);
-  const pastDeadlineAcknowledgement = buildPastDeadlineAcknowledgement(lastUserText);
+  const groundedDeadlineBriefReply = buildGroundedDeadlineBriefReply(lastUserText);
   const groundedRestAcknowledgement = requestsShortRestResponse(lastUserText) &&
     /^(?:今日はゆっくり休んでください|今日はここで終えて大丈夫です)[。！!]*$/.test(text);
   const groundedShortAnswer = Boolean(answeredQuestion) && compactText.length >= 35 &&
@@ -2459,7 +2481,7 @@ export function assessCoachingResponseQuality(params: {
   }
   const isSpecialShortResponse =
     groundedShortFollowup ||
-    (Boolean(pastDeadlineAcknowledgement) && text === pastDeadlineAcknowledgement) ||
+    (Boolean(groundedDeadlineBriefReply) && text === groundedDeadlineBriefReply) ||
     (Boolean(factualReplyFallback) && text === factualReplyFallback) ||
     groundedShortAnswer ||
     /一言(?:だけ|で)|短く(?:答|教|返)|(?:一つ|ひとつ|1つ)(?:だけ)?.{0,24}(?:教|提案|答|挙|示|伝|お願)/.test(
@@ -3257,8 +3279,8 @@ export function normalizeCoachingOutput(
     if (/^今日はここで終えて大丈夫です[。！!]*$/.test(text.trim())) return text.trim();
     return '今日はゆっくり休んでください。';
   }
-  const pastDeadlineAcknowledgement = buildPastDeadlineAcknowledgement(lastUserText);
-  if (pastDeadlineAcknowledgement) return pastDeadlineAcknowledgement;
+  const groundedDeadlineBriefReply = buildGroundedDeadlineBriefReply(lastUserText);
+  if (groundedDeadlineBriefReply) return groundedDeadlineBriefReply;
 
   if (
     /仕事|職場|業務|会社|タスク/.test(lastUserText) &&
@@ -4686,9 +4708,16 @@ function hasUnsupportedDeadlineClaim(text: string, lastUserText: string, history
   const normalizedTime = (value: string) => value.normalize('NFKC').replace('曜日', '曜').replace(/時0分$/, '時');
   if (containsDeadlineOutcomeAssurance(text, users)) return true;
   return stripAttributedDeadlineQuotes(text, users).split(/(?<=[。！？?\n])/u).some(statement => {
-    if (/[？?]|(?:です|ます)か[。\s]*$|もし|なら|だったら/.test(statement)) return false;
+    if (/[？?]|(?:です|ます)か[。\s]*$/.test(statement)) return false;
     if (!/締[め]?切[り]?|期限/.test(statement)) return false;
-    return [...statement.matchAll(EXPLICIT_DEADLINE_TIME)].some(match => normalizedTime(match[0]) !== normalizedTime(deadline));
+    // Hypothesizing the deadline itself is different from treating an old
+    // deadline as a fact while making the proposed action conditional.
+    const date = EXPLICIT_DEADLINE_TIME.source;
+    const hypotheticalDate = new RegExp(`(?:(?:締[め]?切[り]?|期限)(?:が|は)${date}|${date}(?:が|の)(?:締[め]?切[り]?|期限))(?:なら|だったら)`, 'g');
+    const hypotheticalRanges = [...statement.matchAll(hypotheticalDate)].map(match => [match.index!, match.index! + match[0].length]);
+    return [...statement.matchAll(EXPLICIT_DEADLINE_TIME)].some(match =>
+      !hypotheticalRanges.some(([start, end]) => match.index! >= start && match.index! + match[0].length <= end) &&
+      normalizedTime(match[0]) !== normalizedTime(deadline));
   });
 }
 
@@ -4870,8 +4899,8 @@ export function buildFinalVerifiedQualityFallback(
   lastUserText: string,
   historyMessages: CoachingChatMessage[]
 ): string {
-  const pastDeadlineAcknowledgement = buildPastDeadlineAcknowledgement(lastUserText);
-  if (pastDeadlineAcknowledgement) return pastDeadlineAcknowledgement;
+  const groundedDeadlineBriefReply = buildGroundedDeadlineBriefReply(lastUserText);
+  if (groundedDeadlineBriefReply) return groundedDeadlineBriefReply;
   if (requestsShortRestResponse(lastUserText) && !buildUrgentSafetyResponse(lastUserText) && !requestsInternalPromptDisclosure(lastUserText)) {
     return '今日はゆっくり休んでください。';
   }
@@ -7839,7 +7868,7 @@ function selectRelevantFallbackSource(
   const cleanCurrent = stripAttachmentMarkdown(lastUserText)
     .replace(/\s+/g, ' ')
     .trim();
-  if (buildPastDeadlineAcknowledgement(cleanCurrent) || requestsShortRestResponse(cleanCurrent)) return lastUserText;
+  if (buildGroundedDeadlineBriefReply(cleanCurrent) || requestsShortRestResponse(cleanCurrent)) return lastUserText;
   const currentIsSubstantive =
     (cleanCurrent.length >= 18 || currentTopicPattern.test(cleanCurrent)) &&
     !reportsResponseDissatisfaction(cleanCurrent);

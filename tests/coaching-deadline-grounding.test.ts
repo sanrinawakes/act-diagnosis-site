@@ -341,3 +341,158 @@ describe('completed submission and explicit rest after document history', () => 
     expect(normalizeCoachingOutput('資料の利用目的について相談を続けられます。', latest, deadlineHistory)).not.toBe('今日はゆっくり休んでください。');
   });
 });
+
+// Existing bounded batch cases only; all inputs are synthetic.
+const knownBatchRegressions = [
+  {
+    "id": "original-10",
+    "latest": "間に合わないかもしれないと心配です。",
+    "history": [
+      {
+        "role": "user",
+        "content": "説明資料の期限は火曜午前10時です。"
+      }
+    ],
+    "raw": "「間に合わないかもしれない」と心配しているのですね。",
+    "stale": false
+  },
+  {
+    "id": "original-12",
+    "latest": "残作業の見積もりは30分、締切まで確保済みの作業時間は2時間です。",
+    "history": [],
+    "raw": "その見積もりでは、確保した2時間から30分を引くと1時間半が残ります。見積もりが変われば余裕も変わります。",
+    "stale": false
+  },
+  {
+    "id": "quote-reported-0",
+    "latest": "担当者から「期限に必ず間に合います」と言われました。資料の作業について考えています。",
+    "history": [
+      {
+        "role": "user",
+        "content": "説明資料の期限は火曜午前10時です。"
+      }
+    ],
+    "raw": "担当者から「期限に必ず間に合います」と言われたのですね。",
+    "stale": false
+  },
+  {
+    "id": "quote-reported-1",
+    "latest": "担当者から「期限に必ず間に合います。」と言われました。資料の作業について考えています。",
+    "history": [
+      {
+        "role": "user",
+        "content": "説明資料の期限は火曜午前10時です。"
+      }
+    ],
+    "raw": "担当者から「期限に必ず間に合います。」と言われたのですね。",
+    "stale": false
+  },
+  {
+    "id": "partial-Friday-no-hour-2",
+    "latest": "3回前に伝えた締切時刻も踏まえて、今日最初に直す箇所を一つだけ、質問なしで答えてください。",
+    "history": [
+      {
+        "role": "user",
+        "content": "サービスの説明資料を作っています。一枚目は利用目的で二枚目は利用手順です。"
+      },
+      {
+        "role": "user",
+        "content": "説明資料の締切は火曜午前10時です。"
+      },
+      {
+        "role": "user",
+        "content": "締切は金曜に変更されました。"
+      },
+      {
+        "role": "user",
+        "content": "今日は一枚目から直そうと思います。"
+      },
+      {
+        "role": "user",
+        "content": "目的の説明が長くなりすぎています。"
+      }
+    ],
+    "raw": "火曜午前10時の締切に間に合わせるなら、今日最初に直すのは一枚目の利用目的です。いま長くなっている説明を、「このサービスで何ができるか」が一文で伝わる長さまで削ってください。",
+    "stale": true
+  },
+  {
+    "id": "cancelled-deadline-2",
+    "latest": "3回前に伝えた締切時刻も踏まえて、今日最初に直す箇所を一つだけ、質問なしで答えてください。",
+    "history": [
+      {
+        "role": "user",
+        "content": "サービスの説明資料を作っています。一枚目は利用目的で二枚目は利用手順です。"
+      },
+      {
+        "role": "user",
+        "content": "説明資料の締切は火曜午前10時です。"
+      },
+      {
+        "role": "user",
+        "content": "締切はなくなりました。"
+      },
+      {
+        "role": "user",
+        "content": "今日は一枚目から直そうと思います。"
+      },
+      {
+        "role": "user",
+        "content": "目的の説明が長くなりすぎています。"
+      }
+    ],
+    "raw": "火曜午前10時の締切に間に合わせるなら、今日最初に直すのは一枚目の利用目的です。いま長くなっている説明を、「このサービスで何ができるか」が一文で伝わる長さまで削ってください。",
+    "stale": true
+  }
+];
+
+describe('known batch deadline premises and faithful short replies', () => {
+  const currentDeadline: CoachingChatMessage[] = [{ role: 'user', content: '説明資料の締切は火曜午前10時です。' }, { role: 'user', content: '締切はなくなりました。' }];
+  it.each([
+    'もし金曜午後3時が締切なら、一枚目の利用目的を先に見直してください。',
+    '締切が金曜午後3時だったら、一枚目の利用目的から見直してください。',
+  ])('permits a genuine hypothetical date rather than asserting the cancelled deadline: %s', text => {
+    expect(assess(text, '目的の説明が長くなりすぎています。', currentDeadline)).not.toContain('context_mismatch');
+  });
+  it('does not treat a conditional action as a hypothetical deadline fact', () => {
+    expect(assess('もし火曜午前10時の締切に間に合わせるなら、一枚目の利用目的を見直してください。', '目的の説明が長くなりすぎています。', currentDeadline)).toContain('context_mismatch');
+  });
+  it('does not exempt another asserted date in the same sentence as a genuine hypothetical', () => {
+    expect(assess('もし金曜午後3時が締切なら一枚目を直し、火曜午前10時の期限に向けて手順を確認してください。', '目的の説明が長くなりすぎています。', currentDeadline)).toContain('context_mismatch');
+  });
+  it('does not exempt invented worry or an incorrect reported quote as a grounded short reply', () => {
+    expect(assess('「間に合わないかもしれない」と心配しているのですね。', '期限について確認しています。', currentDeadline)).toContain('too_short');
+    expect(assess('担当者から「必ず完成できます」と言われたのですね。', '担当者から「期限に必ず間に合います」と言われました。', currentDeadline)).not.toEqual([]);
+  });
+  it('does not close an attributed report with an additional request or stated feeling', () => {
+    const raw = '資料のどの部分について相談したいですか？';
+    for (const suffix of ['どう進めればよいか教えてください。', 'でも私は心配です。', '作業手順を決めてください。', 'ただし、その後締切が変わりました。']) {
+      const latest = '担当者から「期限に必ず間に合います」と言われました。' + suffix;
+      expect(normalizeCoachingOutput(raw, latest, currentDeadline)).not.toBe('担当者から「期限に必ず間に合います」と言われたのですね。');
+    }
+  });
+  it('checks estimate arithmetic against the explicit premises without inventing missing time', () => {
+    const latest = '残作業の見積もりは30分、締切まで確保済みの作業時間は2時間です。';
+    expect(normalizeCoachingOutput('その見積もりでは3時間が残ります。', latest, [])).toContain('1時間半');
+    expect(assess('その見積もりでは、確保した2時間から30分を引くと1時間半が残ります。見積もりが変われば余裕も変わります。', '残作業の見積もりは30分です。', [])).toContain('too_short');
+  });
+  for (const mode of ['minimal', 'legacy']) {
+    it.each(knownBatchRegressions)('keeps the current premise through fullstream in '+mode+': $id', async scenario => {
+      vi.stubEnv('COACHING_OUTPUT_PIPELINE_MODE', mode); transport.raw = scenario.raw; transport.repairs = 0;
+      const history = scenario.history as CoachingChatMessage[];
+      const issues = assess(scenario.raw, scenario.latest, history);
+      if (scenario.stale) expect(issues).toContain('context_mismatch'); else expect(issues).toEqual([]);
+      let saved = '';
+      const stream = createJsonLineStream({systemPrompt:'Synthetic existing known-case replay.',historyMessages:history,
+        lastUserParts:buildGeminiParts(scenario.latest,[],history),onDone:async(_usage,completion)=>{saved=completion.message;return{};}});
+      const reader=stream.getReader();const decoder=new TextDecoder();let wire='';
+      while(true){const chunk=await reader.read();if(chunk.done)break;wire+=decoder.decode(chunk.value);}
+      const events=wire.trim().split('\n').map(line=>JSON.parse(line));const done=events.find(event=>event.type==='done');
+      expect(done.completionStatus).toBe('complete');expect(done.finalizationStatus).toBe('complete');
+      expect(events.filter(event=>event.type==='chunk').map(event=>event.text).join('')).toBe(done.message);expect(saved).toBe(done.message);
+      expect(done.qualityFinalIssues).toEqual([]);
+      if(scenario.stale){expect(done.message).not.toMatch(/火曜|10時|[？?]/);expect(done.message).toMatch(/一枚目|利用目的/);}
+      else{expect(done.message).toBe(scenario.raw);expect(transport.repairs).toBe(0);}
+      expect(done.message).not.toMatch(/という相談ですね|まだ書かれていない原因|確認できる事実を一つ/);
+    });
+  }
+});
