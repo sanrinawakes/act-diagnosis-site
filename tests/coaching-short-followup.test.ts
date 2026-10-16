@@ -210,7 +210,7 @@ describe('captured short contextual followups through full streaming pipeline', 
     it.each(capturedSyntheticCases.filter((scenario) => repairedNames.has(scenario.name)))('verifies the captured short candidate in '+mode+': $name', async (scenario) => {
       vi.stubEnv('COACHING_OUTPUT_PIPELINE_MODE', mode);
       const done = await streamCandidate(scenario);
-      if (scenario.name === 'actor-particle-is-not-a-reason') {
+      if (['actor-particle-is-not-a-reason', 'explicit-topic-switch-after-opening-question'].includes(scenario.name)) {
         expect(done.qualityInitialIssues).toContain('context_mismatch');
         if (mode === 'observe') {
           expect(done.message).toBe(scenario.raw);
@@ -218,7 +218,7 @@ describe('captured short contextual followups through full streaming pipeline', 
           expect(done.qualityFinalIssues).toEqual([]);
         } else {
           expect(done.message).not.toContain('迷っていますか');
-          expect(done.message).toContain('キャンセル');
+          expect(done.message).toContain(scenario.name === 'explicit-topic-switch-after-opening-question' ? 'SNS' : 'キャンセル');
           expect(done.qualityFinalIssues).toEqual([]);
         }
         return;
@@ -276,7 +276,7 @@ describe('all captured contexts retain meaning through the complete stream', () 
     it.each(capturedSyntheticCases)('keeps the seeded context in '+mode+': $name', async (scenario) => {
       vi.stubEnv('COACHING_OUTPUT_PIPELINE_MODE', mode);
       const done = await streamCandidate(scenario);
-      if (scenario.name === 'actor-particle-is-not-a-reason' && mode === 'observe') {
+      if (['actor-particle-is-not-a-reason', 'explicit-topic-switch-after-opening-question', 'apology-after-third-party-cancellation'].includes(scenario.name) && mode === 'observe') {
         expect(done.qualityInitialIssues).toContain('context_mismatch');
         expect(done.qualityFinalIssues).toEqual([]);
         expect(evaluateSeededContinuityResponse(`seeded-${scenario.name}`, done.message).some(check => !check.passed)).toBe(true);
@@ -314,7 +314,7 @@ describe('bounded short followup eligibility and delivery', () => {
     '話題を変えて、SNSの投稿について相談したいです。',
     'SNSの投稿について相談したいです。',
   ])('keeps an explicit new request separate from the previous cancellation: %s', (latest) => {
-    expect(assessCoachingResponseQuality({ text: topicCase.raw, lastUserText: latest, historyMessages: customerHistory }).issues).toEqual([]);
+    expect(assessCoachingResponseQuality({ text: 'SNSの投稿について、どのような点を相談したいですか？', lastUserText: latest, historyMessages: customerHistory }).issues).toEqual([]);
     expect(assessCoachingResponseQuality({ text: customerCase.raw, lastUserText: latest, historyMessages: customerHistory }).issues).toContain('too_short');
     const fallback = buildFinalVerifiedQualityFallback(latest, customerHistory);
     expect(fallback).toContain('SNS'); expect(fallback).toMatch(/[？?]/);
@@ -366,14 +366,14 @@ describe('bounded short followup eligibility and delivery', () => {
       const history = scenario.history.map((message) => ({ ...message })) as CoachingChatMessage[];
       const quality = assessCoachingResponseQuality({ text: scenario.raw, lastUserText: scenario.latest, historyMessages: history });
       const result = ensureVerifiedCoachingResolution({ resolution: { text: scenario.raw, usage: {}, modelName: 'synthetic', repairAttempted: false, repairAccepted: false, initialIssues: quality.issues, finalIssues: quality.issues }, lastUserText: scenario.latest, historyMessages: history });
-      if (scenario.name === 'actor-particle-is-not-a-reason') {
+      if (['actor-particle-is-not-a-reason', 'explicit-topic-switch-after-opening-question'].includes(scenario.name)) {
         if (mode === 'observe') {
           expect(result.text).toBe(scenario.raw);
           expect(result.initialIssues).toContain('context_mismatch');
           expect(result.finalIssues).toEqual([]);
         } else {
           expect(result.text).not.toContain('迷っていますか');
-          expect(result.text).toContain('キャンセル');
+          expect(result.text).toContain(scenario.name === 'explicit-topic-switch-after-opening-question' ? 'SNS' : 'キャンセル');
           expect(result.finalIssues).toEqual([]);
         }
         continue;
@@ -470,7 +470,7 @@ describe('a different payment response after an AI writing proposal', () => {
   it('does not pull an explicit new SNS topic back to the older payment proposal', () => {
     const latest = '話題を変えて、SNSの投稿について相談したいです。';
     const output = normalizeCoachingOutput(topicCase.raw, latest, paymentHistory);
-    expect(output).toBe(topicCase.raw); expect(output).not.toMatch(/家賃|夫婦|相談窓口/);
+    expect(output).toContain('SNS'); expect(output).not.toMatch(/家賃|夫婦|相談窓口|困っていますか/);
   });
 
   it('does not discard a first writing suggestion when no writing proposal was previously given', () => {

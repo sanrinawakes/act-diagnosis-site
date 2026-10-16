@@ -5,7 +5,8 @@ import { createClient } from '@supabase/supabase-js';
 import { deleteTestAuthUser } from './lib/test-account-cleanup.mjs';
 import { seededContinuityScenarios, evaluateSeededContinuityResponse } from './lib/coaching-continuity-scenarios.mjs';
 import { containsDeadlineOutcomeAssurance } from '../src/lib/coaching-deadline-language.mjs';
-import { containsUnsupportedEmotionIntensity } from '../src/lib/coaching-emotion-language.mjs';
+import { containsUnsupportedEmotionIntensity, containsUnsupportedConcernPremise, currentTopicUserTexts } from '../src/lib/coaching-emotion-language.mjs';
+import { containsCircularSingleAction } from '../src/lib/coaching-action-language.mjs';
 
 // Existing suite contract before the declared continuity scenarios were added.
 // Expected population comes from this fixed baseline and input specifications,
@@ -1347,6 +1348,10 @@ function evaluateConversations(conversations) {
         turnIndex: turnIndex + 1,
         repeatsPreviousAssistant,
         coachingMoves: countCoachingMoves(turn.message),
+        currentUserTexts: currentTopicUserTexts([
+          ...(conversation.seedHistory || []).filter(message => message.role === 'user').map(message => message.content),
+          ...conversation.turns.slice(0, turnIndex + 1).map(previous => previous.user),
+        ]),
       };
     });
   });
@@ -1373,6 +1378,12 @@ function evaluateConversations(conversations) {
       localExpectation.modelName ||
       (isImageTurn ? expectedImageModel : expectedTextModel);
     const minimumOutputChars = 1;
+    addCheck(checks, `${turn.label}: 本人未申告の迷い・困り・不安を前提にしない`,
+      !containsUnsupportedConcernPremise(turn.message, turn.currentUserTexts));
+    if (/行動|一歩|方法|どうすれば/.test(turn.user) && /一つ|ひとつ|1つ/.test(turn.user)) {
+      addCheck(checks, `${turn.label}: 作業の開始を言い換えるだけでなく具体動作を示す`,
+        !containsCircularSingleAction(turn.message));
+    }
     for (const check of evaluateSeededContinuityResponse(turn.conversationName, turn.message)) {
       addCheck(checks, `${turn.label}: ${check.label}`, check.passed);
     }

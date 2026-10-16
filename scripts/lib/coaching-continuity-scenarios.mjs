@@ -1,3 +1,5 @@
+import { containsUnsupportedConcernPremise, currentTopicUserTexts } from '../../src/lib/coaching-emotion-language.mjs';
+
 // Fixed synthetic continuity cases. These contain no customer records.
 export const seededContinuityScenarios = [
   {
@@ -216,6 +218,11 @@ export function evaluateSeededContinuityResponse(name, message) {
     .replace(/^[^。！？?\n]{0,80}(?:という相談ですね|についての相談ですね|の相談ですね)[。]?/u, '').trim();
   const checks = [];
   const add = (label, passed) => checks.push({ label, passed });
+  const scenario = seededContinuityScenarios.find(scenario => scenario.name === name);
+  const userTexts = currentTopicUserTexts([
+    ...(scenario?.seedHistory || []).filter(message => message.role === 'user').map(message => message.content), latest,
+  ]);
+  add('本人未申告の迷い・困り・不安を前提にしない', !containsUnsupportedConcernPremise(message, userTexts));
   add('話題に沿い汎用の作業提案へ逃げない',
     !/まだ書かれていない原因|仕事全体について結論を急がず|明日[^。！？?\n]{0,50}(?:5分|五分|ひとつだけ|一つだけ)/.test(message));
   if (name === 'seeded-explicit-topic-switch-after-opening-question') {
@@ -241,7 +248,7 @@ export function evaluateSeededContinuityResponse(name, message) {
   }
   if (name === 'seeded-actor-particle-is-not-a-reason') {
     add('職種への事実回答から未提示の迷いを前提にしない',
-      !/(?:どのような|どんな|どの)(?:対応|点)[^。！？?\n]{0,16}迷(?:って|われ)/.test(message));
+      !containsUnsupportedConcernPremise(message, userTexts));
     add('相手からという出所を理由の説明済みと扱わない',
       !/理由も伝えて|理由を聞いた|希望と理由を聞いた/.test(message) &&
       !(message.match(/[^。！？?\n]+[。！？?]?/g) || []).some((sentence) =>

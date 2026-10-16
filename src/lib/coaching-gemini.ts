@@ -7,7 +7,8 @@ import {
 import { sendCoachingAlert } from '@/lib/coaching-alerts';
 import { COACHING_SCOPE_GUIDANCE } from '@/lib/coaching-scope';
 import { containsDeadlineOutcomeAssurance, stripAttributedDeadlineQuotes } from '@/lib/coaching-deadline-language.mjs';
-import { containsUnsupportedEmotionIntensity, removeUnsupportedEmotionIntensity } from '@/lib/coaching-emotion-language.mjs';
+import { containsUnsupportedEmotionIntensity, removeUnsupportedEmotionIntensity, containsUnsupportedConcernPremise, removeUnsupportedConcernPremise, currentTopicUserTexts } from '@/lib/coaching-emotion-language.mjs';
+import { containsCircularSingleAction } from '@/lib/coaching-action-language.mjs';
 import {
   getCoachingOutputPipelineConfig,
   type CoachingOutputPipelineMode,
@@ -164,7 +165,8 @@ const COACHING_FACT_AND_LANGUAGE_INSTRUCTION = [
   '自分が前回何を質問・提案したかを、会話履歴にない内容で説明したり謝罪したりしないでください。話を聞いてほしいという希望には、今の希望に沿って返答してください。',
   '利用者が希望した金額や負担と、相手が了承した金額や負担を混同しないでください。希望を伝えたことだけから、合意や約束が成立したとは扱わず、合意の有無が不明ならその有無を確認してください。',
   '迷いや理由を話したいという希望だけから、「心がかき乱される」「激しく動揺している」など感情の種類や強さを追加しないでください。本人が明言した感情をその強さのまま使い、第三者の言葉やAI自身の以前の推測を本人の状態へ変えないでください。',
-  '職種や出来事への事実回答だけから、本人が対応に迷っているとは扱わないでください。「どのような対応で迷っていますか」という質問も迷いの存在を前提にします。本人がまだ述べていない場合は、必要な確認や話したい点を中立的に尋ねてください。',
+  '出来事や希望の報告だけから、本人が迷っている、困っている、不安であるとは扱わないでください。「どの言葉の言い換えに迷っていますか」「どのような対応で迷っていますか」のような問いも状態を前提にします。現在の話題で本人が述べた状態だけを使い、否定・訂正や第三者の発言、AI自身の推測を根拠にしないでください。未申告なら「どの言葉を言い換えたいですか」のように本人の希望を中立的に尋ねてください。',
+  '行動を一つ求められた場合は、何にどう手を動かすかを示してください。「最初に行う作業に着手してください」のように依頼を言い換えるだけで終えないでください。既に伝えた締切時刻も踏まえるよう明示された場合は、現在の話題で本人が最後に示した時刻を返答にも残してください。',
   '出力前に各文を読み返し、動詞の重複、助詞・接続語の欠落、数量への無関係な英単語の混入を除いてください。利用者が述べていない感情は断定しないでください。',
 ].join('\n');
 
@@ -2462,7 +2464,7 @@ export function assessCoachingResponseQuality(params: {
   const workAnswerContext = getClosedWorkAnswerContext(lastUserText, historyMessages);
   const newTopicFocus = getExplicitNewTopicFocus(lastUserText);
   const groundedShortFollowup = isGroundedShortFollowup(text, workAnswerContext, newTopicFocus);
-  if (workAnswerContext && hasUnreportedServiceHesitation(text, lastUserText, historyMessages)) {
+  if (containsUnsupportedConcernPremise(text, getCurrentPlanningUserTexts(lastUserText, historyMessages))) {
     issues.push('context_mismatch');
   }
   const answeredQuestion = getAnsweredExistenceQuestion(lastUserText, historyMessages);
@@ -2531,6 +2533,12 @@ export function assessCoachingResponseQuality(params: {
   }
   if (hasUnsupportedDeadlineClaim(text, lastUserText, historyMessages)) {
     issues.push('context_mismatch');
+  }
+  const requestedDeadline = /(?:伝えた|話した|先ほどの|前の)[^。！？?\n]{0,12}締[め]?切[り]?時刻[^。！？?\n]{0,12}(?:踏まえ|含め|入れ|使)/.test(lastUserText)
+    ? getCurrentUserDeadline(getCurrentPlanningUserTexts(lastUserText, historyMessages)) : '';
+  if (requestedDeadline && ![...text.matchAll(EXPLICIT_DEADLINE_TIME)].some(match =>
+    normalizeDeadlineTime(match[0]) === normalizeDeadlineTime(requestedDeadline))) {
+    issues.push('requested_time_mismatch');
   }
   if (containsUnsupportedEmotionIntensity(text, getCurrentPlanningUserTexts(lastUserText, historyMessages))) {
     issues.push('context_mismatch');
@@ -4662,18 +4670,18 @@ function buildWorkplaceConflictContinuationFallback(
       /多かった|(?:これまで|以前|過去|その時).{0,60}(?:ましたか|ですか)/.test(previousAssistant) &&
       !/したい|つもり|予定/.test(previousAssistant) &&
       /^(?:はい|ええ|うん|そうです)(?:[、, ]?そうです)?[。！!]*$/.test(lastUserText.trim()))) {
-    return '人間関係がつらくなった時、退職を選ぶことが多かったのですね。それだけで、あなたの性格が原因だとは判断できません。職場ごとの条件や相手の言動も異なるため、同じ結果になったことと、原因が同じであることは分けて考える必要があります。\n\n退職を考え始める前に、困っていることを話せる人はいましたか？';
+    return '人間関係がつらくなった時、退職を選ぶことが多かったのですね。それだけで、あなたの性格が原因だとは判断できません。職場ごとの条件や相手の言動も異なるため、同じ結果になったことと、原因が同じであることは分けて考える必要があります。\n\n退職を考え始める前に、当時の状況や気持ちを話せる人はいましたか？';
   }
   if (/相談/.test(previousAssistant) &&
       /近々|今週|近日|早め/.test(lastUserText)) {
     const timing = /今週/.test(lastUserText) ? '今週' : /早め/.test(lastUserText) ? '早め' : '近いうち';
-    return `相談するのは${timing}がよいということですね。職場でどのような対応ができるかと、困っている状況を責任者へ伝える時期は別です。対応の可否がまだ決まっていなくても、相談を始めたいというあなたの希望は伝えられます。相談の場では、仕事で困る具体的な場面を説明すると、責任者も対応を検討しやすくなります。\n\n責任者には、まずどの出来事を知ってほしいですか？`;
+    return `相談するのは${timing}がよいということですね。職場でどのような対応ができるかと、仕事で起きていることを責任者へ伝える時期は別です。対応の可否がまだ決まっていなくても、相談を始めたいというあなたの希望は伝えられます。相談の場では、仕事上の具体的な出来事を説明すると、責任者も対応を検討しやすくなります。\n\n責任者には、まずどの出来事を知ってほしいですか？`;
   }
   if (/勤務|シフト/.test(lastUserText) && /ずら|変更|調整/.test(lastUserText) && /相談/.test(lastUserText)) {
-    return '勤務を調整できるか、責任者へ相談したいのですね。相手に直接働きかける以外に、勤務の組み方を相談する方法を考えていると理解しました。変更できるかどうかは職場の状況によりますが、困っている場面と希望する調整を分けて伝えることはできます。\n\n勤務を変えられるとしたら、どの時間帯や業務をずらしたいですか？';
+    return '勤務を調整できるか、責任者へ相談したいのですね。相手に直接働きかける以外に、勤務の組み方を相談する方法を考えていると理解しました。変更できるかどうかは職場の状況によりますが、仕事で起きていることと希望する調整を分けて伝えることはできます。\n\n勤務を変えられるとしたら、どの時間帯や業務をずらしたいですか？';
   }
   if (/無視/.test(lastUserText) && /頼|助け/.test(lastUserText)) {
-    return '無視される相手に、仕事で助けを頼まなければならないことがつらいのですね。相手が返事をしない理由は分かりませんが、必要なやり取りができず困っていることは、あなたの気持ちとは別に仕事上の問題として扱えます。すぐ相手に何かを伝える方法を決める前に、どの場面で負担が大きいのかを聞きたいです。\n\n最近、助けを頼む必要があったのは、どのような場面でしたか？';
+    return '無視される相手に、仕事で助けを頼まなければならないことがつらいのですね。相手が返事をしない理由は分かりませんが、必要なやり取りができていないことは、あなたの気持ちとは別に仕事上の問題として扱えます。すぐ相手に何かを伝える方法を決める前に、どの場面で負担が大きいのかを聞きたいです。\n\n最近、助けを頼む必要があったのは、どのような場面でしたか？';
   }
   return '';
 }
@@ -4682,16 +4690,11 @@ const PLANNING_TOPIC_BOUNDARY = /話題を変|話を変|別の話|別件|とこ�
 const EXPLICIT_DEADLINE_TIME = /[月火水木金土日]曜(?:日)?(?:午前|午後)?[0-9０-９]{1,2}時(?:[0-9０-９]{1,2}分)?/g;
 
 function getCurrentPlanningUserTexts(lastUserText: string, historyMessages: CoachingChatMessage[]) {
-  const users = [...historyMessages.filter(message => message.role === 'user' &&
-    !message.content.startsWith('以下は過去の会話の保存済み要約です。')).map(message => message.content), lastUserText];
-  const boundary = users.findLastIndex(text => PLANNING_TOPIC_BOUNDARY.test(text));
-  const current = users.slice(boundary < 0 ? 0 : boundary);
-  if (boundary >= 0) {
-    const marker = [...current[0].matchAll(new RegExp(PLANNING_TOPIC_BOUNDARY.source, 'g'))].at(-1)!;
-    current[0] = current[0].slice(marker.index);
-  }
-  return current;
+  return currentTopicUserTexts([...historyMessages.filter(message => message.role === 'user')
+    .map(message => message.content), lastUserText]);
 }
+
+const normalizeDeadlineTime = (value: string) => value.normalize('NFKC').replace('曜日', '曜').replace(/時0分$/, '時');
 
 function getCurrentUserDeadline(userTexts: string[]) {
   let deadline = '';
@@ -4724,7 +4727,6 @@ function hasUnsupportedDeadlineClaim(text: string, lastUserText: string, history
   const context = users.join('\n');
   if (!/資料|作業|仕事|制作|提出/.test(context) || !/締[め]?切[り]?|期限|まで/.test(context + '\n' + text)) return false;
   const deadline = getCurrentUserDeadline(users);
-  const normalizedTime = (value: string) => value.normalize('NFKC').replace('曜日', '曜').replace(/時0分$/, '時');
   if (containsDeadlineOutcomeAssurance(text, users)) return true;
   return stripAttributedDeadlineQuotes(text, users).split(/(?<=[。！？?\n])/u).some(statement => {
     if (/[？?]|(?:です|ます)か[。\s]*$/.test(statement)) return false;
@@ -4736,7 +4738,7 @@ function hasUnsupportedDeadlineClaim(text: string, lastUserText: string, history
     const hypotheticalRanges = [...statement.matchAll(hypotheticalDate)].map(match => [match.index!, match.index! + match[0].length]);
     return [...statement.matchAll(EXPLICIT_DEADLINE_TIME)].some(match =>
       !hypotheticalRanges.some(([start, end]) => match.index! >= start && match.index! + match[0].length <= end) &&
-      normalizedTime(match[0]) !== normalizedTime(deadline));
+      normalizeDeadlineTime(match[0]) !== normalizeDeadlineTime(deadline));
   });
 }
 
@@ -4833,18 +4835,6 @@ function asksCancellationReason(text: string) {
   return /理由|なぜ|どうして|何のため/.test(question);
 }
 
-function hasUnreportedServiceHesitation(text: string, lastUserText: string, history: CoachingChatMessage[]) {
-  // A profession answer grounds the cancellation scene, not a new mental state.
-  // Keep this to the observed presupposing question and direct, user-owned
-  // reports about responding; this is not a general emotion classifier.
-  if (!/(?:どのような|どんな|どの)(?:対応|点)[^。！？?\n]{0,16}迷(?:って|われ)/.test(text)) return false;
-  const ownState = getCurrentPlanningUserTexts(lastUserText, history)
-    .flatMap(value => value.replace(/「[^」]*」|『[^』]*』/g, '').split(/[。！？?\n]/))
-    .map(value => value.trim())
-    .findLast(value => /^(?:(?:私|自分)は[、,\s]*)?(?:今は[、,\s]*|もう[、,\s]*)?(?:(?:対応|返答)(?:で|に)|(?:どう|どのように)対応(?:する|すべき|すればよい)か)迷/.test(value));
-  return !ownState || !/迷(?:っています|っている|います)$/.test(ownState);
-}
-
 function isGroundedShortFollowup(
   text: string,
   workAnswer: ReturnType<typeof getClosedWorkAnswerContext>,
@@ -4921,7 +4911,7 @@ function buildGoalOrShortActionFallback(text: string, history: CoachingChatMessa
   const question = previous?.role === 'assistant' ? previous.content : '';
   const askedAboutOther = /相手が実際にしたこと|相手(?:は|が).{0,25}(?:した|言った|反応)|相手.{0,12}どのような反応/.test(question);
   if (askedAboutOther || /される|されます|された/.test(latest)) {
-    return '相手から返事や反応がない、ということですね。返事がない理由までは、このやり取りだけでは分かりません。挨拶への反応がないのか、必要な連絡にも返事がないのかで、困っている内容や考えられる対応が変わります。最近、どんな言葉をかけた時に返事がありませんでしたか？';
+    return '相手から返事や反応がない、ということですね。返事がない理由までは、このやり取りだけでは分かりません。挨拶への反応がないのか、必要な連絡にも返事がないのかで、確認する点や考えられる対応が変わります。最近、どんな言葉をかけた時に返事がありませんでしたか？';
   }
   return '「無視する」という言葉について、誰の行動を指しているのか確認したいです。ご自身が相手に返事をしないという意味なのか、相手から返事がないという意味なのかで、お話の受け止め方が変わります。ここを取り違えないようにしたいので、どちらの意味で書いてくださったのか教えてください。';
 }
@@ -5429,7 +5419,9 @@ export function buildFinalVerifiedQualityFallback(
     cleanFallbackSourceText.length > 48
       ? `${cleanFallbackSourceText.slice(0, 48)}…`
       : cleanFallbackSourceText || cleanUserText || '今回の相談';
-  const acknowledgement = `「${excerpt}」という相談ですね。`;
+  const acknowledgement = /^[？?]$/.test(lastUserText.trim())
+    ? `前の返答についての聞き返しですね。直前に「${excerpt}」と伝えていた点に戻ります。`
+    : `「${excerpt}」という相談ですね。`;
   const noQuestionRequested = requestsNoFollowUpQuestion(lastUserText);
   const sessionCloseFallback = buildSessionCloseFallback(
     lastUserText,
@@ -5501,8 +5493,8 @@ export function buildFinalVerifiedQualityFallback(
     : hasRelationshipConflictContext(fallbackSourceText)
       ? '相手の気持ちを推測するより、実際に起きたことと、相手に変えてほしい行動を分けると、話し合う内容が明確になります。'
       : /仕事|上司|同僚|会議|企画|職場/.test(fallbackSourceText)
-        ? '仕事全体について結論を急がず、実際に困った場面と、次に確認する点を分けると、具体的な対応を選びやすくなります。'
-        : 'まだ書かれていない原因を推測せず、実際に起きたことと、次に困る場面を分けると、具体的な対応を選びやすくなります。';
+        ? '仕事全体について結論を急がず、実際に起きたことと、次に確認する点を分けると、具体的な対応を選びやすくなります。'
+        : 'まだ書かれていない原因を推測せず、実際に起きたことと、次に確認する点を分けると、具体的な対応を選びやすくなります。';
   const concreteAction = preserveRequestedActionTime(
     buildNoQuestionFallback(fallbackSourceText, historyMessages),
     lastUserText
@@ -5523,19 +5515,19 @@ export function buildFinalVerifiedQualityFallback(
     fallbackSourceText
   )
     ? [
-        '最後に困った仕事の場面で、上司や相手から実際に言われた言葉を一つ教えてください。',
+        '最近の仕事のやり取りで、実際に言われた言葉を一つ教えてください。',
         'いま詰まっている仕事の場面で、誰が何を言ったかを一つだけ書いてください。',
-        '次の対応を決めるために、最後に困った仕事の場面の日時と相手を一つ教えてください。',
+        '次の対応を決めるために、最近の仕事のやり取りの日時と相手を一つ教えてください。',
       ]
     : hasRelationshipConflictContext(fallbackSourceText)
       ? [
-          '最後に困った場面で、相手が実際にしたことを一つだけ教えてください。',
+          '最近のやり取りで、相手が実際にしたことを一つだけ教えてください。',
           '家族とのやり取りで、最後に止まった場面の日時と相手を一つ教えてください。',
           '次の対応を決めるために、相手に変えてほしい行動を一つだけ具体的に書いてください。',
         ]
       : [
-          'その悩みが強くなった直前に、誰が何を言った、または何が起きましたか？',
-          'いま困っている場面の中で、最後に実際に起きた出来事は何ですか？',
+          '今回話したいことについて、直前に何が起きましたか？',
+          'いま話したい場面の中で、最後に実際に起きた出来事は何ですか？',
           '次の対応を決めるために、日時と相手を特定できる出来事を一つ教えてください。',
         ];
   const tentativeAgreementFallback =
@@ -6224,7 +6216,7 @@ function buildContextualDissatisfactionFallback(
     return '前の返答は今回とは違う話を混ぜていました。申し訳ありません。\n\n今の話は、講座に申し込まなかった後悔、これ以上スピリチュアルな学びにお金を使いたくない疲れ、お金が入ってこない不安についてです。講座へ申し込む判断と、現在の収入の問題を分けます。今日は講座への申し込みを保留にし、現在の収入源と今月必要な金額を確認してください。';
   }
   if (/お金が入ってこな/.test(recentUserContext)) {
-    return '前の返答は今回とは違う話を混ぜていました。申し訳ありません。\n\n今の話は、お金が入ってこない不安についてです。原因をまだ確認できていない段階で、別の人物や出来事を当てはめるべきではありません。今日は、現在の収入源ごとの見込み額と、今月必要な金額を確認してください。足りない金額が分かれば、今ある収入源のどこを増やす必要があるかを具体的に考えられます。';
+    return '前の返答は今回とは違う話を混ぜていました。申し訳ありません。\n\n今の話は、お金が入ってこないことについてです。原因をまだ確認できていない段階で、別の人物や出来事を当てはめるべきではありません。今日は、現在の収入源ごとの見込み額と、今月必要な金額を確認してください。足りない金額が分かれば、今ある収入源のどこを増やす必要があるかを具体的に考えられます。';
   }
 
   if (
@@ -6255,7 +6247,7 @@ function buildContextualDissatisfactionFallback(
     ) &&
     /給料|分割|手数料|\d[\d,]*円/.test(dissatisfactionContext)
   ) {
-    return `${opening}\n\n今の迷いは、学びを続けたい気持ちがある一方で、毎月使ってよい額の上限は1万円から1万5千円くらいだと、すでに自分で分かっていることです。そこに追加で月1万6千円を重ねると上限を超え、分割にしても不安と手数料が残ります。今決めるなら、新しい講座はまだ申し込まず、今の1万円の学びを続けるか休止するかを、生活費と合わせて見直す方が現実に合っています。`;
+    return `${opening}\n\n今の話では、学びを続けたい気持ちがある一方で、毎月使ってよい額の上限は1万円から1万5千円くらいだと、すでに自分で分かっていることです。そこに追加で月1万6千円を重ねると上限を超え、分割にしても不安と手数料が残ります。今決めるなら、新しい講座はまだ申し込まず、今の1万円の学びを続けるか休止するかを、生活費と合わせて見直す方が現実に合っています。`;
   }
 
   if (
@@ -6300,7 +6292,7 @@ function buildLongContinuityReferenceFallback(
   }
 
   if (/専門用語を減らしたい/.test(lastUserText)) {
-    return '初めてサービスを使う人向けなら、専門用語を残す数を減らすより、最初に読む一文を日常語へ置き換える方が伝わりやすくなります。今日は一枚目にある専門用語を一つ選び、その言葉を「初めて使う人にも意味が伝わる言い方」に置き換えてください。';
+    return '資料の専門用語を減らしたいのですね。言葉を日常的な表現や具体的な動作に置き換えると、初めて使う人にも内容が伝わりやすくなります。資料全体を一度に変えず、一つの用語から言い換えを考えられます。\n\n今の資料で、まず言い換えたい専門用語は何ですか？';
   }
 
   if (/説明する順番にも迷っています/.test(lastUserText)) {
@@ -6915,14 +6907,14 @@ function buildCustomerSafeLocalFallback(
   }
 
   if (hasRelationshipConflictContext(knownContext)) {
-    return '人との関係で困っている時は、相手の気持ちを決めつけず、実際に起きたことと、変えてほしい行動を分けて考えると整理しやすくなります。相手の理由を考える前に、最後に困った場面で相手が実際にしたことを一つだけこの画面に書いてください。その事実を基準に、次に伝える内容を絞ります。';
+    return '人との関係については、相手の気持ちを決めつけず、実際に起きたことと、変えてほしい行動を分けて考えると整理しやすくなります。相手の理由を考える前に、最近のやり取りで相手が実際にしたことを一つだけこの画面に書いてください。その事実を基準に、次に伝える内容を絞ります。';
   }
 
   if (/仕事|職場|業務|会社|上司|同僚|会議|企画|顧客/.test(knownContext)) {
-    return '仕事のことで迷っている時は、仕事全体の結論を急がず、実際に困った場面と次に確認する点を分けると、具体的な対応を選びやすくなります。最後に困った仕事の場面で、誰が何を言ったかを一つだけ教えてください。';
+    return '仕事については、仕事全体の結論を急がず、実際に起きたことと次に確認する点を分けると、具体的な対応を選びやすくなります。最近の仕事のやり取りで、誰が何を言ったかを一つだけ教えてください。';
   }
 
-  return '今の相談について、まだ書かれていない事情を決めつけず、実際に起きたことと今いちばん困っていることを分けて考えます。最初に、相談したい出来事の中から、確認できる事実を一つだけこの画面に書いてください。相手の意図や自分の評価ではなく、実際に起きたことだけで大丈夫です。';
+  return '今の相談について、まだ書かれていない事情を決めつけず、実際に起きたことと今話したいことを分けて考えます。最初に、相談したい出来事の中から、確認できる事実を一つだけこの画面に書いてください。相手の意図や自分の評価ではなく、実際に起きたことだけで大丈夫です。';
 }
 
 function mergeCoachingUsage(
@@ -8158,6 +8150,7 @@ function hasGenericSingleActionPlaceholder(
     );
 
   return (
+    containsCircularSingleAction(text) ||
     usesPlaceholderAsActionTarget ||
     (explainsInsteadOfDirecting && !hasConcreteAction(text, lastUserText))
   );
@@ -8311,13 +8304,13 @@ function buildConcreteHowToQuestion(
     return 'その一致を感じた直後に起きた出来事を、一つだけ書き出してください。';
   }
   if (/夫|妻|家族|親|子ども|友人|同僚|上司|相手|関係/.test(userContext)) {
-    return '最後に困った場面で、相手がしたことを一つだけ書き出してください。';
+    return '最近のやり取りで、相手がしたことを一つだけ書き出してください。';
   }
   if (/仕事|職場|業務|会社|タスク|働/.test(userContext)) {
-    return '仕事で、いちばん対応に困っている出来事を一つだけ書き出してください。';
+    return '仕事で、いま対応したい出来事を一つだけ書き出してください。';
   }
 
-  return 'そのことで最後に困った出来事を、一つだけ書き出してください。';
+  return 'そのことについて、最後に起きた出来事を一つだけ書き出してください。';
 }
 
 function buildNoQuestionFallback(
@@ -9230,8 +9223,9 @@ function removeUnsupportedPsychologicalInference(
       .map((message) => stripAttachmentMarkdown(message.content)),
     lastUserText,
   ].join('\n');
-  let candidateText = removeUnsupportedEmotionIntensity(
-    text, getCurrentPlanningUserTexts(lastUserText, historyMessages)
+  const currentUserTexts = getCurrentPlanningUserTexts(lastUserText, historyMessages);
+  let candidateText = removeUnsupportedConcernPremise(
+    removeUnsupportedEmotionIntensity(text, currentUserTexts), currentUserTexts
   );
   if (hasUnsupportedDeclineCapacity(candidateText, lastUserText, historyMessages)) {
     candidateText = buildDirectWordingFallback(lastUserText, userContext, historyMessages);
@@ -9430,7 +9424,6 @@ function removeUnsupportedPsychologicalInference(
     { output: /つらい|辛い/, supportedBy: /つらい|辛い/ },
     { output: /悲し/, supportedBy: /悲し/ },
     { output: /(?<!後)悔し/, supportedBy: /(?<!後)悔し/ },
-    { output: /不安/, supportedBy: /不安/ },
     { output: /焦り|焦っ/, supportedBy: /焦り|焦っ/ },
     { output: /寂し/, supportedBy: /寂し/ },
     {
