@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { randomUUID } from 'node:crypto';
 import { currentTopicUserTexts } from '../src/lib/coaching-emotion-language.mjs';
-import { containsUnsupportedProcedureInterfacePremise, containsUnsupportedSituationPremise, containsUngroundedTaskAssumption, containsConversationRestriction, containsAmbiguousFutureActionDayReference } from '../src/lib/coaching-action-language.mjs';
+import { containsChainedCommunicationInstructions, containsUnsupportedProcedureInterfacePremise, containsUnsupportedSituationPremise, containsUngroundedTaskAssumption, containsConversationRestriction, containsAmbiguousFutureActionDayReference } from '../src/lib/coaching-action-language.mjs';
 import { deleteTestAuthUser } from './lib/test-account-cleanup.mjs';
 
 const args = new Map(
@@ -725,6 +725,9 @@ function assertResults(results) {
         `${result.label} returned a vague action target: ${result.message}`
       );
     }
+    if (containsChainedCommunicationInstructions(result.message, result.lastUserText)) {
+      throw new Error(`${result.label} returned chained communication instructions: ${result.message}`);
+    }
     if (containsUnsupportedProcedureInterfacePremise(result.message, result.currentUserTexts)) {
       throw new Error(`${result.label} invented an unsupported procedure interface: ${result.message}`);
     }
@@ -1068,11 +1071,13 @@ function countSemanticQuestions(text) {
 }
 
 function countCoachingMoves(text) {
-  const quotedWordingMoves = (
-    text.match(
-      /「[^」]{4,}(?:お願い|してほしい|話したい|伝えたい|聞いてほしい|できる[？?]|ませんか)[^」]*」/g
-    ) || []
-  ).length;
+  // Acknowledging the user's proposed phrase is a report,
+  // not another instruction. Its later suggested acknowledgement still counts.
+  const quotedWordingMoves = [...text.matchAll(
+    /「[^」]{4,}(?:お願い|してほしい|話したい|伝えたい|聞いてほしい|できる[？?]|ませんか)[^」]*」/g
+  )].filter(match => !/^を(?:最初に伝える)?言葉の案として考えたのですね/u.test(
+    text.slice(match.index + match[0].length)
+  )).length;
   const unquoted = stripJapaneseQuotedContent(text);
   const segments = unquoted.match(/[^。！？?\n]+[。！？?]?|\n+/g) || [];
   return quotedWordingMoves + segments.reduce((total, segment) => {

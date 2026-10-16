@@ -4,6 +4,26 @@ export function containsCircularSingleAction(text) {
   return /(?:最初に(?:行う|する|取り組む)|最初の)(?:作業|タスク|行動)(?:に|を)(?:(?:一|1|ひと)つだけ)?(?:着手して|取り組んで|始めて|開始して|進めて)(?:みて)?ください[。！!]*$/u.test(unquoted);
 }
 
+/** A conditional follow-up is still a second instructed communication action. */
+export function containsChainedCommunicationInstructions(text, lastUserText = '') {
+  const ownRequest = lastUserText.replace(/「[^」]*」|『[^』]*』|"[^"]*"|'[^']*'/gu, '');
+  const single = /一つ|ひとつ|1つ|一動作|一問|一言だけ|質問なし/u.test(ownRequest);
+  let multipleRequested = false;
+  for (const clause of ownRequest.split(/(?<=[。！？?\n])|[、,]|しかし|ただし/u)) {
+    if (!/複数|いくつか|両方|二つ|2つ|手順|順番|ステップ/u.test(clause)) continue;
+    if (/しない|しません|やめて|不要|いらない|必要(?:は)?ありません|必要ない|禁止|ではなく|(?:頼んで|求めて|お願いして|言って|依頼して)(?:いません|いない)/u.test(clause)) {
+      multipleRequested = false;
+      continue;
+    }
+    if (/(?:複数|いくつか|両方|二つ|2つ|手順|順番|ステップ)[^。！？?\n]{0,24}(?:(?:教えて|提案して|説明して|示して|挙げて|答えて)(?:ください|ほしい(?:です)?|もらえますか|もらえませんか)?|(?:を)?お願いします)(?:ね)?[。！!？?\s]*$/u.test(clause)) multipleRequested = true;
+  }
+  if (!single && multipleRequested) return false;
+  // Draft content can itself describe a sequence. Only instructions outside
+  // the quoted wording count, including instructions after a closing quote.
+  const outside = text.replace(/「[^」]*」|『[^』]*』|"[^"]*"|'[^']*'/gu, quote => ' '.repeat(quote.length));
+  return /(?:伝え(?:し)?|話し|説明し|答え|返事(?:を)?し)(?:てから|た後(?:に|で)?|[、,]\s*(?:その後|続いて|次に))[^。！？?\n]{0,80}(?:(?:尋ね|質問し|確認し)(?:て(?:みて)?ください|ましょう|てみませんか|てはどうでしょうか)|聞(?:いて(?:みて)?ください|きましょう))/u.test(outside);
+}
+
 // These are concrete premises from the observed fallback failures, rather than
 // a general classifier for feelings, actors or every possible task artifact.
 const SITUATION_PREMISES = [

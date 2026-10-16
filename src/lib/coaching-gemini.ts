@@ -8,7 +8,7 @@ import { sendCoachingAlert } from '@/lib/coaching-alerts';
 import { COACHING_SCOPE_GUIDANCE } from '@/lib/coaching-scope';
 import { containsDeadlineOutcomeAssurance, stripAttributedDeadlineQuotes } from '@/lib/coaching-deadline-language.mjs';
 import { containsUnsupportedEmotionIntensity, removeUnsupportedEmotionIntensity, containsUnsupportedConcernPremise, removeUnsupportedConcernPremise, currentTopicUserTexts } from '@/lib/coaching-emotion-language.mjs';
-import { containsCircularSingleAction, containsUnsupportedProcedureInterfacePremise, containsUnsupportedSituationPremise, containsUngroundedTaskAssumption, hasCurrentUserSituationEvidence, containsConversationRestriction, containsAmbiguousFutureActionDayReference, alignFutureActionDayReferences } from '@/lib/coaching-action-language.mjs';
+import { containsChainedCommunicationInstructions, containsCircularSingleAction, containsUnsupportedProcedureInterfacePremise, containsUnsupportedSituationPremise, containsUngroundedTaskAssumption, hasCurrentUserSituationEvidence, containsConversationRestriction, containsAmbiguousFutureActionDayReference, alignFutureActionDayReferences } from '@/lib/coaching-action-language.mjs';
 import {
   getCoachingOutputPipelineConfig,
   type CoachingOutputPipelineMode,
@@ -3033,6 +3033,9 @@ export function assessCoachingResponseQuality(params: {
     issues.push('invented_follow_through');
   }
 
+  if (containsChainedCommunicationInstructions(text, lastUserText) && !buildUrgentSafetyResponse(lastUserText)) {
+    issues.push('multiple_coaching_moves');
+  }
   const coachingMoveCount = countExplicitCoachingMoves(text);
   const singleQuotedCommunicationAction =
     isSingleQuotedCommunicationAction(text);
@@ -4904,7 +4907,7 @@ function buildCancellationConversationContinuation(
   const shortApology = /^(?:すみません|ごめんなさい|申し訳(?:ありません|ないです))[。！!]*$/.test(latest);
   if (answersOpeningQuestion) {
     const phrase = latest.replace(/[「」『』]/g, '').replace(/[。！？!]+$/g, '');
-    return `「${phrase}」を最初に伝える言葉の案として考えたのですね。仕事で${request}の希望を受けた場面では、まず今回の希望を受け取ったことが相手に伝わる返答を置けます。理由が既に伝えられている場合は聞き直さず、確認が必要な点だけを残せます。\n\n最初は${acknowledgement}と伝え、その後に必要な確認が残っている場合だけ、一つ尋ねてください。`;
+    return `「${phrase}」を最初に伝える言葉の案として考えたのですね。仕事で${request}の希望を受けた場面では、まず今回の希望を受け取ったことが相手に伝わる返答を置けます。理由が既に伝えられている場合は聞き直さず、確認が必要な点だけを残せます。\n\n最初は${acknowledgement}と伝えてください。`;
   }
   if (shortApology) {
     return `${actor}から${request}を求められた場面について、ここまでの話を続けられます。相手の希望はすでに書かれているので、同じ出来事を説明し直す必要はありません。理由が既に伝えられている場合は聞き直さず、まず希望を受け取ったことを伝える言葉に絞れます。\n\n最初の返答は${acknowledgement}と短く伝えてください。`;

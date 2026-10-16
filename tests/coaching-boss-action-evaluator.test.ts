@@ -4,14 +4,14 @@ import vm from 'node:vm';
 import { describe, expect, it } from 'vitest';
 import { seededContinuityScenarios, evaluateSeededContinuityResponse } from '../scripts/lib/coaching-continuity-scenarios.mjs';
 import { containsUnsupportedEmotionIntensity, containsUnsupportedConcernPremise, currentTopicUserTexts } from '../src/lib/coaching-emotion-language.mjs';
-import { containsCircularSingleAction, containsUnsupportedProcedureInterfacePremise, containsUnsupportedSituationPremise, containsUngroundedTaskAssumption, containsAmbiguousFutureActionDayReference } from '../src/lib/coaching-action-language.mjs';
+import { containsCircularSingleAction, containsChainedCommunicationInstructions, containsUnsupportedProcedureInterfacePremise, containsUnsupportedSituationPremise, containsUngroundedTaskAssumption, containsAmbiguousFutureActionDayReference } from '../src/lib/coaching-action-language.mjs';
 import { containsDeadlineOutcomeAssurance } from '../src/lib/coaching-deadline-language.mjs';
 const source = readFileSync(resolve(process.cwd(), 'scripts/evaluate-coaching-quality.mjs'), 'utf8');
 const specification = source.slice(source.indexOf('const BASELINE_QUALITY_POPULATION ='), source.indexOf('const args ='));
 const evaluation = source.slice(source.indexOf('function evaluateConversations('), source.indexOf('function getLocalTurnExpectation('));
 const evaluate = vm.runInNewContext(`${specification}\n${evaluation}\nevaluateConversations`, {
   seededContinuityScenarios, evaluateSeededContinuityResponse, containsDeadlineOutcomeAssurance,
-  containsUnsupportedEmotionIntensity, containsUnsupportedConcernPremise, currentTopicUserTexts, containsCircularSingleAction, containsUnsupportedProcedureInterfacePremise, containsUnsupportedSituationPremise, containsUngroundedTaskAssumption, containsAmbiguousFutureActionDayReference,
+  containsUnsupportedEmotionIntensity, containsUnsupportedConcernPremise, currentTopicUserTexts, containsCircularSingleAction, containsChainedCommunicationInstructions, containsUnsupportedProcedureInterfacePremise, containsUnsupportedSituationPremise, containsUngroundedTaskAssumption, containsAmbiguousFutureActionDayReference,
   getLocalTurnExpectation: () => ({ finishReason: 'STOP' }), countCoachingMoves: () => 0,
   addCheck: (checks: unknown[], name: string, passed: boolean) => checks.push({ name, passed }),
   expectedPipelineMode: 'minimal', expectedTextModel: '', expectedImageModel: '', maxFirstChunkMs: 10000, maxTotalMs: 15000,
