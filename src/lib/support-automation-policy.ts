@@ -60,6 +60,13 @@ const BUSINESS_DECISION_PATTERNS = [
 const VERIFIED_COMPLETION_PATTERN =
   /修正(?:しました|済み)|復旧(?:しました|済み)|解消(?:しました|済み)|直りました|対応(?:が)?完了|正常に(?:ご)?利用/;
 
+const PROGRESS_REPLY_ERROR =
+  '自動サポートから途中連絡は送信できません。対応完了後に最終回答をまとめて送信してください';
+const SUPPORT_WORK_PATTERN = '(?:調査|確認|修正|対応|検証|監視|観測)(?:作業)?';
+const ONGOING_SUPPORT_WORK_PATTERN = new RegExp(
+  `${SUPPORT_WORK_PATTERN}(?:と${SUPPORT_WORK_PATTERN})*(?:を|は)?(?:引き続き|現在も?|今も)?(?:中(?:です|でございます|のため|につき)|(?:進めて|続けて|継続して|実施して|行って|して)(?:います|おります|いるところです)|しております)`
+);
+
 export function evaluateSupportAutomationPolicy(ticket: {
   category: string;
   subject: string;
@@ -102,6 +109,10 @@ export function validateSupportResolutionEvidence(params: {
 }) {
   const evidence = params.evidence || {};
 
+  if (params.resolutionKind === 'progress') {
+    return PROGRESS_REPLY_ERROR;
+  }
+
   if (params.resolutionKind === 'technical_fix') {
     const productionCommit =
       typeof evidence.productionCommit === 'string'
@@ -111,8 +122,8 @@ export function validateSupportResolutionEvidence(params: {
       typeof evidence.productionDeploymentId === 'string'
         ? evidence.productionDeploymentId
         : '';
-    const monitorSuccesses = Number(evidence.monitorSuccesses);
-    const observationMinutes = Number(evidence.observationMinutes);
+    const monitorSuccesses = evidence.monitorSuccesses;
+    const observationMinutes = evidence.observationMinutes;
 
     if (!/^[0-9a-f]{40}$/i.test(productionCommit)) {
       return '本番コミットSHAの検証記録が必要です';
@@ -120,7 +131,15 @@ export function validateSupportResolutionEvidence(params: {
     if (!/^dpl_[A-Za-z0-9]+$/.test(productionDeploymentId)) {
       return '本番デプロイIDの検証記録が必要です';
     }
-    if (monitorSuccesses < 3 || observationMinutes < 20) {
+    if (
+      typeof monitorSuccesses !== 'number' ||
+      !Number.isFinite(monitorSuccesses) ||
+      !Number.isInteger(monitorSuccesses) ||
+      monitorSuccesses < 3 ||
+      typeof observationMinutes !== 'number' ||
+      !Number.isFinite(observationMinutes) ||
+      observationMinutes < 20
+    ) {
       return '20分以上・3回連続の本番監視成功が必要です';
     }
     if (evidence.releaseGatePassed !== true) {
@@ -145,10 +164,38 @@ export function validateSupportResolutionEvidence(params: {
   return '';
 }
 
+export function validateSupportReplyResolutionKind(params: {
+  classification: SupportAutomationClassification;
+  resolutionKind: SupportAutomationResolutionKind;
+}) {
+  if (params.resolutionKind === 'progress') {
+    return PROGRESS_REPLY_ERROR;
+  }
+
+  if (
+    (params.classification === 'technical' &&
+      !['technical_fix', 'no_defect'].includes(params.resolutionKind)) ||
+    (params.classification === 'account' &&
+      !['account_fix', 'no_defect'].includes(params.resolutionKind))
+  ) {
+    return '問い合わせの分類に対応する解決種別と検証記録が必要です';
+  }
+
+  return '';
+}
+
 export function validateSupportReplyClaims(params: {
   resolutionKind: SupportAutomationResolutionKind;
   message: string;
 }) {
+  // Quoted screen text and past correspondence do not assert our current work status.
+  const unquotedMessage = params.message
+    .replace(/「[^」]*」|『[^』]*』|“[^”]*”|"[^"]*"/g, '')
+    .replace(/^>.*$/gm, '');
+  if (ONGOING_SUPPORT_WORK_PATTERN.test(unquotedMessage)) {
+    return PROGRESS_REPLY_ERROR;
+  }
+
   if (
     !['technical_fix', 'account_fix'].includes(params.resolutionKind) &&
     VERIFIED_COMPLETION_PATTERN.test(params.message)
