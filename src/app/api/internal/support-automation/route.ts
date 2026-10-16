@@ -8,6 +8,7 @@ import {
   SUPPORT_AUTOMATION_RESOLUTION_KINDS,
   validateSupportReplyIdempotencyKey,
   validateSupportReplyClaims,
+  validateSupportReplyResolutionKind,
   validateSupportResolutionEvidence,
   type SupportAutomationClassification,
   type SupportAutomationResolutionKind,
@@ -812,6 +813,56 @@ async function replyToTicket(
   runId: string,
   body: Record<string, unknown>
 ) {
+  const classification = toSafeText(
+    body.classification,
+    40
+  ) as SupportAutomationClassification;
+  const resolutionKind = toSafeText(
+    body.resolution_kind,
+    40
+  ) as SupportAutomationResolutionKind;
+
+  if (
+    !SUPPORT_AUTOMATION_CLASSIFICATIONS.has(classification) ||
+    !SUPPORT_AUTOMATION_RESOLUTION_KINDS.has(resolutionKind)
+  ) {
+    return NextResponse.json(
+      { error: 'Invalid classification or resolution_kind' },
+      { status: 400 }
+    );
+  }
+
+  // Reject unfinished work and relabeled resolutions before any ticket or mail access.
+  const resolutionKindError = validateSupportReplyResolutionKind({
+    classification,
+    resolutionKind,
+  });
+  if (resolutionKindError) {
+    return NextResponse.json({ error: resolutionKindError }, { status: 409 });
+  }
+  const subject =
+    typeof body.subject === 'string' ? body.subject.trim() : '';
+  const message =
+    typeof body.message === 'string' ? body.message.trim() : '';
+  const replyClaimError = validateSupportReplyClaims({
+    resolutionKind,
+    message,
+  });
+  if (replyClaimError) {
+    return NextResponse.json({ error: replyClaimError }, { status: 409 });
+  }
+  const evidence =
+    body.evidence && typeof body.evidence === 'object'
+      ? (body.evidence as Record<string, unknown>)
+      : null;
+  const evidenceError = validateSupportResolutionEvidence({
+    resolutionKind,
+    evidence,
+  });
+  if (evidenceError) {
+    return NextResponse.json({ error: evidenceError }, { status: 409 });
+  }
+
   const ticket = await getTicket(client, ticketId);
   const requestedIdempotencyKey =
     typeof body.idempotency_key === 'string'
@@ -849,25 +900,6 @@ async function replyToTicket(
     ticket.message || '',
     ticket.id
   );
-  const classification = toSafeText(
-    body.classification,
-    40
-  ) as SupportAutomationClassification;
-  const resolutionKind = toSafeText(
-    body.resolution_kind,
-    40
-  ) as SupportAutomationResolutionKind;
-
-  if (
-    !SUPPORT_AUTOMATION_CLASSIFICATIONS.has(classification) ||
-    !SUPPORT_AUTOMATION_RESOLUTION_KINDS.has(resolutionKind)
-  ) {
-    return NextResponse.json(
-      { error: 'Invalid classification or resolution_kind' },
-      { status: 400 }
-    );
-  }
-
   if (
     !canAutomationSendCustomerReply({
       classification,
@@ -885,17 +917,6 @@ async function replyToTicket(
     );
   }
 
-  const evidence =
-    body.evidence && typeof body.evidence === 'object'
-      ? (body.evidence as Record<string, unknown>)
-      : null;
-  const evidenceError = validateSupportResolutionEvidence({
-    resolutionKind,
-    evidence,
-  });
-  if (evidenceError) {
-    return NextResponse.json({ error: evidenceError }, { status: 409 });
-  }
   if (resolutionKind === 'technical_fix') {
     const releaseEvidenceError = await verifyTechnicalReleaseEvidence(
       client,
@@ -918,10 +939,6 @@ async function replyToTicket(
     }
   }
 
-  const subject =
-    typeof body.subject === 'string' ? body.subject.trim() : '';
-  const message =
-    typeof body.message === 'string' ? body.message.trim() : '';
   const idempotencyKey = toSafeText(body.idempotency_key, 180);
   const idempotencyKeyError = validateSupportReplyIdempotencyKey(
     ticketId,
@@ -944,14 +961,6 @@ async function replyToTicket(
   if (idempotencyKeyError) {
     return NextResponse.json({ error: idempotencyKeyError }, { status: 400 });
   }
-  const replyClaimError = validateSupportReplyClaims({
-    resolutionKind,
-    message,
-  });
-  if (replyClaimError) {
-    return NextResponse.json({ error: replyClaimError }, { status: 409 });
-  }
-
   if (
     ticket.status !== 'in_progress' &&
     !hasSupportReplyIdempotencyKey(ticket.message || '', idempotencyKey)
@@ -962,8 +971,6 @@ async function replyToTicket(
     );
   }
 
-  const statusOnSuccess =
-    resolutionKind === 'progress' ? 'in_progress' : 'resolved';
   const result = await deliverSupportReply({
     adminClient: client,
     ticketId,
@@ -971,7 +978,7 @@ async function replyToTicket(
     message,
     senderLabel: 'ACTI自動サポート',
     idempotencyKey,
-    statusOnSuccess,
+    statusOnSuccess: 'resolved',
     automationRunId: runId,
     evidence: buildEvidenceSummary(resolutionKind, evidence),
     expectedUpdatedAt: ticket.updated_at,

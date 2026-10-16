@@ -101,6 +101,68 @@ describe('support automation policy', () => {
     ).toBe('');
   });
 
+  it('rejects a progress reply even when release evidence is supplied', () => {
+    expect(
+      validateSupportResolutionEvidence({
+        resolutionKind: 'progress',
+        evidence: {
+          productionCommit: 'c32f36538f43b568949285809c605e7ecac31cc7',
+          productionDeploymentId: 'dpl_9UJdG4pw8Fw2CVgsV3hXFmGe6PJM',
+          monitorSuccesses: 3,
+          observationMinutes: 20,
+          releaseGatePassed: true,
+        },
+      })
+    ).toContain('途中連絡');
+  });
+
+  it.each([
+    undefined,
+    null,
+    Number.NaN,
+    Number.POSITIVE_INFINITY,
+    'not-a-number',
+    '3',
+    [],
+    3.5,
+  ])('rejects an invalid monitor count: %j', (monitorSuccesses) => {
+    expect(
+      validateSupportResolutionEvidence({
+        resolutionKind: 'technical_fix',
+        evidence: {
+          productionCommit: 'c32f36538f43b568949285809c605e7ecac31cc7',
+          productionDeploymentId: 'dpl_9UJdG4pw8Fw2CVgsV3hXFmGe6PJM',
+          monitorSuccesses,
+          observationMinutes: 20,
+          releaseGatePassed: true,
+        },
+      })
+    ).toContain('3回連続');
+  });
+
+  it.each([
+    undefined,
+    null,
+    Number.NaN,
+    Number.POSITIVE_INFINITY,
+    'not-a-number',
+    '20',
+    [],
+  ])('rejects an invalid observation duration: %j', (observationMinutes) => {
+    expect(
+      validateSupportResolutionEvidence({
+        resolutionKind: 'technical_fix',
+        evidence: {
+          productionCommit: 'c32f36538f43b568949285809c605e7ecac31cc7',
+          productionDeploymentId: 'dpl_9UJdG4pw8Fw2CVgsV3hXFmGe6PJM',
+          monitorSuccesses: 3,
+          observationMinutes,
+          releaseGatePassed: true,
+        },
+      })
+    ).toContain('20分以上');
+  });
+
   it('requires primary-source verification before an account fix reply', () => {
     expect(
       validateSupportResolutionEvidence({
@@ -121,6 +183,33 @@ describe('support automation policy', () => {
 });
 
 describe('validateSupportReplyClaims', () => {
+  it.each([
+    '追加対策を本番へ反映し、現在も検証と監視を継続しています。',
+    '現在、調査を進めております。',
+    '問題について確認中です。',
+    '修正作業を行っています。',
+  ])('rejects our unfinished work even when relabeled as a usage answer: %s', (message) => {
+    expect(validateSupportReplyClaims({ resolutionKind: 'usage_answer', message }))
+      .toContain('途中連絡');
+  });
+
+  it.each([
+    '「調査中です」と表示される場合は、画面を再読み込みしてください。',
+    '調査中ではありません。確認した結果をご案内します。',
+    '昨日は調査中でした。確認した結果をご案内します。',
+    '以前は調査を継続していました。確認した結果をご案内します。',
+    '再診断を行ってください。表示内容をご確認ください。',
+  ])('allows quoted or historical status and user instructions: %s', (message) => {
+    expect(validateSupportReplyClaims({ resolutionKind: 'usage_answer', message })).toBe('');
+  });
+
+  it('allows final verification after quoting our earlier status', () => {
+    expect(validateSupportReplyClaims({
+      resolutionKind: 'technical_fix',
+      message: '以前は「現在も検証と監視を継続しています」とご案内しましたが、今回は本番検証を完了しました。再診断を行ってください。',
+    })).toBe('');
+  });
+
   it('blocks completion wording when no technical or account evidence is required', () => {
     expect(
       validateSupportReplyClaims({
