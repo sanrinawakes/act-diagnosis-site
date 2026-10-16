@@ -8,7 +8,7 @@ import { sendCoachingAlert } from '@/lib/coaching-alerts';
 import { COACHING_SCOPE_GUIDANCE } from '@/lib/coaching-scope';
 import { containsDeadlineOutcomeAssurance, stripAttributedDeadlineQuotes } from '@/lib/coaching-deadline-language.mjs';
 import { containsUnsupportedEmotionIntensity, removeUnsupportedEmotionIntensity, containsUnsupportedConcernPremise, removeUnsupportedConcernPremise, currentTopicUserTexts } from '@/lib/coaching-emotion-language.mjs';
-import { containsCircularSingleAction, containsUnsupportedSituationPremise, containsUngroundedTaskAssumption, hasCurrentUserSituationEvidence } from '@/lib/coaching-action-language.mjs';
+import { containsCircularSingleAction, containsUnsupportedSituationPremise, containsUngroundedTaskAssumption, hasCurrentUserSituationEvidence, containsConversationRestriction } from '@/lib/coaching-action-language.mjs';
 import {
   getCoachingOutputPipelineConfig,
   type CoachingOutputPipelineMode,
@@ -7412,9 +7412,7 @@ function isSingleActionRelevantToContext(
     return false;
   }
   if (
-    /業務の確認だけ|[「『]?事実[」』]?だけ|話すのは[^。！？\n]{0,30}だけにする|(?:話題|会話)[^。！？\n]{0,16}(?:避け|限定)/.test(
-      answer
-    ) &&
+    containsConversationRestriction(answer) &&
     !/業務の確認だけ|事実[^。！？\n]{0,8}だけ|だけにする|避け|限定/.test(userContext)
   ) {
     return false;
