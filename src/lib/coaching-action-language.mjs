@@ -46,3 +46,10 @@ const TASK_ASSUMPTION = /(?:今日|昨日|前回)[^。！？\n]{0,40}(?:やり�
 export function containsUngroundedTaskAssumption(text, currentUserTexts) {
   return TASK_ASSUMPTION.test(text) && !hasCurrentUserSituationEvidence(currentUserTexts, TASK_ASSUMPTION);
 }
+
+/** Restricting the conversation itself is different from naming something to avoid within it. */
+export function containsConversationRestriction(text) {
+  return /業務の確認だけ|[「『]?事実[」』]?だけ|話すのは[^。！？\n]{0,30}だけにする/u.test(text) ||
+    /(?:話題|会話)(?:そのもの|自体)?(?:は|を)(?:(?:できるだけ|なるべく|極力|一度|いったん|一旦|しばらく)[、,\s]*)*避け/u.test(text) ||
+    /(?:話題|会話)(?:の(?:範囲|内容))?(?:は|を)[^。！？\n]{0,16}限定/u.test(text);
+}

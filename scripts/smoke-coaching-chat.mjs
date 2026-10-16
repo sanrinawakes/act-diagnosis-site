@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { randomUUID } from 'node:crypto';
 import { currentTopicUserTexts } from '../src/lib/coaching-emotion-language.mjs';
-import { containsUnsupportedSituationPremise, containsUngroundedTaskAssumption } from '../src/lib/coaching-action-language.mjs';
+import { containsUnsupportedSituationPremise, containsUngroundedTaskAssumption, containsConversationRestriction } from '../src/lib/coaching-action-language.mjs';
 import { deleteTestAuthUser } from './lib/test-account-cleanup.mjs';
 
 const args = new Map(
@@ -881,9 +881,8 @@ function assertResults(results) {
       );
     }
     if (
-      /業務の確認だけ|[「『]?事実[」』]?だけ|話すのは[^。！？\n]{0,30}だけにする|(?:話題|会話)[^。！？\n]{0,16}(?:避け|限定)|(?:今日|前回)[^。！？\n]{0,24}(?:言われた|話した|起きた)こととは関係のない/.test(
-        result.message
-      ) &&
+      (containsConversationRestriction(result.message) ||
+        /(?:今日|前回)[^。！？\n]{0,24}(?:言われた|話した|起きた)こととは関係のない/.test(result.message)) &&
       !/業務の確認だけ|事実[^。！？\n]{0,8}だけ|だけにする|避け|限定|(?:今日|前回)[^。！？\n]{0,24}(?:言われた|話した|起きた)こととは関係のない/.test(
         result.lastUserText
       )
