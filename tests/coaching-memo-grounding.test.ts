@@ -1,13 +1,14 @@
 import { writeFileSync } from 'node:fs';
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 const transport = vi.hoisted(() => ({ raw: '', provider: 0, alerts: 0, fetch: 0 }));
+const futurePlanMockCalls = vi.hoisted(() => ({ primary: 0, repair: 0 }));
 vi.mock('@/lib/openai', () => ({ getGenAI: () => ({ getGenerativeModel: () => ({ startChat: () => ({
- sendMessageStream: async () => ({stream:(async function*(){yield{text:()=>transport.raw};})(),response:Promise.resolve({candidates:[{finishReason:'STOP'}],usageMetadata:{totalTokenCount:2}})}),
- sendMessage: async () => ({response:{text:()=>transport.raw,candidates:[{finishReason:'STOP'}]}}),
+ sendMessageStream: async () => { futurePlanMockCalls.primary++; return ({stream:(async function*(){yield{text:()=>transport.raw};})(),response:Promise.resolve({candidates:[{finishReason:'STOP'}],usageMetadata:{totalTokenCount:2}})}); },
+ sendMessage: async () => { futurePlanMockCalls.repair++; return ({response:{text:()=>transport.raw,candidates:[{finishReason:'STOP'}]}}); },
 }) }) }) }));
 vi.mock('@/lib/coaching-provider-candidates',()=>({generateCoachingProviderCandidate:async()=>{transport.provider++;throw Error('PROVIDER_FORBIDDEN');}}));
 vi.mock('@/lib/coaching-alerts',()=>({sendCoachingAlert:async()=>{transport.alerts++;throw Error('ALERT_FORBIDDEN');}}));
-import { assessCoachingResponseQuality, ensureVerifiedCoachingResolution, normalizeCoachingOutput, buildGeminiParts, createJsonLineStream } from "../src/lib/coaching-gemini";
+import { assessCoachingResponseQuality, buildFinalVerifiedQualityFallback, ensureVerifiedCoachingResolution, normalizeCoachingOutput, buildGeminiParts, createJsonLineStream } from "../src/lib/coaching-gemini";
 import { containsUngroundedTaskAssumption } from "../src/lib/coaching-action-language.mjs";
 import { getContextualizedPrompt } from "../src/data/coaching-system-prompt";
 import type { CoachingChatMessage } from '../src/lib/coaching-gemini';
@@ -447,3 +448,163 @@ describe('finite current USER artifact evidence controls',()=>{
 });
 
 describe('finite reported vs newly instructed memo consumption',()=>{it.each(fixture.outputControls)('$name',c=>{const actual=containsUngroundedTaskAssumption(c.text,c.userTexts);seen.push({stage:'memo-read-output-control',...c,actual});expect(actual).toBe(c.expected);});});
+
+
+// Fixed LOCAL public-export builder output, not captured provider or production wire.
+// New finite offline regressions only. Existing memo44 inputs/assertions are unchanged.
+const futurePlanObserved = {
+  "history": [
+    {
+      "role": "assistant",
+      "content": "ここからどのように進めるか、考えられそうですか？"
+    }
+  ],
+  "latest": "メモに書いてみます。",
+  "candidate": "書き留めながら進めることを考えているのですね。今は計画や課題を増やすより、その手順で一度進め、実際に何が起きるかを確かめる段階です。予定どおりに進まなくても、それは失敗ではなく、次の改善点が分かる材料になります。\n\n新しい課題は足さず、予定している最初の一回だけを実行してください。"
+} as {history:CoachingChatMessage[];latest:string;candidate:string};
+const futurePlanActuals: unknown[] = [];
+afterAll(() => {
+ const output = process.env.ACTI_FUTURE_PLAN_REPLAY_OUTPUT;
+ if (output) writeFileSync(output, JSON.stringify({
+  scope: 'Exact two-input LOCAL public-export future-writing regression; no new live case',
+  providerOriginalRaw: 'NOT_CAPTURED', candidateOrigin: 'saved_local_public_export_builder_final',
+  actuals: futurePlanActuals,
+ }, null, 2) + '\n', {flag:'wx',mode:0o600});
+});
+function assessFuturePlan(text: string) {
+ return assessCoachingResponseQuality({text,lastUserText:futurePlanObserved.latest,historyMessages:futurePlanObserved.history});
+}
+function ensureFuturePlan(text: string) {
+ const quality=assessFuturePlan(text);
+ return ensureVerifiedCoachingResolution({resolution:{text,usage:{},modelName:'local-public-export-fixture',provider:'local',repairAttempted:false,repairAccepted:false,initialIssues:quality.issues,finalIssues:quality.issues},lastUserText:futurePlanObserved.latest,historyMessages:futurePlanObserved.history});
+}
+function expectFaithfulFutureWritingAcknowledgement(text: string) {
+ expect(text).not.toBe(futurePlanObserved.candidate);
+ expect(text).toMatch(/メモ|書き留め|記録|書いて|書く/);
+ // These are the unprovided frames in the actual fallback, not a global word ban.
+ expect(text).not.toMatch(/計画や課題を増やすより|その手順で一度進め|確かめる段階|予定どおりに進まなくても|それは失敗ではなく|改善点が分かる材料|新しい課題は足さず|予定している最初の一回/);
+ expect(text).not.toMatch(/紙にある内容|作成済み|書き終えた|メモ(?:で|を)[^。！？\n]{0,24}(?:確認|読み返|見返|参照)/);
+ expect(text).not.toMatch(/[？?]|という相談ですね|もう一度送って|時間をおいて/);
+ expect(assessFuturePlan(text).issues).toEqual([]);
+}
+describe('finite future-writing intention without generic stage framing', () => {
+ it('builds a grounded acknowledgement for the exact two inputs', () => {
+  const final=buildFinalVerifiedQualityFallback(futurePlanObserved.latest,futurePlanObserved.history);
+  futurePlanActuals.push({stage:'builder',...futurePlanObserved,final,quality:assessFuturePlan(final)});
+  expectFaithfulFutureWritingAcknowledgement(final);
+ });
+ it.each(['minimal','legacy','observe'])('detects the saved generic builder candidate in %s', mode => {
+  vi.stubEnv('COACHING_OUTPUT_PIPELINE_MODE',mode);
+  const quality=assessFuturePlan(futurePlanObserved.candidate);
+  futurePlanActuals.push({stage:'assess',mode,...futurePlanObserved,quality});
+  expect(quality.issues).toContain('generic_canned_close');
+ });
+ it.each(['minimal','legacy','observe'])('records direct and normalized verification in %s', mode => {
+  vi.stubEnv('COACHING_OUTPUT_PIPELINE_MODE',mode);
+  const normalized=normalizeCoachingOutput(futurePlanObserved.candidate,futurePlanObserved.latest,futurePlanObserved.history);
+  const direct=ensureFuturePlan(futurePlanObserved.candidate);
+  const normalizedVerified=ensureFuturePlan(normalized);
+  futurePlanActuals.push({stage:'verified-two-paths',mode,...futurePlanObserved,normalized,normalizedQuality:assessFuturePlan(normalized),direct,normalizedVerified});
+  if(mode==='observe'){
+   expect(direct.text).toBe(futurePlanObserved.candidate);
+   expect(direct.initialIssues).toContain('generic_canned_close');
+   expectFaithfulFutureWritingAcknowledgement(normalizedVerified.text);
+   expect(normalizedVerified.finalIssues).toEqual([]);
+   return; // Known-bad detection only; never semantic delivery PASS.
+  }
+  expectFaithfulFutureWritingAcknowledgement(direct.text);
+  expectFaithfulFutureWritingAcknowledgement(normalizedVerified.text);
+  expect(direct.finalIssues).toEqual([]);expect(normalizedVerified.finalIssues).toEqual([]);
+  expect(direct.qualitySafetyHold).not.toBe(true);expect(normalizedVerified.qualitySafetyHold).not.toBe(true);
+ });
+ it.each(['minimal','legacy','observe'])('records full mock delivery of the same candidate in %s',async mode=>{
+  vi.stubEnv('COACHING_OUTPUT_PIPELINE_MODE',mode);
+  vi.stubGlobal('fetch',async()=>{transport.fetch++;throw Error('NETWORK_FORBIDDEN');});
+  transport.raw=futurePlanObserved.candidate;
+  const callsBefore={...futurePlanMockCalls};const callbacks:Array<{message:string}>=[];
+  const reader=createJsonLineStream({systemPrompt:getContextualizedPrompt('MME-3'),historyMessages:futurePlanObserved.history,lastUserParts:buildGeminiParts(futurePlanObserved.latest,[],futurePlanObserved.history),onDone:async(_usage,value)=>{callbacks.push(value);return {};}}).getReader();
+  const decoder=new TextDecoder();let wire='';
+  while(true){const part=await reader.read();if(part.done)break;wire+=decoder.decode(part.value,{stream:true});}wire+=decoder.decode();
+  const events=wire.trim().split('\n').map(line=>JSON.parse(line));
+  const dones=events.filter(event=>event.type==='done');const done=dones[0];
+  const mockCallDelta={primary:futurePlanMockCalls.primary-callsBefore.primary,repair:futurePlanMockCalls.repair-callsBefore.repair};
+  futurePlanActuals.push({stage:'mock-fullstream',mode,...futurePlanObserved,
+   configuredMockCandidate:futurePlanObserved.candidate,
+   candidateOrigin:'saved_local_public_export_builder_final_not_provider_original',
+   diagnosisProvenance:'MME-3 reused from existing memo offline harness, not an observed production diagnosis for this adjacent case',
+   mockCallDelta,
+   configuredCandidateConsumption:mockCallDelta.primary>0?'primary_consumed':mockCallDelta.repair>0?'repair_only_consumed':'not_consumed_local_immediate',
+   wire,events,callbacks,done,final:done?.message,
+   forbidden:{provider:transport.provider,alerts:transport.alerts,fetch:transport.fetch}});
+  expect(dones).toHaveLength(1);expect(callbacks).toHaveLength(1);
+  expect(done.completionStatus).toBe('complete');expect(done.finalizationStatus).toBe('complete');
+  expect(events.filter(event=>event.type==='chunk').map(event=>event.text).join('')).toBe(done.message);
+  expect(callbacks[0].message).toBe(done.message);
+  expect(transport.provider).toBe(0);expect(transport.alerts).toBe(0);expect(transport.fetch).toBe(0);
+  if(mockCallDelta.primary>0){
+   expect(done.qualityInitialIssues).toContain('generic_canned_close');
+   if(mode==='observe'){expect(done.message).toBe(futurePlanObserved.candidate);return;}
+  }else{
+   // A correct local immediate acknowledgement never consumed the configured bad candidate.
+   // Verify actual content in every mode rather than calling an unexercised raw repair PASS.
+   expect(mockCallDelta.repair).toBe(0);
+  }
+  expectFaithfulFutureWritingAcknowledgement(done.message);
+  expect(done.qualityFinalIssues).toEqual([]);expect(done.qualitySafetyHold).not.toBe(true);
+ });
+
+ it.each([
+  {name:'intended-communication-memo',latest:'夫に伝える一文をメモに書いてみます。',ack:/メモ|書き留め|記録|書いて|書く/},
+  {name:'intended-trial-without-preparation',latest:'やってみます。',ack:/やってみ|試してみ/},
+ ])('acknowledges $name without the known unprovided process framing',c=>{
+  const final=buildFinalVerifiedQualityFallback(c.latest,futurePlanObserved.history);
+  const quality=assessCoachingResponseQuality({text:final,lastUserText:c.latest,historyMessages:futurePlanObserved.history});
+  futurePlanActuals.push({stage:'builder-commitment-control',name:c.name,history:futurePlanObserved.history,latest:c.latest,final,quality,
+   expectedScope:'Future intention only, no completed conversation reaction, prepared artifact, generic process stage or extra unspecified execution target.'});
+  expect(final).toMatch(c.ack);
+  expect(final).not.toMatch(/相手との会話で何が伝わったかを残す方針|実際の反応を次の判断材料|本人が受け取った事実が分かる|相手との会話で伝わったことを一文だけ書き出|準備したことを実際に試しながら|その方針で一度進め|計画や課題を増やすより|その手順で一度進め|確かめる段階|予定どおりに進まなくても|それは失敗ではなく|改善点が分かる材料|次に見直す手順が分かる材料|新しい課題は足さず|予定している最初の一回/);
+  expect(final).not.toMatch(/紙にある内容|作成済み|書き終えた|メモ(?:で|を)[^。！？\n]{0,24}(?:確認|読み返|見返|参照)/);
+  expect(final).not.toMatch(/[？?]|という相談ですね|もう一度送って|時間をおいて/);
+  expect(quality.issues).toEqual([]);
+ });
+ it('does not classify the faithful future acknowledgement as generic filler',()=>{
+  const candidate='メモに書いてみるのですね。';const quality=assessFuturePlan(candidate);
+  futurePlanActuals.push({stage:'faithful-ack-classification-control',...futurePlanObserved,candidate,quality,
+   expectationScope:'Only no generic_canned_close; unrelated shortness is recorded, not silently called full quality PASS.'});
+  expect(quality.issues).not.toContain('generic_canned_close');
+ });
+});
+
+
+// Four additional finite LOCAL controls from the original before run and raw newline guard.
+const futurePlanObservedPartial = "書き留めながら進めることを考えているのですね。今は計画や課題を増やすより、その手順で一度進め、実際に何が起きるかを確かめる段階です。\n\n新しい課題は足さず、予定している最初の一回だけを実行してください。";
+describe('observed partial future-intention template and raw newline boundary',()=>{
+ it.each(['minimal','legacy','observe'])('verifies the saved partial template in %s',mode=>{
+  vi.stubEnv('COACHING_OUTPUT_PIPELINE_MODE',mode);
+  const candidate=futurePlanObservedPartial;
+  const quality=assessFuturePlan(candidate);
+  const normalized=normalizeCoachingOutput(candidate,futurePlanObserved.latest,futurePlanObserved.history);
+  const direct=ensureFuturePlan(candidate);const normalizedVerified=ensureFuturePlan(normalized);
+  futurePlanActuals.push({stage:'observed-partial-template',mode,history:futurePlanObserved.history,latest:futurePlanObserved.latest,
+   candidate,candidateOrigin:'exact_normalized_field_from_saved_LOCAL_before_minimal_verification_not_provider_raw',
+   quality,normalized,normalizedQuality:assessFuturePlan(normalized),direct,normalizedVerified});
+  expect(quality.issues).toContain('generic_canned_close');
+  expect(direct.initialIssues).toContain('generic_canned_close');
+  expectFaithfulFutureWritingAcknowledgement(normalizedVerified.text);
+  expect(normalizedVerified.finalIssues).toEqual([]);expect(normalizedVerified.qualitySafetyHold).not.toBe(true);
+  if(mode==='observe'){
+   expect(direct.text).toBe(candidate);
+   return; // Direct observe is known-bad detection, explicit normalization is a separate pure path.
+  }
+  expectFaithfulFutureWritingAcknowledgement(direct.text);
+  expect(direct.finalIssues).toEqual([]);expect(direct.qualitySafetyHold).not.toBe(true);
+ });
+ it('does not classify a newline-split input as the eligible whole future clause',()=>{
+  const latest='メモに\n書いてみます。';
+  const candidates=['メモに書いてみるのですね。','メモに 書いてみるのですね。'];
+  const assessments=candidates.map(candidate=>({candidate,quality:assessCoachingResponseQuality({text:candidate,lastUserText:latest,historyMessages:futurePlanObserved.history})}));
+  futurePlanActuals.push({stage:'raw-newline-eligibility-boundary',history:futurePlanObserved.history,latest,assessments,
+   expectationScope:'Both candidate renderings retain too_short. The spaced form catches newline loss before the eligibility helper; no overall reply-quality PASS is claimed.'});
+  for(const item of assessments) expect(item.quality.issues).toContain('too_short');
+ });
+});

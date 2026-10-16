@@ -2487,6 +2487,12 @@ export function assessCoachingResponseQuality(params: {
   }
   const answeredQuestion = getAnsweredExistenceQuestion(lastUserText, historyMessages);
   const factualReplyFallback = buildFactualReplyFallback(lastUserText, historyMessages);
+  const intendedActionAcknowledgement = buildIntendedActionAcknowledgement(params.lastUserText, historyMessages);
+  const groundedIntendedActionAcknowledgement = Boolean(intendedActionAcknowledgement) &&
+    text === intendedActionAcknowledgement;
+  if (isObsoleteIntentionContinuation(text, params.lastUserText, historyMessages)) {
+    issues.push('generic_canned_close');
+  }
   const requestedFamilyDraft = buildFamilyLegalDraftRevisionFallback(lastUserText, historyMessages);
   // A fact-bounded requested draft is complete without padding it with a new
   // legal position or an invented history. Only this exact current-user draft,
@@ -2513,6 +2519,7 @@ export function assessCoachingResponseQuality(params: {
     issues.push('context_mismatch');
   }
   const isSpecialShortResponse =
+    groundedIntendedActionAcknowledgement ||
     groundedRequestedFamilyDraft ||
     groundedShortFollowup ||
     (Boolean(groundedDeadlineBriefReply) && text === groundedDeadlineBriefReply) ||
@@ -3322,6 +3329,10 @@ export function normalizeCoachingOutput(
 
   if (containsProtectedInternalContent(text)) {
     return buildCustomerSafeLocalFallback(lastUserText, historyMessages);
+  }
+
+  if (isObsoleteIntentionContinuation(text, lastUserText, historyMessages)) {
+    return buildIntendedActionAcknowledgement(lastUserText, historyMessages);
   }
 
   if (requestsShortRestResponse(lastUserText)) {
@@ -9665,6 +9676,103 @@ function buildRestAcknowledgementFallback(
   return `${opening}今は新しい準備や課題を増やす必要はありません。今日はゆっくり休んでください。`;
 }
 
+// A single current-user future intention needs acknowledgement, not a new task.
+// Deliberately abstain on reports, completed actions, quotations, third-party
+// subjects, requests, separated clauses and unrecognised verb endings.
+function buildIntendedActionAcknowledgement(
+  lastUserText: string,
+  historyMessages: CoachingChatMessage[]
+): string {
+  const previous = historyMessages.at(-1);
+  if (previous?.role !== 'assistant') return '';
+  const rawLatest = stripAttachmentMarkdown(lastUserText);
+  const latest = rawLatest.replace(/\s+/g, ' ').trim();
+  if (!latest || latest.length > 80 || /[\r\n]/.test(rawLatest) ||
+      /[「」『』"'“”‘’？?]/.test(latest) ||
+      reportsResponseDissatisfaction(latest) ||
+      requestsNoFollowUpQuestion(latest) ||
+      requestsConcreteSuggestion(latest) ||
+      requestsDirectWording(latest) ||
+      hasPaymentObligationContext(latest) ||
+      buildUrgentSafetyResponse(latest) ||
+      requestsInternalPromptDisclosure(latest)) return '';
+  let clause = latest.replace(/[。！!]+$/u, '')
+    .replace(/^(?:私は|私が|自分は|自分が)[、,]?\s*/u, '');
+  // Only this explicitly stated completion of the user's preparation can
+  // introduce a comma. It does not establish that the next action is complete.
+  const preparation = clause.match(/^(準備(?:が|は)(?:できた|整った|済んだ)(?:ので|ため))[、,]\s*(.+)$/u);
+  const preparationPrefix = preparation ? `${preparation[1]}、` : '';
+  if (preparation) clause = preparation[2];
+  if (/[。！？?、,\n]/.test(clause) ||
+      /(?:もし|仮に|なら|たら|場合|と言|と聞|と教|そうです|とのこと|によると|言われ|教えてもら|勧められ|助言され|指摘され)/.test(clause)) return '';
+
+  const trial = clause.match(/^(.*?)(やって|試して|取り組んで|始めて|続けて|記録して|書き出して|書きだして|書いて|まとめて|確認して|分けて|決めて|伝えて|作って)みます$/u);
+  const plain = clause.match(/^(.*?)(やり|試し|取り組み|始め|続け|記録し|書き出し|書きだし|書き|まとめ|確認し|伝え)ます$/u);
+  // A dictionary-form answer is a chosen future action only when the
+  // immediately preceding, unquoted assistant instruction asks for that choice.
+  // A new user topic cannot inherit the prior instruction's temporal meaning.
+  const asksForNextAction = !/(?:話題を変|話を変|別の話|別件|ところで|今度は)/.test(latest) &&
+    /(?:^|[。！？?\n、,])\s*(?:次に|これから|今から)(?:試す|やってみる|行う|取り組む)(?:こと|行動|作業)を(?:一つ|ひとつ|1つ)(?:だけ)?(?:決めて|選んで)ください[。！!]*$/u.test(
+      stripJapaneseQuotationContent(previous.content).trim()
+    );
+  const selected = asksForNextAction
+    ? clause.match(/^(.*?)(書き出す|書きだす|書く|記録する|まとめる|確認する|伝える|試す|やってみる|取り組む|始める|続ける|分ける|決める|作る)$/u)
+    : null;
+  const prefix = trial?.[1] ?? plain?.[1] ?? selected?.[1];
+  if (prefix === undefined) return '';
+  // Mask only the lexical が in the known trial-ながら span for this check.
+  // Explicit actor particles elsewhere still retain は/が/も and are rejected.
+  const subjectPrefix = prefix
+    .replace(/(?:試し|試してみ|やってみ)ながら/gu, '');
+  if (/[はがも]/u.test(subjectPrefix)) return '';
+  if (trial) return `${preparationPrefix}${trial[1]}${trial[2]}みるのですね。`;
+  const dictionary: Record<string, string> = {
+    やり: 'やる', 試し: '試す', 取り組み: '取り組む', 始め: '始める',
+    続け: '続ける', 記録し: '記録する', 書き出し: '書き出す', 書きだし: '書きだす',
+    書き: '書く', まとめ: 'まとめる', 確認し: '確認する', 伝え: '伝える',
+  };
+  if (plain) return `${preparationPrefix}${plain[1]}${dictionary[plain[2]]}のですね。`;
+  return selected ? `${preparationPrefix}${selected[1]}${selected[2]}のですね。` : '';
+}
+
+// These are the exact obsolete local templates, not a general ban on plan,
+// failure or improvement words. Quoted reports/additional text do not match.
+const OBSOLETE_INTENT_CONTINUATION_LITERALS = [
+  '相手との会話で何が伝わったかを残す方針がはっきりしたのですね。その方針なら、うまくいったかという感覚だけで終わらず、実際の反応を次の判断材料にできます。文章の完成度より、本人が受け取った事実が分かることが大切です。\n\n新しい課題は足さず、相手との会話で伝わったことを一文だけ書き出してください。',
+  '書き留めながら進めることを考えているのですね。今は計画や課題を増やすより、その手順で一度進め、実際に何が起きるかを確かめる段階です。予定どおりに進まなくても、それは失敗ではなく、次の改善点が分かる材料になります。\n\n新しい課題は足さず、予定している最初の一回だけを実行してください。',
+  '仕事で書き留めながら進めることを考えているのですね。今は計画や課題を増やすより、その手順で一度進め、実際に何が起きるかを確かめる段階です。予定どおりに進まなくても、それは失敗ではなく、次の改善点が分かる材料になります。\n\n新しい課題は足さず、予定している最初の一回だけを実行してください。',
+  '準備したことを実際に試しながら進める方針を自分で決められたのですね。今は計画や課題を増やすより、その方針で一度進め、実際に何が起きるかを確かめる段階です。予定どおりに進まなくても、それは失敗ではなく、次に見直す手順が分かる材料になります。\n\n新しい課題は足さず、予定している最初の一回だけを実行してください。',
+];
+// Existing unsupported-inference cleanup removes this exact whole sentence
+// when the user has not mentioned failure. Preserve the remaining known
+// public generic text as the same obsolete family, not as a successful repair.
+// The communication-writing literal has no such sentence and deduplicates.
+const OBSOLETE_INTENT_CONTINUATIONS = new Set(
+  OBSOLETE_INTENT_CONTINUATION_LITERALS.flatMap((literal) => [
+    literal,
+    literal.replace(
+      /予定どおりに進まなくても、それは失敗ではなく、次(?:の改善点|に見直す手順)が分かる材料になります。/u,
+      ''
+    ),
+  ])
+);
+
+function isObsoleteIntentionContinuation(
+  text: string,
+  lastUserText: string,
+  historyMessages: CoachingChatMessage[]
+): boolean {
+  if (!buildIntendedActionAcknowledgement(lastUserText, historyMessages)) return false;
+  if (OBSOLETE_INTENT_CONTINUATIONS.has(text.trim())) return true;
+  // Exact observed fallback for these chosen-action answers. It must quote
+  // the current full latest text, not an older topic or a truncated excerpt.
+  const latest = stripAttachmentMarkdown(lastUserText).replace(/\s+/g, ' ')
+    .replace(/[。！？!?]+$/u, '').trim();
+  if (!latest || latest.length > 48) return false;
+  const observedGeneric = `「${latest}」という相談ですね。\n\nまだ書かれていない原因を推測せず、実際に起きたことと、次に確認する点を分けると、具体的な対応を選びやすくなります。今の情報だけで原因や相手の意図を決めつけず、確認できる出来事から整理します。`;
+  return text.trim() === observedGeneric;
+}
+
 function buildGroundedStatementContinuationFallback(
   lastUserText: string,
   historyMessages: CoachingChatMessage[]
@@ -9716,33 +9824,10 @@ function buildGroundedStatementContinuationFallback(
     return '誰かから受けた助言を共有してくれたのですね。その言葉をそのまま正解にせず、自分が納得した点と、まだ違和感がある点を分けると、他人の評価に引っ張られずに次の行動を選べます。今の話で大切なのは、言われた内容の復唱ではなく、本人が実際の伝え方をどう変えたいと思ったかです。\n\n次に相手へ説明する時、最初に変える一文はどこですか？';
   }
 
-  const commitsToAction =
-    /(?:やってみ|試してみ|取り組んでみ|始め|続け|記録|書き出|書きだ|書いてみ|まとめてみ|確認してみ|分けてみ|決めてみ|伝えてみ|作ってみ)(?:ます|たい|ようと思|ことにします|予定です|つもりです|る|す)(?:[。！!]|$)/.test(
-      normalized
-    ) ||
-    /(?:やります|試します|取り組みます|始めます|続けます|記録します|書きます|まとめます|確認します|伝えます)(?:[。！!]|$)/.test(
-      normalized
-    );
-  if (commitsToAction) {
-    if (
-      /書|記録|メモ|ノート/.test(normalized) &&
-      /会話|話|伝/.test(normalized)
-    ) {
-      return '相手との会話で何が伝わったかを残す方針がはっきりしたのですね。その方針なら、うまくいったかという感覚だけで終わらず、実際の反応を次の判断材料にできます。文章の完成度より、本人が受け取った事実が分かることが大切です。\n\n新しい課題は足さず、相手との会話で伝わったことを一文だけ書き出してください。';
-    }
-
-    if (/書|記録|メモ|ノート/.test(normalized)) {
-      const contextLabel =
-        /仕事|職場|業務|会社|上司|同僚|会議|企画|顧客/.test(
-          combinedUserContext
-        )
-          ? '仕事で'
-          : '';
-      return `${contextLabel}書き留めながら進めることを考えているのですね。今は計画や課題を増やすより、その手順で一度進め、実際に何が起きるかを確かめる段階です。予定どおりに進まなくても、それは失敗ではなく、次の改善点が分かる材料になります。\n\n新しい課題は足さず、予定している最初の一回だけを実行してください。`;
-    }
-
-    return '準備したことを実際に試しながら進める方針を自分で決められたのですね。今は計画や課題を増やすより、その方針で一度進め、実際に何が起きるかを確かめる段階です。予定どおりに進まなくても、それは失敗ではなく、次に見直す手順が分かる材料になります。\n\n新しい課題は足さず、予定している最初の一回だけを実行してください。';
-  }
+  const intendedActionAcknowledgement = buildIntendedActionAcknowledgement(
+    lastUserText, historyMessages
+  );
+  if (intendedActionAcknowledgement) return intendedActionAcknowledgement;
 
   const reflectsOnOwnPattern =
     normalized.length >= 12 &&
