@@ -3,6 +3,7 @@ import { writeFile } from 'node:fs/promises';
 import { deflateSync } from 'node:zlib';
 import { createClient } from '@supabase/supabase-js';
 import { deleteTestAuthUser } from './lib/test-account-cleanup.mjs';
+import { seededContinuityScenarios, evaluateSeededContinuityResponse } from './lib/coaching-continuity-scenarios.mjs';
 
 const args = new Map(
   process.argv.slice(2).map((arg) => {
@@ -98,6 +99,9 @@ try {
     ],
     inputs: [{ content: 'むしする' }],
   }));
+  for (const scenario of seededContinuityScenarios) {
+    conversations.push(await runConversation(scenario));
+  }
   conversations.push(await runImageScenario());
   conversations.push(await runThreeLargeImagesScenario());
   conversations.push(await runMidSessionMemoryScenario());
@@ -1140,7 +1144,7 @@ async function runConversation({ name, diagnosisCode, inputs, seedHistory = [] }
     turns.push({ user: input.content, ...result });
   }
 
-  return { name, diagnosisCode, sessionId, turns };
+  return { name, diagnosisCode, sessionId, seedHistory, turns };
 }
 
 async function createSession(title) {
@@ -1356,6 +1360,9 @@ function evaluateConversations(conversations) {
       localExpectation.modelName ||
       (isImageTurn ? expectedImageModel : expectedTextModel);
     const minimumOutputChars = 1;
+    for (const check of evaluateSeededContinuityResponse(turn.conversationName, turn.message)) {
+      addCheck(checks, `${turn.label}: ${check.label}`, check.passed);
+    }
     if (turn.conversationName === 'factual-negative-answer') {
       addCheck(checks, `${turn.label}: 質問への短い返事を文脈に結び付ける`,
         /連絡|実習/.test(turn.message) && !/原因を推測|次に困る場面|という相談/.test(turn.message));
@@ -1367,6 +1374,10 @@ function evaluateConversations(conversations) {
     if (turn.conversationName === 'rejected-suggestion-and-direct-answer' && /-[12]$/.test(turn.label)) {
       addCheck(checks, `${turn.label}: 支払希望を成立済みの合意へ変えない`,
         !/決めた金額|実際に合意した負担額|明確に了承した毎月の金額|合意した負担が/.test(turn.message));
+    }
+    if (turn.conversationName === 'rejected-suggestion-and-direct-answer' && /-4$/.test(turn.label)) {
+      addCheck(checks, `${turn.label}: 別対応を求められた時に既出の書面確認へ戻さない`,
+        /相談(?:の)?窓口|第三者/.test(turn.message) && !/書面で確認する方法へ|回答期限を一通にまとめ|書面で回答を求め/.test(turn.message));
     }
     if (turn.conversationName === 'short-reply-continuation' && /-2$/.test(turn.label)) {
       addCheck(checks, `${turn.label}: 過去の断り経験を前提にしない`,
