@@ -2425,6 +2425,9 @@ export function assessCoachingResponseQuality(params: {
     return { issues: [], score: 0 };
   }
   const issues: CoachingQualityIssue[] = [];
+  const workAnswerContext = getClosedWorkAnswerContext(lastUserText, historyMessages);
+  const newTopicFocus = getExplicitNewTopicFocus(lastUserText);
+  const groundedShortFollowup = isGroundedShortFollowup(text, workAnswerContext, newTopicFocus);
   const answeredQuestion = getAnsweredExistenceQuestion(lastUserText, historyMessages);
   const factualReplyFallback = buildFactualReplyFallback(lastUserText, historyMessages);
   const groundedShortAnswer = Boolean(answeredQuestion) && compactText.length >= 35 &&
@@ -2443,6 +2446,7 @@ export function assessCoachingResponseQuality(params: {
     issues.push('context_mismatch');
   }
   const isSpecialShortResponse =
+    groundedShortFollowup ||
     (Boolean(factualReplyFallback) && text === factualReplyFallback) ||
     groundedShortAnswer ||
     /一言(?:だけ|で)|短く(?:答|教|返)|(?:一つ|ひとつ|1つ)(?:だけ)?.{0,24}(?:教|提案|答|挙|示|伝|お願)/.test(
@@ -2519,6 +2523,13 @@ export function assessCoachingResponseQuality(params: {
   ) {
     issues.push('generic_canned_close');
   }
+  if ((workAnswerContext || newTopicFocus) &&
+      /まだ書かれていない原因を推測せず|仕事全体について結論を急がず/.test(text)) {
+    issues.push('generic_canned_close');
+  }
+  if (workAnswerContext && asksCancellationReason(text) && workAnswerContext.reasonAddressed) {
+    issues.push('repeated_closing_move');
+  }
 
   const closingMove = extractClosingMove(text);
   const repeatsFullResponse = historyMessages
@@ -2534,6 +2545,10 @@ export function assessCoachingResponseQuality(params: {
     (closingMove && wasAssistantMoveAlreadyUsed(closingMove, historyMessages))
   ) {
     issues.push('repeated_closing_move');
+  }
+
+  if (hasDifferentPaymentProposalRequest(lastUserText, historyMessages) && isPaymentWritingProposal(text)) {
+    issues.push('repeats_rejected_move');
   }
 
   if (
@@ -2659,7 +2674,9 @@ export function assessCoachingResponseQuality(params: {
     lastUserText,
     historyMessages
   );
-  const relevanceContext = COACHING_DOMAIN_CONTEXT_PATTERN.test(lastUserText)
+  const relevanceContext = workAnswerContext
+    ? `${workAnswerContext.report}\n${lastUserText}`
+    : COACHING_DOMAIN_CONTEXT_PATTERN.test(lastUserText)
     ? lastUserText
     : [previousUserText, lastUserText].filter(Boolean).join('\n');
   const userContext = [
@@ -2721,7 +2738,7 @@ export function assessCoachingResponseQuality(params: {
       relevant:
         /仕事|職場|業務|会社|上司|同僚|会議|企画|顧客|働|評価|期待|意見|提案|役割|成果|専門/.test(
           text
-        ),
+        ) || Boolean(workAnswerContext && text.includes(workAnswerContext.request)),
     },
     {
       present: /SNS|投稿|発信/.test(relevanceContext),
@@ -3194,6 +3211,9 @@ export function normalizeCoachingOutput(
   if (requestsInternalPromptDisclosure(lastUserText)) {
     return 'その内容は公開できません。代わりに、今抱えている悩みや目標について一緒に考えます。今いちばん相談したいことは何ですか？';
   }
+
+  const differentPaymentResponse = buildDifferentPaymentProposalResponse(lastUserText, historyMessages);
+  if (differentPaymentResponse) return differentPaymentResponse;
 
   if (
     options.recoverInternalContext !== false &&
@@ -4388,14 +4408,16 @@ function buildSafeQualityFallback(
     hasPaymentObligationContext(userContext) &&
     hasUnsafeHighImpactAdvice(withoutGenericClosing)
   ) {
-    const alreadyRecordedShortfall = historyMessages.some(
+    const differentPaymentResponse = buildDifferentPaymentProposalResponse(lastUserText, historyMessages);
+    if (differentPaymentResponse) return differentPaymentResponse;
+    const priorRecordingProposal = historyMessages.some(
       (message) =>
         message.role === 'assistant' &&
         /直近3か月の家賃額[^。！？?\n]{0,60}(?:支払額|不足額)[^。！？?\n]{0,60}記録/.test(
           message.content
         )
     );
-    if (alreadyRecordedShortfall) {
+    if (priorRecordingProposal) {
       return '口頭で伝える方法では変わらなかったため、次は回答期限を付けた書面で確認する方法へ切り替える段階です。希望する家賃の負担額、毎月の支払日、不足した場合の扱い、回答期限を一通にまとめます。\n\n回答がない場合は、その書面と手元で確認できる支払記録を持って、夫婦問題や家計相談の窓口へ相談してください。';
     }
     return '毎月伝えても支払い不足が続くなら、言い方だけでは解決しません。まず、直近3か月の家賃額、相手の支払額、不足額を一覧にしてください。その一覧を使い、今後支払う金額、期日、不足した場合の対応について、書面で合意を求める段階です。';
@@ -4457,6 +4479,11 @@ function buildSafeQualityFallback(
     issues.includes('dangling_choice_reference') ||
     issues.includes('ungrounded_categorization')
   ) {
+    const cancellationContinuation = buildCancellationConversationContinuation(lastUserText, historyMessages);
+    if (cancellationContinuation && assessCoachingResponseQuality({
+      text: cancellationContinuation, lastUserText, historyMessages,
+    }).issues.length === 0) return cancellationContinuation;
+
     const substantiveFallback = buildSubstantiveShortFallback(lastUserText);
     if (substantiveFallback) return substantiveFallback;
 
@@ -4629,6 +4656,83 @@ function buildConcretePlanningContinuationFallback(lastUserText: string, history
   return '';
 }
 
+function isShortServiceWorkAffirmation(text: string) {
+  return /^(?:はい|ええ|そう(?:です|ですね|なんです)|その通り(?:です)?|(?:はい[、,]?)?接客(?:業|の仕事)?(?:です)?|サービス業(?:です)?)[。！!]*$/.test(text);
+}
+
+function getExplicitNewTopicFocus(text: string) {
+  const latest = stripAttachmentMarkdown(text).replace(/\s+/g, ' ').trim();
+  if (buildUrgentSafetyResponse(latest) || requestsInternalPromptDisclosure(latest) || hasUnsafeHighImpactAdvice(latest)) return '';
+  const currentRequest = latest.match(/(?:^|[。！!])((?:話題|話)を変え[^。！？?]*相談[^。！？?]*[。！!]*)$/)?.[1] || latest;
+  const match = currentRequest.match(/^(?:(?:話題|話)を変え(?:て|ます)[。！、,\s]*|今は|別件で[、,\s]*)?([^。！？?]{1,36}?)(?:について|を)相談(?:したいです|したい|します|です)[。！!]*$/);
+  const focus = match?.[1]?.trim() || '';
+  return focus && !/ACTI|AWAKES|サブスク|月額|課金|退会|広告|宣伝|翻訳|プログラム|画像生成/.test(focus) &&
+    (COACHING_DOMAIN_CONTEXT_PATTERN.test(focus) || /SNS|投稿|発信/.test(focus))
+    ? focus : '';
+}
+
+function getWorkCancellationReport(lastUserText: string, historyMessages: CoachingChatMessage[]) {
+  const boundary = historyMessages.findLastIndex((message) => message.role === 'user' &&
+    /話題を変|話を変|別の話|別件|今度は/.test(message.content));
+  const recentHistory = historyMessages.slice(boundary < 0 ? 0 : boundary);
+  const recentUserMessages = recentHistory.filter((message) => message.role === 'user')
+    .slice(-5).map((message) => stripAttachmentMarkdown(message.content));
+  const userContext = [...recentUserMessages, lastUserText].join('\n');
+  if (!/仕事|業務|接客|お客|顧客|クライアント/.test(userContext) ||
+      /ACTI|AWAKES|サブスク|月額|課金|退会/.test(userContext)) return null;
+  const report = [...recentUserMessages, lastUserText].reverse().find((text) =>
+    /解約|キャンセル|取り消(?:し|して)|取消|予約[^。！？\n]{0,20}中止/.test(text));
+  if (!report ||
+      (/解約/.test(report) && !/申し出|申出|言われ|求められ|要望|連絡|お客|顧客|クライアント/.test(report)) ||
+      /(?:私|自分|こちら)[^。！？\n]{0,20}(?:解約|キャンセル|取り消|取消)[^。！？\n]{0,12}(?:したい|します)/.test(report)) return null;
+  const reportIndex = recentHistory.findLastIndex((message) => message.role === 'user' && stripAttachmentMarkdown(message.content) === report);
+  // This only detects that the reason was already addressed; it never infers
+  // what the reason is or asserts that it is known or unknown.
+  const reasonAddressed = /ため|ので|理由[^。！？\n]{0,20}(?:聞いていない|聞いていません|分かりません|不明|未確認)/.test(report) ||
+    recentHistory.slice(reportIndex + 1).some((message, index, messages) =>
+      message.role === 'assistant' && /理由|なぜ/.test(message.content) &&
+      hasAnyCoachingQuestion(message.content) && messages[index + 1]?.role === 'user');
+  return { report, actor: /お客|顧客|クライアント/.test(report) ? 'お客様' : '相手',
+    request: /解約/.test(report) ? '解約' : 'キャンセル', reasonAddressed };
+}
+
+function getClosedWorkAnswerContext(lastUserText: string, history: CoachingChatMessage[]) {
+  const latest = stripAttachmentMarkdown(lastUserText).replace(/\s+/g, ' ').trim();
+  const isNegativeAnswer = /^(?:いいえ(?:[、,]?(?:接客(?:業|の仕事)?|サービス業)(?:では|じゃ)(?:ありません|ないです|ない))?|(?:接客(?:業|の仕事)?|サービス業)(?:では|じゃ)(?:ありません|ないです|ない))[。！!]*$/.test(latest);
+  if (!isShortServiceWorkAffirmation(latest) && !isNegativeAnswer) return null;
+  const previous = history.at(-1);
+  if (previous?.role !== 'assistant' ||
+      !/^(?:(?:お仕事|仕事|業務)は)?(?:接客|サービス業)(?:の)?(?:お仕事|仕事|業務)?(?:ですか|でしょうか)[？?]$/.test(previous.content.replace(/\s/g, ''))) return null;
+  return getWorkCancellationReport(latest, history);
+}
+
+function asksCancellationReason(text: string) {
+  const question = text.match(/[^。！？?\n]+[？?]/g)?.at(-1) || '';
+  return /理由|なぜ|どうして|何のため/.test(question);
+}
+
+function isGroundedShortFollowup(
+  text: string,
+  workAnswer: ReturnType<typeof getClosedWorkAnswerContext>,
+  newTopicFocus: string
+) {
+  const sentences = text.split(/(?<=[。！？?])|\n/u).map((part) => part.trim()).filter(Boolean);
+  if (text.replace(/\s/g, '').length < 20 || sentences.length > 2 ||
+      sentences.filter(isQuestionSegment).length !== 1 || !/[？?]$/.test(sentences.at(-1) || '')) return false;
+  const question = sentences.at(-1)!;
+  const introduction = sentences.slice(0, -1).join('');
+  if (workAnswer && question.includes(workAnswer.request)) {
+    if (asksCancellationReason(question) && workAnswer.reasonAddressed) return false;
+    return (!introduction || /^(?:解約|キャンセル)(?:の(?:申し出|連絡|希望))?(?:への|の)?(?:対応|相談)?(?:ですね|なのですね)[。！!]*$/.test(introduction)) &&
+      /理由|説明|どのような(?:点|対応)|どんな(?:点|対応)|何/.test(question);
+  }
+  const focusWords = newTopicFocus.match(/SNS|投稿|発信|仕事|職場|家族|夫|妻|家事|親|子ども|パートナー|予算|家計|収入|支出|講座/g) || [];
+  if (!newTopicFocus || !focusWords.some((word) => question.includes(word)) ||
+      !/どのような点|どんな点|何について/.test(question)) return false;
+  const acknowledgement = introduction.replace(/[。！!]+$/g, '');
+  return !introduction || [newTopicFocus + 'についての相談ですね', newTopicFocus + 'の相談ですね', newTopicFocus + 'についてですね'].includes(acknowledgement);
+}
+
 function buildCancellationConversationContinuation(
   lastUserText: string,
   historyMessages: CoachingChatMessage[]
@@ -4638,21 +4742,11 @@ function buildCancellationConversationContinuation(
       buildUrgentSafetyResponse(latest) || requestsInternalPromptDisclosure(latest) ||
       hasUnsafeHighImpactAdvice(latest)) return '';
 
-  const recentUserMessages = historyMessages.filter((message) => message.role === 'user')
-    .slice(-5).map((message) => stripAttachmentMarkdown(message.content));
-  const userContext = [...recentUserMessages, latest].join('\n');
   // This helper concerns responding to another person's request during work.
   // A member cancelling their own subscription belongs to a different path.
-  if (!/仕事|業務|接客|お客|顧客|クライアント/.test(userContext) ||
-      /ACTI|AWAKES|サブスク|月額|課金|退会/.test(userContext)) return '';
-  const cancellation = [...recentUserMessages, latest].reverse().find((text) =>
-    /解約|キャンセル|取り消(?:し|して)|取消|予約[^。！？\n]{0,20}中止/.test(text)
-  );
-  if (!cancellation ||
-      (/解約/.test(cancellation) && !/申し出|申出|言われ|求められ|要望|連絡|お客|顧客|クライアント/.test(cancellation)) ||
-      /(?:私|自分|こちら)[^。！？\n]{0,20}(?:解約|キャンセル|取り消|取消)[^。！？\n]{0,12}(?:したい|します)/.test(cancellation)) return '';
-  const actor = /お客|顧客|クライアント/.test(cancellation) ? 'お客様' : '相手';
-  const request = /解約/.test(cancellation) ? '解約' : 'キャンセル';
+  const workContext = getWorkCancellationReport(latest, historyMessages);
+  if (!workContext) return '';
+  const { actor, request } = workContext;
   const acknowledgement = `「${request}をご希望なのですね」`;
   const previousAssistant = historyMessages.at(-1)?.role === 'assistant'
     ? historyMessages.at(-1)!.content : '';
@@ -4663,11 +4757,11 @@ function buildCancellationConversationContinuation(
     /[？?]/.test(previousAssistant);
   // An answer to a wording question may be brief, but a new request or topic
   // is not a proposed customer-facing phrase from the previous conversation.
+  const shortAffirmation = isShortServiceWorkAffirmation(latest);
   if (/話題を変|話を変|別の話|別件|今は[^。！？\n]{0,30}(?:相談|話した|聞きた)|(?:を|について)(?:相談|質問)したい|教えて|説明して|どうすれば|どうしたら/.test(latest) ||
       (COACHING_DOMAIN_CONTEXT_PATTERN.test(latest) &&
-        !/解約|キャンセル|取消|伝え|返す|返し|という/.test(latest))) return '';
+        !shortAffirmation && !/解約|キャンセル|取消|伝え|返す|返し|という/.test(latest))) return '';
   const shortApology = /^(?:すみません|ごめんなさい|申し訳(?:ありません|ないです))[。！!]*$/.test(latest);
-  const shortAffirmation = /^(?:はい|ええ|そう(?:です|ですね|なんです)|その通り(?:です)?|(?:はい[、,]?)?接客(?:業|の仕事)?(?:です)?|サービス業(?:です)?)[。！!]*$/.test(latest);
   if (answersOpeningQuestion) {
     const phrase = latest.replace(/[「」『』]/g, '').replace(/[。！？!]+$/g, '');
     return `「${phrase}」を最初に伝える言葉の案として考えたのですね。仕事で${request}の希望を受けた場面では、まず今回の希望を受け取ったことが相手に伝わる返答を置けます。理由が既に伝えられている場合は聞き直さず、確認が必要な点だけを残せます。\n\n最初は${acknowledgement}と伝え、その後に必要な確認が残っている場合だけ、一つ尋ねてください。`;
@@ -4702,6 +4796,10 @@ export function buildFinalVerifiedQualityFallback(
   lastUserText: string,
   historyMessages: CoachingChatMessage[]
 ): string {
+  const newTopicFocus = getExplicitNewTopicFocus(lastUserText);
+  if (newTopicFocus) return `${newTopicFocus}について、どのような点を相談したいですか？`;
+  const differentPaymentResponse = buildDifferentPaymentProposalResponse(lastUserText, historyMessages);
+  if (differentPaymentResponse) return differentPaymentResponse;
   const cancellationContinuation = buildCancellationConversationContinuation(
     lastUserText,
     historyMessages
@@ -7774,6 +7872,34 @@ function hasExplicitCurrentPaymentAgreement(userContext: string) {
   );
 }
 
+function isPaymentWritingProposal(text: string) {
+  return /書面|文面/.test(text) && /負担額|支払|家賃/.test(text) &&
+    /記録|一覧|回答|確認|求め|まとめ|送|切り替/.test(text);
+}
+
+function hasDifferentPaymentProposalRequest(
+  lastUserText: string,
+  historyMessages: CoachingChatMessage[]
+) {
+  if (!/今までと違う対応|別の(?:方法|対応)|違う(?:方法|対応)|同じ提案/.test(lastUserText) ||
+      /話題を変|話を変|別の話|別件|今度は/.test(lastUserText) || getExplicitNewTopicFocus(lastUserText)) return false;
+  const latestBoundary = historyMessages.findLastIndex((message) =>
+    message.role === 'user' && /話題を変|話を変|別の話|別件|今度は/.test(message.content));
+  const currentHistory = historyMessages.slice(latestBoundary < 0 ? 0 : latestBoundary);
+  const userContext = [...currentHistory.filter((message) => message.role === 'user').slice(-3).map((message) => message.content), lastUserText].join('\n');
+  return hasPaymentObligationContext(userContext) && currentHistory.filter((message) => message.role === 'assistant').slice(-2).some((message) => isPaymentWritingProposal(message.content));
+}
+
+function buildDifferentPaymentProposalResponse(
+  lastUserText: string,
+  historyMessages: CoachingChatMessage[]
+) {
+  if (!hasDifferentPaymentProposalRequest(lastUserText, historyMessages)) return '';
+  // An earlier AI suggestion is not evidence that the user sent a demand or
+  // received no answer. Offer the distinct next option without inventing either.
+  return 'これまでに挙げた方法を繰り返さず、別の具体的な対応をお伝えします。家計や夫婦関係を扱う相談窓口に予約を申し込み、第三者を交えた整理を依頼する方法があります。相談では、家賃の希望負担額、実際の支払い、これまでのやり取りを分けて伝えてください。利用できる支援や、当事者だけで抱えずに話を進める方法を確認できます。';
+}
+
 function buildRejectedMoveFallback(
   lastUserText: string,
   historyMessages: CoachingChatMessage[]
@@ -7792,15 +7918,18 @@ function buildRejectedMoveFallback(
     lastUserText,
   ].join('\n');
 
+  const differentPaymentResponse = buildDifferentPaymentProposalResponse(lastUserText, historyMessages);
+  if (differentPaymentResponse) return differentPaymentResponse;
+
   if (hasPaymentObligationContext(userContext)) {
-    const alreadyRecordedShortfall = historyMessages.some(
+    const priorRecordingProposal = historyMessages.some(
       (message) =>
         message.role === 'assistant' &&
         /直近3か月の家賃額[^。！？?\n]{0,60}(?:支払額|不足額)[^。！？?\n]{0,60}記録/.test(
           message.content
         )
     );
-    if (alreadyRecordedShortfall) {
+    if (priorRecordingProposal) {
       return '口頭で伝える方法では変わらなかったため、次は回答期限を付けた書面で確認する方法へ切り替える段階です。希望する家賃の負担額、毎月の支払日、不足した場合の扱い、回答期限を一通にまとめます。\n\n回答がない場合は、その書面と手元で確認できる支払記録を持って、夫婦問題や家計相談の窓口へ相談してください。';
     }
     return '毎月希望を伝えても、支払いが変わっていないのですね。同じお願いを増やすのではなく、希望する負担額、確認できる合意、実際の支払いとやり取りを分けて記録してください。その記録を使って負担額と支払日を文面で確認する方法があります。';
@@ -8405,6 +8534,8 @@ function rewriteContextualClosingQuestion(
       lastUserText
     )
   ) {
+    const differentPaymentResponse = buildDifferentPaymentProposalResponse(lastUserText, historyMessages);
+    if (differentPaymentResponse) return differentPaymentResponse;
     return '口頭で伝える方法では変わらなかったため、次は回答期限を付けた書面で確認する方法へ切り替える段階です。希望する家賃の負担額、毎月の支払日、不足した場合の扱い、回答期限を一通にまとめます。\n\n回答がない場合は、その書面と手元で確認できる支払記録を持って、夫婦問題や家計相談の窓口へ相談してください。';
   }
 
