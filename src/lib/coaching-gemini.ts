@@ -59,6 +59,15 @@ export interface CoachingQualityAssessment {
   score: number;
 }
 
+// These complete, fixed service notices are not coaching advice. Keep the
+// recognition exact: model text with an added prefix or suffix must still pass
+// every ordinary content and safety check.
+const QUALITY_RETRY_NOTICES = [
+  '申し訳ありません。今の内容を取り違えないように返答を整え直しています。推測で話を進めたり、すでに答えてくださったことを聞き直したりせず、直前までの内容を確認して続けます。お手数ですが、今のメッセージをそのままもう一度送ってください。',
+  '申し訳ありません。直前までの流れに沿った返答になっていないため、ここで回答を整え直します。同じ質問を繰り返したり、書かれていない事情を決めつけたりせずに続けます。お手数ですが、最後のメッセージをもう一度だけ送ってください。',
+  '申し訳ありません。今の返答では内容を十分に受け止められていません。話題を別のことに変えず、これまでに書いてくださったことを前提に整理し直します。お手数ですが、最後に送った内容をそのまま再送してください。',
+] as const;
+
 export interface CoachingTelemetry {
   route: string;
   requestId: string;
@@ -2404,6 +2413,16 @@ export function assessCoachingResponseQuality(params: {
   const text = params.text.trim();
   const compactText = text.replace(/\s+/g, '');
   const lastUserText = params.lastUserText.replace(/\s+/g, ' ').trim();
+  if (
+    QUALITY_RETRY_NOTICES.some((notice) => notice === text) &&
+    !buildUrgentSafetyResponse(lastUserText) &&
+    !requestsInternalPromptDisclosure(lastUserText)
+  ) {
+    // A service interruption must not be rejected for omitting a domain word,
+    // an answer to the consultation, or a novel coaching move. Scheduled audit
+    // still detects repeated notices so a persistent failure remains visible.
+    return { issues: [], score: 0 };
+  }
   const issues: CoachingQualityIssue[] = [];
   const answeredQuestion = getAnsweredExistenceQuestion(lastUserText, historyMessages);
   const factualReplyFallback = buildFactualReplyFallback(lastUserText, historyMessages);
@@ -2719,11 +2738,14 @@ export function assessCoachingResponseQuality(params: {
     /仕事|職場|業務|会社|上司|同僚|会議|企画|顧客|社員|職員|部署|先輩|後輩/.test(
       relevanceContext
     ) ||
+    (/解約|キャンセル|取消/.test(relevanceContext) &&
+      /仕事|業務|接客|お客|顧客|クライアント/.test(userContext)) ||
     (/無視|ターゲット/.test(relevanceContext) &&
       /社員|職員|部署|先輩|後輩/.test(userContext));
   if (
     workContinuationContext &&
-    /AWAKES|更新|引き落とし|毎月払|止める条件|退会|解約/.test(text) &&
+    [/AWAKES/, /更新/, /引き落とし/, /毎月払/, /止める条件/, /退会/, /解約/]
+      .some((term) => term.test(text) && !term.test(relevanceContext)) &&
     !issues.includes('context_mismatch')
   ) {
     issues.push('context_mismatch');
@@ -3774,20 +3796,21 @@ function resolveObservedCoachingResponseQuality(params: {
     };
   }
 
+  const serviceRecovery = QUALITY_RETRY_NOTICES.some((notice) => notice === deliveryText);
   return {
     text: deliveryText,
     usage: params.usage,
-    modelName: params.modelName,
-    provider: params.provider,
+    modelName: serviceRecovery ? 'local-quality-fallback' : params.modelName,
+    provider: serviceRecovery ? 'local' : params.provider,
     repairAttempted: false,
     repairAccepted: false,
     initialIssues: observedIssues,
     finalIssues:
-      pipelineConfig.mode === 'minimal'
+      !serviceRecovery && pipelineConfig.mode === 'minimal'
         ? observedIssues
         : [],
-    qualitySafetyHold: false,
-    chargeable: true,
+    qualitySafetyHold: serviceRecovery,
+    chargeable: !serviceRecovery,
   };
 }
 
@@ -4594,6 +4617,58 @@ function buildConcretePlanningContinuationFallback(lastUserText: string, history
   return '';
 }
 
+function buildCancellationConversationContinuation(
+  lastUserText: string,
+  historyMessages: CoachingChatMessage[]
+): string {
+  const latest = stripAttachmentMarkdown(lastUserText).replace(/\s+/g, ' ').trim();
+  if (!latest || latest.length > 80 || /[？?]/.test(latest) ||
+      buildUrgentSafetyResponse(latest) || requestsInternalPromptDisclosure(latest) ||
+      hasUnsafeHighImpactAdvice(latest)) return '';
+
+  const recentUserMessages = historyMessages.filter((message) => message.role === 'user')
+    .slice(-5).map((message) => stripAttachmentMarkdown(message.content));
+  const userContext = [...recentUserMessages, latest].join('\n');
+  // This helper concerns responding to another person's request during work.
+  // A member cancelling their own subscription belongs to a different path.
+  if (!/仕事|業務|接客|お客|顧客|クライアント/.test(userContext) ||
+      /ACTI|AWAKES|サブスク|月額|課金|退会/.test(userContext)) return '';
+  const cancellation = [...recentUserMessages, latest].reverse().find((text) =>
+    /解約|キャンセル|取り消(?:し|して)|取消|予約[^。！？\n]{0,20}中止/.test(text)
+  );
+  if (!cancellation ||
+      (/解約/.test(cancellation) && !/申し出|申出|言われ|求められ|要望|連絡|お客|顧客|クライアント/.test(cancellation)) ||
+      /(?:私|自分|こちら)[^。！？\n]{0,20}(?:解約|キャンセル|取り消|取消)[^。！？\n]{0,12}(?:したい|します)/.test(cancellation)) return '';
+  const actor = /お客|顧客|クライアント/.test(cancellation) ? 'お客様' : '相手';
+  const request = /解約/.test(cancellation) ? '解約' : 'キャンセル';
+  const acknowledgement = `「${request}をご希望なのですね」`;
+  const previousAssistant = historyMessages.at(-1)?.role === 'assistant'
+    ? historyMessages.at(-1)!.content : '';
+  const answersOpeningQuestion =
+    /最初|冒頭|初め|はじめ|出だし|一言目/.test(previousAssistant) &&
+    /一言|言葉|言い方|返答|返す|返し|伝え/.test(previousAssistant) &&
+    /どんな|どのよう|何と|どう|変え|言い換え/.test(previousAssistant) &&
+    /[？?]/.test(previousAssistant);
+  // An answer to a wording question may be brief, but a new request or topic
+  // is not a proposed customer-facing phrase from the previous conversation.
+  if (/話題を変|話を変|別の話|別件|今は[^。！？\n]{0,30}(?:相談|話した|聞きた)|(?:を|について)(?:相談|質問)したい|教えて|説明して|どうすれば|どうしたら/.test(latest) ||
+      (COACHING_DOMAIN_CONTEXT_PATTERN.test(latest) &&
+        !/解約|キャンセル|取消|伝え|返す|返し|という/.test(latest))) return '';
+  const shortApology = /^(?:すみません|ごめんなさい|申し訳(?:ありません|ないです))[。！!]*$/.test(latest);
+  const shortAffirmation = /^(?:はい|ええ|そう(?:です|ですね|なんです)|その通り(?:です)?|(?:はい[、,]?)?接客(?:業|の仕事)?(?:です)?|サービス業(?:です)?)[。！!]*$/.test(latest);
+  if (answersOpeningQuestion) {
+    const phrase = latest.replace(/[「」『』]/g, '').replace(/[。！？!]+$/g, '');
+    return `「${phrase}」を最初に伝える言葉の案として考えたのですね。仕事で${request}の希望を受けた場面では、まず今回の希望を受け取ったことが相手に伝わる返答を置けます。理由が既に伝えられている場合は聞き直さず、確認が必要な点だけを残せます。\n\n最初は${acknowledgement}と伝え、その後に必要な確認が残っている場合だけ、一つ尋ねてください。`;
+  }
+  if (shortApology) {
+    return `${actor}から${request}を求められた場面について、ここまでの話を続けられます。相手の希望はすでに書かれているので、同じ出来事を説明し直す必要はありません。理由が既に伝えられている場合は聞き直さず、まず希望を受け取ったことを伝える言葉に絞れます。\n\n最初の返答は${acknowledgement}と短く伝えてください。`;
+  }
+  if (shortAffirmation) {
+    return `仕事で${actor}から${request}の希望を受けた場面なのですね。相手の希望を受け取ることと、その後に必要な確認を進めることは分けられます。最初の一言では、希望を受け取ったことを明確にできます。理由が既に伝えられている場合は聞き直さず、確認が必要な点だけを残せます。\n\n最初に返す一言を考えるなら、どのように伝えたいですか？`;
+  }
+  return '';
+}
+
 // A short action answers the immediately preceding question; older topics
 // must not supply a subject after the conversation has moved on.
 function buildGoalOrShortActionFallback(text: string, history: CoachingChatMessage[]): string {
@@ -4615,6 +4690,13 @@ export function buildFinalVerifiedQualityFallback(
   lastUserText: string,
   historyMessages: CoachingChatMessage[]
 ): string {
+  const cancellationContinuation = buildCancellationConversationContinuation(
+    lastUserText,
+    historyMessages
+  );
+  if (cancellationContinuation && assessCoachingResponseQuality({
+    text: cancellationContinuation, lastUserText, historyMessages,
+  }).issues.length === 0) return cancellationContinuation;
   const contextualRecovery = buildGoalOrShortActionFallback(lastUserText, historyMessages);
   if (contextualRecovery) return contextualRecovery;
   if (/友人|友達/.test(lastUserText) &&
@@ -6344,6 +6426,22 @@ export function ensureVerifiedCoachingResolution(params: {
 }) {
   const { resolution, lastUserText, historyMessages, preserveUsage = false } =
     params;
+  if (
+    QUALITY_RETRY_NOTICES.some((notice) => notice === resolution.text.trim()) &&
+    !buildUrgentSafetyResponse(lastUserText) &&
+    !requestsInternalPromptDisclosure(lastUserText)
+  ) {
+    return {
+      ...resolution,
+      usage: preserveUsage ? resolution.usage : {},
+      provider: 'local' as const,
+      modelName: 'local-quality-fallback',
+      // This is an unchargeable service recovery, not a completed answer.
+      // Persist a response-gate incident immediately, even on its first use.
+      qualitySafetyHold: true,
+      chargeable: false,
+    };
+  }
   if (!getCoachingOutputPipelineConfig().applyVerifiedResolution) {
     return resolveObservedCoachingResponseQuality({
       rawText: resolution.text,
@@ -6473,7 +6571,8 @@ export function ensureVerifiedCoachingResolution(params: {
     provider: 'local' as const,
     repairAccepted: true,
     finalIssues: deliveredQuality.issues,
-    qualitySafetyHold: deliveredQuality.issues.length > 0,
+    qualitySafetyHold:
+      deliveredText === retryFallbackText || deliveredQuality.issues.length > 0,
     chargeable: false,
   };
 }
@@ -6482,17 +6581,12 @@ function buildQualityRetryFallback(
   lastUserText: string,
   historyMessages: CoachingChatMessage[]
 ) {
-  const candidates = [
-    '申し訳ありません。今の内容を取り違えないように返答を整え直しています。推測で話を進めたり、すでに答えてくださったことを聞き直したりせず、直前までの内容を確認して続けます。お手数ですが、今のメッセージをそのままもう一度送ってください。',
-    '申し訳ありません。直前までの流れに沿った返答になっていないため、ここで回答を整え直します。同じ質問を繰り返したり、書かれていない事情を決めつけたりせずに続けます。お手数ですが、最後のメッセージをもう一度だけ送ってください。',
-    '申し訳ありません。今の返答では内容を十分に受け止められていません。話題を別のことに変えず、これまでに書いてくださったことを前提に整理し直します。お手数ですが、最後に送った内容をそのまま再送してください。',
-  ];
   const previousAssistantMessages = historyMessages
     .filter((message) => message.role === 'assistant')
     .map((message) => canonicalizeAssistantParagraph(message.content));
 
   return (
-    candidates.find((candidate) => {
+    QUALITY_RETRY_NOTICES.find((candidate) => {
       if (previousAssistantMessages.includes(canonicalizeAssistantParagraph(candidate))) {
         return false;
       }
@@ -6501,7 +6595,7 @@ function buildQualityRetryFallback(
         lastUserText,
         historyMessages,
       }).issues.length === 0;
-    }) || ''
+    }) || QUALITY_RETRY_NOTICES[0]
   );
 }
 
@@ -7510,7 +7604,7 @@ function selectRelevantFallbackSource(
   historyMessages: CoachingChatMessage[]
 ) {
   const currentTopicPattern =
-    /家計簿|収支|赤字|黒字|予算|固定費|変動費|食費|生活費|仕事|職場|業務|会社|上司|同僚|会議|企画|顧客|社員|職員|部署|先輩|後輩|ターゲット|無視|夫|妻|主人|家事|家族|親|子ども|パートナー|お金|収入|講座|スピリチュアル|瞑想|解放|不安|後悔/;
+    /家計簿|収支|赤字|黒字|予算|固定費|変動費|食費|生活費|仕事|職場|業務|会社|上司|同僚|会議|企画|顧客|社員|職員|部署|先輩|後輩|ターゲット|無視|夫|妻|主人|家事|家族|親|子ども|パートナー|お金|収入|講座|スピリチュアル|瞑想|解放|不安|後悔|解約|キャンセル|取消/;
   const cleanCurrent = stripAttachmentMarkdown(lastUserText)
     .replace(/\s+/g, ' ')
     .trim();
