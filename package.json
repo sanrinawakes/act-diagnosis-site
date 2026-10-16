@@ -17,6 +17,7 @@
     "test:coaching-quality:3x": "npm run test:coaching-quality && npm run test:coaching-quality && npm run test:coaching-quality",
     "test:coaching-image-latency": "node scripts/probe-coaching-image-latency.mjs",
     "test:coaching-browser": "node scripts/e2e-coaching-browser.mjs",
+    "test:free-diagnosis-browser": "node scripts/e2e-free-diagnosis-browser.mjs",
     "test:coaching-all": "npm run verify:coaching:ci && npm run verify:coaching:production"
   },
   "dependencies": {

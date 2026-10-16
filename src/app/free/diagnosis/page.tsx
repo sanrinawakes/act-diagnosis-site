@@ -1,10 +1,9 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase';
 import { consciousnessQuestions } from '@/data/consciousness-questions';
-import type { CLQuestion } from '@/lib/types';
 
 // Use only first 15 consciousness questions for free version
 const freeQuestions = consciousnessQuestions.slice(0, 15);
@@ -19,9 +18,12 @@ export default function FreeDiagnosisPage() {
   const supabase = createClient();
   const [email, setEmail] = useState<string | null>(null);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
-  const [answers, setAnswers] = useState<number[]>(Array(freeQuestions.length).fill(-999));
+  const [answers, setAnswers] = useState<number[]>(Array(freeQuestions.length).fill(-1));
   const [loading, setLoading] = useState(false);
   const [initialized, setInitialized] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const submittingRef = useRef(false);
+  const savedResultRef = useRef<DiagnosisResult | null>(null);
 
   useEffect(() => {
     const getUser = async () => {
@@ -42,13 +44,18 @@ export default function FreeDiagnosisPage() {
   }, [router, supabase]);
 
   const handleAnswer = (choiceIndex: number) => {
-    const newAnswers = [...answers];
-    const question = freeQuestions[currentQuestionIndex];
-    newAnswers[currentQuestionIndex] = question.choices[choiceIndex].score;
-    setAnswers(newAnswers);
+    if (submittingRef.current) return;
+    savedResultRef.current = null;
+    setSaveError(null);
+    setAnswers((previous) => {
+      const next = [...previous];
+      next[currentQuestionIndex] = choiceIndex;
+      return next;
+    });
   };
 
   const handleNext = async () => {
+    if (submittingRef.current || answers[currentQuestionIndex] < 0) return;
     if (currentQuestionIndex < freeQuestions.length - 1) {
       setCurrentQuestionIndex(currentQuestionIndex + 1);
     } else {
@@ -58,17 +65,28 @@ export default function FreeDiagnosisPage() {
   };
 
   const handlePrevious = () => {
-    if (currentQuestionIndex > 0) {
+    if (!submittingRef.current && currentQuestionIndex > 0) {
       setCurrentQuestionIndex(currentQuestionIndex - 1);
     }
   };
 
   const handleSubmit = async () => {
+    if (submittingRef.current) return;
+    const scores = freeQuestions.map((question, index) => question.choices[answers[index]]?.score);
+    if (scores.some((score) => score === undefined)) {
+      setSaveError('すべての質問に回答してから、完了してください。');
+      return;
+    }
+
+    submittingRef.current = true;
     setLoading(true);
+    setSaveError(null);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30_000);
     try {
       // Calculate consciousness level
       // Count answers with score -2: if >= 3, level = 1, else level = 2
-      const lowScoreCount = answers.filter((score) => score === -2).length;
+      const lowScoreCount = scores.filter((score) => score === -2).length;
       const level: DiagnosisResult['level'] = lowScoreCount >= 3 ? 1 : 2;
 
       // For free version, use fixed type code "MMM" (center equilibrium)
@@ -79,32 +97,38 @@ export default function FreeDiagnosisPage() {
         typeCode,
       };
 
-      // Save to localStorage
-      localStorage.setItem('free_diagnosis_result', JSON.stringify(result));
-
-      // Call API to save diagnosis
-      const response = await fetch('/api/free/diagnosis', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          email: email || '',
-          level: level,
-          typeCode: typeCode,
-          answers: answers,
-        }),
-      });
-
-      if (!response.ok) {
-        console.error('Failed to save diagnosis');
+      // Retry displaying a confirmed result without submitting it again.
+      if (!savedResultRef.current) {
+        const response = await fetch('/api/free/diagnosis', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            email: email || '',
+            level: level,
+            typeCode: typeCode,
+            answers: scores,
+          }),
+          signal: controller.signal,
+        });
+        if (!response.ok || (await response.json()).success !== true) {
+          throw new Error('Diagnosis save was not confirmed');
+        }
+        savedResultRef.current = result;
       }
 
-      // Redirect to results page
+      localStorage.setItem('free_diagnosis_result', JSON.stringify(savedResultRef.current));
       router.push('/free/results');
     } catch (error) {
       console.error('Error saving diagnosis:', error);
+      setSaveError(savedResultRef.current
+        ? '診断結果は保存されましたが、ブラウザに表示用の情報を保存できませんでした。ブラウザの保存設定を確認して、もう一度「完了」を押してください。'
+        : '診断結果の保存を確認できませんでした。回答はこの画面に残っています。少し時間をおいて、もう一度「完了」を押してください。');
       setLoading(false);
+    } finally {
+      clearTimeout(timeout);
+      submittingRef.current = false;
     }
   };
 
@@ -132,11 +156,8 @@ export default function FreeDiagnosisPage() {
   }
 
   const question = freeQuestions[currentQuestionIndex];
-  const selectedChoiceIndex =
-    answers[currentQuestionIndex] === -999
-      ? -1
-      : question.choices.findIndex((c) => c.score === answers[currentQuestionIndex]);
-  const canNext = answers[currentQuestionIndex] !== -999;
+  const selectedChoiceIndex = answers[currentQuestionIndex];
+  const canNext = selectedChoiceIndex >= 0;
   const canPrevious = currentQuestionIndex > 0;
 
   return (
@@ -184,6 +205,7 @@ export default function FreeDiagnosisPage() {
             <button
               key={index}
               onClick={() => handleAnswer(index)}
+              aria-pressed={selectedChoiceIndex === index}
               className={`w-full text-left p-4 rounded-lg border-2 transition-all duration-300 ${
                 selectedChoiceIndex === index
                   ? 'border-blue-400 bg-blue-50 text-gray-900'
@@ -194,6 +216,12 @@ export default function FreeDiagnosisPage() {
             </button>
           ))}
         </div>
+
+        {saveError && (
+          <p role="alert" className="mb-4 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+            {saveError}
+          </p>
+        )}
 
         {/* Navigation Buttons */}
         <div className="flex gap-4">
