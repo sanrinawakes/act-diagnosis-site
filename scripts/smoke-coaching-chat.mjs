@@ -2,7 +2,7 @@ import { stripJapaneseQuotationContent, containsUnbalancedJapaneseQuotation } fr
 import { createClient } from '@supabase/supabase-js';
 import { randomUUID } from 'node:crypto';
 import { currentTopicUserTexts } from '../src/lib/coaching-emotion-language.mjs';
-import { containsChainedEditingInstructions, containsChainedCommunicationInstructions, containsUnsupportedProcedureInterfacePremise, containsUnsupportedSituationPremise, containsUngroundedTaskAssumption, containsConversationRestriction, containsAmbiguousFutureActionDayReference } from '../src/lib/coaching-action-language.mjs';
+import { containsUnsupportedRentExplanationReply, containsChainedPreparationInstructions, containsChainedEditingInstructions, containsChainedCommunicationInstructions, containsUnsupportedProcedureInterfacePremise, containsUnsupportedSituationPremise, containsUngroundedTaskAssumption, containsConversationRestriction, containsAmbiguousFutureActionDayReference } from '../src/lib/coaching-action-language.mjs';
 import { deleteTestAuthUser } from './lib/test-account-cleanup.mjs';
 
 const args = new Map(
@@ -49,6 +49,7 @@ const shouldRunLongHistory = mode === 'all' || mode === 'long';
 const shouldRunConcurrency = mode === 'all' || mode === 'concurrent';
 const createdEmails = [];
 const createdUserIds = [];
+const userIdsByEmail = new Map();
 const accessTokensByEmail = new Map();
 const sessionIdsByEmail = new Map();
 const createdSessionIds = [];
@@ -529,7 +530,7 @@ function assertResults(results) {
       /本人が話した事実|本人が述べた不安|古い別件|持ち込まずに考え直/.test(
         topicDriftResult.message
       ) ||
-      !/講座への申し込みを保留/.test(topicDriftResult.message) ||
+      !/講座/.test(topicDriftResult.message) ||
       !/現在の収入源/.test(topicDriftResult.message) ||
       !/今月必要な金額/.test(topicDriftResult.message))
   ) {
@@ -732,11 +733,17 @@ function assertResults(results) {
     if (containsUnbalancedJapaneseQuotation(result.message)) {
       throw new Error(`${result.label} returned an incomplete Japanese quotation: ${result.message}`);
     }
+    if (containsChainedPreparationInstructions(result.message, result.lastUserText)) {
+      throw new Error(`${result.label} returned a preparation followed by another instruction: ${result.message}`);
+    }
     if (containsChainedEditingInstructions(result.message, result.lastUserText)) {
       throw new Error(`${result.label} returned chained editing instructions: ${result.message}`);
     }
     if (containsChainedCommunicationInstructions(result.message, result.lastUserText)) {
       throw new Error(`${result.label} returned chained communication instructions: ${result.message}`);
+    }
+    if (containsUnsupportedRentExplanationReply(result.message, result.currentUserTexts)) {
+      throw new Error(`${result.label} inferred a rent motive or repeated an unavailable explanation question: ${result.message}`);
     }
     if (containsUnsupportedProcedureInterfacePremise(result.message, result.currentUserTexts)) {
       throw new Error(`${result.label} invented an unsupported procedure interface: ${result.message}`);
@@ -1286,6 +1293,7 @@ async function getOrCreateAccessToken(email) {
     throw new Error(`Failed to create smoke test auth user: ${error?.message}`);
   }
   createdUserIds.push(data.user.id);
+  userIdsByEmail.set(email, data.user.id);
 
   const { error: profileError } = await admin.from('profiles').upsert({
     id: data.user.id,
@@ -1323,8 +1331,7 @@ async function getOrCreateSessionId(email) {
   const cached = sessionIdsByEmail.get(email);
   if (cached) return cached;
 
-  const userIndex = createdEmails.indexOf(email);
-  const userId = userIndex >= 0 ? createdUserIds[userIndex] : null;
+  const userId = userIdsByEmail.get(email);
   if (!userId) {
     throw new Error(`Smoke test session user missing for ${email}`);
   }

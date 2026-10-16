@@ -1,4 +1,4 @@
-import { stripJapaneseQuotationContent } from './coaching-quotation-language.mjs';
+import { stripJapaneseQuotationContent, splitOutsideJapaneseQuotations } from './coaching-quotation-language.mjs';
 
 /** A start verb with only an unspecified task restates the requested action. */
 export function containsCircularSingleAction(text) {
@@ -35,6 +35,18 @@ export function containsChainedEditingInstructions(text, lastUserText = '') {
   if (requestsMultipleCoachingActions(lastUserText)) return false;
   const outside = stripJapaneseQuotationContent(text, true).replace(/"[^"]*"|'[^']*'/gu, quote => ' '.repeat(quote.length));
   return /(?:(?:選び|見直し|残し)[、,]|(?:選んで|見直して|残して)(?:みて)?ください[。！!])\s*[^。！？?\n]{0,100}(?:外して|削って|絞って)(?:みて)?ください(?:ね)?(?=[。！!\n]|$)/u.test(outside);
+}
+
+/** A new hold/record instruction cannot precede a second suggested operation. */
+export function containsChainedPreparationInstructions(text, lastUserText = '') {
+  if (requestsMultipleCoachingActions(lastUserText)) return false;
+  const outside = stripJapaneseQuotationContent(text, true).replace(/"[^"]*"|'[^']*'/gu, quote => ' '.repeat(quote.length));
+  // These two bounded families come from the observed topic-recovery and rent
+  // fallbacks. A past action, a quoted report, or two objects of one check do
+  // not establish a new preparatory instruction.
+  const holdThenCheck = /保留にし(?:[、,]|て(?:から|ください[。！!]))[^。！？?\n]{0,100}(?:確認して|見直して)(?:みて)?ください(?:ね)?(?=[。！!\n]|$)/u;
+  const recordThenAct = /(?:記録し|一覧にし|記録にまとめ)(?:[、,]|て(?:から|ください[。！!]))[^。！？?\n]{0,120}(?:書面で[^。！？?\n]{0,40}(?:回答|合意)を求める(?:方法があります|段階です)|(?:確認して|決めて|選んで)(?:みて)?ください)(?:ね)?(?=[。！!\n]|$)/u;
+  return holdThenCheck.test(outside) || recordThenAct.test(outside);
 }
 
 // These are concrete premises from the observed fallback failures, rather than
@@ -180,4 +192,139 @@ export function containsAmbiguousFutureActionDayReference(text, lastUserText, cu
 export function alignFutureActionDayReferences(text, lastUserText, currentUserTexts = [lastUserText]) {
   return ambiguousFutureActionDaySpans(text, lastUserText, currentUserTexts)
     .reverse().reduce((aligned, span) => `${aligned.slice(0, span.index)}${span.replacement}${aligned.slice(span.index + span.length)}`, text);
+}
+
+// Bounded to the observed own-partner rent explanation failure.
+const RENT_MISSING_REASON = /(?:理由[^。！？?\n]{0,40})?説明(?:が|は)?(?:ありません|ない)|(?:理由を[^。！？?\n]{0,20})?(?:説明して|教えて)(?:くれません|もらえません)/u;
+const RENT_EXPLAINED_REASON = /(?:理由|事情)[^。！？?\n]{0,24}(?:説明して|教えて)くれ(?:ました|ています)|説明(?:が|は)あり(?:ました|ます)|理由(?:が|は)(?:分かりました|わかりました)/u;
+const RENT_LOADED_REPLY_FAMILIES = [
+  { output: /対話を拒(?:まれ|否され)/gu, evidence: /対話を拒(?:まれ|否され)/u, subject: 'self', omitted: 'self' },
+  { output: /対話を拒(?:んで|否して)/gu, evidence: /対話を拒(?:んで|否して)/u, subject: 'partner', omitted: null },
+  { output: /途方に暮れ/gu, evidence: /途方に暮れ/u, subject: 'self', omitted: 'self' },
+  { output: /追及から逃げ/gu, evidence: /追及から逃げ/u, subject: 'partner', omitted: 'partner' },
+];
+function rentOwnWords(value) {
+  return stripJapaneseQuotationContent(value, true).replace(/"[^"]*"|'[^']*'/gu, quote => ' '.repeat(quote.length));
+}
+function rentReportedOrHypothetical(statement) {
+  return /[？?]|もし|仮に|(?:と|って)(?:AI(?:に|は)?|言われ|言って|書かれ|提案され)/u.test(statement);
+}
+function rentStateUpdateActorIsOwnCase(statement, matchIndex, correction = false) {
+  const prefix=statement.slice(0,matchIndex);
+  const actor=[...prefix.matchAll(/([^\s、。！？?]{1,24}?)(?:は|が)/gu)].at(-1)?.[1];
+  if (!actor || /^(?:今|現在|以前|当時|その時|過去|その後)$/u.test(actor)) return true;
+  return (correction ? /^(?:私|私自身|自分)$/u : /^(?:夫|私の夫|私|私自身|自分)$/u).test(actor);
+}
+function rentReasonIsCurrentlyMissing(userTexts) {
+  let ownRent = false;
+  let missing = false;
+  for (const value of userTexts) {
+    for (const rawStatement of splitOutsideJapaneseQuotations(value)) {
+      const correction=/説明(?:が|は)?(?:ありません|ない)[」』"]?(?:と|とは)(?:言って|述べて)(?:いません|いない)/u.exec(rawStatement);
+      // Consume only the corrected statement. A later statement in the same
+      // turn may affirm a different state, but this denial cannot re-enter.
+      if (ownRent && correction && rentStateUpdateActorIsOwnCase(rawStatement,correction.index,true)) { missing=false; continue; }
+      const statement=rentOwnWords(rawStatement);
+      if (rentReportedOrHypothetical(statement)) continue;
+      if (/^\s*(?:(?:私は|私の|自分の))?夫(?:が|は)[^。！？?\n]{0,20}家賃/u.test(statement)) ownRent=true;
+      if (!ownRent) continue;
+      const explained=RENT_EXPLAINED_REASON.exec(statement);
+      if (explained && rentStateUpdateActorIsOwnCase(statement,explained.index)) { missing=false; continue; }
+      const absence=RENT_MISSING_REASON.exec(statement);
+      if (!absence || !rentStateUpdateActorIsOwnCase(statement,absence.index))continue;
+      if (/説明(?:が|は)?ないわけでは(?:ありません|ない)/u.test(statement)) { missing=false; continue; }
+      missing=true;
+    }
+  }
+  return missing;
+}
+function rentQuoteAt(text, position) {
+  const close = new Map([['「','」'],['『','』'],['"','"'],["'", "'"]]);
+  const stack = [];
+  let start = -1;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (stack.length && ch === stack.at(-1)) {
+      stack.pop();
+      if (!stack.length) { if (start <= position && position <= i) return { start, end:i+1, text:text.slice(start,i+1) }; start=-1; }
+    } else if (close.has(ch)) { if (!stack.length) start=i; stack.push(close.get(ch)); }
+  }
+  return null;
+}
+function rentReportedQuotationOrigin(text, quote) {
+  const suffix=text.slice(quote.end);
+  const report=/^\s*と((?:AI|担当者)(?:に|から))?(?:言われた|言われました|言った|話した|書かれた|書いてあった)(?:のですね|という報告ですね|そうです)?[。！!\s]*$/u.exec(suffix);
+  if(!report)return null;
+  const suffixOrigin=report[1]?.replace(/(?:に|から)$/u,'');
+  const prefixOrigin=/(AI|担当者)(?:に|から)\s*$/u.exec(text.slice(0,quote.start))?.[1];
+  return suffixOrigin||prefixOrigin||'unspecified';
+}
+function rentIsFaithfulReportedQuotation(statement,quote,userTexts) {
+  const outputOrigin=rentReportedQuotationOrigin(statement,quote);
+  if(outputOrigin===null)return false;
+  return userTexts.some(value=>{
+    let start=value.indexOf(quote.text);
+    while(start>=0){
+      const sourceQuote={start,end:start+quote.text.length,text:quote.text};
+      if(rentReportedQuotationOrigin(value,sourceQuote)===outputOrigin)return true;
+      start=value.indexOf(quote.text,start+quote.text.length);
+    }
+    return false;
+  });
+}
+function rentOccurrenceIsNonAssertive(statement, match, userTexts) {
+  const end = match.index + match[0].length;
+  const suffix = statement.slice(end).replace(/^[」』"']+/u,'');
+  // A denial and a genuine existence check are not an asserted state. A WH
+  // question asking why the state exists is still a premise and is not here.
+  if (/^(?:(?:て|で)?(?:は)?(?:いません|いない)|る(?:わけ)?では(?:ありません|ない)|(?:て(?:いる|いた|います|いました))?(?:と|とは)(?:言って|述べて)(?:いません|いない)|(?:て(?:いる|いた|います|いました))?とは(?:断定|判断|決めつけ)(?:できません|ない)|という意味では(?:ありません|ない))/u.test(suffix)) return true;
+  if (/^(?:て)?(?:います|いる|いるの)?(?:か|でしょうか)[？?。\s]*$/u.test(suffix)) return true;
+  const before = statement.slice(0,match.index).split(/[、,]|しかし|ただし/u).at(-1);
+  if (/(?:もし|仮に)[^。！？?\n]*$/u.test(before) && /^[^。！？?\n]{0,24}(?:なら|場合|とき|時)/u.test(suffix)) return true;
+  // Only a faithful, user-supplied reported quotation is exempt. A fresh
+  // outbound draft (「...」と伝えてください) does not meet this condition.
+  const quote = rentQuoteAt(statement,match.index);
+  if (quote && rentIsFaithfulReportedQuotation(statement,quote,userTexts)) return true;
+  return false;
+}
+function rentCanonicalSubject(statement, match, family) {
+  const prefix=statement.slice(0,match.index);
+  const actor=[...prefix.matchAll(/([^\s、。！？?]{1,24}?)(?:は|が)/gu)].at(-1)?.[1];
+  if (!actor || /^(?:今|現在|以前|当時|その時|過去)$/u.test(actor)) return family.omitted;
+  if (/^(?:あなた|私|私自身|自分|自分自身)$/u.test(actor)) return 'self';
+  if (/^(?:夫|私の夫)$/u.test(actor)) return 'partner';
+  return null;
+}
+function rentFamilyHasDirectUserEvidence(userTexts, family, outputStatement, outputMatch) {
+  const outputSubject=rentCanonicalSubject(outputStatement,outputMatch,family);
+  if(outputSubject!==family.subject)return false;
+  const outPrefix=outputStatement.slice(0,outputMatch.index);
+  const outputPast=/(?:以前|当時|その時|過去)[^。！？?\n]*$/u.test(outPrefix) || /^(?:て|で)?(?:いた|いました)/u.test(outputStatement.slice(outputMatch.index+outputMatch[0].length));
+  let supported=false;
+  for(const value of userTexts) for(const statement of splitOutsideJapaneseQuotations(rentOwnWords(value))) {
+    const match=family.evidence.exec(statement); if(!match)continue;
+    if(rentReportedOrHypothetical(statement))continue;
+    const prefix=statement.slice(0,match.index);
+    const evidenceSubject=rentCanonicalSubject(statement,match,family);
+    if(evidenceSubject!==outputSubject)continue;
+    const past=/(?:以前|当時|その時|過去)[^。！？?\n]*$/u.test(prefix) || /^(?:て|で)?(?:いた|いました)/u.test(statement.slice(match.index+match[0].length));
+    if(past!==outputPast)continue;
+    const suffix=statement.slice(match.index+match[0].length);
+    supported=!/^(?:(?:て|で)?(?:は)?(?:いません|いない)|る(?:わけ)?では(?:ありません|ない)|とは(?:言って|述べて)(?:いません|いない))/u.test(suffix);
+  }
+  return supported;
+}
+export function containsUnsupportedRentExplanationReply(text, currentUserTexts = []) {
+  if (!rentReasonIsCurrentlyMissing(currentUserTexts)) return false;
+  for (const statement of splitOutsideJapaneseQuotations(text)) {
+    // The exact observed re-question asks for an explanation already reported
+    // unavailable. It is not a new question about a different topic or intent.
+    const repeated=/家賃[^。！？?\n]{0,24}理由を何と説明していますか/gu;
+    for(const match of statement.matchAll(repeated)) if(!rentOccurrenceIsNonAssertive(statement,match,currentUserTexts))return true;
+    for(const family of RENT_LOADED_REPLY_FAMILIES) for(const match of statement.matchAll(family.output)) {
+      if(rentOccurrenceIsNonAssertive(statement,match,currentUserTexts))continue;
+      if(!rentFamilyHasDirectUserEvidence(currentUserTexts,family,statement,match))return true;
+    }
+  }
+  return false;
 }

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { appendFileSync } from 'node:fs';
 import { NextRequest } from 'next/server';
 import { COACHING_SCOPE_GUIDANCE } from '../src/lib/coaching-scope';
 import { getJapanMonthStartKey } from '../src/lib/japan-date';
@@ -15,6 +16,12 @@ const mocks = vi.hoisted(() => ({
   quotaRpc: vi.fn(),
   profileSingle: vi.fn(),
   profileCount: 9,
+  sessionOwners: new Map<string, string>(),
+  sessionLookup: vi.fn(),
+  sessionLookupError: false,
+  sessionLookupPending: false,
+  chatMessageAccess: vi.fn(),
+  sessionWrite: vi.fn(),
   accessExpiresAt: '2099-12-31T00:00:00.000Z',
   paidTestCredits: 0,
 }));
@@ -47,11 +54,20 @@ import { POST } from '../src/app/api/chat/route';
 
 const USER_ID = '11111111-1111-4111-8111-111111111111';
 const SESSION_ID = '22222222-2222-4222-8222-222222222222';
+const FOREIGN_SESSION_ID = '33333333-3333-4333-8333-333333333333';
+const MISSING_SESSION_ID = '44444444-4444-4444-8444-444444444444';
+const FOREIGN_USER_ID = '55555555-5555-4555-8555-555555555555';
 
 describe('POST /api/chat scope guard', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.profileCount = 9;
+    mocks.sessionOwners = new Map([
+      [SESSION_ID, USER_ID],
+      [FOREIGN_SESSION_ID, FOREIGN_USER_ID],
+    ]);
+    mocks.sessionLookupError = false;
+    mocks.sessionLookupPending = false;
     mocks.accessExpiresAt = '2099-12-31T00:00:00.000Z';
     mocks.paidTestCredits = 0;
     mocks.profileSingle.mockImplementation(async () => ({
@@ -100,6 +116,43 @@ describe('POST /api/chat scope guard', () => {
               })),
             })),
           };
+        }
+        if (table === 'chat_sessions') {
+          const filters: Record<string, unknown> = {};
+          const query = {
+            select: vi.fn(),
+            eq: vi.fn(),
+            maybeSingle: vi.fn(() => {
+              mocks.sessionLookup({ ...filters });
+              if (mocks.sessionLookupPending) return new Promise(() => {});
+              if (mocks.sessionLookupError) {
+                return Promise.resolve({
+                  data: null,
+                  error: { message: 'owned-session lookup unavailable' },
+                });
+              }
+              const id = String(filters.id || '');
+              return Promise.resolve({
+                data:
+                  mocks.sessionOwners.get(id) === filters.user_id
+                    ? { id }
+                    : null,
+                error: null,
+              });
+            }),
+            insert: mocks.sessionWrite,
+            update: mocks.sessionWrite,
+          };
+          query.select.mockImplementation(() => query);
+          query.eq.mockImplementation((column: string, value: unknown) => {
+            filters[column] = value;
+            return query;
+          });
+          return query;
+        }
+        if (table === 'chat_messages') {
+          mocks.chatMessageAccess();
+          throw new Error('Unexpected chat_messages access in legacy request');
         }
         if (table === 'coaching_usage_events') {
           return { insert: mocks.usageInsert };
@@ -160,6 +213,182 @@ describe('POST /api/chat scope guard', () => {
       });
     });
   });
+
+  const ownershipDeniedBody = {
+    error: '保存済みの相談内容を確認できませんでした。',
+  };
+  const ownershipUnavailableBody = {
+    error: '相談内容を確認できませんでした。少し待ってから、もう一度送信してください。',
+  };
+
+  const foreignCases = [
+    { label: 'allowed JSON foreign session', stream: false, blocked: false },
+    { label: 'allowed stream foreign session', stream: true, blocked: false },
+    { label: 'blocked JSON foreign session', stream: false, blocked: true },
+    { label: 'blocked stream foreign session', stream: true, blocked: true },
+  ];
+  it.each(foreignCases)('rejects legacy $label before side effects', async (testCase) => {
+    const body = legacyRequestBody(FOREIGN_SESSION_ID, testCase.stream, testCase.blocked);
+    const witness = await observeLegacyRequest(testCase.label, body);
+
+    expect(witness.status).toBe(400);
+    expect(witness.parsedBody).toEqual(ownershipDeniedBody);
+    expect(witness.sessionLookups).toEqual([{ id: FOREIGN_SESSION_ID, user_id: USER_ID }]);
+    expectNoLegacySideEffects(witness.effects);
+  });
+
+  it('rejects a missing legacy session with the same non-enumerating error', async () => {
+    const body = legacyRequestBody(MISSING_SESSION_ID, false);
+    const witness = await observeLegacyRequest('missing legacy session', body);
+
+    expect(witness.status).toBe(400);
+    expect(witness.parsedBody).toEqual(ownershipDeniedBody);
+    expectNoLegacySideEffects(witness.effects);
+  });
+
+  it('checks the legacy session_id alias before side effects', async () => {
+    const { sessionId: _sessionId, ...rest } = legacyRequestBody(FOREIGN_SESSION_ID, true);
+    expect(_sessionId).toBe(FOREIGN_SESSION_ID);
+    const body = { ...rest, session_id: FOREIGN_SESSION_ID };
+    const witness = await observeLegacyRequest('foreign session_id alias', body);
+
+    expect(witness.status).toBe(400);
+    expect(witness.parsedBody).toEqual(ownershipDeniedBody);
+    expect(witness.sessionLookups).toEqual([{ id: FOREIGN_SESSION_ID, user_id: USER_ID }]);
+    expectNoLegacySideEffects(witness.effects);
+  });
+
+  it('fails closed on legacy ownership lookup errors before side effects', async () => {
+    mocks.sessionLookupError = true;
+    const body = legacyRequestBody(SESSION_ID, false);
+    const witness = await observeLegacyRequest('ownership lookup error', body);
+
+    expect(witness.status).toBe(503);
+    expect(witness.parsedBody).toEqual(ownershipUnavailableBody);
+    expectNoLegacySideEffects(witness.effects);
+  });
+
+  it('bounds a stalled legacy ownership lookup before side effects', async () => {
+    vi.useFakeTimers();
+    try {
+      mocks.sessionLookupPending = true;
+      const body = legacyRequestBody(SESSION_ID, true);
+      const startedAt = Date.now();
+      const observed = observeLegacyRequest('ownership lookup timeout', body, startedAt);
+      await vi.advanceTimersByTimeAsync(8001);
+      const witness = await observed;
+
+      expect(witness.status).toBe(504);
+      expect(witness.parsedBody).toEqual(ownershipUnavailableBody);
+      expect(witness.elapsedMs).toBeGreaterThanOrEqual(8000);
+      expect(witness.elapsedMs).toBeLessThanOrEqual(8001);
+      expectNoLegacySideEffects(witness.effects);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([false, true])('keeps an owned legacy session compatible (stream=%s)', async (stream) => {
+    const body = legacyRequestBody(SESSION_ID, stream);
+    const witness = await observeLegacyRequest(`owned legacy stream=${stream}`, body);
+
+    expect(witness.status).toBe(200);
+    expect(witness.effects).toEqual({
+      quotaRpc: 1,
+      usageInsert: 1,
+      context: 1,
+      generateText: stream ? 0 : 1,
+      generateStream: stream ? 1 : 0,
+      chatMessages: 0,
+      sessionWrites: 0,
+    });
+    expect(mocks.usageInsert).toHaveBeenCalledWith(expect.objectContaining({
+      user_id: USER_ID,
+      session_id: SESSION_ID,
+    }));
+    expect(witness.responseBody).toContain('相談への回答');
+  });
+
+  it.each([false, true])('keeps sessionless legacy compatible (stream=%s)', async (stream) => {
+    const body = legacyRequestBody(undefined, stream);
+    const witness = await observeLegacyRequest(`sessionless legacy stream=${stream}`, body);
+
+    expect(witness.status).toBe(200);
+    expect(witness.sessionLookups).toEqual([]);
+    expect(witness.effects).toEqual({
+      quotaRpc: 1,
+      usageInsert: 1,
+      context: 1,
+      generateText: stream ? 0 : 1,
+      generateStream: stream ? 1 : 0,
+      chatMessages: 0,
+      sessionWrites: 0,
+    });
+    expect(mocks.usageInsert).toHaveBeenCalledWith(expect.objectContaining({
+      user_id: USER_ID,
+      session_id: null,
+    }));
+    expect(witness.responseBody).toContain('相談への回答');
+  });
+
+  function legacyRequestBody(sessionId: string | undefined, stream: boolean, blocked = false) {
+    return {
+      ...(sessionId ? { sessionId } : {}),
+      messages: [{
+        role: 'user',
+        content: blocked ? '広告の文章を3案作って' : '夫との関係で悩んでいます。どう伝えればいいですか？',
+      }],
+      stream,
+    };
+  }
+
+  async function observeLegacyRequest(label: string, body: Record<string, unknown>, startedAt = Date.now()) {
+    const response = await POST(new NextRequest('http://localhost/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', origin: 'http://localhost' },
+      body: JSON.stringify(body),
+    }));
+    const responseBody = await response.text();
+    const witness = {
+      label,
+      requestBody: body,
+      status: response.status,
+      responseBody,
+      parsedBody: response.headers.get('content-type')?.includes('application/x-ndjson')
+        ? responseBody.trim().split('\n').map((line) => JSON.parse(line))
+        : JSON.parse(responseBody),
+      elapsedMs: Date.now() - startedAt,
+      sessionLookups: mocks.sessionLookup.mock.calls.map(([filters]) => filters),
+      effects: {
+        quotaRpc: mocks.quotaRpc.mock.calls.length,
+        usageInsert: mocks.usageInsert.mock.calls.length,
+        context: mocks.buildSessionContext.mock.calls.length,
+        generateText: mocks.generateCoachingText.mock.calls.length,
+        generateStream: mocks.createJsonLineStream.mock.calls.length,
+        chatMessages: mocks.chatMessageAccess.mock.calls.length,
+        sessionWrites: mocks.sessionWrite.mock.calls.length,
+      },
+    };
+    // Preserve actual fake-route observations before any assertion, including on the old route.
+    console.info('LEGACY_OWNER_GUARD_WITNESS', JSON.stringify(witness));
+    const localCaseEvidence = process.env.ACTI_GUARD_DRAFT_CASE_EVIDENCE;
+    if (localCaseEvidence) {
+      appendFileSync(localCaseEvidence, JSON.stringify(witness) + '\n', { mode: 0o600 });
+    }
+    return witness;
+  }
+
+  function expectNoLegacySideEffects(effects: Record<string, number>) {
+    expect(effects).toEqual({
+      quotaRpc: 0,
+      usageInsert: 0,
+      context: 0,
+      generateText: 0,
+      generateStream: 0,
+      chatMessages: 0,
+      sessionWrites: 0,
+    });
+  }
 
   it('rejects an expired AWAKES member before quota or AI, even with a paid diagnosis credit', async () => {
     mocks.accessExpiresAt = '2020-01-01T00:00:00.000Z';

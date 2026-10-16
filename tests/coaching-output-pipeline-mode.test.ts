@@ -127,7 +127,8 @@ describe('coaching output pipeline modes', () => {
     expect(result.modelName).toBe('local-quality-fallback');
     expect(result.provider).toBe('local');
     expect(result.chargeable).toBe(false);
-    expect(result.text).toContain('講座への申し込みを保留');
+    expect(result.text).toContain('講座');
+    expect(result.text).not.toContain('申し込みを保留');
     expect(result.text).toContain('現在の収入源');
     expect(result.text).toContain('今月必要な金額');
   });

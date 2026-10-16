@@ -180,7 +180,8 @@ describe('final verified quality fallback', () => {
       }).issues
     ).toEqual([]);
     expect(result).toContain('前の返答で「相手」と書いたのは誤りです');
-    expect(result).toContain('アーカイブを見ない時間');
+    expect(result).toContain('横になって休んでください');
+    expect(result).not.toMatch(/時間として確保し|瞑想か横になる/);
     expect(result).not.toContain('相手に');
   });
 
@@ -249,9 +250,8 @@ describe('final verified quality fallback', () => {
       historyMessages
     );
 
-    expect(result).toBe(
-      '今日はその方針で十分です。スマートフォンを閉じたら、コンサートや返金のことは明日まで触れず、飲み物を一つ用意して座るか横になってください。\n\n今は次の答えを探すより、体の緊張を下げる方が先です。今日は連絡や集客をここで止めたまま、休むことだけを予定にしてください。'
-    );
+    expect(result).toContain('休んでください');
+    expect(result).not.toMatch(/飲み物を一つ用意|座るか|予定にしてください|返金のことは明日/);
     expect(result).not.toMatch(/相手に変えてほしい行動|最後に困った場面/);
     expect(
       assessCoachingResponseQuality({
@@ -462,7 +462,8 @@ describe('final verified quality fallback', () => {
       historyMessages
     );
 
-    expect(result).toContain('いつ始められるか');
+    expect(result).toContain('家族に伝えてください');
+    expect(result).not.toMatch(/一つ選び|返事をしたら/);
     expect(result).not.toMatch(/7時|6時半|カバン|朝食の皿/);
     expect(
       assessCoachingResponseQuality({
@@ -476,7 +477,8 @@ describe('final verified quality fallback', () => {
       systemPrompt: 'test', historyMessages,
       lastUserParts: [{ text: lastUserText }],
     });
-    expect(direct.text).toContain('いつ始められるか');
+    expect(direct.text).toContain('家族に伝えてください');
+    expect(direct.text).not.toMatch(/一つ選び|返事をしたら/);
     expect(direct.text).not.toMatch(/7時|6時半|カバン|朝食の皿/);
     expect(direct.qualityFinalIssues).toEqual([]);
   });
@@ -624,7 +626,8 @@ describe('final verified quality fallback', () => {
       });
 
       expect(assessment.issues).toEqual([]);
-      expect(fallback).toContain('ファンとして関わりたいわけではない');
+      expect(fallback).toContain('ファンとは少し違う気持ち');
+      expect(fallback).not.toMatch(/相手の発信はファン向け|読まれることが苦しい|温度差の中で言葉が出/);
       expect(fallback).toContain('送らない選択');
       expect(fallback).not.toContain('という相談ですね');
       expect(fallback).not.toMatch(/[？?]/);
@@ -656,8 +659,8 @@ describe('final verified quality fallback', () => {
       historyMessages
     );
 
-    expect(result).toContain('１６５万円');
-    expect(result).toContain('１００万円');
+    expect(result).toContain('使ったお金');
+    expect(result).toContain('一文だけ書いてください');
     expect(result).not.toMatch(/シークレットコンサート|相手に変えてほしい行動/);
     expect(
       assessCoachingResponseQuality({
@@ -777,8 +780,8 @@ describe('final verified quality fallback', () => {
       historyMessages
     );
 
-    expect(result).toContain('家事を一つ選び、今週だけ回数を半分');
-    expect(result).toContain('費用負担を二人で合意');
+    expect(result).toContain('家事を一つだけ書き出してください');
+    expect(result).not.toMatch(/選び、|合意してから|決めた分担/);
     expect(result).not.toMatch(/[？?]|もう一度伝|話し合う内容/);
     expect(
       assessCoachingResponseQuality({
@@ -2228,10 +2231,10 @@ describe('assessCoachingResponseQuality', () => {
       historyMessages
     );
 
-    expect(fallback).toContain('建築の仕事');
-    expect(fallback).toContain('広告の仕事');
-    expect(fallback).toContain('今月入る見込みの収入源');
-    expect(fallback).toContain('今月生活に必要な金額');
+    expect(fallback).not.toContain('建築の仕事');
+    expect(fallback).toContain('収入源ごとの見込み額');
+    expect(fallback).toContain('今月の収入源');
+    expect(fallback).toContain('生活に必要な金額');
     expect(fallback).toContain('不足額');
     expect(
       assessCoachingResponseQuality({
@@ -2257,9 +2260,9 @@ describe('assessCoachingResponseQuality', () => {
       historyMessages
     );
 
-    expect(fallback).toContain('本当はどうしたかったか');
+    expect(fallback).not.toContain('迷った出来事');
     expect(fallback).toContain('実際に選んだ行動');
-    expect(fallback).toContain('順に言ってください');
+    expect(fallback).toContain('一文だけ書いてください');
     expect(
       assessCoachingResponseQuality({
         text: fallback,
@@ -2329,7 +2332,8 @@ describe('assessCoachingResponseQuality', () => {
       historyMessages
     );
 
-    expect(response).toContain('講座への申し込みを保留');
+    expect(response).toContain('講座');
+    expect(response).not.toContain('申し込みを保留');
     expect(response).toContain('現在の収入源');
     expect(response).toContain('今月必要な金額');
     expect(response).not.toMatch(/支払い分担|不足額|支払日|古い別件/);
@@ -2708,7 +2712,8 @@ describe('normalizeCoachingOutput', () => {
 
     expect(result).not.toMatch(/口座変更|生活費の停止/);
     expect(result).toContain('直近3か月の家賃額');
-    expect(result).toContain('書面で合意を求める');
+    expect(result).toContain('記録してください');
+    expect(result).not.toContain('書面で合意を求める');
     expect(
       assessCoachingResponseQuality({
         text: result,
@@ -2731,7 +2736,8 @@ describe('normalizeCoachingOutput', () => {
       lastUserParts: [{ text: 'その伝え方はもう毎月やっています。同じ提案や同じ質問はしないでください。' }],
     });
     expect(result.text).toContain('家賃');
-    expect(result.text).toContain('書面');
+    expect(result.text).toContain('記録してください');
+    expect(result.text).not.toContain('書面で回答を求める');
     expect(result.text).not.toContain('家族の悩みでは');
     expect(result.qualityFinalIssues).toEqual([]);
   });
@@ -5446,9 +5452,11 @@ describe('normalizeCoachingOutput', () => {
       historyMessages,
     });
 
-    expect(fallback).toContain('重すぎると感じた');
-    expect(fallback).toContain('親子に約束してもらう内容');
-    expect(fallback).toContain('学童側のルールとして別に整理');
+    expect(fallback).not.toContain('重すぎると感じた');
+    expect(fallback).toContain('相手に確認したい約束');
+    expect(fallback).toContain('学校側');
+    expect(fallback).not.toMatch(/親子|叩く|蹴る|命令して手を/);
+    expect(fallback).not.toMatch(/確認し、.*整理してください|重すぎると感じた/);
     expect(assessment.issues).toEqual([]);
   });
 
@@ -6576,12 +6584,8 @@ describe('normalizeCoachingOutput', () => {
       historyMessages,
     });
 
-    expect(fallback).toContain(
-      '一度に終わらせようとしている場面を一つに絞る'
-    );
-    expect(fallback).toContain(
-      '次の壁打ちの前に、最後に止められた一件だけを書き出し、「今回ここまでやれば十分」と言える到達点を一文で決めてください。'
-    );
+    expect(fallback).toContain('到達点を、一文だけ書いてください');
+    expect(fallback).not.toMatch(/書き出し、|決めてください/);
     expect(assessment.issues).not.toContain('vague_action_target');
   });
 
@@ -6910,8 +6914,9 @@ describe('normalizeCoachingOutput', () => {
     });
 
     expect(fallback).toContain('「');
-    expect(fallback).toContain('相手方宅に立ち入ることを求めておらず');
-    expect(fallback).toContain('外食などの形で私が子どもと食事を共にし');
+    expect(fallback).toContain('相手方宅に立ち入らないことは、私も受け入れています');
+    expect(fallback).toContain('外食という形を提案しています');
+    expect(fallback).not.toMatch(/出張時|子ども|見守り|監護/);
     expect(fallback).not.toContain('相手に変えてほしい行動');
     expect(assessment.issues).toEqual([]);
   });
@@ -7283,8 +7288,8 @@ describe('normalizeCoachingOutput', () => {
 
     expect(assessment.issues).toEqual([]);
     expect(fallback).toContain('本人の説明がない限り判断できません');
-    expect(fallback).toContain('決めた家事が実行されていない');
-    expect(fallback).toContain('理由の推測と家事分担の問題を分け');
+    expect(fallback).toContain('家事');
+    expect(fallback).toContain('理由の推測');
     expect(fallback).not.toMatch(/会議|提案|結論と理由/);
   });
 
@@ -7333,7 +7338,7 @@ describe('normalizeCoachingOutput', () => {
 
     expect(assessment.issues).toEqual([]);
     expect(result).toContain('本人の説明がない限り判断できません');
-    expect(result).toContain('実行期限');
+    expect(result).toContain('期限');
     expect(result).not.toMatch(/会議|提案|どの行動を変えてほしい|[？?]/);
   });
 
@@ -7407,8 +7412,9 @@ describe('normalizeCoachingOutput', () => {
     });
 
     expect(assessment.issues).toEqual([]);
-    expect(fallback).toContain('1万円から1万5千円');
-    expect(fallback).toContain('月1万6千円');
+    expect(fallback).toContain('毎月の収支を確認してください');
+    expect(fallback).not.toMatch(/すでに自分で分かって|今の1万円の学び/);
+    expect(fallback).toContain('講座の費用');
     expect(fallback).not.toContain('相手が実際にしたこと');
   });
 
@@ -7455,7 +7461,8 @@ describe('normalizeCoachingOutput', () => {
     });
 
     expect(assessment.issues).toEqual([]);
-    expect(fallback).toContain('暗闇カフェの集客');
+    expect(fallback).toContain('カフェ');
+    expect(fallback).not.toMatch(/暗闇|平日は静か|味や香り/);
     expect(fallback).toContain('コンサート');
     expect(fallback).toContain('SNS投稿文');
     expect(fallback).not.toContain('対象の資料');
@@ -7519,8 +7526,9 @@ describe('normalizeCoachingOutput', () => {
       ]
     );
 
-    expect(result).toContain('回答期限を付けた書面');
-    expect(result).toContain('手元で確認できる支払記録');
+    expect(result).toContain('回答期限を一通の文面にまとめてください');
+    expect(result).toContain('希望と実際の支払いを区別');
+    expect(result).not.toContain('回答がない場合');
     expect(result).not.toMatch(
       /直近3か月|記録にまとめてください|これまでの支払履歴を添えて|[？?]/
     );

@@ -31,6 +31,7 @@ import {
   createCachedCoachingStream,
   inspectCoachingResponse,
   validateCoachingRequestOwnership,
+  validateCoachingSessionOwnership,
   waitForCoachingResponse,
   type CoachingResponseState,
 } from '@/lib/coaching-response-store';
@@ -70,6 +71,7 @@ const PROFILE_TIMEOUT_RETRIES = 1;
 const PROFILE_TIMEOUT_RETRY_DELAY_MS = 250;
 const SETTINGS_TIMEOUT_MS = 5000;
 const SESSION_CONTEXT_TIMEOUT_MS = 8000;
+const SESSION_OWNERSHIP_TIMEOUT_MS = 8000;
 const ATTACHMENT_LOAD_TIMEOUT_MS = 20000;
 const USAGE_AUDIT_TIMEOUT_MS = 3000;
 const MAX_REQUEST_MESSAGES = 100;
@@ -346,6 +348,38 @@ export async function POST(request: NextRequest) {
       }
       return respondFromState(claim);
     };
+
+    if (activeSessionId && !recovery) {
+      let ownsSession;
+      try {
+        ownsSession = await withStageTimeout(
+          validateCoachingSessionOwnership({
+            supabaseAdmin,
+            userId: user.id,
+            sessionId: activeSessionId,
+          }),
+          SESSION_OWNERSHIP_TIMEOUT_MS,
+          'SESSION_OWNERSHIP_TIMEOUT'
+        );
+      } catch (error) {
+        logPreflightError(requestId, 'session_ownership', requestStartedAt, error);
+        return NextResponse.json(
+          { error: '相談内容を確認できませんでした。少し待ってから、もう一度送信してください。' },
+          {
+            status:
+              error instanceof Error && error.message === 'SESSION_OWNERSHIP_TIMEOUT'
+                ? 504
+                : 503,
+          }
+        );
+      }
+      if (!ownsSession) {
+        return NextResponse.json(
+          { error: '保存済みの相談内容を確認できませんでした。' },
+          { status: 400 }
+        );
+      }
+    }
 
     if (recovery) {
       const ownsRequest = await validateCoachingRequestOwnership({

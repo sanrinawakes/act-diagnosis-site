@@ -9,7 +9,7 @@ import { sendCoachingAlert } from '@/lib/coaching-alerts';
 import { COACHING_SCOPE_GUIDANCE } from '@/lib/coaching-scope';
 import { containsDeadlineOutcomeAssurance, stripAttributedDeadlineQuotes } from '@/lib/coaching-deadline-language.mjs';
 import { containsUnsupportedEmotionIntensity, removeUnsupportedEmotionIntensity, containsUnsupportedConcernPremise, removeUnsupportedConcernPremise, currentTopicUserTexts } from '@/lib/coaching-emotion-language.mjs';
-import { containsChainedEditingInstructions, containsChainedCommunicationInstructions, containsCircularSingleAction, containsUnsupportedProcedureInterfacePremise, containsUnsupportedSituationPremise, containsUngroundedTaskAssumption, hasCurrentUserSituationEvidence, containsConversationRestriction, containsAmbiguousFutureActionDayReference, alignFutureActionDayReferences } from '@/lib/coaching-action-language.mjs';
+import { containsUnsupportedRentExplanationReply, containsChainedPreparationInstructions, containsChainedEditingInstructions, containsChainedCommunicationInstructions, containsCircularSingleAction, containsUnsupportedProcedureInterfacePremise, containsUnsupportedSituationPremise, containsUngroundedTaskAssumption, hasCurrentUserSituationEvidence, containsConversationRestriction, containsAmbiguousFutureActionDayReference, alignFutureActionDayReferences } from '@/lib/coaching-action-language.mjs';
 import {
   getCoachingOutputPipelineConfig,
   type CoachingOutputPipelineMode,
@@ -2487,6 +2487,13 @@ export function assessCoachingResponseQuality(params: {
   }
   const answeredQuestion = getAnsweredExistenceQuestion(lastUserText, historyMessages);
   const factualReplyFallback = buildFactualReplyFallback(lastUserText, historyMessages);
+  const requestedFamilyDraft = buildFamilyLegalDraftRevisionFallback(lastUserText, historyMessages);
+  // A fact-bounded requested draft is complete without padding it with a new
+  // legal position or an invented history. Only this exact current-user draft,
+  // with the existing fixed correction acknowledgement if present, qualifies.
+  const groundedRequestedFamilyDraft = Boolean(requestedFamilyDraft) &&
+    (text === requestedFamilyDraft.trim() ||
+      text === ['前の返答では必要な文面を出せていませんでした。申し訳ありません。', '', requestedFamilyDraft].join('\n'));
   const groundedDeadlineBriefReply = buildGroundedDeadlineBriefReply(lastUserText);
   const groundedRestAcknowledgement = requestsShortRestResponse(lastUserText) &&
     /^(?:今日はゆっくり休んでください|今日はここで終えて大丈夫です)[。！!]*$/.test(text);
@@ -2506,6 +2513,7 @@ export function assessCoachingResponseQuality(params: {
     issues.push('context_mismatch');
   }
   const isSpecialShortResponse =
+    groundedRequestedFamilyDraft ||
     groundedShortFollowup ||
     (Boolean(groundedDeadlineBriefReply) && text === groundedDeadlineBriefReply) ||
     (Boolean(factualReplyFallback) && text === factualReplyFallback) ||
@@ -2559,6 +2567,9 @@ export function assessCoachingResponseQuality(params: {
     issues.push('requested_time_mismatch');
   }
   if (containsUnsupportedEmotionIntensity(text, getCurrentPlanningUserTexts(lastUserText, historyMessages))) {
+    issues.push('context_mismatch');
+  }
+  if (containsUnsupportedRentExplanationReply(text, getCurrentPlanningUserTexts(lastUserText, historyMessages))) {
     issues.push('context_mismatch');
   }
   const relativeWeekdays = (value: string) => Array.from(
@@ -2635,6 +2646,7 @@ export function assessCoachingResponseQuality(params: {
 
   if (
     userReportsDissatisfaction &&
+    !groundedRequestedFamilyDraft &&
     (hasAnyCoachingQuestion(text) ||
       (compactText.length < 140 &&
         !hasExplicitCoachingAction(text)))
@@ -3035,7 +3047,7 @@ export function assessCoachingResponseQuality(params: {
     issues.push('invented_follow_through');
   }
 
-  if ((containsChainedCommunicationInstructions(text, lastUserText) || containsChainedEditingInstructions(text, lastUserText)) && !buildUrgentSafetyResponse(lastUserText)) {
+  if ((containsChainedPreparationInstructions(text, lastUserText) || containsChainedCommunicationInstructions(text, lastUserText) || containsChainedEditingInstructions(text, lastUserText)) && !buildUrgentSafetyResponse(lastUserText)) {
     issues.push('multiple_coaching_moves');
   }
   const coachingMoveCount = countExplicitCoachingMoves(text);
@@ -3332,6 +3344,11 @@ export function normalizeCoachingOutput(
 
   const substantivePatternFallback =
     buildSubstantiveShortFallback(lastUserText);
+  // Preserve this exact locally grounded SMA action. Diagnosis-explanation
+  // cleanup must not erase it and replace it with an unrelated generic task.
+  if (substantivePatternFallback &&
+      /SMA\s*-?\s*\d(?:\.\d+)?/i.test(lastUserText) &&
+      text.trim() === substantivePatternFallback) return substantivePatternFallback;
   if (
     substantivePatternFallback &&
     /大ジャンプ|最初の一歩\s*[=＝]\s*ゴール|壁打ち/.test(lastUserText) &&
@@ -4495,9 +4512,9 @@ function buildSafeQualityFallback(
         )
     );
     if (priorRecordingProposal) {
-      return '口頭で伝える方法では変わらなかったため、次は回答期限を付けた書面で確認する方法へ切り替える段階です。希望する家賃の負担額、毎月の支払日、不足した場合の扱い、回答期限を一通にまとめます。\n\n回答がない場合は、その書面と手元で確認できる支払記録を持って、夫婦問題や家計相談の窓口へ相談してください。';
+      return '支払いの希望を文面にする場合は、希望する家賃の負担額、毎月の支払日、回答期限を一通の文面にまとめてください。希望と実際の支払いを区別すると、相手に確認したい内容が明確になります。';
     }
-    return '毎月伝えても支払い不足が続くなら、言い方だけでは解決しません。まず、直近3か月の家賃額、相手の支払額、不足額を一覧にしてください。その一覧を使い、今後支払う金額、期日、不足した場合の対応について、書面で合意を求める段階です。';
+    return '毎月伝えても支払い不足が続くなら、同じ伝え方を繰り返すだけでは状況を確認できません。まず、直近3か月の家賃額、相手の支払額、不足額を記録してください。実際の支払いの記録が、今後の対応を考える材料になります。';
   }
 
   if (
@@ -4510,7 +4527,7 @@ function buildSafeQualityFallback(
         historyMessages
       );
     if (repeatedHouseholdFallback) return repeatedHouseholdFallback;
-    return '何度伝えても返事だけで家事分担が変わらないなら、問題は言い方ではなく、決めた分担が実行されていないことです。夫の小遣いや共通口座から勝手に費用を出す方法は避け、外注や家電を使う場合は負担額を合意してからにします。\n\nまず一週間、自分が担った家事と所要時間を記録し、減らす家事を一つ選んでください。';
+    return '家事の分担を頼んでも状況が変わらない時は、伝え方だけでなく、自分が実際に担っている負担も判断の材料になります。まず一週間、自分が担った家事と所要時間を記録してください。';
   }
 
   if (
@@ -4635,7 +4652,7 @@ function buildChildSafetyContinuationFallback(
   }
   if (/記憶|覚えて|記録|書く|書き/.test(lastUserText)) {
     if (/直接見た事実と人から聞いた話/.test(recentAssistantContext)) {
-      return 'これから書き始めるのですね。正確に思い出せない日時を埋める必要はありません。まず覚えている出来事を一件選び、誰が誰に何をしたかを書いてください。発言をそのまま覚えていない場合は、引用ではなく「こういう趣旨だった」と区別して記すと、記憶の確かさも報告先へ伝わります。';
+      return 'これから書き始めるのですね。正確に思い出せない日時を埋める必要はありません。覚えている出来事について、誰が誰に何をしたかを一件だけ書いてください。発言をそのまま覚えていない場合は、引用ではなく「こういう趣旨だった」と区別して記すと、記憶の確かさも報告先へ伝わります。';
     }
     return '覚えている出来事を、報告に使う記録へ書き起こす段階ですね。日時・場所・その場にいた人・実際の言動・子どもの様子を項目にして、覚えている範囲を記入してください。日時などが曖昧な箇所は「不明」や「おおよそ」と明記し、直接見た事実と人から聞いた話を分けると、報告先が確認すべき点も分かります。';
   }
@@ -4788,7 +4805,7 @@ function buildConcretePlanningContinuationFallback(lastUserText: string, history
     }
   }
   if (/仕事|作業/.test(lastUserText) && /締切|期限/.test(lastUserText) && /優先順位/.test(lastUserText)) {
-    return '仕事の締切が重なり、どれから進めるかを決めたいのですね。期限の早さだけでなく、作業に必要な時間や、他の人の作業を止めているかも判断材料になります。まず仕事ごとに締切と所要時間を並べ、期限内に収まらないものがあれば、順番を工夫するだけでなく日程や分担を相談する対象として分けてください。';
+    return '仕事の締切が重なり、どれから進めるかを決めたいのですね。期限の早さだけでなく、作業に必要な時間や、他の人の作業との関係も判断材料になります。まず仕事ごとの締切と所要時間を一覧にしてください。';
   }
   if (/(?:勤務|出勤)(?:開始|時間)/.test(lastUserText) &&
       /早くなり|遅くなり|変わり|変わる/.test(lastUserText) &&
@@ -5718,7 +5735,7 @@ function buildSubstantiveShortFallback(lastUserText: string) {
     /大ジャンプ|最初の一歩\s*[=＝]\s*ゴール|壁打ち/.test(lastUserText) &&
     /望んでしま|指摘され/.test(lastUserText)
   ) {
-    return '最初の一歩を踏み出す前に、いきなり結果まで取りに行こうとして止まってしまうのですね。今必要なのは気合いを足すことではなく、一度に終わらせようとしている場面を一つに絞ることです。\n\n次の壁打ちの前に、最後に止められた一件だけを書き出し、「今回ここまでやれば十分」と言える到達点を一文で決めてください。';
+    return '最初の一歩を考える時に、結果まで一度に求めてしまうことが気になっているのですね。小さな到達点を具体的にすると、どこまで取り組むかを考えやすくなります。\n\n次の壁打ちで「今回ここまでやれば十分」といえる到達点を、一文だけ書いてください。';
   }
 
   if (
@@ -5732,7 +5749,7 @@ function buildSubstantiveShortFallback(lastUserText: string) {
     /お金/.test(lastUserText) &&
     /後悔|もったいなかった|使ってしまった/.test(lastUserText)
   ) {
-    return 'お金の後悔が何度も頭に戻ってきているのですね。今つらいのは、使った金額そのものだけでなく、「あの１６５万円と１００万円が残っていればできたこと」を頭の中で何度も計算し直してしまうことです。\n\n今日は、占いに使った１６５万円とセールス講座の１００万円を紙に書き、その横に「今も痛い点」を一言ずつ書いてください。';
+    return '使ったお金について後悔しているのですね。使った金額と、今後どうしたいかは分けて考えられます。\n\n今日は、お金を使ったことについて今も引っかかっている点を、一文だけ書いてください。';
   }
 
   if (
@@ -5740,21 +5757,21 @@ function buildSubstantiveShortFallback(lastUserText: string) {
     /使いたくない|疲れ/.test(lastUserText) &&
     /入ってこない|回ってこない|不安/.test(lastUserText)
   ) {
-    return 'いま話しているのは、学びにこれ以上お金を使いたくない疲れと、お金を使っても収入につながらない不安です。新しい支払いを勧める場面ではありません。まず今日は申込みを決めず、生活に影響しない範囲で今後学びに使える上限額だけを決めてください。';
+    return '今は、お金を使うことと、収入につながることを分けて考えられます。新しい支払いを増やす提案はしません。まず、生活費と学びの費用を含めた毎月の収支を確認してください。';
   }
 
   if (
     /安定した収入/.test(lastUserText) &&
     /どうすれば|どうしたら|方法|わから|分から/.test(lastUserText)
   ) {
-    return '安定した収入が見えないのは、今ある仕事ごとの収入見込みと、生活に必要な金額がまだ並んでいないからです。建築の仕事、広告の仕事、そのほか今月入る見込みの収入源と、今月生活に必要な金額を、同じ紙に並べて書いてください。\n\n不足額が出れば、今の仕事や活動を続けながら何円分の収入を足す必要があるかを具体的に判断できます。';
+    return '安定した収入を考える時は、今ある収入の見込みと、生活に必要な金額が判断の材料になります。まず、今月の収入源ごとの見込み額と、生活に必要な金額を、同じ紙に書いてください。\n\n不足額が出れば、今の仕事や活動を続けながら何円分の収入を足す必要があるかを具体的に判断できます。';
   }
 
   if (
     /SMA\s*-?\s*\d(?:\.\d+)?/i.test(lastUserText) &&
     /どうすれば|どうしたら|上げ|戻|より良く|するには/.test(lastUserText)
   ) {
-    return 'SMAの数値は能力の上下ではなく、最近の選択の傾向を表す目安です。数値を上げたいなら、その日の終わりに、その日いちばん迷った出来事を一つ選び、「本当はどうしたかったか」と「実際に選んだ行動」を順に言ってください。\n\n自分の判断を後回しにした場面が見えると、次に変える行動を具体的に決めやすくなります。';
+    return 'SMAの数値は能力の上下ではなく、最近の選択の傾向を表す目安です。その日の終わりに、実際に選んだ行動を一文だけ書いてください。自分がどう判断しているかを振り返る材料になります。';
   }
 
   if (
@@ -5769,7 +5786,7 @@ function buildSubstantiveShortFallback(lastUserText: string) {
           .replace(/,/g, '')
           .replace(/\B(?=(\d{3})+(?!\d))/g, ',')}円の赤字`
       : '赤字額';
-    return `家計簿をつけていて、${formattedAmount}まで把握できているなら、原因は前月との差額から絞れます。収入、固定費、食費などの変動費、臨時支出を先月と今月で同じ項目に並べ、各差額を合計してください。増加額の大きい項目から確認すると、赤字の主因と見直す順番が分かります。`;
+    return `家計簿をつけていて、${formattedAmount}まで把握できているなら、原因は前月との差額から絞れます。まず、先月と今月の収入、固定費、変動費などを同じ項目で並べてください。項目ごとの違いが、収支の変化を考える材料になります。`;
   }
 
   if (
@@ -6018,7 +6035,7 @@ function buildBullyingAgreementClarificationFallback(
     return '';
   }
 
-  return 'その案だと重すぎると感じたのですね。ここで分けるのは、親子に約束してもらう内容と、学童側が運用として決める内容です。\n\n親子には「今後、叩く・蹴る・命令して手を出させることをしない」とだけ確認し、保護者呼出や利用停止の扱いは学童側のルールとして別に整理してください。';
+  return '先ほどの案では、相手側に守ってほしい約束と、学校側が決める対応を一緒にしていました。具体的な禁止行為や署名の条件は、今回の相談に必要か確認できていません。まず、相手に確認したい約束を一文だけ書いてください。';
 }
 
 function buildDiagnosisExplanationFallback(
@@ -6206,10 +6223,9 @@ function buildContextualDissatisfactionFallback(
     cleanPreviousText.length > 72
       ? `${cleanPreviousText.slice(0, 72)}…`
       : cleanPreviousText;
-  const opening = `前の返答では、すでに試したことを踏まえた説明ができていませんでした。申し訳ありません。「${previousExcerpt}」という悩みについて、考え方を先に示します。`;
-  const recentUserContext = historyMessages
-    .filter((message) => message.role === 'user')
-    .map((message) => stripAttachmentMarkdown(message.content))
+  const opening = `前の返答では、今回の相談に沿った説明ができていませんでした。申し訳ありません。「${previousExcerpt}」について、具体的に考えます。`;
+  const recentUserContext = getCurrentPlanningUserTexts(lastUserText, historyMessages)
+    .map((text) => stripAttachmentMarkdown(text))
     .filter((content) => !reportsResponseDissatisfaction(content))
     .slice(-4)
     .join('\n');
@@ -6224,7 +6240,7 @@ function buildContextualDissatisfactionFallback(
     /家賃|支払/.test(dissatisfactionContext) &&
     /その伝え方はもう毎月|同じ提案|同じ質問/.test(lastUserText)
   ) {
-    return '前の返答では、毎月すでに伝えていることを踏まえられていませんでした。申し訳ありません。家賃の支払い不足が続くなら、言い方を変える提案は繰り返しません。まず直近3か月の家賃額、相手の支払額、不足額を記録してください。その記録を使い、今後の負担額と支払期日について書面で回答を求める方法があります。';
+    return '前の返答では、毎月すでに伝えていることを踏まえられていませんでした。申し訳ありません。家賃の支払い不足が続くなら、言い方を変える提案は繰り返しません。まず直近3か月の家賃額、相手の支払額、不足額を記録してください。実際の支払いの記録が、今後の対応を考える材料になります。';
   }
 
   if (
@@ -6232,7 +6248,7 @@ function buildContextualDissatisfactionFallback(
     /スピリチュアル/.test(recentUserContext) &&
     /お金が入ってこな/.test(recentUserContext)
   ) {
-    return '前の返答は今回とは違う話を混ぜていました。申し訳ありません。\n\n今の話は、講座に申し込まなかった後悔、これ以上スピリチュアルな学びにお金を使いたくない疲れ、お金が入ってこない不安についてです。講座へ申し込む判断と、現在の収入の問題を分けます。今日は講座への申し込みを保留にし、現在の収入源と今月必要な金額を確認してください。';
+    return '前の返答は今回とは違う話を混ぜていました。申し訳ありません。\n\n今の話は、講座についての相談と、お金が入ってこないことについてです。講座へ申し込む判断と、現在の収入の問題を分けます。今日は、現在の収入源と今月必要な金額を確認してください。';
   }
   if (/お金が入ってこな/.test(recentUserContext)) {
     return '前の返答は今回とは違う話を混ぜていました。申し訳ありません。\n\n今の話は、お金が入ってこないことについてです。原因をまだ確認できていない段階で、別の人物や出来事を当てはめるべきではありません。今日は、現在の収入源ごとの見込み額と、今月必要な金額を確認してください。足りない金額が分かれば、今ある収入源のどこを増やす必要があるかを具体的に考えられます。';
@@ -6266,7 +6282,7 @@ function buildContextualDissatisfactionFallback(
     ) &&
     /給料|分割|手数料|\d[\d,]*円/.test(dissatisfactionContext)
   ) {
-    return `${opening}\n\n今の話では、学びを続けたい気持ちがある一方で、毎月使ってよい額の上限は1万円から1万5千円くらいだと、すでに自分で分かっていることです。そこに追加で月1万6千円を重ねると上限を超え、分割にしても不安と手数料が残ります。今決めるなら、新しい講座はまだ申し込まず、今の1万円の学びを続けるか休止するかを、生活費と合わせて見直す方が現実に合っています。`;
+    return `${opening}\n\n学びの費用は、生活に必要な支出と合わせて考える必要があります。使える金額と講座の費用に差がある場合は、その差が毎月の生活にどう影響するかが判断の材料になります。まず、生活費と学びの費用を含めた毎月の収支を確認してください。`;
   }
 
   if (
@@ -6274,7 +6290,10 @@ function buildContextualDissatisfactionFallback(
       previousUserText
     )
   ) {
-    return `${opening}\n\n今の相談は、暗闇カフェの集客を増やすために、あなたが使える発信手段を一つに絞ることです。すでに、発信、宣伝、コンサートで話すという候補は出ています。まずは、平日は静かに味や香りへ集中できる時間だと伝えるSNS投稿文を一本だけ作ってください。`;
+    const currentUserContext = getCurrentPlanningUserTexts(lastUserText, historyMessages).join('\n');
+    const subject = /カフェ/.test(currentUserContext) ? 'カフェの紹介' : '今回伝えたい内容';
+    const concertContext = /コンサート/.test(currentUserContext) ? 'コンサートでも伝えられるよう、' : '';
+    return `${opening}\n\n発信する文章は、誰に何を伝えるかが具体的なほど内容をまとめやすくなります。まず、${concertContext}${subject}が伝わるSNS投稿文を一本だけ書いてください。`;
   }
 
   if (/仕事|職場|業務|会社|上司|同僚|会議|企画|顧客/.test(previousUserText)) {
@@ -6405,7 +6424,7 @@ function buildTopicSwitchActionFallback(
     /明日からどう対応すればいいですか/.test(lastUserText) &&
     /家族に朝の準備を頼んでも、返事だけで動いてくれません。/.test(context)
   ) {
-    return '明日の朝は、家族に任せたい準備を一つ選び、「この準備をお願いしたい。いつ始められるか教えて」と伝えてください。相手が返事をしたら、始める時刻と実際に担当する内容をその場で確認してください。';
+    return '明日の朝は、任せたい準備について「この準備をお願いしたいです」と家族に伝えてください。返事だけでは実行する内容まで共有できていないことがあるため、頼みたい作業が分かる言葉で伝えることが出発点になります。';
   }
 
   return '';
@@ -6470,29 +6489,24 @@ function buildFanBoundaryClarificationFallback(
   lastUserText: string,
   historyMessages: CoachingChatMessage[]
 ) {
-  const userContext = [
-    ...historyMessages
-      .filter((message) => message.role === 'user')
-      .map((message) => stripAttachmentMarkdown(message.content)),
-    lastUserText,
-  ].join('\n');
+  const userContext = getCurrentPlanningUserTexts(lastUserText, historyMessages)
+    .map((text) => stripAttachmentMarkdown(text))
+    .join('\n');
   const asksForClarification =
     reportsResponseDissatisfaction(lastUserText) ||
     requestsPlainerExplanation(lastUserText);
   if (
     !asksForClarification ||
-    !/ファン|誕生日|メール|寄り添|スタッフの人に読まれる|読まれる/.test(
-      userContext
-    )
+    !/誕生日/.test(userContext) ||
+    !/メール|送る|送ら/.test(userContext) ||
+    !/ファン(?:という感覚で送ったのではなく|とは少し違う|として関わりたいわけではない)/.test(userContext) ||
+    !/発信/.test(userContext) ||
+    !/何を言っていいか分から|言葉が出/.test(userContext)
   ) {
     return '';
   }
 
-  const closingLine = /スタッフの人に読まれる|読まれる/.test(userContext)
-    ? 'スタッフに読まれることが苦しいなら、今日は送らない選択で止めて大丈夫です。'
-    : '相手がその関わりを求めていないと感じるなら、今日は送らない選択を基準にして大丈夫です。';
-
-  return `つまり、今の悩みは「誕生日に何を送るか」そのものより、ファンとして関わりたいわけではないのに、相手の発信はファン向けで、その温度差の中で言葉が出なくなっていることです。\n\n先に決めるのは文面ではなく、今日は送る側に回るのか、送らずに距離を置くのかです。${closingLine}`;
+  return 'ファンとは少し違う気持ちでメールを送っていたのですね。相手の発信の内容と、自分が誕生日に何を伝えたいかは、分けて考えられます。誕生日だからという理由だけで、送る義務が生じるわけではありません。何を言うかが決まらない時は、送らない選択もできます。相手の希望や気持ちは、今ある情報から断定することはできません。メールの文面より、自分が伝えたいことがあるかどうかが、送る判断の材料になります。';
 }
 
 function buildClarificationCorrectionFallback(
@@ -6602,7 +6616,7 @@ function buildHouseholdRepeatedRequestFallback(
     return '';
   }
 
-  return '何度伝えても返事だけで家事分担が変わらないなら、問題は言い方ではなく、決めた分担が実行されていないことです。同じ交渉を続けるより、自分の負担を夫の行動とは別に減らす必要があります。\n\nまず、健康や衛生に直結しない家事を一つ選び、今週だけ回数を半分に減らしてください。外注や家電を使う場合は、費用負担を二人で合意してから決めます。';
+  return '家事を何度頼んでも状況が変わらず、自分の負担が続いているのですね。相手の行動を待つ以外にも、家事の量そのものを見直す余地があります。まず、今週回数を減らしても健康や衛生に影響しない家事を一つだけ書き出してください。';
 }
 
 function buildMeditationClarificationFallback(
@@ -6620,7 +6634,7 @@ function buildMeditationClarificationFallback(
     return '';
   }
 
-  return '前の返答で「相手」と書いたのは誤りです。今の相談は、乳児の世話の中で余白があっても雑務やアーカイブで埋めてしまい、休んでもすっきりしないことでした。昼寝や3分の瞑想を、アーカイブを進めるための手段として評価しなくて大丈夫です。余白の時間は、まずアーカイブを見ない時間として確保し、3分の瞑想か横になることのどちらか一つだけで終えてください。';
+  return '前の返答で「相手」と書いたのは誤りです。今は、瞑想やアーカイブについての相談に戻ります。休息を、別の作業を進めるための手段として評価する必要はありません。余白の時間には、横になって休んでください。';
 }
 
 function buildGroundedHouseholdActionFallback(lastUserText: string) {
@@ -6638,7 +6652,7 @@ function buildGroundedHouseholdActionFallback(lastUserText: string) {
     return '';
   }
 
-  return '相手が家事をしない理由は、本人の説明がない限り判断できません。一方で、決めた家事が実行されていないことは確認できます。理由の推測と家事分担の問題を分け、まず担当する家事を一つだけ選び、実行期限と、難しい場合の返答期限を一文で伝えてください。';
+  return '相手が家事をしない理由は、本人の説明がない限り判断できません。理由の推測と家事分担の問題は分けて考えられます。まず、家族に担当してほしい家事と実行期限を一文で伝えてください。';
 }
 
 function expandTooShortCoachingResponse(
@@ -6920,7 +6934,7 @@ function buildCustomerSafeLocalFallback(
     (reportsResponseDissatisfaction(lastUserText) ||
       requestsNoFollowUpQuestion(lastUserText))
   ) {
-    return '支払いの不足や不履行が続いている場合は、確認できる契約・合意条件、支払実績、これまでの連絡を分けて整理してください。当事者間の連絡だけで解決しない場合は、その記録を示せる状態にして、内容に合う公的窓口や専門家へ相談してください。';
+    return '支払いの不足や不履行が続いている場合は、希望する条件と、確認できる合意や支払実績を区別する必要があります。確認できる契約・合意条件、支払実績、これまでの連絡を一枚に整理してください。';
   }
 
   if (hasPaymentObligationContext(knownContext)) {
@@ -8053,7 +8067,7 @@ function buildDifferentPaymentProposalResponse(
   if (!hasDifferentPaymentProposalRequest(lastUserText, historyMessages)) return '';
   // An earlier AI suggestion is not evidence that the user sent a demand or
   // received no answer. Offer the distinct next option without inventing either.
-  return 'これまでに挙げた方法を繰り返さず、別の具体的な対応をお伝えします。家計や夫婦関係を扱う相談窓口に予約を申し込み、第三者を交えた整理を依頼する方法があります。相談では、家賃の希望負担額、実際の支払い、これまでのやり取りを分けて伝えてください。利用できる支援や、当事者だけで抱えずに話を進める方法を確認できます。';
+  return 'これまでに挙げた方法を繰り返さず、別の具体的な対応をお伝えします。家計や夫婦関係を扱う相談窓口へ、相談の予約を申し込んでください。第三者を交えることで、利用できる支援や、当事者だけで抱えずに話を進める方法について相談できます。';
 }
 
 function buildRejectedMoveFallback(
@@ -8086,9 +8100,9 @@ function buildRejectedMoveFallback(
         )
     );
     if (priorRecordingProposal) {
-      return '口頭で伝える方法では変わらなかったため、次は回答期限を付けた書面で確認する方法へ切り替える段階です。希望する家賃の負担額、毎月の支払日、不足した場合の扱い、回答期限を一通にまとめます。\n\n回答がない場合は、その書面と手元で確認できる支払記録を持って、夫婦問題や家計相談の窓口へ相談してください。';
+      return '支払いの希望を文面にする場合は、希望する家賃の負担額、毎月の支払日、回答期限を一通の文面にまとめてください。希望と実際の支払いを区別すると、相手に確認したい内容が明確になります。';
     }
-    return '毎月希望を伝えても、支払いが変わっていないのですね。同じお願いを増やすのではなく、希望する負担額、確認できる合意、実際の支払いとやり取りを分けて記録してください。その記録を使って負担額と支払日を文面で確認する方法があります。';
+    return '毎月希望を伝えても、支払いが変わっていないのですね。同じお願いを増やすのではなく、希望する負担額、確認できる合意、実際の家賃の支払いとやり取りを分けて記録してください。希望と合意を区別した記録が、今後の対応を考える材料になります。';
   }
 
   return '直前の提案は、すでに試したか、今は実行できない方法だったと受け取ります。同じ提案や質問は繰り返さず、ここまでに分かっている事実から別の方法を考え直します。';
@@ -8136,7 +8150,7 @@ function hasConcreteAction(text: string, lastUserText: string) {
     return false;
   }
 
-  const hasAction = /(?:してください|してみてください|してみましょう|しましょう|(?:て|で)み(?:てください|ましょう)|始めてみて|書き出して|書いて|伝えて|開いて|決めて|置いて|休んで|確認して|取り組んで|着手して|(?:答え|伝え|断り|言い)ます|提案します)|(?:\d+|一|ひと)つ(?:だけ)?(?:書|決|選|始|開|伝)|(?:\d+|一|ひと)(?:分|行|文|項目)/.test(
+  const hasAction = /(?:まとめてください|並べてください|申し込んでください|してください|してみてください|してみましょう|しましょう|(?:て|で)み(?:てください|ましょう)|始めてみて|書き出して|書いて|伝えて|開いて|決めて|置いて|休んで|確認して|取り組んで|着手して|(?:答え|伝え|断り|言い)ます|提案します)|(?:\d+|一|ひと)つ(?:だけ)?(?:書|決|選|始|開|伝)|(?:\d+|一|ひと)(?:分|行|文|項目)/.test(
     text
   );
 
@@ -8181,7 +8195,7 @@ function hasGenericSingleActionPlaceholder(
 }
 
 function hasExplicitCoachingAction(text: string) {
-  return /(?:してください|してみてください|してみましょう|しましょう|から始めてください|を提案します|をおすすめします)(?:[。！]|$)/.test(
+  return /(?:してください|まとめてください|書いてください|伝えてください|休んでください|並べてください|申し込んでください|してみてください|してみましょう|しましょう|から始めてください|を提案します|をおすすめします)(?:[。！]|$)/.test(
     text
   );
 }
@@ -8424,13 +8438,13 @@ function buildNoQuestionFallback(
   }
   if (/企画書/.test(userContext)) {
     return /明日/.test(lastUserText)
-      ? '明日の朝、企画書を開き、最初の見出しを一つだけ書いてください。'
-      : '企画書を開き、最初の見出しを一つだけ書いてください。';
+      ? '明日の朝、企画書の最初の見出しを一つだけ書いてください。'
+      : '企画書の最初の見出しを一つだけ書いてください。';
   }
   if (/企画|資料|文章|原稿|作成/.test(userContext)) {
     return /明日/.test(lastUserText)
-      ? '明日の朝、対象の資料を開き、最初の見出しを一つだけ書いてください。'
-      : '対象の資料を開き、最初の見出しを一つだけ書いてください。';
+      ? '明日の朝、対象の資料の最初の見出しを一つだけ書いてください。'
+      : '対象の資料の最初の見出しを一つだけ書いてください。';
   }
   if (
     /話(?:す|したい|せる|そう|し合)|伝|言葉|一言|言い方|文面|会話|連絡|返事/.test(
@@ -8511,63 +8525,71 @@ function buildFamilyLegalDraftRevisionFallback(
   lastUserText: string,
   historyMessages: CoachingChatMessage[] = []
 ) {
-  const sourceText = (
-    reportsResponseDissatisfaction(lastUserText)
-      ? selectRelevantFallbackSource(lastUserText, historyMessages)
-      : lastUserText
-  ) || lastUserText;
-  const normalizedSourceText = stripAttachmentMarkdown(sourceText)
-    .replace(/\s+/g, ' ')
-    .trim();
-  const recentContext = [
-    ...historyMessages
-      .slice(-10)
-      .map((message) => stripAttachmentMarkdown(message.content)),
-    normalizedSourceText,
-  ].join('\n');
-  const hasFamilyLegalDraftContext =
-    /親権|面会交流|調停|裁判所|相手方|学校行事|習い事|年金手帳|夕食交流|宿泊|出張時|主張書面|書面/.test(
-      recentContext
-    );
+  // Only a currently stated USER position may become a first-person draft.
+  // Old AI drafts establish neither events, the user's position, nor rights.
+  const currentUserTexts = getCurrentPlanningUserTexts(lastUserText, historyMessages)
+    .map((text) => stripAttachmentMarkdown(text).replace(/\s+/g, ' ').trim());
+  if (/撤回|取り消(?:し|す|した|します)/.test(lastUserText) ||
+      /(?:とは|と)(?:言って|頼んで|求めて|考えて)(?:いない|いません)/.test(lastUserText) ||
+      /(?:先ほど|さっき|やはり|やっぱり)[^。！？\n]{0,50}(?:希望しません|希望していません|求めていません|お願いしていません)/.test(lastUserText)) return '';
+  const sourceText = [...currentUserTexts].reverse().find((text) =>
+    /親権|面会|夕食交流|食事|学校行事|習い事|出張|外食|家に入|自宅|交友関係/.test(text)
+  ) || '';
+  if (!sourceText) return '';
   const requestsDraftRevision =
-    /言いたい|主張したい|加えたい|追記したい|修正|直し|弱い|作成してほしい|作ってほしい|書いてほしい|まとめてほしい|ないからそれも|提案している|提案はしていない|こんな提案はしていない|誤解|違う|違っている/.test(
-      normalizedSourceText
-    ) || reportsResponseDissatisfaction(lastUserText);
-  if (!hasFamilyLegalDraftContext || !requestsDraftRevision) {
-    return '';
+    /言いたい|主張したい|加えたい|追記したい|修正|直し|作成してほしい|作ってほしい|書いてほしい|まとめてほしい|提案している|提案しています|提案はしていない|こんな提案はしていない/.test(sourceText) ||
+    reportsResponseDissatisfaction(lastUserText);
+  if (!requestsDraftRevision) return '';
+  // Quoted third-party wording is not the user's own affirmed position.
+  // Quoted drafting requests can continue through the ordinary model path.
+  const stated = stripJapaneseQuotationContent(sourceText, true);
+  if (/もし|仮に|かもしれない|[？?]/.test(stated)) return '';
+  if (/(?:とは|と)(?:言って|頼んで|求めて|考えて)(?:いない|いません)/.test(stated)) return '';
+
+  if (
+    /現状と(?:何ら)?変わらない/.test(stated) &&
+    /親権を譲ることはできない(?:ということが|と)(?:言いたい|主張したい|書いてほしい)(?=の?[。！\n]|です[。！\n]|$)/.test(stated) &&
+    !/(?:相手(?:方)?|子ども|子供|父親|母親)(?:は|が)[^。！？\n]{0,60}(?:親権|譲る)/.test(stated)
+  ) {
+    return 'この箇所は、次のように書き換えられます。\n\n「現状と何ら変わりません。現状と変わらない条件のままであれば、親権の譲渡に同意することはできません。」';
+  }
+
+  // A schedule is copied only from an explicit first-person request. No past
+  // refusal, mediator involvement, or another person's motive is supplied.
+  const weekendWish = stated.match(/私は土日(?:にも|に|も)(月(?:1|１|一)回)?面会したい(?=と考えています[。！\n]|です[。！\n]|[。！\n]|$)/);
+  if (/平日/.test(stated) && weekendWish) {
+    const frequency = weekendWish[1] ? '月1回の' : '';
+    return `この点は、次のように追記できます。\n\n「土日に${frequency}面会を希望しています。」`;
   }
 
   if (
-    /現状と何ら変わらない|現状と変わらない/.test(normalizedSourceText) &&
-    /親権/.test(recentContext)
+    /夕食交流/.test(stated) &&
+    /必ず週(?:1|１|一)回食事をさせろということではない/.test(stated) &&
+    /私が食事の要求をしたときに妨害をしてこないでほしいということを言いたい(?=の?[。！\n]|です[。！\n]|$)/.test(stated)
   ) {
-    return 'この箇所は、次のように書き換えられます。\n\n相手方が示している内容は、現在すでに実現している事項にとどまり、現状と何ら変わりません。現状と変わらない条件のままであれば、私が親権を譲る理由はなく、親権の譲渡に同意することはできません。';
+    return 'この点は、次のように追記できます。\n\n「必ず週1回の夕食交流を求めているわけではありません。私が夕食交流を求めた際に、一律に妨げないでほしいと考えています。」';
+  }
+
+  const participationWish = stated.match(/私は(学校行事(?:や習い事)?|習い事)(?:への参加を希望(?:します|しています)|に参加したい)(?=[。！\n]|$)/);
+  if (participationWish) {
+    return `この点は、次のように記載できます。\n\n「${participationWish[1]}への参加を希望しています。」`;
   }
 
   if (
-    /平日/.test(recentContext) &&
-    /土日|月.?1回|月1回/.test(normalizedSourceText)
+    /相手方は私が家に入ることを拒絶している/.test(stated) &&
+    /それは私も受け入れている(?=[。！\n]|$)/.test(stated) &&
+    /外食(?:だったり)?を提案している(?=[。！\n]|$)/.test(stated)
   ) {
-    return 'この点は、次のように追記できます。\n\n家を出た当初は平日に自由に面会できていました。その後、平日は学校帰りで時間が短いため、土日にも月1回面会できるよう求めましたが、当初はそれも拒否されました。調停委員の関与でようやく土日の面会が実現した後、今度は平日の面会に制限が設けられており、この経緯からすると、子どもの負担よりも私の交流を制限することが優先されているように見えます。';
+    return 'この点は、次のように書き換えられます。\n\n「相手方宅に立ち入らないことは、私も受け入れています。そのうえで、外食という形を提案しています。」';
   }
 
-  if (/夕食交流|食事/.test(normalizedSourceText)) {
-    return 'この点は、次のように追記できます。\n\n私は、必ず週1回夕食交流を実施しろと求めているのではありません。私には子どもと食事を共にする権利があるため、私が夕食交流を求めた際に一律に妨げないでほしいと求めています。週1回という表現が曖昧であれば、曜日や運用方法を具体的に協議し、どうすれば交流を実現できるかを示していただきたいと考えています。';
+  if (/子どもが私に交友関係について相談したいと話しています(?=[。！\n]|$)/.test(stated)) {
+    return 'この点は、次のように記載できます。\n\n「子どもは、私に交友関係について相談したいと話しています。」';
   }
 
-  if (/学校行事|習い事|参加/.test(normalizedSourceText)) {
-    return 'この点は、次のように書き換えられます。\n\n学校行事や習い事への参加について、相手方は私が参加すると自分が参加できないと述べていますが、そのような対立的な捉え方自体が問題です。私は相手方の参加を妨げる意図はなく、子どものために両親が参加できる形を協力して整えるべきだと考えています。';
-  }
-
-  if (/出張|外食|自宅に入る/.test(normalizedSourceText)) {
-    return '「相手方出張時の対応について、私は相手方宅に立ち入ることを求めておらず、その点は私も受け入れています。そのうえで、相手方には、外食などの形で私が子どもと食事を共にし、必要な見守りや支援を行える機会を認めるよう求めます。」';
-  }
-
-  if (/交友関係|心配無用|相談したい/.test(normalizedSourceText)) {
-    return 'この点は、次のように追記できます。\n\n平日交流は、時間の確保だけでなく、子どもが私に学校での交友関係など父親には話しにくい内容を相談できる機会でもあります。家を出た当初にも、子どもは私に話ができないと訴えていました。相手方にこの点を伝えても「心配無用」として取り合われませんでしたが、子どもが相談したい相手に会って話せないことこそが負担になり得ます。';
-  }
-
-  return 'この箇所は、相手方の対応と、それによって受け入れられない理由が一文ずつ分かる形に整えます。現状から変わらない点、拒否された具体的な要求、その結果として同意できない理由を順に書く形が適切です。';
+  // Keyword-only context must not synthesize a refusal, request, past event,
+  // legal right, or the other party's intent. The existing model path remains.
+  return '';
 }
 
 function buildHouseholdDirectWording(
@@ -8682,7 +8704,7 @@ function rewriteContextualClosingQuestion(
     /家賃|支払/.test(recentUserContext) &&
     /その伝え方はもう毎月|同じ提案|同じ質問/.test(lastUserText)
   ) {
-    return '毎月伝えても支払い不足が続くなら、言い方だけでは解決しません。まず、直近3か月の家賃額、相手の支払額、不足額を一覧にしてください。その一覧を使い、今後支払う金額、期日、不足した場合の対応について、書面で合意を求める段階です。';
+    return '毎月伝えても支払い不足が続くなら、同じ伝え方を繰り返すだけでは状況を確認できません。まず、直近3か月の家賃額、相手の支払額、不足額を記録してください。実際の支払いの記録が、今後の対応を考える材料になります。';
   }
 
   if (
@@ -8693,7 +8715,7 @@ function rewriteContextualClosingQuestion(
   ) {
     const differentPaymentResponse = buildDifferentPaymentProposalResponse(lastUserText, historyMessages);
     if (differentPaymentResponse) return differentPaymentResponse;
-    return '口頭で伝える方法では変わらなかったため、次は回答期限を付けた書面で確認する方法へ切り替える段階です。希望する家賃の負担額、毎月の支払日、不足した場合の扱い、回答期限を一通にまとめます。\n\n回答がない場合は、その書面と手元で確認できる支払記録を持って、夫婦問題や家計相談の窓口へ相談してください。';
+    return '支払いの希望を文面にする場合は、希望する家賃の負担額、毎月の支払日、回答期限を一通の文面にまとめてください。希望と実際の支払いを区別すると、相手に確認したい内容が明確になります。';
   }
 
   if (
@@ -8703,7 +8725,7 @@ function rewriteContextualClosingQuestion(
     /何度聞いても/.test(lastUserText) &&
     /説明がありません/.test(lastUserText)
   ) {
-    return '何度聞いても、ご主人から家賃を支払わない理由の説明がないのですね。理由が分からない以上、経済状況や意図をこちらで推測することはできません。\n\nまず、直近3か月の家賃額、ご主人の支払額、不足額を記録し、説明ではなく実際の支払い状況を基準に次の対応を決めてください。';
+    return '何度聞いても、ご主人から家賃を支払わない理由の説明がないのですね。理由が分からない以上、経済状況や意図をこちらで推測することはできません。\n\nまず、直近3か月の家賃額、ご主人の支払額、不足額を記録してください。実際の支払いの状況が、今後の対応を考える材料になります。';
   }
 
   const directQuestion = buildDirectContextQuestion(
@@ -9632,11 +9654,7 @@ function buildRestAcknowledgementFallback(
   const opening = /デジタルデトックス/.test(normalized)
     ? '今日はその方針で十分です。'
     : '今日は休む方針で十分です。';
-  const pauseTarget = /コンサート|返金|支払|集客|連絡/.test(recentContext)
-    ? 'コンサートや返金のことは明日まで触れず'
-    : '考え事を増やさず';
-
-  return `${opening}スマートフォンを閉じたら、${pauseTarget}、飲み物を一つ用意して座るか横になってください。\n\n今は次の答えを探すより、体の緊張を下げる方が先です。今日は連絡や集客をここで止めたまま、休むことだけを予定にしてください。`;
+  return `${opening}今は新しい準備や課題を増やす必要はありません。今日はゆっくり休んでください。`;
 }
 
 function buildGroundedStatementContinuationFallback(
