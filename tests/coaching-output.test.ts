@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { writeFileSync } from 'node:fs';
+import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import {
   COACHING_IMAGE_MODEL,
   COACHING_MAX_OUTPUT_TOKENS,
@@ -26,6 +27,16 @@ import {
   getCoachingSystemPrompt,
   getContextualizedPrompt,
 } from '../src/data/coaching-system-prompt';
+
+// Separate optional capture for the two unchanged existing future-intention inputs.
+const futureIntentExistingOutputActuals: unknown[] = [];
+afterAll(() => {
+  const output = process.env.ACTI_FUTURE_INTENT_EXISTING_OUTPUT_REPLAY_OUTPUT;
+  if (output) writeFileSync(output, JSON.stringify({
+    scope: 'Two original existing input/history pairs; LOCAL public-builder output only',
+    providerOriginalRaw: 'NOT_CAPTURED', actuals: futureIntentExistingOutputActuals,
+  }, null, 2) + '\n', { flag: 'wx', mode: 0o600 });
+});
 
 describe('getCoachingGeminiModelName', () => {
   it('通常会話は会話品質を優先した3.5 Flashを使う', () => {
@@ -6553,10 +6564,29 @@ describe('normalizeCoachingOutput', () => {
       historyMessages,
     });
 
+    // Retain the actual before/after body before the semantic assertions.
+    futureIntentExistingOutputActuals.push({
+      stage: 'existing-future-intention-builder', history: historyMessages,
+      latest: lastUserText, final: fallback, quality: assessment,
+      outputOrigin: 'LOCAL public-export builder, not provider-original or production wire',
+    });
     expect(assessment.issues).toEqual([]);
-    expect(fallback).toMatch(/新しい課題は足さず/);
-    expect(fallback).toMatch(/一度だけ書き出|一回だけを実行/);
-    expect(fallback).not.toContain(lastUserText);
+    expect(fallback).not.toMatch(/という相談ですね|まだ書かれていない原因を推測せず|今の情報だけで原因や相手の意図|計画や課題を増やすより|確かめる段階|予定どおりに進まなくても|それは失敗ではなく|改善点が分かる材料|次に見直す手順が分かる材料|新しい課題は足さず|予定している最初の一回/);
+    expect(fallback).not.toMatch(/[？?]|(?:実行し|確認し|書き出し|書い|決め|送っ)てください|しましょう|もう一度送って|時間をおいて/);
+    if (lastUserText.startsWith('準備ができたので')) {
+      // The user actually states readiness, tomorrow and gradual trial.
+      expect(fallback).toMatch(/準備(?:が)?でき/);
+      expect(fallback).toContain('明日');
+      expect(fallback).toContain('一つずつ');
+      expect(fallback).toMatch(/試しながら|試す|やる/);
+    } else {
+      // Keep the user's present-day content and intended notebook writing.
+      expect(fallback).toContain('今日');
+      expect(fallback).toMatch(/分かったこと|わかったこと/);
+      expect(fallback).toContain('ノート');
+      expect(fallback).toMatch(/書き出す|書き出してみる/);
+      expect(fallback).not.toMatch(/紙にある内容|作成済み|書き終えた|既に書き出した/);
+    }
   });
 
   it('最初の一歩を一気にゴール化する相談では具体的な一場面へ戻す', () => {
@@ -7955,9 +7985,199 @@ describe('memo prerequisites and current-topic preparation', () => {
     const text = buildFinalVerifiedQualityFallback(input, history);
     const quality = assessCoachingResponseQuality({ text, lastUserText: input, historyMessages: history });
     expect(text).not.toMatch(/紙にある内容|作成済み|書き終えた/);
+    // The fixed future-writing intention does not supply a process stage,
+    // failure/improvement frame, or an unspecified execution target.
+    expect(text).not.toMatch(/計画や課題を増やすより|その手順で一度進め|確かめる段階|予定どおりに進まなくても|それは失敗ではなく|改善点が分かる材料|新しい課題は足さず|予定している最初の一回/);
     expect(text).toMatch(/書き留め|記録|書いて/);
     expect(text).not.toMatch(/[？?]|もう一度送って|時間をおいて/);
     expect(quality.issues).toEqual([]);
    });
   });
+});
+
+
+// The same two LOCAL builder candidates from the failed existing-output before run.
+const futureIntentExistingPathCases = [
+  {
+    "name": "existing-intention-1",
+    "history": [
+      {
+        "role": "assistant",
+        "content": "一度に全部を変えず、次に試すことを一つだけ決めてください。"
+      }
+    ],
+    "latest": "準備ができたので、明日から一つずつ試しながらやります。",
+    "candidate": "「準備ができたので、明日から一つずつ試しながらやります」という相談ですね。\n\nまだ書かれていない原因を推測せず、実際に起きたことと、次に確認する点を分けると、具体的な対応を選びやすくなります。今の情報だけで原因や相手の意図を決めつけず、確認できる出来事から整理します。"
+  },
+  {
+    "name": "existing-intention-2",
+    "history": [
+      {
+        "role": "assistant",
+        "content": "一度に全部を変えず、次に試すことを一つだけ決めてください。"
+      }
+    ],
+    "latest": "今日分かったことをノートに書き出す",
+    "candidate": "「今日分かったことをノートに書き出す」という相談ですね。\n\nまだ書かれていない原因を推測せず、実際に起きたことと、次に確認する点を分けると、具体的な対応を選びやすくなります。今の情報だけで原因や相手の意図を決めつけず、確認できる出来事から整理します。"
+  }
+] as Array<{name:string;history:Array<{role:'assistant'|'user';content:string}>;latest:string;candidate:string}>;
+const futureIntentEligibilityControls = [
+  {
+    "name": "dictionary-neutral-assistant",
+    "history": [
+      {
+        "role": "assistant",
+        "content": "ここからどのように進めるか、考えられそうですか？"
+      }
+    ],
+    "latest": "今日分かったことをノートに書き出す",
+    "candidate": "今日分かったことをノートに書き出すのですね。"
+  },
+  {
+    "name": "dictionary-quoted-selection-request",
+    "history": [
+      {
+        "role": "assistant",
+        "content": "「次に試すことを一つだけ決めてください」と言われました。"
+      }
+    ],
+    "latest": "今日分かったことをノートに書き出す",
+    "candidate": "今日分かったことをノートに書き出すのですね。"
+  },
+  {
+    "name": "dictionary-negated-selection-request",
+    "history": [
+      {
+        "role": "assistant",
+        "content": "次に試すことを一つだけ決める必要はありません。"
+      }
+    ],
+    "latest": "今日分かったことをノートに書き出す",
+    "candidate": "今日分かったことをノートに書き出すのですね。"
+  },
+  {
+    "name": "quoted-latest-report",
+    "history": [
+      {
+        "role": "assistant",
+        "content": "一度に全部を変えず、次に試すことを一つだけ決めてください。"
+      }
+    ],
+    "latest": "「今日分かったことをノートに書き出す」とAIに言われました。",
+    "candidate": "今日分かったことをノートに書き出すのですね。"
+  },
+  {
+    "name": "third-party-polite-writing",
+    "history": [
+      {
+        "role": "assistant",
+        "content": "一度に全部を変えず、次に試すことを一つだけ決めてください。"
+      }
+    ],
+    "latest": "夫は今日分かったことをノートに書き出します。",
+    "candidate": "夫は今日分かったことをノートに書き出すのですね。"
+  },
+  {
+    "name": "negated-writing",
+    "history": [
+      {
+        "role": "assistant",
+        "content": "一度に全部を変えず、次に試すことを一つだけ決めてください。"
+      }
+    ],
+    "latest": "今日分かったことをノートに書き出しません。",
+    "candidate": "今日分かったことをノートに書き出すのですね。"
+  },
+  {
+    "name": "completed-writing",
+    "history": [
+      {
+        "role": "assistant",
+        "content": "一度に全部を変えず、次に試すことを一つだけ決めてください。"
+      }
+    ],
+    "latest": "今日分かったことをノートに書き出しました。",
+    "candidate": "今日分かったことをノートに書き出すのですね。"
+  },
+  {
+    "name": "conditional-writing",
+    "history": [
+      {
+        "role": "assistant",
+        "content": "一度に全部を変えず、次に試すことを一つだけ決めてください。"
+      }
+    ],
+    "latest": "今日分かったことをノートに書き出すなら、試してみます。",
+    "candidate": "今日分かったことをノートに書き出すなら、試してみるのですね。"
+  },
+  {
+    "name": "nagara-does-not-hide-actor-particle",
+    "history": [
+      {
+        "role": "assistant",
+        "content": "一度に全部を変えず、次に試すことを一つだけ決めてください。"
+      }
+    ],
+    "latest": "夫が試しながらやります。",
+    "candidate": "夫が試しながらやるのですね。"
+  },
+  {
+    "name": "preparation-report-denial",
+    "history": [
+      {
+        "role": "assistant",
+        "content": "一度に全部を変えず、次に試すことを一つだけ決めてください。"
+      }
+    ],
+    "latest": "準備ができたとは言っていません。明日から一つずつ試しながらやります。",
+    "candidate": "準備ができたので、明日から一つずつ試しながらやるのですね。"
+  }
+] as typeof futureIntentExistingPathCases;
+const futureIntentBoundaryActuals: unknown[] = [];
+afterAll(()=>{
+ const output=process.env.ACTI_FUTURE_INTENT_BOUNDARY_REPLAY_OUTPUT;
+ if(output)writeFileSync(output,JSON.stringify({
+  scope:'Six original-two-candidate mode paths plus ten bounded future-intention eligibility controls, LOCAL only',
+  providerOriginalRaw:'NOT_CAPTURED',actuals:futureIntentBoundaryActuals,
+ },null,2)+'\n',{flag:'wx',mode:0o600});
+});
+function assessExistingIntent(text:string,c:typeof futureIntentExistingPathCases[number]){
+ return assessCoachingResponseQuality({text,lastUserText:c.latest,historyMessages:c.history});
+}
+function verifyExistingIntent(text:string,c:typeof futureIntentExistingPathCases[number]){
+ const quality=assessExistingIntent(text,c);
+ return ensureVerifiedCoachingResolution({resolution:{text,usage:{},modelName:'saved-local-builder-fixture',provider:'local',repairAttempted:false,repairAccepted:false,initialIssues:quality.issues,finalIssues:quality.issues},lastUserText:c.latest,historyMessages:c.history});
+}
+function expectExistingIntentAcknowledgement(text:string,c:typeof futureIntentExistingPathCases[number]){
+ expect(text).not.toBe(c.candidate);
+ expect(text).not.toMatch(/という相談ですね|まだ書かれていない原因を推測せず|今の情報だけで原因や相手の意図|計画や課題を増やすより|確かめる段階|予定どおりに進まなくても|それは失敗ではなく|改善点が分かる材料|次に見直す手順が分かる材料|新しい課題は足さず|予定している最初の一回/);
+ expect(text).not.toMatch(/[？?]|(?:実行し|確認し|書き出し|書い|決め|送っ)てください|しましょう|もう一度送って|時間をおいて/);
+ if(c.latest.startsWith('準備ができたので')){
+  expect(text).toMatch(/準備(?:が)?でき/);expect(text).toContain('明日');expect(text).toContain('一つずつ');expect(text).toMatch(/試しながら|試す|やる/);
+ }else{
+  expect(text).toContain('今日');expect(text).toMatch(/分かったこと|わかったこと/);expect(text).toContain('ノート');expect(text).toMatch(/書き出す|書き出してみる/);
+  expect(text).not.toMatch(/紙にある内容|作成済み|書き終えた|既に書き出した/);
+ }
+ expect(assessExistingIntent(text,c).issues).toEqual([]);
+}
+describe('bounded existing future-intention paths and eligibility',()=>{
+ afterEach(()=>{vi.unstubAllEnvs();vi.unstubAllGlobals();});
+ it.each(futureIntentExistingPathCases.flatMap(c=>['minimal','legacy','observe'].map(mode=>({...c,mode}))))('classifies and verifies $name in $mode',c=>{
+  vi.stubEnv('COACHING_OUTPUT_PIPELINE_MODE',c.mode);
+  let forbiddenFetchAttempts=0;vi.stubGlobal('fetch',()=>{forbiddenFetchAttempts++;throw Error('NETWORK_FORBIDDEN');});
+  const quality=assessExistingIntent(c.candidate,c);
+  const normalized=normalizeCoachingOutput(c.candidate,c.latest,c.history);
+  const direct=verifyExistingIntent(c.candidate,c);const normalizedVerified=verifyExistingIntent(normalized,c);
+  futureIntentBoundaryActuals.push({stage:'existing-two-mode-paths',...c,candidateOrigin:'exact_saved_LOCAL_builder_before_output_not_provider_raw',quality,normalized,normalizedQuality:assessExistingIntent(normalized,c),direct,normalizedVerified,forbiddenFetchAttempts});
+  expect(forbiddenFetchAttempts).toBe(0);
+  expect(quality.issues).toContain('generic_canned_close');expect(direct.initialIssues).toContain('generic_canned_close');
+  expectExistingIntentAcknowledgement(normalizedVerified.text,c);expect(normalizedVerified.finalIssues).toEqual([]);expect(normalizedVerified.qualitySafetyHold).not.toBe(true);
+  if(c.mode==='observe'){expect(direct.text).toBe(c.candidate);return;} // Known-bad detection-only direct path.
+  expectExistingIntentAcknowledgement(direct.text,c);expect(direct.finalIssues).toEqual([]);expect(direct.qualitySafetyHold).not.toBe(true);
+ });
+ it.each(futureIntentEligibilityControls)('does not promote $name to the new intended-ack length class',c=>{
+  const quality=assessExistingIntent(c.candidate,c);
+  futureIntentBoundaryActuals.push({stage:'existing-ending-eligibility-control',...c,quality,expectationScope:'Only retain too_short, not an acceptable reply or proof of all quality checks.'});
+  expect(quality.issues).toContain('too_short');
+ });
 });
