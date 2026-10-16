@@ -53,3 +53,42 @@ export function containsConversationRestriction(text) {
     /(?:話題|会話)(?:そのもの|自体)?(?:は|を)(?:(?:できるだけ|なるべく|極力|一度|いったん|一旦|しばらく)[、,\s]*)*避け/u.test(text) ||
     /(?:話題|会話)(?:の(?:範囲|内容))?(?:は|を)[^。！？\n]{0,16}限定/u.test(text);
 }
+
+// Only the observed present-tense or noun task target in a future instruction is
+// aligned. Quotes, past reports and explicit user-supplied today references
+// remain intact; this is not a general relative-date interpreter.
+function ambiguousFutureActionDaySpans(text, lastUserText, currentUserTexts) {
+  if (!/明日/u.test(lastUserText) ||
+      !/行動|作業|一歩|何をすれば|どうすれば|できること|すること|やること|始める/u.test(lastUserText) ||
+      /文案|文面|せりふ|セリフ|台詞|言い方|伝える(?:言葉|一言)|最初の一言/u.test(lastUserText)) return [];
+  const quotes = /「[^」]*」|『[^』]*』|"[^"]*"|'[^']*'/gu;
+  const unquoted = (value) => value.replace(quotes, (quote) => ' '.repeat(quote.length));
+  if (currentUserTexts.some((value) => /今日|本日/u.test(
+    unquoted(value).replace(/(?:今日|本日)(?:ではなく|じゃなく)/gu, '')
+  ))) return [];
+  const visible = unquoted(text);
+  return [...visible.matchAll(/(?:今日|本日)(?:(?=(?:行う|やる|する|取り組む|片付ける)(?:作業|タスク|仕事|用事|こと))|の(?=作業|タスク|仕事|用事))/gu)]
+    .filter((match) => /(?:明日|翌日|翌朝)[^。！？\n]{0,80}$/u.test(visible.slice(0, match.index)))
+    // Retrospective verbs make the prior-day target explicit rather than
+    // ambiguously describing a task to perform on the future execution day.
+    .filter((match) => {
+      const target = /^(?:(?:行う|やる|する|取り組む|片付ける))?(?:作業|タスク|仕事|用事|こと)(?:を|について)/u.exec(visible.slice(match.index + match[0].length));
+      if (!target) return true;
+      const clause = visible.slice(match.index + match[0].length + target[0].length).split(/[。！？\n]/u)[0].slice(0, 32);
+      const retrospective = /振り返|思い出/u.exec(clause);
+      if (!retrospective) return true;
+      // A separate action before reflection still makes the task's day
+      // ambiguous. Match verb forms, not nouns such as 書面 or メモ.
+      return /書(?:く|き|い|か)|メモ(?:し|する)|記録(?:し|する)|選(?:ぶ|び|ん|ば)|決め|始め|進め|確認(?:し|する)|伝え|送(?:る|り|っ|ら)|開(?:く|き|い|か)|読(?:む|み|ん|ま)|実行(?:し|する)|終え/u.test(clause.slice(0, retrospective.index));
+    })
+    .map((match) => ({ index: match.index, length: match[0].length, replacement: match[0].endsWith('の') ? 'その日の' : 'その日に' }));
+}
+
+export function containsAmbiguousFutureActionDayReference(text, lastUserText, currentUserTexts = [lastUserText]) {
+  return ambiguousFutureActionDaySpans(text, lastUserText, currentUserTexts).length > 0;
+}
+
+export function alignFutureActionDayReferences(text, lastUserText, currentUserTexts = [lastUserText]) {
+  return ambiguousFutureActionDaySpans(text, lastUserText, currentUserTexts)
+    .reverse().reduce((aligned, span) => `${aligned.slice(0, span.index)}${span.replacement}${aligned.slice(span.index + span.length)}`, text);
+}

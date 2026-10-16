@@ -8,7 +8,7 @@ import { sendCoachingAlert } from '@/lib/coaching-alerts';
 import { COACHING_SCOPE_GUIDANCE } from '@/lib/coaching-scope';
 import { containsDeadlineOutcomeAssurance, stripAttributedDeadlineQuotes } from '@/lib/coaching-deadline-language.mjs';
 import { containsUnsupportedEmotionIntensity, removeUnsupportedEmotionIntensity, containsUnsupportedConcernPremise, removeUnsupportedConcernPremise, currentTopicUserTexts } from '@/lib/coaching-emotion-language.mjs';
-import { containsCircularSingleAction, containsUnsupportedSituationPremise, containsUngroundedTaskAssumption, hasCurrentUserSituationEvidence, containsConversationRestriction } from '@/lib/coaching-action-language.mjs';
+import { containsCircularSingleAction, containsUnsupportedSituationPremise, containsUngroundedTaskAssumption, hasCurrentUserSituationEvidence, containsConversationRestriction, containsAmbiguousFutureActionDayReference, alignFutureActionDayReferences } from '@/lib/coaching-action-language.mjs';
 import {
   getCoachingOutputPipelineConfig,
   type CoachingOutputPipelineMode,
@@ -1927,7 +1927,8 @@ export function buildIncompleteGenerationRecoveryResponse(
   if (requestsSingleAnswerFormat(lastUserText)) {
     return preserveRequestedActionTime(
       buildNoQuestionFallback(lastUserText, historyMessages),
-      lastUserText
+      lastUserText,
+      historyMessages
     );
   }
 
@@ -2350,7 +2351,8 @@ function buildResilientLocalFallback(
   if (requestsNoFollowUpQuestion(lastUserText)) {
     return preserveRequestedActionTime(
       buildNoQuestionFallback(lastUserText, historyMessages),
-      lastUserText
+      lastUserText,
+      historyMessages
     );
   }
 
@@ -2994,7 +2996,8 @@ export function assessCoachingResponseQuality(params: {
     /明日/.test(lastUserText) &&
     requestsConcreteSuggestion(lastUserText) &&
     !hasValidDirectWording &&
-    (!/明日/.test(text) ||
+    (containsAmbiguousFutureActionDayReference(text, lastUserText, getCurrentPlanningUserTexts(lastUserText, historyMessages)) ||
+      !/明日/.test(text) ||
       (/明日の朝/.test(lastUserText) && !/明日の朝/.test(text)) ||
       (!/(?:今|すぐ)/.test(lastUserText) &&
         /今[、,][^。！？\n]{0,80}(?:書|決め|選|始め|開|伝え|確認|取り組|着手|送|連絡|報告)/.test(
@@ -3730,7 +3733,8 @@ export function normalizeCoachingOutput(
       requestsDirectWording(lastUserText)
         ? shortAnswer
         : unwrapStandaloneJapaneseQuote(shortAnswer),
-      lastUserText
+      lastUserText,
+      historyMessages
     );
   }
 
@@ -3748,7 +3752,8 @@ export function normalizeCoachingOutput(
         lastUserText,
         historyMessages
       ),
-      lastUserText
+      lastUserText,
+      historyMessages
     );
   }
 
@@ -3758,7 +3763,8 @@ export function normalizeCoachingOutput(
       lastUserText,
       historyMessages
     ),
-    lastUserText
+    lastUserText,
+    historyMessages
   );
 }
 
@@ -5504,7 +5510,8 @@ export function buildFinalVerifiedQualityFallback(
         : 'まだ書かれていない原因を推測せず、実際に起きたことと、次に確認する点を分けると、具体的な対応を選びやすくなります。';
   const concreteAction = preserveRequestedActionTime(
     buildNoQuestionFallback(fallbackSourceText, historyMessages),
-    lastUserText
+    lastUserText,
+    historyMessages
   );
   const legalDraftRevisionFallback =
     buildFamilyLegalDraftRevisionFallback(lastUserText, historyMessages) ||
@@ -6963,7 +6970,7 @@ export function buildUrgentSafetyResponse(text: string) {
   ].join('\n\n');
 }
 
-function preserveRequestedActionTime(text: string, lastUserText: string) {
+function preserveRequestedActionTime(text: string, lastUserText: string, historyMessages: CoachingChatMessage[] = []) {
   if (!/明日/.test(lastUserText)) return text;
 
   let aligned = text
@@ -7016,6 +7023,11 @@ function preserveRequestedActionTime(text: string, lastUserText: string) {
     aligned = `明日の朝、${actionWithoutLeadingTomorrow}`;
   }
   if (requestsDirectWording(lastUserText)) return aligned;
+  if (requestsConcreteSuggestion(lastUserText)) {
+    aligned = alignFutureActionDayReferences(
+      aligned, lastUserText, getCurrentPlanningUserTexts(lastUserText, historyMessages)
+    );
+  }
   if (
     requestsConcreteSuggestion(lastUserText) &&
     !/明日/.test(aligned)
