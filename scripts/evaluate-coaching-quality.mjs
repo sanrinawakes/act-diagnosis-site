@@ -1349,6 +1349,11 @@ function evaluateConversations(conversations) {
         turnIndex: turnIndex + 1,
         repeatsPreviousAssistant,
         coachingMoves: countCoachingMoves(turn.message),
+        // Internal evaluation context only: never include the current candidate or future turns.
+        previousAssistantMessages: [
+          ...(conversation.seedHistory || []).filter(message => message.role === 'assistant').map(message => message.content),
+          ...conversation.turns.slice(0, turnIndex).map(previous => previous.message),
+        ],
         currentUserTexts: currentTopicUserTexts([
           ...(conversation.seedHistory || []).filter(message => message.role === 'user').map(message => message.content),
           ...conversation.turns.slice(0, turnIndex + 1).map(previous => previous.user),
@@ -1417,7 +1422,7 @@ function evaluateConversations(conversations) {
     }
     if (turn.conversationName === 'rejected-suggestion-and-direct-answer' && /-4$/.test(turn.label)) {
       addCheck(checks, `${turn.label}: 別対応を求められた時に既出の書面確認へ戻さない`,
-        /相談(?:の)?窓口|第三者/.test(turn.message) && !/書面で確認する方法へ|回答期限を一通にまとめ|書面で回答を求め/.test(turn.message));
+        !containsRepeatedWrittenPaymentRequest(turn.message, turn.previousAssistantMessages));
     }
     if (turn.conversationName === 'short-reply-continuation' && /-2$/.test(turn.label)) {
       addCheck(checks, `${turn.label}: 過去の断り経験を前提にしない`,
@@ -1663,6 +1668,31 @@ function evaluateConversations(conversations) {
       ],
     },
   };
+}
+
+// This scenario rejects a repeated payment-request proposal, not every first written request.
+// Positive instructions must be outside quotes; quoted wording/field labels may supply the object.
+function containsRepeatedWrittenPaymentRequest(message, previousAssistantMessages) {
+  const isWrittenPaymentRequest = (text) => {
+    const original = String(text || '');
+    const outside = stripJapaneseQuotationContent(original, true);
+    const segments = outside.matchAll(/[^。！？?\n]+[。！？?\n]?/gu);
+    for (const match of segments) {
+      const directive = match[0];
+      const sentence = original.slice(match.index, match.index + directive.length);
+      const proposesAction = /(?:まとめて|整理して|書いて|作成して|作って|送って|求めて|確認して|伝えて|切り替えて|進んで)(?:みて)?ください|(?:まとめ|整理し|書き|作成し|作り|送り|求め|確認し|伝え)ましょう|(?:まとめる|整理する|書く|作成する|作る|送る|求める|確認する|伝える)(?:方法(?:が|を)|ことを(?:提案|おすすめ))|(?:まとめ|整理|作成|確認)(?:でき|していただけ)ますか[？?]?/u.test(directive);
+      const writtenChannel = /書面|文面|文書|メール|手紙|メッセージ|一通/u.test(sentence);
+      const requestsPaymentTermsOrReply = /希望|払ってほしい|負担してほしい|(?:回答|返答|返信|返事)(?:の)?(?:期限|期日)|(?:回答|返答|返信|返事)[^。！？?\n]{0,16}(?:求め|お願い|依頼)/u.test(sentence);
+      const paymentAmountAndDueDate = /家賃|支払|負担額|金額/u.test(sentence) && /期限|期日|支払日|支払い日/u.test(sentence);
+      const writtenConfirmationMethod = /(?:書面|文面|文書|メール|手紙|メッセージ)[^。！？?\n]{0,12}確認する方法/u.test(sentence);
+      const actualPaymentRecord = /実績|直近|過去|実際(?:に|の)?(?:支払|入金)|支払った|不足額/u.test(sentence);
+      if (proposesAction && writtenChannel &&
+        (requestsPaymentTermsOrReply || ((paymentAmountAndDueDate || writtenConfirmationMethod) && !actualPaymentRecord))) return true;
+    }
+    return false;
+  };
+  return isWrittenPaymentRequest(message) &&
+    previousAssistantMessages.some(isWrittenPaymentRequest);
 }
 
 function getLocalTurnExpectation(label, pipelineMode = 'legacy') {

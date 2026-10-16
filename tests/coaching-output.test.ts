@@ -204,7 +204,7 @@ describe('final verified quality fallback', () => {
     const result = buildFinalVerifiedQualityFallback(lastUserText, history);
 
     expect(result).toBe(
-      '話し始める直前に、最初に伝えたい一文をメモで一度だけ確認してください。'
+      '話し始める直前に、最初に伝えたい一文を心の中で一度だけ言ってみてください。'
     );
     expect(result).not.toContain('という相談ですね');
   });
@@ -2851,7 +2851,7 @@ describe('normalizeCoachingOutput', () => {
     );
 
     expect(result).toBe(
-      '話し始める直前に、最初に伝えたい一文をメモで一度だけ確認してください。'
+      '話し始める直前に、最初に伝えたい一文を心の中で一度だけ言ってみてください。'
     );
     expect(result).not.toMatch(/3つ|三つ/);
   });
@@ -2869,7 +2869,7 @@ describe('normalizeCoachingOutput', () => {
     );
 
     expect(result).toBe(
-      '話し始める直前に、最初に伝えたい一文をメモで一度だけ確認してください。'
+      '話し始める直前に、最初に伝えたい一文を心の中で一度だけ言ってみてください。'
     );
     expect(result).not.toMatch(/明日|翌朝/);
   });
@@ -5013,7 +5013,7 @@ describe('normalizeCoachingOutput', () => {
 
     expect(result).not.toMatch(/息を吐|両肩/);
     expect(result).toBe(
-      '話し始める直前に、最初に伝えたい一文をメモで一度だけ確認してください。'
+      '話し始める直前に、最初に伝えたい一文を心の中で一度だけ言ってみてください。'
     );
   });
 
@@ -5031,7 +5031,7 @@ describe('normalizeCoachingOutput', () => {
 
     expect(result).not.toMatch(/深呼吸|唱え/);
     expect(result).toBe(
-      '話し始める直前に、最初に伝えたい一文をメモで一度だけ確認してください。'
+      '話し始める直前に、最初に伝えたい一文を心の中で一度だけ言ってみてください。'
     );
   });
 
@@ -5049,7 +5049,7 @@ describe('normalizeCoachingOutput', () => {
 
     expect(result).not.toMatch(/深呼吸|つぶや/);
     expect(result).toBe(
-      '話し始める直前に、最初に伝えたい一文をメモで一度だけ確認してください。'
+      '話し始める直前に、最初に伝えたい一文を心の中で一度だけ言ってみてください。'
     );
   });
 
@@ -7916,5 +7916,48 @@ describe('factual reply delivery boundaries', () => {
     const normalized = normalizeCoachingOutput(result.text, lastUserText, historyMessages);
     expect(normalized).toContain('案内');
     expect(normalized.length).toBeGreaterThan(35);
+  });
+});
+
+
+describe('memo prerequisites and current-topic preparation', () => {
+  const latest = '始める直前にできることを、質問なしで一つだけ教えてください。';
+  const oldVague = '始める直前に、最初の一歩を一文だけ確認してください。';
+  function checkSelfContained(text: string, history: {role: 'user'|'assistant'; content: string}[]) {
+   const quality = assessCoachingResponseQuality({ text, lastUserText: latest, historyMessages: history });
+   expect(text).toMatch(/直前/);
+   expect(text).not.toMatch(/最初の一歩を一文だけ確認|話し始める|伝えたい一文/);
+   expect(text).toMatch(/(?:一つ|ひとつ|1つ)だけ(?:メモ|紙)に書いてください/);
+   expect(text).not.toMatch(/[？?]|もう一度送って|時間をおいて/);
+   expect(quality.issues).toEqual([]);
+  }
+  describe('finite neighboring no-question artifact premises through existing public exports', () => {
+   it('gives a self-contained non-talk preparation operation instead of checking an undefined first step', () => {
+    const text = buildFinalVerifiedQualityFallback(latest, []);
+    checkSelfContained(text, []);
+   });
+   it('does not preserve the known vague non-talk fallback through normalization', () => {
+    const text = normalizeCoachingOutput(oldVague, latest, []);
+    checkSelfContained(text, []);
+   });
+   it('does not reuse a former conversation topic after an explicit non-talk topic switch', () => {
+    const history: {role:'user'|'assistant';content:string}[] = [
+     { role: 'user', content: '夫と家事分担について話したいです。' },
+     { role: 'assistant', content: '伝えたいことを考えられます。' },
+     { role: 'user', content: '話題を変えて、今度は料理について考えたいです。' },
+    ];
+    const text = buildFinalVerifiedQualityFallback(latest, history);
+    checkSelfContained(text, history);
+   });
+   it('acknowledges intended writing without inventing already-created paper content', () => {
+    const history: {role:'user'|'assistant';content:string}[] = [{ role: 'assistant', content: 'ここからどのように進めるか、考えられそうですか？' }];
+    const input = 'メモに書いてみます。';
+    const text = buildFinalVerifiedQualityFallback(input, history);
+    const quality = assessCoachingResponseQuality({ text, lastUserText: input, historyMessages: history });
+    expect(text).not.toMatch(/紙にある内容|作成済み|書き終えた/);
+    expect(text).toMatch(/書き留め|記録|書いて/);
+    expect(text).not.toMatch(/[？?]|もう一度送って|時間をおいて/);
+    expect(quality.issues).toEqual([]);
+   });
   });
 });
