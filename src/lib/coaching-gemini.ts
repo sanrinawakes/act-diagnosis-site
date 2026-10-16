@@ -7309,8 +7309,17 @@ function hasStatedDeclineCapacity(userContext: string) {
   const currentContext = userContext.split(/話題を変|話を変|別の話|別件|今度は/).at(-1) || '';
   // Retain a supplied reason only for a direct current statement by the user.
   // Do not turn somebody else's workload, a quote, or past busyness into one.
-  return currentContext.replace(/[「『][^」』]*[」』]/g, '').split(/[。！？?\n]/).some((sentence) =>
-    /^(?:(?:私|わたし)(?:は|が)[、,\s]*)?(?:今(?:は)?|現在(?:は)?|本日(?:は)?)?[、,\s]*(?:(?:仕事|業務)(?:が|で))?(?:(?:手一杯|手が(?:一杯|いっぱい))(?:です|だ|なので|のため)|(?:業務)?予定が埋まって(?:います|いる))/.test(sentence.trim())
+  const latestStatement = currentContext.replace(/[「『][^」』]*[」』]/g, '')
+    .split(/[。！？?\n]/).map((sentence) => sentence.trim()).findLast((sentence) =>
+      /^(?:(?:私|わたし)(?:は|が)[、,\s]*)?(?:もう|今(?:は)?|現在(?:は)?|本日(?:は)?)?[、,\s]*(?:(?:仕事|業務)(?:が|で))?(?:手一杯|手が(?:一杯|いっぱい)|(?:業務)?予定が埋ま)/.test(sentence)
+    );
+  // A later direct denial cancels an older affirmative statement in the same
+  // topic. Do not search backward for a more convenient reason after it.
+  if (latestStatement && /(?:とは|と)[、,\s]*(?:言って|述べて|伝えて)(?:いない|いません)|という意味(?:では|じゃ)(?:ない|ありません)/.test(latestStatement)) {
+    return false;
+  }
+  return Boolean(latestStatement &&
+    /^(?:(?:私|わたし)(?:は|が)[、,\s]*)?(?:もう|今(?:は)?|現在(?:は)?|本日(?:は)?)?[、,\s]*(?:(?:仕事|業務)(?:が|で))?(?:(?:手一杯|手が(?:一杯|いっぱい))(?:です(?=$|[、,\s]|が|ので)|だ(?=$|[、,\s]|から|けど)|なので|のため)|(?:業務)?予定が埋まって(?:います|いる)(?=$|[、,\s]|が|ので|から|ため))/.test(latestStatement)
   );
 }
 

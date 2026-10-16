@@ -216,4 +216,81 @@ describe('factual correction and payment agreement grounding', () => {
     expect(normalizeCoachingOutput(candidate, latest)).toBe('「ありがとうございます。今回はお引き受けできません。」');
     expect(buildFinalVerifiedQualityFallback(latest, [])).toBe('「ありがとうございます。今回はお引き受けできません。」');
   });
+
+  it.each(['minimal', 'legacy', 'observe'])('同じ話題で最新の否定が以前の多忙説明を取り消す: %s', (mode) => {
+    vi.stubEnv('COACHING_OUTPUT_PIPELINE_MODE', mode);
+    const history: CoachingChatMessage[] = [
+      { role: 'user', content: '今は手一杯です。' },
+      { role: 'assistant', content: '依頼への返答を考えたいのですね。' },
+    ];
+    const latest = 'もう手一杯ではありません、仕事の依頼を断る一言を一つだけ教えてください。';
+    const candidate = '「今は手一杯のため、今回はお引き受けできません。」';
+    expect(assessCoachingResponseQuality({ text: candidate, lastUserText: latest, historyMessages: history }).issues).toContain('context_mismatch');
+    expect(normalizeCoachingOutput(candidate, latest, history)).toBe('「ありがとうございます。今回はお引き受けできません。」');
+    expect(buildFinalVerifiedQualityFallback(latest, history)).toBe('「ありがとうございます。今回はお引き受けできません。」');
+  });
+
+  it.each(['minimal', 'legacy', 'observe'])('最新の明示的な多忙説明は以前の否定より優先する: %s', (mode) => {
+    vi.stubEnv('COACHING_OUTPUT_PIPELINE_MODE', mode);
+    const history: CoachingChatMessage[] = [{ role: 'user', content: '今は手一杯ではありません。' }];
+    const latest = '今は手一杯です。仕事の依頼を断る一言を一つだけ教えてください。';
+    const candidate = '「ありがとうございます。ただ、今は手一杯のため、今回はお引き受けできません。」';
+    expect(assessCoachingResponseQuality({ text: candidate, lastUserText: latest, historyMessages: history }).issues).not.toContain('context_mismatch');
+    expect(normalizeCoachingOutput(candidate, latest, history)).toBe(candidate);
+  });
+
+  it.each(['minimal', 'legacy', 'observe'])('引用符なしの発言否定を本人の多忙説明としない: %s', (mode) => {
+    vi.stubEnv('COACHING_OUTPUT_PIPELINE_MODE', mode);
+    const latest = '手一杯だとは言っていません。仕事を断る一言を一つだけ教えてください。';
+    const candidate = '「ありがとうございます。ただ、今は手一杯のため、今回はお引き受けできません。」';
+    expect(assessCoachingResponseQuality({ text: candidate, lastUserText: latest }).issues).toContain('context_mismatch');
+    expect(normalizeCoachingOutput(candidate, latest)).toBe('「ありがとうございます。今回はお引き受けできません。」');
+  });
+
+  it('直述終端の「だ」は明示された本人の事情として保持する', () => {
+    const latest = '今は手一杯だ。仕事を断る一言を一つだけ教えてください。';
+    const candidate = '「ありがとうございます。ただ、今は手一杯のため、今回はお引き受けできません。」';
+    expect(assessCoachingResponseQuality({ text: candidate, lastUserText: latest }).issues).not.toContain('context_mismatch');
+    expect(normalizeCoachingOutput(candidate, latest)).toBe(candidate);
+  });
+
+  const capacityForms = [
+    ['手一杯です', '今は手一杯です。', '手一杯ですとは言っていません。', '今は手一杯のため'],
+    ['手一杯だ', '今は手一杯だ。', '手一杯だとは言っていない。', '今は手一杯のため'],
+    ['手一杯なので', '今は手一杯なので、今回は断りたいです。', '手一杯なのでという意味ではない。', '今は手一杯のため'],
+    ['手一杯のため', '今は手一杯のため、今回は断りたいです。', '手一杯のためとは言っていません。', '今は手一杯のため'],
+    ['手がいっぱい', '今は手がいっぱいです。', '手がいっぱいだとは言っていません。', '今は手がいっぱいのため'],
+    ['手が一杯', '今は手が一杯です。', '手が一杯という意味ではない。', '今は手が一杯のため'],
+    ['予定が埋まっています', '予定が埋まっています。', '予定が埋まっていますとは言っていません。', '予定が埋まっているため'],
+    ['予定が埋まっている', '予定が埋まっているので、今回は断りたいです。', '予定が埋まっているという意味ではない。', '予定が埋まっているため'],
+  ];
+
+  it.each(capacityForms)('各多忙表現の発言否定が旧肯定を取消す: %s', (_name, positive, negative, reason) => {
+    for (const mode of ['minimal', 'legacy', 'observe']) {
+      vi.stubEnv('COACHING_OUTPUT_PIPELINE_MODE', mode);
+      const history: CoachingChatMessage[] = [{ role: 'user', content: positive }];
+      const latest = `${negative}仕事を断る一言を一つだけ教えてください。`;
+      const draft = `「ありがとうございます。${reason}、今回はお引き受けできません。」`;
+      expect(assessCoachingResponseQuality({ text: draft, lastUserText: latest, historyMessages: history }).issues).toContain('context_mismatch');
+      expect(normalizeCoachingOutput(draft, latest, history)).toBe('「ありがとうございます。今回はお引き受けできません。」');
+      expect(buildFinalVerifiedQualityFallback(latest, history)).toBe('「ありがとうございます。今回はお引き受けできません。」');
+      for (const context of [`同僚は${positive}`, `「${positive}」とは言いたくありません。`, `以前は${positive}`]) {
+        const unrelatedLatest = `${context}仕事を断る一言を一つだけ教えてください。`;
+        expect(assessCoachingResponseQuality({ text: draft, lastUserText: unrelatedLatest }).issues).toContain('context_mismatch');
+        expect(normalizeCoachingOutput(draft, unrelatedLatest)).toBe('「ありがとうございます。今回はお引き受けできません。」');
+        expect(buildFinalVerifiedQualityFallback(unrelatedLatest, [])).toBe('「ありがとうございます。今回はお引き受けできません。」');
+      }
+    }
+  });
+
+  it.each(capacityForms)('各多忙表現の最新肯定は旧否定後も保持する: %s', (_name, positive, negative, reason) => {
+    for (const mode of ['minimal', 'legacy', 'observe']) {
+      vi.stubEnv('COACHING_OUTPUT_PIPELINE_MODE', mode);
+      const history: CoachingChatMessage[] = [{ role: 'user', content: negative }];
+      const latest = `${positive}仕事を断る一言を一つだけ教えてください。`;
+      const draft = `「ありがとうございます。${reason}、今回はお引き受けできません。」`;
+      expect(assessCoachingResponseQuality({ text: draft, lastUserText: latest, historyMessages: history }).issues).not.toContain('context_mismatch');
+      expect(normalizeCoachingOutput(draft, latest, history)).toBe(draft);
+    }
+  });
 });
