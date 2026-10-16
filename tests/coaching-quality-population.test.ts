@@ -4,7 +4,7 @@ import vm from 'node:vm';
 import { describe, expect, it } from 'vitest';
 import { seededContinuityScenarios } from '../scripts/lib/coaching-continuity-scenarios.mjs';
 import { containsUnsupportedConcernPremise, currentTopicUserTexts } from '../src/lib/coaching-emotion-language.mjs';
-import { containsCircularSingleAction, containsUnsupportedSituationPremise, containsUngroundedTaskAssumption, containsAmbiguousFutureActionDayReference } from '../src/lib/coaching-action-language.mjs';
+import { containsCircularSingleAction, containsUnsupportedProcedureInterfacePremise, containsUnsupportedSituationPremise, containsUngroundedTaskAssumption, containsAmbiguousFutureActionDayReference } from '../src/lib/coaching-action-language.mjs';
 
 const source = readFileSync(resolve(process.cwd(), 'scripts/evaluate-coaching-quality.mjs'), 'utf8');
 const specificationStart = source.indexOf('const BASELINE_QUALITY_POPULATION =');
@@ -16,7 +16,7 @@ const api = vm.runInNewContext(`${specification}\n${evaluation}\n({ evaluateConv
   expected: typeof EXPECTED_QUALITY_POPULATION === 'undefined' ? null : EXPECTED_QUALITY_POPULATION })`, {
   seededContinuityScenarios,
   evaluateSeededContinuityResponse: () => [],
-  containsUnsupportedConcernPremise, currentTopicUserTexts, containsCircularSingleAction, containsUnsupportedSituationPremise, containsUngroundedTaskAssumption, containsAmbiguousFutureActionDayReference,
+  containsUnsupportedConcernPremise, currentTopicUserTexts, containsCircularSingleAction, containsUnsupportedProcedureInterfacePremise, containsUnsupportedSituationPremise, containsUngroundedTaskAssumption, containsAmbiguousFutureActionDayReference,
   getLocalTurnExpectation: () => ({ finishReason: 'STOP' }),
   countCoachingMoves: () => 0,
   addCheck: (checks: Record<string, unknown>[], name: string, passed: boolean, details?: unknown) => checks.push({ name, passed, details }),

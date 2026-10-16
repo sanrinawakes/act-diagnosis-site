@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { randomUUID } from 'node:crypto';
 import { currentTopicUserTexts } from '../src/lib/coaching-emotion-language.mjs';
-import { containsUnsupportedSituationPremise, containsUngroundedTaskAssumption, containsConversationRestriction, containsAmbiguousFutureActionDayReference } from '../src/lib/coaching-action-language.mjs';
+import { containsUnsupportedProcedureInterfacePremise, containsUnsupportedSituationPremise, containsUngroundedTaskAssumption, containsConversationRestriction, containsAmbiguousFutureActionDayReference } from '../src/lib/coaching-action-language.mjs';
 import { deleteTestAuthUser } from './lib/test-account-cleanup.mjs';
 
 const args = new Map(
@@ -724,6 +724,9 @@ function assertResults(results) {
       throw new Error(
         `${result.label} returned a vague action target: ${result.message}`
       );
+    }
+    if (containsUnsupportedProcedureInterfacePremise(result.message, result.currentUserTexts)) {
+      throw new Error(`${result.label} invented an unsupported procedure interface: ${result.message}`);
     }
     if (containsUnsupportedSituationPremise(result.message, result.currentUserTexts) ||
         containsUngroundedTaskAssumption(result.message, result.currentUserTexts)) {

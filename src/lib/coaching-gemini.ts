@@ -8,7 +8,7 @@ import { sendCoachingAlert } from '@/lib/coaching-alerts';
 import { COACHING_SCOPE_GUIDANCE } from '@/lib/coaching-scope';
 import { containsDeadlineOutcomeAssurance, stripAttributedDeadlineQuotes } from '@/lib/coaching-deadline-language.mjs';
 import { containsUnsupportedEmotionIntensity, removeUnsupportedEmotionIntensity, containsUnsupportedConcernPremise, removeUnsupportedConcernPremise, currentTopicUserTexts } from '@/lib/coaching-emotion-language.mjs';
-import { containsCircularSingleAction, containsUnsupportedSituationPremise, containsUngroundedTaskAssumption, hasCurrentUserSituationEvidence, containsConversationRestriction, containsAmbiguousFutureActionDayReference, alignFutureActionDayReferences } from '@/lib/coaching-action-language.mjs';
+import { containsCircularSingleAction, containsUnsupportedProcedureInterfacePremise, containsUnsupportedSituationPremise, containsUngroundedTaskAssumption, hasCurrentUserSituationEvidence, containsConversationRestriction, containsAmbiguousFutureActionDayReference, alignFutureActionDayReferences } from '@/lib/coaching-action-language.mjs';
 import {
   getCoachingOutputPipelineConfig,
   type CoachingOutputPipelineMode,
@@ -2479,6 +2479,9 @@ export function assessCoachingResponseQuality(params: {
     issues.push('context_mismatch');
   }
   if (containsUnsupportedSituationPremise(text, getCurrentPlanningUserTexts(lastUserText, historyMessages))) {
+    issues.push('context_mismatch');
+  }
+  if (containsUnsupportedProcedureInterfacePremise(text, getCurrentPlanningUserTexts(lastUserText, historyMessages))) {
     issues.push('context_mismatch');
   }
   const answeredQuestion = getAnsweredExistenceQuestion(lastUserText, historyMessages);
@@ -5840,7 +5843,7 @@ function buildSubstantiveShortFallback(lastUserText: string) {
     /応募/.test(lastUserText) &&
     /踏み出せ|踏み出せない|ためら|迷|怖/.test(lastUserText)
   ) {
-    return '応募の候補はあるのに、送る直前で手が止まっているのですね。今必要なのは気持ちを整えることより、応募を始める手順を一段だけ小さくすることです。\n\n今いちばん応募しやすい候補を一件開いて、応募に必要な最初の項目だけ埋めてください。';
+    return '応募に向けて一歩を踏み出す時は、応募全体ではなく、伝える内容を一つに絞れます。応募方法にかかわらず、自分の経験を短く言葉にしておくと、相手に何を伝えるかが具体的になります。\n\n応募先に伝えたい自分の経験を、一文だけメモに書いてください。';
   }
 
   if (/能力がないと思われるのが悔し/.test(lastUserText)) {
@@ -6318,7 +6321,9 @@ function buildLongContinuityReferenceFallback(
   }
 
   if (/二枚目には利用手順を書く予定です/.test(lastUserText)) {
-    return 'この企画の説明資料は、一枚目で利用目的を伝え、二枚目で利用手順を見せる並びですね。初めてサービスを使う人向けなら、二枚目は説明を増やすより、「1. 何を押すか」「2. 何が表示されるか」「3. 次に何をするか」の三段で読める形にした方が、専門用語に引っかからず流れを追いやすくなります。まず二枚目の手順を三段だけに絞って書き出してください。';
+    const documentName = /企画/.test(recentContext) ? '企画の説明資料' : '説明資料';
+    const reader = /初めてサービスを使う人/.test(recentContext) ? '初めてサービスを使う人' : '資料を読む人';
+    return `${documentName}の二枚目には利用手順を書く予定なのですね。${reader}が流れを追えるよう、「最初にすること」「その結果」「次にすること」の三段を整理の枠として使えます。実際の手順の数や動作は、サービスの内容に合わせて考えます。まず二枚目の利用手順を、この並びに沿って書き出してください。`;
   }
 
   if (/今日は一枚目から直そうと思います/.test(lastUserText)) {
@@ -7439,6 +7444,9 @@ function isSingleActionRelevantToContext(
   ) {
     return false;
   }
+  if (containsUnsupportedProcedureInterfacePremise(answer, getCurrentPlanningUserTexts(lastUserText, historyMessages))) {
+    return false;
+  }
   if (containsUngroundedTaskAssumption(answer, getCurrentPlanningUserTexts(lastUserText, historyMessages))) {
     return false;
   }
@@ -8440,7 +8448,7 @@ function buildNoQuestionFallback(
     /求人|応募|面接|履歴書|職務経歴書/.test(userContext) &&
     /踏み出せ|踏み出せない|ためら|迷|怖|動け|進め/.test(lastUserText)
   ) {
-    return '今いちばん応募したい求人を1件開いて、応募ページの最初の入力欄だけ埋めてください。';
+    return '応募先に伝えたい自分の経験を、一文だけメモに書いてください。';
   }
   if (/仕事|職場|業務|会社|タスク|企画|資料/.test(userContext)) {
     return '明日の朝、今いちばん気になる仕事に5分だけ取り組んでください。';

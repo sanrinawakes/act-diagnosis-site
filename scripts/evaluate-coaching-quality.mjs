@@ -6,7 +6,7 @@ import { deleteTestAuthUser } from './lib/test-account-cleanup.mjs';
 import { seededContinuityScenarios, evaluateSeededContinuityResponse } from './lib/coaching-continuity-scenarios.mjs';
 import { containsDeadlineOutcomeAssurance } from '../src/lib/coaching-deadline-language.mjs';
 import { containsUnsupportedEmotionIntensity, containsUnsupportedConcernPremise, currentTopicUserTexts } from '../src/lib/coaching-emotion-language.mjs';
-import { containsCircularSingleAction, containsUnsupportedSituationPremise, containsUngroundedTaskAssumption, containsAmbiguousFutureActionDayReference } from '../src/lib/coaching-action-language.mjs';
+import { containsCircularSingleAction, containsUnsupportedProcedureInterfacePremise, containsUnsupportedSituationPremise, containsUngroundedTaskAssumption, containsAmbiguousFutureActionDayReference } from '../src/lib/coaching-action-language.mjs';
 
 // Existing suite contract before the declared continuity scenarios were added.
 // Expected population comes from this fixed baseline and input specifications,
@@ -1378,6 +1378,8 @@ function evaluateConversations(conversations) {
       localExpectation.modelName ||
       (isImageTurn ? expectedImageModel : expectedTextModel);
     const minimumOutputChars = 1;
+    addCheck(checks, `${turn.label}: 未提示の操作画面やボタンを前提にしない`,
+      !containsUnsupportedProcedureInterfacePremise(turn.message, turn.currentUserTexts));
     addCheck(checks, `${turn.label}: 本人未申告の停止状況や実指摘を前提にしない`,
       !containsUnsupportedSituationPremise(turn.message, turn.currentUserTexts));
     addCheck(checks, `${turn.label}: 明日の行動対象日を今日と曖昧にしない`,
