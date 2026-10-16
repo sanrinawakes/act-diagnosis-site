@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { randomUUID } from 'node:crypto';
 import { currentTopicUserTexts } from '../src/lib/coaching-emotion-language.mjs';
-import { containsUnsupportedSituationPremise, containsUngroundedTaskAssumption, containsConversationRestriction } from '../src/lib/coaching-action-language.mjs';
+import { containsUnsupportedSituationPremise, containsUngroundedTaskAssumption, containsConversationRestriction, containsAmbiguousFutureActionDayReference } from '../src/lib/coaching-action-language.mjs';
 import { deleteTestAuthUser } from './lib/test-account-cleanup.mjs';
 
 const args = new Map(
@@ -809,6 +809,9 @@ function assertResults(results) {
       throw new Error(
         `${result.label} invented an unsupported psychological inference: ${result.message}`
       );
+    }
+    if (containsAmbiguousFutureActionDayReference(result.message, result.lastUserText, result.currentUserTexts)) {
+      throw new Error(`${result.label} used an ambiguous future action day: ${result.message}`);
     }
     if (
       /明日/.test(result.lastUserText) &&
