@@ -88,8 +88,59 @@ export function containsUnsupportedSituationPremise(text, currentUserTexts) {
 
 const TASK_ASSUMPTION = /(?:今日|昨日|前回)[^。！？\n]{0,40}(?:やり残|終わらなかった|未完了|残した(?:タスク|作業|仕事))|(?:やり残した|未完了の|残っている)(?:タスク|作業|仕事)/u;
 
+// A read instruction needs a currently available memo asserted by its user.
+// Reuse the existing quotation spans so reports do not become new commands.
+const MEMO_READY_COMPLETE = /メモ(?:を|に(?:は)?|へ)[^。！？?\n]{0,80}(?:書いた|書きました|書いて(?:あります|ある|います|いる)|(?:用意|作成|準備)(?:しました|して(?:あります|ある|います|いる)))[。！!\s]*$|メモ(?:は|が)(?:今も|今は)?(?:手元に)?あります[。！!\s]*$/u;
+const MEMO_NOT_READY = /メモ(?:は|が|も)(?:もう|まだ|今は|現在)?(?:手元に)?(?:ありません|ない|使えません|使えない)|メモ[^。！？?\n]{0,32}(?:処分し|捨て|なくし|失くし)(?:ました|た|て)|メモ[^。！？?\n]{0,32}書いて(?:いません|いない)|メモ[^。！？?\n]{0,32}(?:あるか|書いたか)[^。！？?\n]{0,12}(?:分かりません|わかりません|未確認)|メモ[^。！？?\n]{0,60}とは(?:言って|述べて)(?:いません|いない)/u;
+const MEMO_ANAPHOR_NOT_READY = /^\s*(?:まだ|今は|現在|もう|あとで|後で)?(?:何も)?(?:書いて(?:いません|いない)|書いてない|手元に(?:ありません|ない)|使え(?:ません|ない)|(?:処分し|捨て)(?:ました|た))[。！!\s]*$/u;
+function hasCurrentOwnReadyMemo(currentUserTexts) {
+  let ready = false;
+  let ownMemoReferent = false;
+  for (const value of currentUserTexts) {
+    const ownWords = stripJapaneseQuotationContent(value, true).replace(/"[^"]*"|'[^']*'/gu, quote => ' '.repeat(quote.length));
+    for (const statement of ownWords.split(/(?<=[。！？?\n])/u)) {
+      const mention = /メモ(?!帳)/u.exec(statement);
+      if (!mention && !(ownMemoReferent && MEMO_ANAPHOR_NOT_READY.test(statement))) continue;
+      const prefix = mention ? statement.slice(0, mention.index) : statement;
+      const actor = [...prefix.matchAll(/([^\s、,。！？?]{1,40}?)(?:は|が)/gu)].at(-1)?.[1];
+      const owner = /^(?:この|その|あの)$/u.test(prefix.trim())
+        ? undefined
+        : prefix.match(/([^\s、,。！？?]{1,24})の$/u)?.[1];
+      const self = /^(?:私|私自身|自分|自分自身|自身)$/u;
+      const memoTopic = /(?:一文|一言|言葉|文案)$/u;
+      if ((actor && !self.test(actor) && !memoTopic.test(actor) && !/^(?:今|今日|現在|昨日|前回)$/u.test(actor)) || (owner && !self.test(owner))) continue;
+      if (/[？?]|(?:と|って)(?:AI|アシスタント|ChatGPT)?(?:に)?(?:言われ|提案され)|(?:もし|仮に)[^。！？?\n]{0,24}メモ|メモ[^。！？?\n]{0,24}(?:あれば|あるなら|ある場合)/u.test(statement)) continue;
+      if (mention) ownMemoReferent = true;
+      // Preserve subject attribution across a comma; only the artifact state
+      // may progress from affirmative to a following own denial.
+      for (const clause of statement.split(/[、,]|(?<=あります|ありませんでした|ありません|書きました|書いた|用意しました|準備しました|作成しました)が|しかし|ただし/u)) {
+        if (MEMO_NOT_READY.test(clause) || (ownMemoReferent && MEMO_ANAPHOR_NOT_READY.test(clause))) { ready = false; continue; }
+        if (MEMO_READY_COMPLETE.test(clause)) ready = true;
+      }
+    }
+  }
+  return ready;
+}
+function containsExistingMemoReadInstruction(text, currentUserTexts) {
+  const readInstruction = /メモ(?:の(?:内容|一文|一言|文章))?(?:で|を)[^。！？?\n]{0,24}(?:(?:確認し|見返し|読み返し|参照し)(?:て(?:みて)?ください|ましょう)|読(?:んで(?:みて)?ください|みましょう))(?:ね)?(?=[。！!\n」』]|$)/gu;
+  return splitOutsideJapaneseQuotations(text).some(statement => [...statement.matchAll(readInstruction)].some(mention => {
+    const quote = rentQuoteAt(statement, mention.index);
+    if (quote) {
+      if (rentIsFaithfulReportedQuotation(statement, quote, currentUserTexts)) return false;
+      const suffix = statement.slice(quote.end);
+      // A report of receiving the instruction is not the instruction itself.
+      // Anchor the role to the matched quote's immediate suffix, not a distant
+      // unrelated occurrence of '伝えてください' in the same statement.
+      if (!/^[。！!\s]*$/u.test(suffix) && !/^\s*(?:と(?:伝えて|送って|言って)|を(?:試して|やってみて))(?:みて)?ください[。！!\s]*$/u.test(suffix)) return false;
+    }
+    const prefix = statement.slice(0, mention.index);
+    if (/メモが(?:あれば|あるなら)[、,\s]*$/u.test(prefix)) return false;
+    return true;
+  }));
+}
 export function containsUngroundedTaskAssumption(text, currentUserTexts) {
-  return TASK_ASSUMPTION.test(text) && !hasCurrentUserSituationEvidence(currentUserTexts, TASK_ASSUMPTION);
+  return (TASK_ASSUMPTION.test(text) && !hasCurrentUserSituationEvidence(currentUserTexts, TASK_ASSUMPTION)) ||
+    (containsExistingMemoReadInstruction(text, currentUserTexts) && !hasCurrentOwnReadyMemo(currentUserTexts));
 }
 
 // A service-use document does not establish a screen or a button. Keep this
