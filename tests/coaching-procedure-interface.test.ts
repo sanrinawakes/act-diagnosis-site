@@ -1,3 +1,4 @@
+import { stripJapaneseQuotationContent, containsUnbalancedJapaneseQuotation } from '../src/lib/coaching-quotation-language.mjs';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import vm from 'node:vm';
@@ -66,7 +67,7 @@ const source = readFileSync(resolve(process.cwd(), 'scripts/evaluate-coaching-qu
 const spec = source.slice(source.indexOf('const BASELINE_QUALITY_POPULATION ='), source.indexOf('const args ='));
 const evaluation = source.slice(source.indexOf('function evaluateConversations('), source.indexOf('function getLocalTurnExpectation('));
 const evaluate = vm.runInNewContext(`${spec}\n${evaluation}\nevaluateConversations`, {
-  ...actionLanguage, ...emotionLanguage, containsDeadlineOutcomeAssurance,
+  ...actionLanguage, stripJapaneseQuotationContent, containsUnbalancedJapaneseQuotation, ...emotionLanguage, containsDeadlineOutcomeAssurance,
   seededContinuityScenarios, evaluateSeededContinuityResponse,
   getLocalTurnExpectation: () => ({ finishReason: 'STOP' }), countCoachingMoves: () => 0,
   addCheck: (checks: unknown[], name: string, passed: boolean) => checks.push({ name, passed }),
@@ -74,7 +75,7 @@ const evaluate = vm.runInNewContext(`${spec}\n${evaluation}\nevaluateConversatio
 });
 const smokeSource = readFileSync(resolve(process.cwd(), 'scripts/smoke-coaching-chat.mjs'), 'utf8');
 const smokeAssertions = smokeSource.slice(smokeSource.indexOf('function assertResults('), smokeSource.indexOf('async function cleanup('));
-const smoke = vm.runInNewContext(`${smokeAssertions}\nassertResults`, { ...actionLanguage, expectedTextModel: '', maxFirstChunkMs: 10000, maxTotalMs: 15000 });
+const smoke = vm.runInNewContext(`${smokeAssertions}\nassertResults`, { ...actionLanguage, stripJapaneseQuotationContent, containsUnbalancedJapaneseQuotation, expectedTextModel: '', maxFirstChunkMs: 10000, maxTotalMs: 15000 });
 const userTexts = [...history.filter(m => m.role === 'user').map(m => m.content), latest];
 function evaluatorChecks(message: string) {
   const turn = { user: latest, label: 'long-continuity-three-turn-reference-6', message, rawMessage: message,
