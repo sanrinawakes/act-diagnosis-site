@@ -155,6 +155,37 @@ describe('quality recovery service notices', () => {
   });
 });
 
+describe('learning budget recovery', () => {
+  it('briefly naming money after a learning-cost concern returns a grounded answer', () => {
+    const history: CoachingChatMessage[] = [
+      {
+        role: 'user',
+        content: '学びに使う費用が続き、毎月のやりくりが苦しくなっています。',
+      },
+      {
+        role: 'assistant',
+        content: '実際に起きたことを一つだけ教えてください。',
+      },
+      {
+        role: 'user',
+        content: '前回の診断結果と違っていて理由が分かりません。',
+      },
+    ];
+    const text = buildFinalVerifiedQualityFallback('金銭面です。', history);
+
+    expect(text).toContain('学びにかけるお金');
+    expect(text).toContain('収入と必ず出る支出');
+    expect(text).not.toMatch(/もう一度送|整え直/);
+    expect(
+      assessCoachingResponseQuality({
+        text,
+        lastUserText: '金銭面です。',
+        historyMessages: history,
+      }).issues
+    ).toEqual([]);
+  });
+});
+
 describe('established cancellation conversation continuity', () => {
   const history: CoachingChatMessage[] = [
     { role: 'user', content: '仕事で予約の変更が続いています。' },
