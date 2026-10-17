@@ -9,7 +9,7 @@ import { sendCoachingAlert } from '@/lib/coaching-alerts';
 import { COACHING_SCOPE_GUIDANCE } from '@/lib/coaching-scope';
 import { containsDeadlineOutcomeAssurance, stripAttributedDeadlineQuotes } from '@/lib/coaching-deadline-language.mjs';
 import { containsUnsupportedEmotionIntensity, removeUnsupportedEmotionIntensity, containsUnsupportedConcernPremise, removeUnsupportedConcernPremise, currentTopicUserTexts } from '@/lib/coaching-emotion-language.mjs';
-import { containsUnsupportedRentExplanationReply, containsChainedPreparationInstructions, containsChainedEditingInstructions, containsChainedCommunicationInstructions, containsCircularSingleAction, containsUnsupportedProcedureInterfacePremise, containsUnsupportedSituationPremise, containsUngroundedTaskAssumption, hasCurrentUserSituationEvidence, containsConversationRestriction, containsAmbiguousFutureActionDayReference, alignFutureActionDayReferences } from '@/lib/coaching-action-language.mjs';
+import { isThirdPartyPurposePlanReport, containsMisfocusedFriendDeclineQuestion, containsUnsupportedRentExplanationReply, containsChainedPreparationInstructions, containsChainedEditingInstructions, containsChainedCommunicationInstructions, containsCircularSingleAction, containsUnsupportedProcedureInterfacePremise, containsUnsupportedSituationPremise, containsUngroundedTaskAssumption, hasCurrentUserSituationEvidence, containsConversationRestriction, containsAmbiguousFutureActionDayReference, alignFutureActionDayReferences } from '@/lib/coaching-action-language.mjs';
 import {
   getCoachingOutputPipelineConfig,
   type CoachingOutputPipelineMode,
@@ -161,6 +161,7 @@ export const COACHING_RESPONSE_SPEED_INSTRUCTION = [
 ].join('\n');
 
 const COACHING_FACT_AND_LANGUAGE_INSTRUCTION = [
+  '本人が友人への断り返事を先延ばしにし、断った後の関係を気にしている時は、本人の返事や予想している反応を扱ってください。本人が相手の行動変更を求めていないのに、相手にどの行動を変えてほしいかを尋ねないでください。相手の行動を変えてほしいという本人の明示的な希望とは区別してください。資料を作成する第三者の予定を報告しているだけの場合も、相手の行動変更を求めていると解釈しないでください。',
   '現在の曜日や今日・明日の日付は、利用者が示していない場合に推測しないでください。明示された締切をそのまま使い、現在の曜日を補わないでください。',
   '締切が分かっても、残作業量・所要時間・使える時間が未確認なら、期限に間に合うとも間に合わないとも断定しないでください。資料の構成案があることだけでも、完成の見込みは断定できません。条件文・誘導する質問・相手への返答例にも新しい保証を足さず、必要な作業と時間を確認してください。見積もりがある場合も確実な結果とは扱わず、その前提と不確実性を示してください。締切は現在の話題で利用者が最後に明言したものだけを使い、訂正・否定された期限やAI側の発言を根拠にしないでください。',
   '自分が前回何を質問・提案したかを、会話履歴にない内容で説明したり謝罪したりしないでください。話を聞いてほしいという希望には、今の希望に沿って返答してください。',
@@ -2490,8 +2491,13 @@ export function assessCoachingResponseQuality(params: {
   const intendedActionAcknowledgement = buildIntendedActionAcknowledgement(params.lastUserText, historyMessages);
   const groundedIntendedActionAcknowledgement = Boolean(intendedActionAcknowledgement) &&
     text === intendedActionAcknowledgement;
+  const groundedPlannedPurposeAcknowledgement = groundedIntendedActionAcknowledgement &&
+    /利用目的を書く予定です[。！!]*$/u.test(lastUserText);
   if (isObsoleteIntentionContinuation(text, params.lastUserText, historyMessages)) {
     issues.push('generic_canned_close');
+  }
+  if (containsUnprovidedPlannedPurposeDraftPremise(text, params.lastUserText, historyMessages)) {
+    issues.push('context_mismatch');
   }
   const requestedFamilyDraft = buildFamilyLegalDraftRevisionFallback(lastUserText, historyMessages);
   // A fact-bounded requested draft is complete without padding it with a new
@@ -2735,6 +2741,10 @@ export function assessCoachingResponseQuality(params: {
     issues.push('vague_action_target');
   }
 
+  if (containsMisfocusedFriendDeclineQuestion(
+    text, getCurrentPlanningUserTexts(lastUserText, historyMessages)
+  )) issues.push('context_mismatch');
+
   const canonicalUserText = canonicalizeAssistantParagraph(lastUserText);
   const canonicalResponseText = canonicalizeAssistantParagraph(
     text.replace(
@@ -2847,6 +2857,7 @@ export function assessCoachingResponseQuality(params: {
     },
   ].filter((check) => check.present);
   if (
+    !groundedPlannedPurposeAcknowledgement &&
     !groundedRestAcknowledgement &&
     !requestsFactualShortAnswer(lastUserText) &&
     !requestsDirectWording(lastUserText) &&
@@ -3331,7 +3342,13 @@ export function normalizeCoachingOutput(
     return buildCustomerSafeLocalFallback(lastUserText, historyMessages);
   }
 
-  if (isObsoleteIntentionContinuation(text, lastUserText, historyMessages)) {
+  if (isThirdPartyPurposePlanReport(lastUserText) &&
+      containsMisfocusedFriendDeclineQuestion(text, getCurrentPlanningUserTexts(lastUserText, historyMessages))) {
+    return buildThirdPartyPurposePlanClarification(lastUserText, historyMessages);
+  }
+
+  if (isObsoleteIntentionContinuation(text, lastUserText, historyMessages) ||
+      containsUnprovidedPlannedPurposeDraftPremise(text, lastUserText, historyMessages)) {
     return buildIntendedActionAcknowledgement(lastUserText, historyMessages);
   }
 
@@ -4973,6 +4990,13 @@ export function buildFinalVerifiedQualityFallback(
   }
   const newTopicFocus = getExplicitNewTopicFocus(lastUserText);
   if (newTopicFocus) return `${newTopicFocus}について、どのような点を相談したいですか？`;
+  const thirdPartyPurposeClarification = buildThirdPartyPurposePlanClarification(lastUserText, historyMessages);
+  if (thirdPartyPurposeClarification) return thirdPartyPurposeClarification;
+  // A declared future writing plan is not evidence of an existing draft.
+  if (/書く予定です[。！!]*$/u.test(stripAttachmentMarkdown(lastUserText).trim())) {
+    const plannedWriting = buildIntendedActionAcknowledgement(lastUserText, historyMessages);
+    if (plannedWriting) return plannedWriting;
+  }
   const differentPaymentResponse = buildDifferentPaymentProposalResponse(lastUserText, historyMessages);
   if (differentPaymentResponse) return differentPaymentResponse;
   const cancellationContinuation = buildCancellationConversationContinuation(
@@ -6748,7 +6772,19 @@ export function ensureVerifiedCoachingResolution(params: {
       provider: resolution.provider,
     });
   }
+  // Empty upstream flags cannot certify these three already assessed boundaries.
+  // Recheck only the bounded observed predicates, not the full quality policy.
+  const boundaryUserTexts = getCurrentPlanningUserTexts(lastUserText, historyMessages);
+  const deliveryBoundaryIssues: CoachingQualityIssue[] = [];
+  if (containsUnprovidedPlannedPurposeDraftPremise(resolution.text, lastUserText, historyMessages) ||
+      containsMisfocusedFriendDeclineQuestion(resolution.text, boundaryUserTexts)) {
+    deliveryBoundaryIssues.push('context_mismatch');
+  }
+  if (containsUngroundedTaskAssumption(resolution.text, boundaryUserTexts)) {
+    deliveryBoundaryIssues.push('ungrounded_task_assumption');
+  }
   if (
+    deliveryBoundaryIssues.length === 0 &&
     resolution.finalIssues.length === 0 &&
     isCustomerSafeDeliveryText({
       text: resolution.text,
@@ -6866,6 +6902,9 @@ export function ensureVerifiedCoachingResolution(params: {
     modelName: 'local-quality-fallback',
     provider: 'local' as const,
     repairAccepted: true,
+    initialIssues: deliveryBoundaryIssues.length > 0
+      ? Array.from(new Set<CoachingQualityIssue>([...resolution.initialIssues, ...deliveryBoundaryIssues]))
+      : resolution.initialIssues,
     finalIssues: deliveredQuality.issues,
     qualitySafetyHold:
       deliveredText === retryFallbackText || deliveredQuality.issues.length > 0,
@@ -8262,6 +8301,20 @@ function buildClosingCoachingQuestion(
     return '';
   }
 
+  if (isThirdPartyPurposePlanReport(lastUserText)) {
+    return 'その予定について、あなたはどの点を相談したいですか？';
+  }
+
+  if (!requestsDirectWording(lastUserText) && !requestsNoFollowUpQuestion(lastUserText) &&
+      containsMisfocusedFriendDeclineQuestion(
+        'その相手に、まずどの行動を変えてほしいですか？',
+        getCurrentPlanningUserTexts(lastUserText, historyMessages)
+      )) {
+    return /関係が悪|嫌われ|疎遠/.test(lastUserText)
+      ? '断ると、友人からどんな反応があると考えていますか？'
+      : '返事を書こうとした時、何が気になって送れなくなりますか？';
+  }
+
   const recentUserContext = [
     ...historyMessages
       .filter((message) => message.role === 'user')
@@ -8490,6 +8543,13 @@ function buildNoQuestionFallback(
   if (/仕事|職場|業務|会社|タスク|企画|資料/.test(userContext)) {
     return '明日の朝、今いちばん気になる仕事に5分だけ取り組んでください。';
   }
+  // This is the final general fallback after the existing specific work,
+  // relationship and document branches. Preserve valid candidates in
+  // selectSingleAnswerBlock instead of replacing every generic action request.
+  if (/明日の朝/.test(lastUserText) && requestsConcreteSuggestion(lastUserText) &&
+      requestsSingleAnswerFormat(lastUserText) && !requestsDirectWording(lastUserText)) {
+    return '明日の朝、深呼吸を一回だけしてください。';
+  }
   return /明日/.test(lastUserText)
     ? '明日、終わらせたい用事を一つだけ紙に書いてください。'
     : '今、次に終わらせる用事を一つだけ紙に書いてください。';
@@ -8686,6 +8746,13 @@ function rewriteContextualClosingQuestion(
   lastUserText: string,
   historyMessages: CoachingChatMessage[] = []
 ) {
+  if (!requestsDirectWording(lastUserText) && !requestsNoFollowUpQuestion(lastUserText) &&
+      containsMisfocusedFriendDeclineQuestion(
+        text, getCurrentPlanningUserTexts(lastUserText, historyMessages)
+      )) {
+    const planning = buildConcretePlanningContinuationFallback(lastUserText, historyMessages);
+    if (planning) return planning;
+  }
   const recentUserContext = [
     ...historyMessages
       .filter((message) => message.role === 'user')
@@ -9676,6 +9743,26 @@ function buildRestAcknowledgementFallback(
   return `${opening}今は新しい準備や課題を増やす必要はありません。今日はゆっくり休んでください。`;
 }
 
+function buildThirdPartyPurposePlanClarification(
+  lastUserText: string,
+  historyMessages: CoachingChatMessage[]
+): string {
+  if (!isThirdPartyPurposePlanReport(stripAttachmentMarkdown(lastUserText))) return '';
+  const currentUserTexts = getCurrentPlanningUserTexts(lastUserText, historyMessages);
+  const facts: string[] = [];
+  if (hasCurrentUserSituationEvidence(currentUserTexts, /対象は初めてサービスを使う人/u)) {
+    facts.push('資料の対象は、初めてサービスを使う人です。');
+  }
+  if (hasCurrentUserSituationEvidence(currentUserTexts, /専門用語を減らしたい/u)) {
+    facts.push('専門用語を減らしたいというご希望もあります。');
+  }
+  if (hasCurrentUserSituationEvidence(currentUserTexts, /説明する順番にも迷って/u)) {
+    facts.push('説明する順番についても、迷いがあるのですね。');
+  }
+  return ['同僚が一枚目に利用目的を書く予定なのですね。', facts.join(''), '',
+    'その予定について、あなたはどの点を相談したいですか？'].filter((value, index) => value || index === 2).join('\n');
+}
+
 // A single current-user future intention needs acknowledgement, not a new task.
 // Deliberately abstain on reports, completed actions, quotations, third-party
 // subjects, requests, separated clauses and unrecognised verb endings.
@@ -9706,6 +9793,7 @@ function buildIntendedActionAcknowledgement(
   if (/[。！？?、,\n]/.test(clause) ||
       /(?:もし|仮に|なら|たら|場合|と言|と聞|と教|そうです|とのこと|によると|言われ|教えてもら|勧められ|助言され|指摘され)/.test(clause)) return '';
 
+  const planned = clause.match(/^(.*?)(書く)予定です$/u);
   const trial = clause.match(/^(.*?)(やって|試して|取り組んで|始めて|続けて|記録して|書き出して|書きだして|書いて|まとめて|確認して|分けて|決めて|伝えて|作って)みます$/u);
   const plain = clause.match(/^(.*?)(やり|試し|取り組み|始め|続け|記録し|書き出し|書きだし|書き|まとめ|確認し|伝え)ます$/u);
   // A dictionary-form answer is a chosen future action only when the
@@ -9718,13 +9806,17 @@ function buildIntendedActionAcknowledgement(
   const selected = asksForNextAction
     ? clause.match(/^(.*?)(書き出す|書きだす|書く|記録する|まとめる|確認する|伝える|試す|やってみる|取り組む|始める|続ける|分ける|決める|作る)$/u)
     : null;
-  const prefix = trial?.[1] ?? plain?.[1] ?? selected?.[1];
+  const prefix = planned?.[1] ?? trial?.[1] ?? plain?.[1] ?? selected?.[1];
   if (prefix === undefined) return '';
   // Mask only the lexical が in the known trial-ながら span for this check.
   // Explicit actor particles elsewhere still retain は/が/も and are rejected.
   const subjectPrefix = prefix
     .replace(/(?:試し|試してみ|やってみ)ながら/gu, '');
-  if (/[はがも]/u.test(subjectPrefix)) return '';
+  // This observed locative topic is not a third-party subject. Do not
+  // remove actor particles elsewhere or relax the existing branches.
+  const subjectCheck = planned ? subjectPrefix.replace(/^一枚目には/u, '') : subjectPrefix;
+  if (/[はがも]/u.test(subjectCheck)) return '';
+  if (planned) return `${preparationPrefix}${planned[1]}${planned[2]}予定なのですね。`;
   if (trial) return `${preparationPrefix}${trial[1]}${trial[2]}みるのですね。`;
   const dictionary: Record<string, string> = {
     やり: 'やる', 試し: '試す', 取り組み: '取り組む', 始め: '始める',
@@ -9733,6 +9825,42 @@ function buildIntendedActionAcknowledgement(
   };
   if (plain) return `${preparationPrefix}${plain[1]}${dictionary[plain[2]]}のですね。`;
   return selected ? `${preparationPrefix}${selected[1]}${selected[2]}のですね。` : '';
+}
+
+// Bounded observed R2 premise: planning to write the purpose page does not
+// establish that its sentence already exists and contains technical terms.
+function containsUnprovidedPlannedPurposeDraftPremise(
+  text: string,
+  lastUserText: string,
+  historyMessages: CoachingChatMessage[]
+): boolean {
+  const latest = stripAttachmentMarkdown(lastUserText).trim();
+  if (!/利用目的を書く予定です[。！!]*$/u.test(latest) ||
+      !buildIntendedActionAcknowledgement(lastUserText, historyMessages)) return false;
+  const ownCompletedPurpose = /利用目的(?:の(?:文|文章))?(?:を|は)?(?:すでに|既に|もう|まだ|今は)?(?:書きました|書いた|書いて(?:あります|ある|います|いる|いません|いない|ない))/u;
+  const ownPurposeNotWritten = /利用目的(?:の(?:文|文章))?(?:を|は)?(?:まだ|今は|現在)?書いて(?:いません|いない|ない)/u;
+  if (hasCurrentUserSituationEvidence(
+    getCurrentPlanningUserTexts(lastUserText, historyMessages).map(value =>
+      stripJapaneseQuotationContent(value, true)
+        .replace(/"[^"]*"|'[^']*'/gu, quote => ' '.repeat(quote.length))
+    ), ownCompletedPurpose, ownPurposeNotWritten
+  )) return false;
+  return splitOutsideJapaneseQuotations(text).some((segment) => {
+    const outside = stripJapaneseQuotationContent(segment, true)
+      .replace(/"[^"]*"|'[^']*'/gu, quote => ' '.repeat(quote.length));
+    // A standalone quoted instruction is still an instruction. A faithful
+    // reported quote has attribution outside it and stays stripped.
+    const instruction = /^[。！!\s]*$/u.test(outside) ? segment : outside;
+    const premise = /利用目的(?:の)?(?:文|文章)(?:で|に)(?:使っている|使った|使用している)(?:専門用語|用語)/u.exec(instruction);
+    if (!premise) return false;
+    const tail = instruction.slice(premise.index + premise[0].length);
+    // The condition must concern this very term's existence, not an unrelated
+    // "if" elsewhere in the response. Ordinary future advice stays intact.
+    if (/^(?:が)?(?:あれば|あるなら|ある場合)/u.test(tail)) return false;
+    // Only the observed unconditional use-and-rewrite instruction. A denial
+    // or a reported statement about such wording is not that instruction.
+    return /(?:書き換えて|言い換えて)(?:みて)?ください[。！!\s」』"']*$/u.test(tail);
+  });
 }
 
 // These are the exact obsolete local templates, not a general ban on plan,

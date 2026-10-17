@@ -1,14 +1,14 @@
 import { writeFileSync } from 'node:fs';
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import { containsUnsupportedConcernPremise, currentTopicUserTexts } from '../src/lib/coaching-emotion-language.mjs';
-import { containsCircularSingleAction } from '../src/lib/coaching-action-language.mjs';
-const transport = vi.hoisted(() => ({ raw: '', external: 0 }));
+import { containsCircularSingleAction, containsUngroundedTaskAssumption } from '../src/lib/coaching-action-language.mjs';
+const transport = vi.hoisted(() => ({ raw: '', external: 0, primary: 0, repair: 0, alerts: 0 }));
 vi.mock('@/lib/openai', () => ({ getGenAI: () => ({ getGenerativeModel: () => ({ startChat: () => ({
-  sendMessageStream: async () => ({ stream: (async function* () { yield { text: () => transport.raw }; })(), response: Promise.resolve({ candidates: [{ finishReason: 'STOP' }], usageMetadata: { totalTokenCount: 2 } }) }),
-  sendMessage: async () => ({ response: { text: () => transport.raw, candidates: [{ finishReason: 'STOP' }] } }),
+  sendMessageStream: async () => (transport.primary++, { stream: (async function* () { yield { text: () => transport.raw }; })(), response: Promise.resolve({ candidates: [{ finishReason: 'STOP' }], usageMetadata: { totalTokenCount: 2 } }) }),
+  sendMessage: async () => (transport.repair++, { response: { text: () => transport.raw, candidates: [{ finishReason: 'STOP' }] } }),
 }) }) }) }));
 vi.mock('@/lib/coaching-provider-candidates', () => ({ generateCoachingProviderCandidate: async () => { transport.external++; throw new Error('NETWORK_DISABLED'); } }));
-vi.mock('@/lib/coaching-alerts', () => ({ sendCoachingAlert: async () => { throw new Error('ALERT_DISABLED'); } }));
+vi.mock('@/lib/coaching-alerts', () => ({ sendCoachingAlert: async () => { transport.alerts++; throw new Error('ALERT_DISABLED'); } }));
 import { assessCoachingResponseQuality, ensureVerifiedCoachingResolution, normalizeCoachingOutput, buildGeminiParts, createJsonLineStream, type CoachingChatMessage } from '../src/lib/coaching-gemini';
 import { getContextualizedPrompt } from '../src/data/coaching-system-prompt';
 // Fixed synthetic standard-suite public deliveries, not original provider text.
@@ -210,7 +210,7 @@ describe('actual concern, circular action and explicit deadline reference', () =
         expect(done.message).toMatch(/資料|専門用語/); expect(done.message).toMatch(/言い換えたい/);
         expect(done.message).not.toMatch(/一枚目|迷|困|不安|明日|5分/);
       } else if (item.expectedIssue === 'vague_action_target') {
-        expect(done.message).toMatch(/明日の朝/); expect(done.message).toMatch(/紙|メモ/); expect(done.message).toMatch(/書/);
+        expect(done.message).toMatch(/明日の朝/); expect(done.message).toBe('明日の朝、深呼吸を一回だけしてください。');
         expect(done.message).not.toMatch(/[？?]/);
       } else if (item.expectedIssue === 'requested_time_mismatch') {
         expect(done.message).toContain('火曜午前10時'); expect(done.message).toMatch(/一枚目|利用目的/); expect(done.message).not.toMatch(/[？?]/);
@@ -327,8 +327,8 @@ function verifyOpeningWrite(text: string) {
 function expectOneSelfContainedMorningAction(text: string) {
   expect(text).not.toBe(openingWriteObserved.candidate);
   expect(text).toContain('明日の朝');
-  expect(text).toMatch(/(?:一つ|1つ|ひとつ)だけ/);
-  expect(text).toMatch(/(?:紙|メモ)に(?:書いて|書き出して)(?:みて)?ください/);
+  expect(text).toMatch(/(?:一|1)回だけ/);
+  expect(text).toBe('明日の朝、深呼吸を一回だけしてください。');
   expect(text).not.toMatch(/開き|開い|今日|本日|[？?]|(?:リスト|メモ)を確認|もう一度送って|という相談ですね/);
   expect(assessOpeningWrite(text).issues).toEqual([]);
 }
@@ -417,4 +417,254 @@ describe('bounded opening/write connective and quotation contracts', () => {
     expect(quality.issues).not.toContain('multiple_coaching_moves');
     if (item.name === 'single-write') expect(quality.issues).toEqual([]);
   });
+});
+
+// Prepared bounded regression for the saved a871 short-reply turn 2.
+// The injected fixture is public delivery, not an original provider candidate.
+const declineFocusObserved = {
+  "name": "short-reply-continuation-2",
+  "diagnosisCode": "MME-3",
+  "history": [
+    {
+      "role": "user",
+      "content": "友人に断りたい予定があるのに、返事を先延ばしにしています。"
+    },
+    {
+      "role": "assistant",
+      "content": "友人との予定を断りたいのに、返事を先延ばしにしているのですね。断りたいという意思はすでに書かれているので、断るべきかどうかをもう一度考える必要はありません。どの時点で返事を止めてしまうかが分かれば、次に考えることを絞れます。返事を書こうとした時、何が気になって送れなくなりますか？"
+    }
+  ],
+  "latest": "断ると関係が悪くなる気がします。",
+  "candidate": "断ると関係が悪くなる気がして、返事を送れなくなっているのですね。\n\n相手の反応が気になるときは、断ること自体よりも「どう伝えるか」を考える段階に来ています。\n\nその相手に、まずどの行動を変えてほしいですか？",
+  "candidateOrigin": "saved production public delivery; original provider raw NOT_CAPTURED"
+} as const;
+const declineFocusActuals: unknown[] = [];
+afterAll(() => {
+  const output = process.env.ACTI_DECLINE_FOCUS_REPLAY_OUTPUT;
+  if (output) writeFileSync(output, JSON.stringify({
+    scope: 'One saved actual plus five finite local controls; no live population change',
+    providerOriginalRaw: 'NOT_CAPTURED', actuals: declineFocusActuals,
+  }, null, 2) + '\n', { flag: 'wx', mode: 0o600 });
+});
+function declineHistory(): CoachingChatMessage[] {
+  return declineFocusObserved.history.map(message => ({ ...message }));
+}
+function assessDeclineFocus(text: string, latest: string = declineFocusObserved.latest, historyMessages = declineHistory()) {
+  return assessCoachingResponseQuality({ text, lastUserText: latest, historyMessages });
+}
+function verifyDeclineFocus(text: string) {
+  const quality = assessDeclineFocus(text);
+  return ensureVerifiedCoachingResolution({
+    resolution: { text, usage: {}, modelName: 'fixed-local-public-fixture', provider: 'local',
+      repairAttempted: false, repairAccepted: false, initialIssues: quality.issues, finalIssues: quality.issues },
+    lastUserText: declineFocusObserved.latest, historyMessages: declineHistory(),
+  });
+}
+function expectOwnDeclineFocus(text: string) {
+  expect(text).toMatch(/断(?:る|っ)|返事/);
+  expect(text).toMatch(/反応|返事|伝え/);
+  expect(text).not.toMatch(/相手に[、,]?まずどの行動を変えて|相手に変えてほしい行動|考える段階に来ています|以前その友人の誘いを断った時|今回も関係が悪|という相談ですね/);
+  expect((text.match(/[？?]/g) || [])).toHaveLength(1);
+  expect(assessDeclineFocus(text).issues).toEqual([]);
+}
+describe('saved own refusal reply keeps the user goal', () => {
+  it.each(['minimal', 'legacy', 'observe'])('detects the saved public mismatch and records both verified paths in %s', mode => {
+    vi.stubEnv('COACHING_OUTPUT_PIPELINE_MODE', mode);
+    const quality = assessDeclineFocus(declineFocusObserved.candidate);
+    const normalized = normalizeCoachingOutput(declineFocusObserved.candidate, declineFocusObserved.latest, declineHistory());
+    const normalizedQuality = assessDeclineFocus(normalized);
+    const direct = verifyDeclineFocus(declineFocusObserved.candidate);
+    const normalizedVerified = verifyDeclineFocus(normalized);
+    const unflagged = ensureVerifiedCoachingResolution({resolution:{text:declineFocusObserved.candidate,usage:{},modelName:'same-decline-empty-flags-fixture',provider:'local',repairAttempted:false,repairAccepted:false,initialIssues:[],finalIssues:[]},lastUserText:declineFocusObserved.latest,historyMessages:declineHistory()});
+    declineFocusActuals.push({ stage: 'two-public-paths', mode, ...declineFocusObserved,
+      quality, normalized, normalizedQuality, direct, normalizedVerified, unflagged });
+    expect(quality.issues).toContain('context_mismatch');
+    if (mode === 'observe') {
+      expect(direct.text).toBe(declineFocusObserved.candidate);
+      expect(direct.initialIssues).toContain('context_mismatch');
+      expect(unflagged.text).toBe(declineFocusObserved.candidate);expect(unflagged.initialIssues).toContain('context_mismatch');
+      // Pure normalization is recorded separately. An unchanged bad intermediate
+      // must remain detected, and is never labelled semantic delivery success.
+      if (normalized === declineFocusObserved.candidate) {
+        expect(normalizedQuality.issues).toContain('context_mismatch');
+        expect(normalizedVerified.initialIssues).toContain('context_mismatch');
+      } else {
+        expectOwnDeclineFocus(normalizedVerified.text);
+        expect(normalizedVerified.finalIssues).toEqual([]);
+      }
+      return;
+    }
+    expectOwnDeclineFocus(unflagged.text);expect(unflagged.initialIssues).toContain('context_mismatch');expect(unflagged.qualitySafetyHold).not.toBe(true);
+    expectOwnDeclineFocus(direct.text); expectOwnDeclineFocus(normalizedVerified.text);
+    expect(direct.finalIssues).toEqual([]); expect(normalizedVerified.finalIssues).toEqual([]);
+    expect(direct.qualitySafetyHold).not.toBe(true); expect(normalizedVerified.qualitySafetyHold).not.toBe(true);
+  });
+  it.each(['minimal', 'legacy', 'observe'])('records final delivery and callback in %s', async mode => {
+    vi.stubEnv('COACHING_OUTPUT_PIPELINE_MODE', mode);
+    let forbiddenFetchAttempts = 0;
+    vi.stubGlobal('fetch', async () => { forbiddenFetchAttempts++; throw Error('NETWORK_DISABLED'); });
+    transport.raw = declineFocusObserved.candidate;
+    const before = { primary: transport.primary, repair: transport.repair, external: transport.external, alerts: transport.alerts };
+    const callbacks: Array<{ message: string }> = [];
+    const reader = createJsonLineStream({
+      systemPrompt: getContextualizedPrompt(declineFocusObserved.diagnosisCode), historyMessages: declineHistory(),
+      lastUserParts: buildGeminiParts(declineFocusObserved.latest, [], declineHistory()),
+      onDone: async (_usage, completion) => { callbacks.push(completion); return {}; },
+    }).getReader();
+    const decoder = new TextDecoder(); let wire = '';
+    while (true) { const next = await reader.read(); if (next.done) break; wire += decoder.decode(next.value, { stream: true }); }
+    wire += decoder.decode(); const events = wire.trim().split('\n').map(line => JSON.parse(line));
+    const dones = events.filter(event => event.type === 'done'); const done = dones[0];
+    const mockCallDelta = { primary: transport.primary - before.primary, repair: transport.repair - before.repair,
+      external: transport.external - before.external, alerts: transport.alerts - before.alerts };
+    declineFocusActuals.push({ stage: 'mock-fullstream', mode, ...declineFocusObserved,
+      mockCallDelta, configuredCandidateConsumed: mockCallDelta.primary > 0,
+      forbiddenFetchAttempts, wire, events, callbacks, final: done?.message });
+    expect(dones).toHaveLength(1); expect(callbacks).toHaveLength(1);
+    expect(done.completionStatus).toBe('complete'); expect(done.finalizationStatus).toBe('complete');
+    expect(events.filter(event => event.type === 'chunk').map(event => event.text).join('')).toBe(done.message);
+    expect(callbacks[0].message).toBe(done.message);
+    expect(forbiddenFetchAttempts).toBe(0); expect(mockCallDelta.external).toBe(0); expect(mockCallDelta.alerts).toBe(0);
+    if (mockCallDelta.primary > 0) expect(done.qualityInitialIssues).toContain('context_mismatch');
+    if (mode === 'observe' && mockCallDelta.primary > 0) {
+      expect(done.message).toBe(declineFocusObserved.candidate);
+      return; // Known-bad observed delivery is detection-only.
+    }
+    expectOwnDeclineFocus(done.message); expect(done.qualityFinalIssues).toEqual([]);
+    expect(done.qualitySafetyHold).not.toBe(true);
+  });
+});
+const declineFocusControls = [
+  {
+    name: 'existing-planning-own-refusal-question', latest: declineFocusObserved.latest, history: declineHistory(),
+    text: '断った後に友人との関係が悪くなる気がして、返事をためらっているのですね。これから起きるかもしれないことと、実際に起きたことは分けて考えられます。今の段階では、断った時の反応をこちらで決めつけることはできません。\n\n断ると、友人からどんな反応があると考えていますか？',
+    basis: 'Existing planning fallback at current source 4812, actual current context',
+  },
+  {
+    name: 'explicit-current-user-other-action-goal', history: declineHistory(),
+    latest: '今回は断り返事ではなく、友人に変えてほしい行動を考えたいです。',
+    text: '友人に変えてほしい行動を考えたいのですね。\n\nその相手に、まずどの行動を変えてほしいですか？',
+    basis: 'Bounded explicit current USER other-change goal; asks which behavior before it is supplied, not a repeated known answer',
+  },
+  {
+    name: 'faithful-question-report-is-not-new-other-action-question', history: declineHistory(),
+    latest: 'AIから「その相手に、まずどの行動を変えてほしいですか？」と聞かれました。私は友人への断り返事の話をしています。',
+    text: 'AIから「その相手に、まずどの行動を変えてほしいですか？」と聞かれたのですね。\n\n友人への断り返事について、今どの点を話したいですか？',
+    basis: 'Bounded quoted/report control requested by root; output quote is grounded in this USER report',
+  },
+  {
+    name: 'explicit-topic-switch-keeps-real-household-request', history: declineHistory(),
+    latest: '話題を変えて家事の相談です。夫に家事を頼んでも後回しにされます。私ばかり負担している気がして腹が立ちます。',
+    text: '家事を頼んでも後回しにされ、自分ばかり負担しているように感じて腹が立つんですね。頼んだ家事を結局自分が引き受ける状態なら、一回の家事ではなく、分担が機能していないことが問題です。\n\n夫に、最初に担当を固定してほしい家事はどれですか？',
+    basis: 'Existing household normal contract plus explicit topic boundary; no old refusal goal carryover',
+  },
+  {
+    name: 'explicit-own-reply-wording-stays-a-reply', history: declineHistory(),
+    latest: '断ると関係が悪くなる気がします。返事の文面を一つ、質問なしで作ってください。',
+    text: '「誘ってくれてありがとう。今回は参加しないことにしました。」',
+    basis: 'Existing direct-wording positive contract; does not add an excuse or ask a question',
+  },
+];
+describe('bounded refusal-focus preservation controls', () => {
+  it.each(declineFocusControls)('preserves $name', item => {
+    const quality = assessDeclineFocus(item.text, item.latest, item.history);
+    declineFocusActuals.push({ stage: 'bounded-control', ...item, quality });
+    // This assertion protects only the new focus predicate. It does not waive
+    // other quality issues or label every control a complete response PASS.
+    expect(quality.issues).not.toContain('context_mismatch');
+  });
+});
+
+
+// Same two saved public deliveries. No original provider bytes were retained.
+const genericMorningObserved = [
+  { name: 'a871-r2-parallel-burst-5-1', latest: '同時接続テスト5です。明日の朝に始める行動を一つだけ、質問なしで答えてください。', candidate: '明日の朝、今ある作業の最初の項目をノートに一言だけ書き出してください。' },
+  { name: 'a871-r3-parallel-burst-5-1', latest: '同時接続テスト5です。明日の朝に始める行動を一つだけ、質問なしで答えてください。', candidate: '明日の朝、朝起きたら、今日一番優先して進めたい作業をノートに一つ書いてください。' },
+] as const;
+const genericMorningSeen: unknown[] = [];
+afterAll(() => {
+  const output = process.env.ACTI_GENERIC_MORNING_REPLAY_OUTPUT;
+  if (output) writeFileSync(output, JSON.stringify({ scope: 'Existing R2/R3 actual deliveries and finite local controls', providerOriginal: 'NOT_CAPTURED', newLiveCases: 0, actuals: genericMorningSeen }, null, 2)+'\n', {flag:'wx',mode:0o600});
+});
+function genericMorningQuality(text: string, latest: string, history: CoachingChatMessage[] = []) {
+  return assessCoachingResponseQuality({text,lastUserText:latest,historyMessages:history});
+}
+function genericMorningVerify(text: string, latest: string) {
+  const q=genericMorningQuality(text,latest);
+  return ensureVerifiedCoachingResolution({resolution:{text,usage:{},modelName:'local-public-fixture',provider:'local',repairAttempted:false,repairAccepted:false,initialIssues:q.issues,finalIssues:q.issues},lastUserText:latest,historyMessages:[]});
+}
+function expectGroundedGenericMorning(text: string, latest: string) {
+  expect(text).toContain('明日の朝');
+  expect(text).not.toMatch(/今ある作業|最初の項目|一番優先|今日|本日|ノート|作業|タスク|仕事|用事|[？?]/);
+  expect(text).toMatch(/(?:一回|一度|一つ|ひとつ|1つ)(?:だけ)?/);
+  expect(text).toMatch(/(?:て|で)ください[。！!]?$/);
+  expect(genericMorningQuality(text,latest).issues).toEqual([]);
+}
+describe('actual generic morning actions do not invent existing task targets',()=>{
+  for(const item of genericMorningObserved) for(const mode of ['minimal','legacy','observe']) {
+    it(item.name+' direct and normalized '+mode,()=>{
+      vi.stubEnv('COACHING_OUTPUT_PIPELINE_MODE',mode);
+      const initial=genericMorningQuality(item.candidate,item.latest);
+      const normalized=normalizeCoachingOutput(item.candidate,item.latest,[]);
+      const direct=genericMorningVerify(item.candidate,item.latest);
+      const normalizedVerified=genericMorningVerify(normalized,item.latest);
+      const unflagged=ensureVerifiedCoachingResolution({resolution:{text:item.candidate,usage:{},modelName:'same-generic-empty-flags-fixture',provider:'local',repairAttempted:false,repairAccepted:false,initialIssues:[],finalIssues:[]},lastUserText:item.latest,historyMessages:[]});
+      genericMorningSeen.push({stage:'two-paths',mode,...item,history:[],initial,normalized,normalizedQuality:genericMorningQuality(normalized,item.latest),direct,normalizedVerified,unflagged});
+      expect(initial.issues).toContain('ungrounded_task_assumption');
+      if(mode==='observe') { expect(direct.text).toBe(item.candidate);expect(direct.initialIssues).toContain('ungrounded_task_assumption');expect(unflagged.text).toBe(item.candidate);expect(unflagged.initialIssues).toContain('ungrounded_task_assumption');return; }
+      expectGroundedGenericMorning(direct.text,item.latest);expectGroundedGenericMorning(normalizedVerified.text,item.latest);expectGroundedGenericMorning(unflagged.text,item.latest);expect(unflagged.initialIssues).toContain('ungrounded_task_assumption');expect(unflagged.qualitySafetyHold).not.toBe(true);
+      expect(direct.qualitySafetyHold).not.toBe(true);expect(normalizedVerified.qualitySafetyHold).not.toBe(true);
+    });
+    it(item.name+' full mock delivery '+mode,async()=>{
+      vi.stubEnv('COACHING_OUTPUT_PIPELINE_MODE',mode);let forbiddenFetchAttempts=0;
+      vi.stubGlobal('fetch',async()=>{forbiddenFetchAttempts++;throw Error('NETWORK_DISABLED');});
+      transport.raw=item.candidate;transport.external=0;const callbacks: Array<{message:string}>=[];
+      const reader=createJsonLineStream({systemPrompt:getContextualizedPrompt('MGA-3'),historyMessages:[],lastUserParts:buildGeminiParts(item.latest,[],[]),onDone:async(_usage,completion)=>{callbacks.push(completion);return {};}}).getReader();
+      const decoder=new TextDecoder();let wire='';while(true){const chunk=await reader.read();if(chunk.done)break;wire+=decoder.decode(chunk.value,{stream:true});}wire+=decoder.decode();
+      const events=wire.trim().split('\n').map(line=>JSON.parse(line));const doneEvents=events.filter(e=>e.type==='done');const done=doneEvents[0];
+      genericMorningSeen.push({stage:'mock-fullstream',mode,...item,history:[],wire,events,callbacks,done,forbiddenFetchAttempts,externalProviderAttempts:transport.external});
+      expect(doneEvents).toHaveLength(1);expect(callbacks).toHaveLength(1);expect(done.completionStatus).toBe('complete');expect(done.finalizationStatus).toBe('complete');
+      expect(events.filter(e=>e.type==='chunk').map(e=>e.text).join('')).toBe(done.message);expect(callbacks[0].message).toBe(done.message);expect(forbiddenFetchAttempts).toBe(0);expect(transport.external).toBe(0);
+      expect(done.qualityInitialIssues).toContain('ungrounded_task_assumption');
+      if(mode==='observe'){expect(done.message).toBe(item.candidate);expect(done.qualityInitialIssues).toContain('ungrounded_task_assumption');return;}
+      expectGroundedGenericMorning(done.message,item.latest);expect(done.qualityFinalIssues).toEqual([]);expect(done.qualitySafetyHold).not.toBe(true);
+    });
+  }
+});
+const genericMorningEvidenceControls=[
+ {name:'own-created-list',texts:['作業リストを作りました。'],expected:false},
+ {name:'work-alone-not-item-list',texts:['仕事をしています。'],expected:true},
+ {name:'assistant-like-report-not-own-list',texts:['「作業リストを作りました」とAIに言われました。'],expected:true},
+ {name:'third-party-list',texts:['夫は作業リストを作りました。'],expected:true},
+ {name:'list-revoked',texts:['作業リストを作りました。','そのリストはもうありません。'],expected:true},
+ {name:'list-unknown',texts:['作業リストがあるか分かりません。'],expected:true},
+ {name:'list-only-new-topic',texts:currentTopicUserTexts(['作業リストを作りました。','話題を変えて、明日の朝に始める行動を一つだけ教えてください。']),expected:true},
+];
+describe('bounded existing list and topic controls',()=>{
+ it.each(genericMorningEvidenceControls)('$name',c=>{
+   const actual=containsUngroundedTaskAssumption(genericMorningObserved[0].candidate,c.texts);
+   genericMorningSeen.push({stage:'list-control',...c,actual,candidate:genericMorningObserved[0].candidate});expect(actual).toBe(c.expected);
+ });
+ it('keeps a faithful quote but rejects a new quoted directive',()=>{
+   const candidate=genericMorningObserved[0].candidate;
+   const user=`「${candidate}」とAIに言われました。`;
+   const report=`「${candidate}」とAIに言われたのですね。`;
+   const actual={report:containsUngroundedTaskAssumption(report,[user]),directive:containsUngroundedTaskAssumption(`「${candidate}」`,[])};
+   genericMorningSeen.push({stage:'quote-controls',candidate,user,report,actual});expect(actual.report).toBe(false);expect(actual.directive).toBe(true);
+ });
+ it('preserves an already appropriate one-action provider proposal',()=>{
+   const candidate='明日の朝は、まずコップ一杯の水をゆっくり飲んでみましょう。';
+   const actual=normalizeCoachingOutput(candidate,genericMorningObserved[0].latest,[]);
+   genericMorningSeen.push({stage:'valid-one-action',candidate,latest:genericMorningObserved[0].latest,actual});expect(actual).toBe(candidate);
+ });
+ it.each([
+   {name:'current-work',content:'仕事で予約を受け付けています。',domain:/仕事/},
+   {name:'current-friend',content:'友人に断る返事をしたいです。',domain:/伝|一文|友人/},
+   {name:'current-document',content:'新しい企画の説明資料を作っています。',domain:/資料|見出し/},
+ ])('does not replace $name with breathing',c=>{
+   const history:CoachingChatMessage[]=[{role:'user',content:c.content}];
+   const actual=normalizeCoachingOutput(genericMorningObserved[0].candidate,genericMorningObserved[0].latest,history);
+   genericMorningSeen.push({stage:'specific-domain-control',...c,domain:String(c.domain),history,latest:genericMorningObserved[0].latest,candidate:genericMorningObserved[0].candidate,actual,quality:genericMorningQuality(actual,genericMorningObserved[0].latest,history)});
+   expect(actual).not.toMatch(/呼吸/);expect(actual).toMatch(c.domain);
+ });
 });

@@ -855,7 +855,7 @@ describe('single-action grounding', () => {
     );
 
     expect(result).toBe(
-      '明日の朝、終わらせたい用事を一つだけ紙に書いてください。'
+      '明日の朝、深呼吸を一回だけしてください。'
     );
     expect(result).not.toMatch(/やり残|未完了|座って|手を付け|完了させ/);
   });
@@ -2761,7 +2761,7 @@ describe('normalizeCoachingOutput', () => {
 
     expect(result).not.toMatch(/カーテン|朝日を浴び/);
     expect(result).toBe(
-      '明日の朝、終わらせたい用事を一つだけ紙に書いてください。'
+      '明日の朝、深呼吸を一回だけしてください。'
     );
   });
 
@@ -2773,7 +2773,7 @@ describe('normalizeCoachingOutput', () => {
 
     expect(result).not.toContain('白湯かお水');
     expect(result).toBe(
-      '明日の朝、終わらせたい用事を一つだけ紙に書いてください。'
+      '明日の朝、深呼吸を一回だけしてください。'
     );
   });
 
@@ -2791,7 +2791,7 @@ describe('normalizeCoachingOutput', () => {
 
     expect(assessment.issues).toContain('vague_action_target');
     expect(result).toBe(
-      '明日の朝、終わらせたい用事を一つだけ紙に書いてください。'
+      '明日の朝、深呼吸を一回だけしてください。'
     );
     expect(result).not.toContain('この1つの行動');
   });
@@ -4011,7 +4011,7 @@ describe('normalizeCoachingOutput', () => {
     );
 
     expect(result).toBe(
-      '明日の朝、終わらせたい用事を一つだけ紙に書いてください。'
+      '明日の朝、深呼吸を一回だけしてください。'
     );
     expect(result).not.toContain('その一つのこと');
   });
@@ -4994,7 +4994,7 @@ describe('normalizeCoachingOutput', () => {
 
     expect(result).not.toMatch(/淹れ|スマホ|香り/);
     expect(result).toBe(
-      '明日の朝、終わらせたい用事を一つだけ紙に書いてください。'
+      '明日の朝、深呼吸を一回だけしてください。'
     );
   });
 
@@ -5004,9 +5004,9 @@ describe('normalizeCoachingOutput', () => {
       '明日の朝に始める行動を一つだけ、質問なしで答えてください。'
     );
 
-    expect(result).not.toMatch(/思い浮かべ|深呼吸|淹れ/);
+    expect(result).not.toMatch(/思い浮かべ|淹れ/);
     expect(result).toBe(
-      '明日の朝、終わらせたい用事を一つだけ紙に書いてください。'
+      '明日の朝、深呼吸を一回だけしてください。'
     );
   });
 

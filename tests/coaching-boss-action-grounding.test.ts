@@ -140,7 +140,7 @@ describe('finite three observed boss, task-artifact and home-topic regressions b
       else {
         expect(done.message).not.toBe(item.candidate); expect(done.qualityFinalIssues).toEqual([]);
         if (item.name === 'observed-smoke-normal-2' || item.name === 'observed-smoke-normal-3-adjacent') { expect(done.message).toMatch(/上司|次の一言/); expect(done.message).not.toMatch(/何を言ってもまた|言葉を出す前に止ま|前回のご指摘|どの指摘/); }
-        if (item.name === 'observed-parallel-burst-1') { expect(done.message).toMatch(/紙|書/); expect(done.message).not.toMatch(/今日残した|やり残|未完了|残っている作業/); }
+        if (item.name === 'observed-parallel-burst-1') { expect(done.message).toBe('明日の朝、深呼吸を一回だけしてください。'); expect(done.message).not.toMatch(/今日残した|やり残|未完了|残っている作業|[？?]/); }
         if (item.name === 'observed-topic-switch-home-turn-2') { expect(done.message).toMatch(/家/); expect(done.message).not.toMatch(/止まっている出来事|相手の気持ち/); }
       }
       expect(state.external).toBe(0); expect(state.alerts).toBe(0); expect(state.fetch).toBe(0);
