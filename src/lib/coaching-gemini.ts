@@ -5042,6 +5042,11 @@ export function buildFinalVerifiedQualityFallback(
   if (factualReplyFallback) return factualReplyFallback;
   const typedSelfUnderstandingFallback = buildTypedSelfUnderstandingResponse(lastUserText);
   if (typedSelfUnderstandingFallback) return typedSelfUnderstandingFallback;
+  const learningBudgetFallback = buildLearningBudgetContinuationFallback(
+    lastUserText,
+    historyMessages
+  );
+  if (learningBudgetFallback) return learningBudgetFallback;
   const planningFallback = buildConcretePlanningContinuationFallback(lastUserText, historyMessages);
   if (planningFallback && assessCoachingResponseQuality({text: planningFallback, lastUserText, historyMessages}).issues.length === 0) return planningFallback;
   const workplaceFallback = buildWorkplaceConflictContinuationFallback(lastUserText, historyMessages);
@@ -5760,6 +5765,27 @@ function buildSilentAnswerFallback(
   const subject =
     userContext.match(/夫|妻|上司|同僚|相手|家族/)?.[0] || '相手';
   return `${subject}が何も説明しないという補足ですね。直前の提案を実行した結果だとは決めつけず、これまでに書かれた事実だけで次の対応を考えます。`;
+}
+
+function buildLearningBudgetContinuationFallback(
+  lastUserText: string,
+  historyMessages: CoachingChatMessage[]
+) {
+  const latest = stripAttachmentMarkdown(lastUserText).trim();
+  const recentUserContext = historyMessages
+    .filter((message) => message.role === 'user')
+    .slice(-4)
+    .map((message) => stripAttachmentMarkdown(message.content))
+    .join('\n');
+  const isBriefMoneyContinuation =
+    latest.length <= 32 && /(?:お金|金銭|収支|家計)/.test(latest);
+  const isLearningBudgetContext =
+    /(?:学び|勉強|自己啓発|講座)/.test(recentUserContext) &&
+    /(?:お金|金銭|収支|家計|やりくり|支出)/.test(recentUserContext);
+
+  if (!isBriefMoneyContinuation || !isLearningBudgetContext) return '';
+
+  return '学びにかけるお金と、毎月のやりくりが重なっているのですね。診断結果が前回と違った理由を、お金の問題だけで決めることはできません。\n\n次に学びへ使う額を決める前に、今月の収入と必ず出る支出を書き出し、手元に残る額を確認してください。';
 }
 
 function buildSubstantiveShortFallback(lastUserText: string) {
