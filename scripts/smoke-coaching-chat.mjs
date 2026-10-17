@@ -2,7 +2,7 @@ import { stripJapaneseQuotationContent, containsUnbalancedJapaneseQuotation } fr
 import { createClient } from '@supabase/supabase-js';
 import { randomUUID } from 'node:crypto';
 import { currentTopicUserTexts } from '../src/lib/coaching-emotion-language.mjs';
-import { containsUnsupportedRentExplanationReply, containsChainedPreparationInstructions, containsChainedEditingInstructions, containsChainedCommunicationInstructions, containsUnsupportedProcedureInterfacePremise, containsUnsupportedSituationPremise, containsUngroundedTaskAssumption, containsConversationRestriction, containsAmbiguousFutureActionDayReference } from '../src/lib/coaching-action-language.mjs';
+import { containsMisfocusedFriendDeclineQuestion, containsUnsupportedRentExplanationReply, containsChainedPreparationInstructions, containsChainedEditingInstructions, containsChainedCommunicationInstructions, containsUnsupportedProcedureInterfacePremise, containsUnsupportedSituationPremise, containsUngroundedTaskAssumption, containsConversationRestriction, containsAmbiguousFutureActionDayReference } from '../src/lib/coaching-action-language.mjs';
 import { deleteTestAuthUser } from './lib/test-account-cleanup.mjs';
 
 const args = new Map(
@@ -741,6 +741,9 @@ function assertResults(results) {
     }
     if (containsChainedCommunicationInstructions(result.message, result.lastUserText)) {
       throw new Error(`${result.label} returned chained communication instructions: ${result.message}`);
+    }
+    if (containsMisfocusedFriendDeclineQuestion(result.message, result.currentUserTexts)) {
+      throw new Error(`${result.label} changed the user's pending refusal reply into a request to change the friend: ${result.message}`);
     }
     if (containsUnsupportedRentExplanationReply(result.message, result.currentUserTexts)) {
       throw new Error(`${result.label} inferred a rent motive or repeated an unavailable explanation question: ${result.message}`);

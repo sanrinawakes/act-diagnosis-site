@@ -1,8 +1,8 @@
 import { stripJapaneseQuotationContent, containsUnbalancedJapaneseQuotation } from '../src/lib/coaching-quotation-language.mjs';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import vm from 'node:vm';
-import { describe, expect, it, vi } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import * as actionLanguage from '../src/lib/coaching-action-language.mjs';
 import * as emotionLanguage from '../src/lib/coaching-emotion-language.mjs';
 import { containsDeadlineOutcomeAssurance } from '../src/lib/coaching-deadline-language.mjs';
@@ -177,5 +177,23 @@ describe('future action target day stays explicit', () => {
 
   it('accepts the explicit execution-day target in the real standard evaluator', () => {
     expect(evaluatorChecks(alignedObserved).find(check => check.name.endsWith(': 明日の行動対象日を今日と曖昧にしない'))?.passed).toBe(true);
+  });
+});
+
+
+// Captured public R1/R3 bodies. Test day-span helpers independently from
+// whole-pipeline grounding repair, which may replace an unsupported task target.
+const observedDayModifierActuals = [
+  { name:'a871-r1-parallel-burst-1-1', latest:'同時接続テスト1です。明日の朝に始める行動を一つだけ、質問なしで答えてください。', candidate:'明日の朝起きたら、今日行う予定の作業を一つノートに書き出してください。', expected:'明日の朝起きたら、その日に行う予定の作業を一つノートに書き出してください。' },
+  { name:'a871-r3-parallel-burst-5-1', latest:'同時接続テスト5です。明日の朝に始める行動を一つだけ、質問なしで答えてください。', candidate:'明日の朝、朝起きたら、今日一番優先して進めたい作業をノートに一つ書いてください。', expected:'明日の朝、朝起きたら、その日に一番優先して進めたい作業をノートに一つ書いてください。' },
+] as const;
+const observedDayModifierSeen:unknown[]=[];
+afterAll(()=>{const output=process.env.ACTI_OBSERVED_DAY_MODIFIER_REPLAY_OUTPUT;if(output)writeFileSync(output,JSON.stringify({scope:'Two existing actual public bodies, helper-only date contract',providerOriginal:'NOT_CAPTURED',newLiveCases:0,actuals:observedDayModifierSeen},null,2)+'\n',{flag:'wx',mode:0o600});});
+describe('observed task modifiers retain explicit future execution day',()=>{
+  it.each(observedDayModifierActuals)('$name',item=>{
+    const detected=containsAmbiguousFutureActionDayReference(item.candidate,item.latest,[item.latest]);
+    const aligned=alignFutureActionDayReferences(item.candidate,item.latest,[item.latest]);
+    observedDayModifierSeen.push({...item,history:[],detected,aligned});
+    expect(detected).toBe(true);expect(aligned).toBe(item.expected);
   });
 });

@@ -1,5 +1,57 @@
 import { stripJapaneseQuotationContent, splitOutsideJapaneseQuotations } from './coaching-quotation-language.mjs';
 
+// Bounded current report: it states a colleague's document plan, not the
+// user's plan or a request to change that colleague's behavior.
+export function isThirdPartyPurposePlanReport(text) {
+  return typeof text === 'string' && /^同僚は一枚目に利用目的を書く予定です[。！!]*$/u.test(text.trim());
+}
+
+/** A pending refusal reply or a document-plan report is not a change request. */
+export function containsMisfocusedFriendDeclineQuestion(text, currentUserTexts = []) {
+  let ownDeclineReplyIsCurrentGoal = false;
+  for (const value of currentUserTexts) {
+    if (typeof value !== 'string') continue;
+    const ownWords = stripJapaneseQuotationContent(value, true)
+      .replace(/"[^"]*"|'[^']*'/gu, quote => ' '.repeat(quote.length));
+    const ownSubjectBefore = index => {
+      const prefix = ownWords.slice(0, index).split(/[。！？?\n]/u).at(-1) || '';
+      const subject = [...prefix.matchAll(/([^\s、,。！？?]{1,24}?)(?<!で)(?:は|が)/gu)].at(-1)?.[1];
+      return !subject || /^(?:私|私自身|自分|自分自身|自身|今|今日|現在|今回)$/u.test(subject);
+    };
+    const friend = /(?:友人|友達)(?:に|の(?:誘い|予定))/u.exec(ownWords);
+    // Only the bounded current USER task supplies the goal. A quoted example,
+    // somebody else's reported task, or a hypothetical does not establish it.
+    if (!/[？?]|もし|仮に|例文|例として|(?:と|って)(?:AI|アシスタント|ChatGPT)?(?:に)?(?:言われ|聞かれ|書かれ|提案され)/u.test(ownWords) &&
+        friend && ownSubjectBefore(friend.index) &&
+        /断りたい|断る返事|断りの返事/u.test(ownWords) &&
+        /(?:返事|返信)[^。！？?\n]{0,32}(?:先延ばし|遅らせ|ためら|送れなく)/u.test(ownWords) &&
+        !/断りたい(?:わけ|という意味)では(?:ない|ありません)/u.test(ownWords)) {
+      ownDeclineReplyIsCurrentGoal = true;
+    }
+    // A later direct USER goal can legitimately shift to the friend's action.
+    // Keep a negative/report/quoted occurrence from becoming that permission.
+    const otherGoal = /(?:友人|友達|相手)に[^。！？?\n]{0,24}変えてほしい行動を(?:考えたい|話したい|相談したい)(?:です)?[。！!\s]*$|(?:友人|友達|相手)(?:に(?:は)?|の行動を)[^。！？?\n]{0,32}変えてほしい(?:です)?[。！!\s]*$/u.exec(ownWords);
+    if (otherGoal && ownSubjectBefore(otherGoal.index) && !/[？?]|もし|仮に/u.test(ownWords)) {
+      ownDeclineReplyIsCurrentGoal = false;
+    }
+    if (friend && ownSubjectBefore(friend.index) &&
+        /断りたい(?:わけ|という意味)では(?:ない|ありません)/u.test(ownWords)) {
+      ownDeclineReplyIsCurrentGoal = false;
+    }
+  }
+  if (!ownDeclineReplyIsCurrentGoal &&
+      !isThirdPartyPurposePlanReport(currentUserTexts.at(-1))) return false;
+  const question = /(?:その)?(?:相手|友人|友達)に[、,\s]*(?:まず)?(?:どの行動|何)を変えてほしい(?:ですか|でしょうか|と思いますか)[？?]/u;
+  return splitOutsideJapaneseQuotations(text).some(segment => {
+    const outside = stripJapaneseQuotationContent(segment, true)
+      .replace(/"[^"]*"|'[^']*'/gu, quote => ' '.repeat(quote.length));
+    // A standalone new quoted question is still the assistant's question.
+    // A faithful report has words outside the quote and is inspected there.
+    const standalone = /^[。！!？?\s]*$/u.test(outside);
+    return question.test(standalone ? segment : outside);
+  });
+}
+
 /** A start verb with only an unspecified task restates the requested action. */
 export function containsCircularSingleAction(text) {
   const unquoted = text.replace(/「[^」]*」|『[^』]*』/gu, '').replace(/\s+/gu, '');
@@ -71,7 +123,8 @@ const SITUATION_PREMISES = [
 
 // Only direct user clauses can supply these bounded situation/task facts.
 // Later explicit denial cancels an earlier assertion of the same fact.
-export function hasCurrentUserSituationEvidence(currentUserTexts, expression) {
+/** @param {RegExp | null} [additionalDenial] */
+export function hasCurrentUserSituationEvidence(currentUserTexts, expression, additionalDenial = null) {
   let affirmed = false;
   for (const value of currentUserTexts) {
     const ownWords = value.replace(/「[^」]*」|『[^』]*』/gu, '');
@@ -85,7 +138,7 @@ export function hasCurrentUserSituationEvidence(currentUserTexts, expression) {
       if ((actor && !self.test(actor) && !/^(?:今|今日|現在|昨日|前回)$/u.test(actor)) ||
           (owner && !self.test(owner))) continue;
       if (/[？?]|もし|仮に|(?:と|って)(?:AI|言われ|言って|書かれ|提案され)|かもしれ/u.test(clause)) continue;
-      const denied = /(?:は|が|も)(?:ありません|ない)|(?:受け|作っ|止まっ|され|し|言っ|述べ)て(?:いません|いない)|とは(?:言って|述べて)(?:いません|いない)|という意味では(?:ありません|ない)|では(?:ありません|ない)/u.test(clause);
+      const denied = /(?:は|が|も)(?:ありません|ない)|(?:受け|作っ|止まっ|され|し|言っ|述べ)て(?:いません|いない)|とは(?:言って|述べて)(?:いません|いない)|という意味では(?:ありません|ない)|では(?:ありません|ない)/u.test(clause) || Boolean(additionalDenial?.test(clause));
       affirmed = !denied;
     }
   }
@@ -149,8 +202,48 @@ function containsExistingMemoReadInstruction(text, currentUserTexts) {
     return true;
   }));
 }
+
+// Bounded to the observed existing-task/item and planned-task targets. A list
+// mentioned by an assistant or another actor is not the user's available list.
+function currentOwnTaskTargetState(currentUserTexts) {
+  let task = false;
+  let list = false;
+  for (const value of currentUserTexts) {
+    const own = stripJapaneseQuotationContent(value, true).replace(/"[^"]*"|'[^']*'/gu, quote => ' '.repeat(quote.length));
+    for (const statement of splitOutsideJapaneseQuotations(own)) {
+      const mention = /(?:作業|タスク|仕事|用事)(?:の)?(?:リスト|一覧|項目)?|(?:この|その)リスト/u.exec(statement);
+      if (!mention) continue;
+      const prefix = statement.slice(0, mention.index);
+      const actor = [...prefix.matchAll(/([^\s、,。！？?]{1,24}?)(?:は|が)/gu)].at(-1)?.[1];
+      const owner = prefix.match(/([^\s、,。！？?]{1,24})の$/u)?.[1];
+      const self = /^(?:私|私自身|自分|自分自身|自身)$/u;
+      if ((actor && !self.test(actor) && !/^(?:今|今日|現在|明日)$/u.test(actor)) || (owner && !self.test(owner))) continue;
+      if (/[？?]|もし|仮に|(?:と|って)(?:AI|アシスタント|ChatGPT)?(?:に)?(?:言われ|提案され)/u.test(statement)) continue;
+      for (const clause of statement.split(/[、,]|しかし|ただし|(?<=あります|ありません|作りました|作成しました)が/u)) {
+        const listMention = /(?:作業|タスク|仕事|用事)(?:の)?(?:リスト|一覧|項目)|(?:この|その)リスト/u.test(clause);
+        const negative = /(?:は|が|も)(?:もう|まだ|今は|現在)?(?:手元に)?(?:ありません|ない)|(?:捨て|処分し|なくし|失くし)(?:ました|た|て)|(?:作っ|作成し|用意し|書い)て(?:いません|いない)|(?:は|が)(?:まだ)?(?:空|空白)です|(?:あるか|作ったか)[^。！？?\n]{0,12}(?:分かりません|わかりません|未確認)|とは(?:言って|述べて)(?:いません|いない)/u.test(clause);
+        if (negative) { if (listMention) list = false; else { task = false; list = false; } continue; }
+        if (listMention && /(?:を[^。！？?\n]{0,30}(?:作りました|作成しました|用意しました|書きました)|(?:は|が)(?:今も|現在)?(?:手元に)?あります|(?:最初|先頭|一番目)の項目は[^。！？?\n]{1,40}です)/u.test(clause)) { task = true; list = true; continue; }
+        if (/(?:作業|タスク|仕事|用事)(?:(?:は|が)(?:今も|現在)?(?:あります|残っています)|を[^。！？?\n]{0,32}(?:しています|進めています|行う予定です|進める予定です)|に取り組んでいます)/u.test(clause)) task = true;
+      }
+    }
+  }
+  return { task, list };
+}
+function containsUnstatedCurrentTaskTarget(text, currentUserTexts) {
+  const state = currentOwnTaskTargetState(currentUserTexts);
+  const families = [
+    { pattern: /今ある(?:作業|タスク|仕事|用事)の(?:最初|先頭|一番目)の項目/gu, supported: state.list },
+    { pattern: /(?:今日|本日|その日に)(?:行う予定の|(?:一番)?優先して進めたい)(?:作業|タスク|仕事|用事)/gu, supported: state.task },
+  ];
+  return families.some(({ pattern, supported }) => !supported &&
+    splitOutsideJapaneseQuotations(text).some(statement => [...statement.matchAll(pattern)]
+      .some(match => !rentOccurrenceIsNonAssertive(statement, match, currentUserTexts))));
+}
+
 export function containsUngroundedTaskAssumption(text, currentUserTexts) {
-  return (TASK_ASSUMPTION.test(text) && !hasCurrentUserSituationEvidence(currentUserTexts, TASK_ASSUMPTION)) ||
+  return containsUnstatedCurrentTaskTarget(text, currentUserTexts) ||
+    (TASK_ASSUMPTION.test(text) && !hasCurrentUserSituationEvidence(currentUserTexts, TASK_ASSUMPTION)) ||
     (containsExistingMemoReadInstruction(text, currentUserTexts) && !hasCurrentOwnReadyMemo(currentUserTexts));
 }
 
@@ -230,12 +323,12 @@ function ambiguousFutureActionDaySpans(text, lastUserText, currentUserTexts) {
     unquoted(value).replace(/(?:今日|本日)(?:ではなく|じゃなく)/gu, '')
   ))) return [];
   const visible = unquoted(text);
-  return [...visible.matchAll(/(?:今日|本日)(?:(?=(?:行う|やる|する|取り組む|片付ける)(?:作業|タスク|仕事|用事|こと))|の(?=作業|タスク|仕事|用事))/gu)]
+  return [...visible.matchAll(/(?:今日|本日)(?:(?=(?:(?:行う|やる|する|取り組む|片付ける)(?:予定の)?|(?:一番)?優先して進めたい)(?:作業|タスク|仕事|用事|こと))|の(?=作業|タスク|仕事|用事))/gu)]
     .filter((match) => /(?:明日|翌日|翌朝)[^。！？\n]{0,80}$/u.test(visible.slice(0, match.index)))
     // Retrospective verbs make the prior-day target explicit rather than
     // ambiguously describing a task to perform on the future execution day.
     .filter((match) => {
-      const target = /^(?:(?:行う|やる|する|取り組む|片付ける))?(?:作業|タスク|仕事|用事|こと)(?:を|について)/u.exec(visible.slice(match.index + match[0].length));
+      const target = /^(?:(?:行う|やる|する|取り組む|片付ける)(?:予定の)?|(?:一番)?優先して進めたい)?(?:作業|タスク|仕事|用事|こと)(?:を|について)/u.exec(visible.slice(match.index + match[0].length));
       if (!target) return true;
       const clause = visible.slice(match.index + match[0].length + target[0].length).split(/[。！？\n]/u)[0].slice(0, 32);
       const retrospective = /振り返|思い出/u.exec(clause);
