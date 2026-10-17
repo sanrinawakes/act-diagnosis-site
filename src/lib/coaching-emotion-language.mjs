@@ -162,7 +162,7 @@ function unsupportedConcernStatements(text, userTexts) {
   return statements(text).filter(statement =>
     clauses(removeFaithfulReportedQuotes(statement, users)).some(clause =>
       !isNonAssertiveConcern(clause) && CONCERN_EXPRESSIONS.some(expression =>
-        expression.test(clause) && /迷(?:って|われ|う(?:理由|原因|点)|い(?:が|は|の(?:理由|原因)|を感じ))|困(?:って|った(?:場面|こと)|る場面|り(?:事|ごと))|不安(?:です|で|が|は|な|に|を(?:感じ|抱)|の(?:理由|原因|奥))/u.test(clause) && !userSupportsSubject(users, expression,
+        expression.test(clause) && /迷(?:って|われ|う(?:理由|原因|点)|い(?:ます|が|は|の(?:理由|原因)|を感じ))|困(?:って|った(?:場面|こと)|る場面|り(?:ます|事|ごと))|不安(?:です|で|が|は|な|に|を(?:感じ|抱)|の(?:理由|原因|奥))/u.test(clause) && !userSupportsSubject(users, expression,
           concernSubject(clause, expression, false), isPast(clause), isNonAssertiveConcern, concernSubject))));
 }
 

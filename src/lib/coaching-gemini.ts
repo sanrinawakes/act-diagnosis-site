@@ -8,7 +8,7 @@ import {
 import { sendCoachingAlert } from '@/lib/coaching-alerts';
 import { COACHING_SCOPE_GUIDANCE } from '@/lib/coaching-scope';
 import { containsDeadlineOutcomeAssurance, stripAttributedDeadlineQuotes } from '@/lib/coaching-deadline-language.mjs';
-import { containsUnsupportedEmotionIntensity, removeUnsupportedEmotionIntensity, containsUnsupportedConcernPremise, removeUnsupportedConcernPremise, containsUnsupportedPersistentImpactPremise, currentTopicUserTexts } from '@/lib/coaching-emotion-language.mjs';
+import { containsUnsupportedEmotionIntensity, removeUnsupportedEmotionIntensity, containsUnsupportedConcernPremise, removeUnsupportedConcernPremise, currentTopicUserTexts } from '@/lib/coaching-emotion-language.mjs';
 import { isThirdPartyPurposePlanReport, containsMisfocusedFriendDeclineQuestion, containsUnsupportedRentExplanationReply, containsChainedPreparationInstructions, containsChainedEditingInstructions, containsChainedCommunicationInstructions, containsCircularSingleAction, containsUnsupportedProcedureInterfacePremise, containsUnsupportedSituationPremise, containsUngroundedTaskAssumption, containsUnsupportedArtifactCauseAssertion, hasCurrentUserSituationEvidence, containsConversationRestriction, containsAmbiguousFutureActionDayReference, alignFutureActionDayReferences, resolveShorteningActionTimeRequest, containsShorteningActionTimeMismatch } from '@/lib/coaching-action-language.mjs';
 import {
   getCoachingOutputPipelineConfig,
@@ -6799,7 +6799,7 @@ export function ensureVerifiedCoachingResolution(params: {
   const deliveryBoundaryIssues: CoachingQualityIssue[] = [];
   if (containsUnprovidedPlannedPurposeDraftPremise(resolution.text, lastUserText, historyMessages) ||
       containsMisfocusedFriendDeclineQuestion(resolution.text, boundaryUserTexts) ||
-      containsUnsupportedPersistentImpactPremise(resolution.text, boundaryUserTexts)) {
+      containsUnsupportedConcernPremise(resolution.text, boundaryUserTexts)) {
     deliveryBoundaryIssues.push('context_mismatch');
   }
   if (containsUngroundedTaskAssumption(resolution.text, boundaryUserTexts)) {
@@ -7551,7 +7551,7 @@ function isSingleActionRelevantToContext(
   if (containsUngroundedTaskAssumption(answer, getCurrentPlanningUserTexts(lastUserText, historyMessages))) {
     return false;
   }
-  if (containsUnsupportedPersistentImpactPremise(answer, getCurrentPlanningUserTexts(lastUserText, historyMessages))) {
+  if (containsUnsupportedConcernPremise(answer, getCurrentPlanningUserTexts(lastUserText, historyMessages))) {
     return false;
   }
   if (/[「『]今日確認したいこと[」』]/.test(answer) && !/確認/.test(userContext)) {

@@ -29,6 +29,24 @@ function concernCheck(conversation: { name: string; turns: ReturnType<typeof tur
   return evaluate([conversation]).checks.find((check: { name: string }) => check.name === `${label}: 本人未申告の迷い・不安・持続的な気掛かりや生活影響を前提にしない`)?.passed;
 }
 describe('standard evaluator shares current user concern grounding', () => {
+  const shortReplyEarlier = [
+    turn('友人に断りたい予定があるのに、返事を先延ばしにしています。', '友人への返事について、いま一番話したいことは何ですか？', 'short-reply-continuation-1'),
+    turn('断ると関係が悪くなる気がします。', '友人に断りの連絡を入れるとしたら、どのような返事を予想していますか？', 'short-reply-continuation-2'),
+  ];
+  const wordingClaim = '予想される反応を考えると、送る文面にも迷いますね。';
+  it('rejects polite-form indecision inferred from the original weak agreement', () => {
+    expect(concernCheck({ name: 'short-reply-continuation', turns: [...shortReplyEarlier,
+      turn('そうかも。', wordingClaim, 'short-reply-continuation-3')] }, 'short-reply-continuation-3')).toBe(false);
+  });
+  it('does not use a later own report to justify the earlier polite-form assertion', () => {
+    expect(concernCheck({ name: 'short-reply-continuation', turns: [...shortReplyEarlier,
+      turn('そうかも。', wordingClaim, 'short-reply-continuation-3'),
+      turn('送る文面に迷います。', wordingClaim, 'short-reply-continuation-4')] }, 'short-reply-continuation-3')).toBe(false);
+  });
+  it('preserves the polite form once the current user actually reports indecision', () => {
+    expect(concernCheck({ name: 'short-reply-continuation', turns: [...shortReplyEarlier,
+      turn('送る文面に迷います。', wordingClaim, 'short-reply-continuation-3')] }, 'short-reply-continuation-3')).toBe(true);
+  });
   it('rejects the actual doc premise despite otherwise clean metadata', () => {
     expect(concernCheck({ name: 'long-continuity-three-turn-reference', turns: [...docEarlier, turn(docUser, docBad, 'doc-3')] }, 'doc-3')).toBe(false);
   });
