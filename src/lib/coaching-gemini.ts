@@ -8,7 +8,7 @@ import {
 import { sendCoachingAlert } from '@/lib/coaching-alerts';
 import { COACHING_SCOPE_GUIDANCE } from '@/lib/coaching-scope';
 import { containsDeadlineOutcomeAssurance, stripAttributedDeadlineQuotes } from '@/lib/coaching-deadline-language.mjs';
-import { containsUnsupportedEmotionIntensity, removeUnsupportedEmotionIntensity, containsUnsupportedConcernPremise, removeUnsupportedConcernPremise, currentTopicUserTexts } from '@/lib/coaching-emotion-language.mjs';
+import { containsUnsupportedEmotionIntensity, removeUnsupportedEmotionIntensity, containsUnsupportedConcernPremise, removeUnsupportedConcernPremise, containsUnsupportedPersistentImpactPremise, currentTopicUserTexts } from '@/lib/coaching-emotion-language.mjs';
 import { isThirdPartyPurposePlanReport, containsMisfocusedFriendDeclineQuestion, containsUnsupportedRentExplanationReply, containsChainedPreparationInstructions, containsChainedEditingInstructions, containsChainedCommunicationInstructions, containsCircularSingleAction, containsUnsupportedProcedureInterfacePremise, containsUnsupportedSituationPremise, containsUngroundedTaskAssumption, containsUnsupportedArtifactCauseAssertion, hasCurrentUserSituationEvidence, containsConversationRestriction, containsAmbiguousFutureActionDayReference, alignFutureActionDayReferences } from '@/lib/coaching-action-language.mjs';
 import {
   getCoachingOutputPipelineConfig,
@@ -161,6 +161,7 @@ export const COACHING_RESPONSE_SPEED_INSTRUCTION = [
 ].join('\n');
 
 const COACHING_FACT_AND_LANGUAGE_INSTRUCTION = [
+  '断りたい予定や返事の先延ばしという出来事だけから、「ずっと頭のどこかで気になる」「過ごしづらい」など持続的な気掛かりや生活への影響を付け足さないでください。「ですよね」という同意を求める形でも未申告の状態を前提にします。本人が現在の話題で明言した状態だけを使い、気掛かりと生活への影響を別々に確かめてください。出来事そのものを短く受け止め、必要なら未申告の心理を含めない中立的な質問にしてください。',
   '資料を作成中、説明が長いという報告だけから、実際の本文、盛り込んだ特徴やメリット、一文に詰め込んだ構造を推測しないでください。本文や構造を本人が提示していても、それだけで長くなった原因とは断定しないでください。本人が同じ資料について明言した因果と、一般的な可能性・条件付きの例を区別してください。AI自身の推測、第三者の資料、引用した一般例を本人の資料の事実へ変えないでください。',
   '本人が友人への断り返事を先延ばしにし、断った後の関係を気にしている時は、本人の返事や予想している反応を扱ってください。本人が相手の行動変更を求めていないのに、相手にどの行動を変えてほしいかを尋ねないでください。相手の行動を変えてほしいという本人の明示的な希望とは区別してください。資料を作成する第三者の予定を報告しているだけの場合も、相手の行動変更を求めていると解釈しないでください。',
   '現在の曜日や今日・明日の日付は、利用者が示していない場合に推測しないでください。明示された締切をそのまま使い、現在の曜日を補わないでください。',
@@ -5020,7 +5021,7 @@ export function buildFinalVerifiedQualityFallback(
       /返事/.test(lastUserText) &&
       /先延ばし|遅らせ/.test(lastUserText) &&
       !requestsDirectWording(lastUserText)) {
-    return '友人との予定を断りたいのに、返事を先延ばしにしているのですね。断りたいという意思はすでに書かれているので、断るべきかどうかをもう一度考える必要はありません。どの時点で返事を止めてしまうかが分かれば、次に考えることを絞れます。返事を書こうとした時、何が気になって送れなくなりますか？';
+    return '友人との予定を断りたい一方で、返事を先延ばしにしているのですね。断るかどうかの話と、返事をどうするかの話は分けて考えられます。断りたいという希望はすでに書いてくださっているので、その希望を変えることから始める必要はありません。友人への返事について、いま一番話したいことは何ですか？';
   }
   const noSurplusSavingsFallback = buildNoSurplusSavingsFallback(lastUserText, historyMessages);
   if (noSurplusSavingsFallback) return noSurplusSavingsFallback;
@@ -6784,7 +6785,8 @@ export function ensureVerifiedCoachingResolution(params: {
   const boundaryUserTexts = getCurrentPlanningUserTexts(lastUserText, historyMessages);
   const deliveryBoundaryIssues: CoachingQualityIssue[] = [];
   if (containsUnprovidedPlannedPurposeDraftPremise(resolution.text, lastUserText, historyMessages) ||
-      containsMisfocusedFriendDeclineQuestion(resolution.text, boundaryUserTexts)) {
+      containsMisfocusedFriendDeclineQuestion(resolution.text, boundaryUserTexts) ||
+      containsUnsupportedPersistentImpactPremise(resolution.text, boundaryUserTexts)) {
     deliveryBoundaryIssues.push('context_mismatch');
   }
   if (containsUngroundedTaskAssumption(resolution.text, boundaryUserTexts)) {
@@ -7523,6 +7525,9 @@ function isSingleActionRelevantToContext(
     return false;
   }
   if (containsUngroundedTaskAssumption(answer, getCurrentPlanningUserTexts(lastUserText, historyMessages))) {
+    return false;
+  }
+  if (containsUnsupportedPersistentImpactPremise(answer, getCurrentPlanningUserTexts(lastUserText, historyMessages))) {
     return false;
   }
   if (/[「『]今日確認したいこと[」』]/.test(answer) && !/確認/.test(userContext)) {
@@ -8319,7 +8324,7 @@ function buildClosingCoachingQuestion(
       )) {
     return /関係が悪|嫌われ|疎遠/.test(lastUserText)
       ? '断ると、友人からどんな反応があると考えていますか？'
-      : '返事を書こうとした時、何が気になって送れなくなりますか？';
+      : '友人への返事について、いま一番話したいことは何ですか？';
   }
 
   const recentUserContext = [

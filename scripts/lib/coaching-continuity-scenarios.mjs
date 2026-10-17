@@ -222,7 +222,7 @@ export function evaluateSeededContinuityResponse(name, message) {
   const userTexts = currentTopicUserTexts([
     ...(scenario?.seedHistory || []).filter(message => message.role === 'user').map(message => message.content), latest,
   ]);
-  add('本人未申告の迷い・困り・不安を前提にしない', !containsUnsupportedConcernPremise(message, userTexts));
+  add('本人未申告の迷い・不安・持続的な気掛かりや生活影響を前提にしない', !containsUnsupportedConcernPremise(message, userTexts));
   add('話題に沿い汎用の作業提案へ逃げない',
     !/まだ書かれていない原因|仕事全体について結論を急がず|明日[^。！？?\n]{0,50}(?:5分|五分|ひとつだけ|一つだけ)/.test(message));
   if (name === 'seeded-explicit-topic-switch-after-opening-question') {

@@ -26,7 +26,7 @@ const docBad = '専門用語を減らして、初めて使う人にわかりや�
 const docEarlier = [turn('新しい企画の説明資料を作っています。', '説明資料を作っているのですね。', 'doc-1'),
   turn('対象は初めてサービスを使う人です。', '初めて使う人向けなのですね。', 'doc-2')];
 function concernCheck(conversation: { name: string; turns: ReturnType<typeof turn>[]; seedHistory?: { role: string; content: string }[] }, label: string) {
-  return evaluate([conversation]).checks.find((check: { name: string }) => check.name === `${label}: 本人未申告の迷い・困り・不安を前提にしない`)?.passed;
+  return evaluate([conversation]).checks.find((check: { name: string }) => check.name === `${label}: 本人未申告の迷い・不安・持続的な気掛かりや生活影響を前提にしない`)?.passed;
 }
 describe('standard evaluator shares current user concern grounding', () => {
   it('rejects the actual doc premise despite otherwise clean metadata', () => {
@@ -70,5 +70,21 @@ describe('standard action evaluation checks more than length and one move', () =
   });
   it('keeps the existing concrete paper action', () => {
     expect(actionPass('明日の朝、終わらせたい用事を一つだけ紙に書いてください。')).toBe(true);
+  });
+});
+
+describe('standard evaluator keeps persistent impact grounded in earlier user reports', () => {
+  const user = '友人に断りたい予定があるのに、返事を先延ばしにしています。';
+  const candidate = '断りたい予定があるのに返事を先延ばしにしていると、ずっと頭のどこかで気になって過ごしづらいですよね。\n\n断った後の友人との関係が気になって、返事を送るのが難しくなっていますか？';
+  it('rejects the captured assertion even when stream metadata is clean', () => {
+    expect(concernCheck({ name: 'short-reply-continuation', turns: [turn(user, candidate, 'short-1')] }, 'short-1')).toBe(false);
+  });
+  it('keeps both impacts when the user actually reports both', () => {
+    const supported = 'ずっと頭のどこかで気になって過ごしづらいです。友人への返事を先延ばしにしています。';
+    expect(concernCheck({ name: 'short-reply-continuation', turns: [turn(supported, candidate, 'short-1')] }, 'short-1')).toBe(true);
+  });
+  it('does not use a later reported impact to justify the earlier assertion', () => {
+    expect(concernCheck({ name: 'short-reply-continuation', turns: [turn(user, candidate, 'short-1'),
+      turn('ずっと頭のどこかで気になって過ごしづらいです。', 'その状態なのですね。', 'short-2')] }, 'short-1')).toBe(false);
   });
 });
