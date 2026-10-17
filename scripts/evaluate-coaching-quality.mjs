@@ -1401,7 +1401,7 @@ function evaluateConversations(conversations) {
       !containsAmbiguousFutureActionDayReference(turn.message, turn.user, turn.currentUserTexts));
     addCheck(checks, `${turn.label}: 本人未申告の作業や資料内容・原因を前提にしない`,
       !containsUngroundedTaskAssumption(turn.message, turn.currentUserTexts));
-    addCheck(checks, `${turn.label}: 本人未申告の迷い・困り・不安を前提にしない`,
+    addCheck(checks, `${turn.label}: 本人未申告の迷い・不安・持続的な気掛かりや生活影響を前提にしない`,
       !containsUnsupportedConcernPremise(turn.message, turn.currentUserTexts));
     if (/行動|一歩|方法|どうすれば/.test(turn.user) && /一つ|ひとつ|1つ/.test(turn.user)) {
       addCheck(checks, `${turn.label}: 作業の開始を言い換えるだけでなく具体動作を示す`,

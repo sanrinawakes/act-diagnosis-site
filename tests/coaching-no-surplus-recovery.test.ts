@@ -73,7 +73,8 @@ describe('no-surplus savings response recovery', () => {
     expect(result.finalIssues).toEqual([]);
     expect(result.text).not.toMatch(/相手に、まずどの行動を変えて|という相談ですね/);
     expect(result.text).toMatch(/断る|返事/);
-    expect(result.text).toContain('何が気になって');
+    expect(result.text).toContain('友人への返事について');
+    expect(result.text).not.toMatch(/返事を書こうとした時|送れなくな|返事を止めてしまう/);
   });
 
   it('allows a decline reason the user actually supplied', () => {
