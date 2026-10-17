@@ -9,7 +9,7 @@ import { sendCoachingAlert } from '@/lib/coaching-alerts';
 import { COACHING_SCOPE_GUIDANCE } from '@/lib/coaching-scope';
 import { containsDeadlineOutcomeAssurance, stripAttributedDeadlineQuotes } from '@/lib/coaching-deadline-language.mjs';
 import { containsUnsupportedEmotionIntensity, removeUnsupportedEmotionIntensity, containsUnsupportedConcernPremise, removeUnsupportedConcernPremise, containsUnsupportedPersistentImpactPremise, currentTopicUserTexts } from '@/lib/coaching-emotion-language.mjs';
-import { isThirdPartyPurposePlanReport, containsMisfocusedFriendDeclineQuestion, containsUnsupportedRentExplanationReply, containsChainedPreparationInstructions, containsChainedEditingInstructions, containsChainedCommunicationInstructions, containsCircularSingleAction, containsUnsupportedProcedureInterfacePremise, containsUnsupportedSituationPremise, containsUngroundedTaskAssumption, containsUnsupportedArtifactCauseAssertion, hasCurrentUserSituationEvidence, containsConversationRestriction, containsAmbiguousFutureActionDayReference, alignFutureActionDayReferences } from '@/lib/coaching-action-language.mjs';
+import { isThirdPartyPurposePlanReport, containsMisfocusedFriendDeclineQuestion, containsUnsupportedRentExplanationReply, containsChainedPreparationInstructions, containsChainedEditingInstructions, containsChainedCommunicationInstructions, containsCircularSingleAction, containsUnsupportedProcedureInterfacePremise, containsUnsupportedSituationPremise, containsUngroundedTaskAssumption, containsUnsupportedArtifactCauseAssertion, hasCurrentUserSituationEvidence, containsConversationRestriction, containsAmbiguousFutureActionDayReference, alignFutureActionDayReferences, resolveShorteningActionTimeRequest, containsShorteningActionTimeMismatch } from '@/lib/coaching-action-language.mjs';
 import {
   getCoachingOutputPipelineConfig,
   type CoachingOutputPipelineMode,
@@ -145,6 +145,7 @@ export const COACHING_RESPONSE_SPEED_INSTRUCTION = [
   '- 具体策を求められた時は質問を返さず、直前までの人物・作業・決めた言葉に直接つながる一動作を答える。',
   '- 「ご自身」「教えていただけますか」「お見受けします」「という事実があるのですね」を使わず、自然な「あなた」「教えてください」「感じているんですね」で話す。',
   '- 本人の発言を受け止める文では、「作成されている」「迷われている」のような接客敬語へ変えず、本人が使った「作っている」「迷っている」を自然な常体のまま使う。',
+  '- 「短く答えて」など形式だけの変更では、現在の話題で本人が指定した行動と実行日を保持する。「明日」を「今」へ変えない。本人が日付を訂正・撤回した場合や話題を変えた場合は最新の指定を優先する。',
   '- 本人が「行動を一つ提案し、最後に質問を一つ」と両方を明示した場合は、提案一つの後に質問一つを必ず置く。どちらかを省略しない。',
   '- 一つの質問へ二択を入れず、「AとBのどちらですか」「言葉や内容」「作業や関係性」と聞かない。答えてほしい対象を一つにする。',
   '- 同じ名詞や優先順位の語を一文の中で必要なく重ねない。',
@@ -2639,9 +2640,17 @@ export function assessCoachingResponseQuality(params: {
           canonicalizeAssistantParagraph(text) &&
         (compactText.length >= 16 || userReportsDissatisfaction)
     );
+  const timingShortening = resolveShorteningActionTimeRequest(lastUserText,
+    getCurrentPlanningUserTexts(lastUserText, historyMessages)) !== lastUserText;
+  const immediateAssistant = historyMessages.at(-1);
+  const requestedRephrasing = timingShortening && immediateAssistant?.role === 'assistant' &&
+    !containsShorteningActionTimeMismatch(text, lastUserText,
+      getCurrentPlanningUserTexts(lastUserText, historyMessages)) &&
+    (canonicalizeAssistantParagraph(text) === canonicalizeAssistantParagraph(immediateAssistant.content) ||
+      Boolean(closingMove && wasAssistantMoveAlreadyUsed(closingMove, [immediateAssistant])));
   if (
-    repeatsFullResponse ||
-    (closingMove && wasAssistantMoveAlreadyUsed(closingMove, historyMessages))
+    !requestedRephrasing && (repeatsFullResponse ||
+    (closingMove && wasAssistantMoveAlreadyUsed(closingMove, historyMessages)))
   ) {
     issues.push('repeated_closing_move');
   }
@@ -3029,6 +3038,10 @@ export function assessCoachingResponseQuality(params: {
     issues.push('vague_action_target');
   }
 
+  if (containsShorteningActionTimeMismatch(text, lastUserText,
+    getCurrentPlanningUserTexts(lastUserText, historyMessages))) {
+    issues.push('requested_time_mismatch');
+  }
   if (
     /明日/.test(lastUserText) &&
     requestsConcreteSuggestion(lastUserText) &&
@@ -6792,6 +6805,9 @@ export function ensureVerifiedCoachingResolution(params: {
   if (containsUngroundedTaskAssumption(resolution.text, boundaryUserTexts)) {
     deliveryBoundaryIssues.push('ungrounded_task_assumption');
   }
+  if (containsShorteningActionTimeMismatch(resolution.text, lastUserText, boundaryUserTexts)) {
+    deliveryBoundaryIssues.push('requested_time_mismatch');
+  }
   if (
     deliveryBoundaryIssues.length === 0 &&
     resolution.finalIssues.length === 0 &&
@@ -7051,6 +7067,14 @@ export function buildUrgentSafetyResponse(text: string) {
 }
 
 function preserveRequestedActionTime(text: string, lastUserText: string, historyMessages: CoachingChatMessage[] = []) {
+  const timingRequest = resolveShorteningActionTimeRequest(lastUserText,
+    getCurrentPlanningUserTexts(lastUserText, historyMessages));
+  if (timingRequest !== lastUserText) {
+    // Remove only the conflicting leading execution cue. Never prepend
+    // tomorrow to the observed "now" instruction and claim it is aligned.
+    text = text.replace(/^今[、,]\s*/u, '');
+    lastUserText = timingRequest;
+  }
   if (!/明日/.test(lastUserText)) return text;
 
   let aligned = text
@@ -8431,6 +8455,8 @@ function buildNoQuestionFallback(
   lastUserText: string,
   historyMessages: CoachingChatMessage[] = []
 ) {
+  const timingRequest = resolveShorteningActionTimeRequest(lastUserText,
+    getCurrentPlanningUserTexts(lastUserText, historyMessages));
   const themeSelectionResponse = buildThemeSelectionResponse(
     lastUserText,
     historyMessages
@@ -8561,6 +8587,10 @@ function buildNoQuestionFallback(
   if (/明日の朝/.test(lastUserText) && requestsConcreteSuggestion(lastUserText) &&
       requestsSingleAnswerFormat(lastUserText) && !requestsDirectWording(lastUserText)) {
     return '明日の朝、深呼吸を一回だけしてください。';
+  }
+  if (timingRequest !== lastUserText) {
+    const day = /明日の朝/.test(timingRequest) ? '明日の朝' : '明日';
+    return `${day}、用事を一つ紙に書いてください。`;
   }
   return /明日/.test(lastUserText)
     ? '明日、終わらせたい用事を一つだけ紙に書いてください。'
@@ -8724,12 +8754,19 @@ function removeRepeatedAssistantParagraphs(
     return text;
   }
 
+  const immediateAssistant = historyMessages.at(-1);
+  const requestedParagraphs = resolveShorteningActionTimeRequest(lastUserText,
+    getCurrentPlanningUserTexts(lastUserText, historyMessages)) !== lastUserText &&
+    immediateAssistant?.role === 'assistant'
+    ? new Set(immediateAssistant.content.split(/\n{2,}/).map(canonicalizeAssistantParagraph))
+    : new Set<string>();
+
   const previousParagraphs = new Set(
     historyMessages
       .filter((message) => message.role === 'assistant')
       .flatMap((message) => message.content.split(/\n{2,}/))
       .map(canonicalizeAssistantParagraph)
-      .filter((paragraph) => paragraph.length >= 20)
+      .filter((paragraph) => paragraph.length >= 20 && !requestedParagraphs.has(paragraph))
   );
 
   return text

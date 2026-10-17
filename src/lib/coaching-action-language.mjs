@@ -1,4 +1,46 @@
 import { stripJapaneseQuotationContent, splitOutsideJapaneseQuotations } from './coaching-quotation-language.mjs';
+import { currentTopicUserTexts } from './coaching-emotion-language.mjs';
+
+// A formatting-only follow-up does not replace a USER's action date. Accept
+// one opaque alphanumeric tracking identifier, not an arbitrary leading clause.
+function withoutOpaqueTrackingIdentifier(value) {
+  return value.trim().replace(/^(?=[A-Za-z0-9_-]{8,100}。)(?=[^。]*[0-9])(?=[^。]*[-_])[A-Za-z][A-Za-z0-9_-]*。\s*/u, '');
+}
+function shorteningOnlyRequest(value) {
+  if (typeof value !== 'string') return false;
+  const text = withoutOpaqueTrackingIdentifier(value);
+  return /^(?:(?:前|直前|先ほど)の(?:返答|回答|答え)を)?(?:(?:もう少し|もうちょっと|もっと)短く(?:して|答えて|教えて|返して)|短く(?:答えて|教えて|返して|して)|簡潔に(?:答えて|教えて|返して|して)|一文で(?:答えて|教えて|返して))(?:ください|下さい|ほしいです|ほしい)?[。！!\s]*$/u.test(text);
+}
+
+/** Resolve only the observed tomorrow-action/formatting continuation. */
+export function resolveShorteningActionTimeRequest(lastUserText, userTexts = []) {
+  if (!shorteningOnlyRequest(lastUserText)) return lastUserText;
+  const users = currentTopicUserTexts([...userTexts, lastUserText]);
+  for (const source of [...users].reverse()) {
+    if (shorteningOnlyRequest(source)) continue;
+    // Stop at the latest substantive USER turn. Older requests, AI text and
+    // summaries cannot restore a superseded date. Abstain on attributed,
+    // hypothetical, quoted, cancelled or corrected requests.
+    if (/[「」『』"'？?]|もし|仮に|ではなく|じゃなく|撤回|取り消|と(?:言われ|言って|聞い|書かれ|提案され)|とのこと|そうです|(?:言って|頼んで|求めて|依頼して)(?:いません|いない)|明日[^。！？\n]{0,25}(?:やめ|しない|しません|不要|無理)/u.test(source)) return lastUserText;
+    const request = withoutOpaqueTrackingIdentifier(source);
+    return /^(?:私は[、,\s]*)?明日[^。！？\n]{0,100}(?:教えて|提案して|答えて|示して|挙げて)(?:ください|下さい|ほしいです|ほしい)?[。！!\s]*$/u.test(request) &&
+      /行動|一歩|何をすれば|どうすれば|できること|すること|やること|始める/u.test(source) &&
+      !/文案|文面|せりふ|セリフ|台詞|言い方|伝える(?:言葉|一言)|最初の一言/u.test(source)
+      ? source : lastUserText;
+  }
+  return lastUserText;
+}
+
+/** A shortened action must keep its active day, including an explicit morning. */
+export function containsShorteningActionTimeMismatch(text, lastUserText, userTexts = []) {
+  const request = resolveShorteningActionTimeRequest(lastUserText, userTexts);
+  if (request === lastUserText) return false;
+  const action = stripJapaneseQuotationContent(text, true);
+  return !/明日/u.test(action) ||
+    (/明日の朝/u.test(request) && !/明日の朝/u.test(action)) ||
+    /今[、,]|今すぐ|今から|今夜|(?:^|[、,。！？\n])\s*(?:今日|本日)[、,]|(?:今日|本日)(?:中|のうち)|明日(?:ではなく|じゃなく)(?:今日|本日)/u.test(action) ||
+    containsAmbiguousFutureActionDayReference(text, request, userTexts);
+}
 
 // Bounded current report: it states a colleague's document plan, not the
 // user's plan or a request to change that colleague's behavior.
@@ -315,6 +357,7 @@ export function containsConversationRestriction(text) {
 // aligned. Quotes, past reports and explicit user-supplied today references
 // remain intact; this is not a general relative-date interpreter.
 function ambiguousFutureActionDaySpans(text, lastUserText, currentUserTexts) {
+  lastUserText = resolveShorteningActionTimeRequest(lastUserText, currentUserTexts);
   if (!/明日/u.test(lastUserText) ||
       !/行動|作業|一歩|何をすれば|どうすれば|できること|すること|やること|始める/u.test(lastUserText) ||
       /文案|文面|せりふ|セリフ|台詞|言い方|伝える(?:言葉|一言)|最初の一言/u.test(lastUserText)) return [];

@@ -7,7 +7,7 @@ import { deleteTestAuthUser } from './lib/test-account-cleanup.mjs';
 import { seededContinuityScenarios, evaluateSeededContinuityResponse } from './lib/coaching-continuity-scenarios.mjs';
 import { containsDeadlineOutcomeAssurance } from '../src/lib/coaching-deadline-language.mjs';
 import { containsUnsupportedEmotionIntensity, containsUnsupportedConcernPremise, currentTopicUserTexts } from '../src/lib/coaching-emotion-language.mjs';
-import { containsMisfocusedFriendDeclineQuestion, containsUnsupportedRentExplanationReply, containsChainedPreparationInstructions, containsChainedEditingInstructions, containsCircularSingleAction, containsChainedCommunicationInstructions, containsUnsupportedProcedureInterfacePremise, containsUnsupportedSituationPremise, containsUngroundedTaskAssumption, containsAmbiguousFutureActionDayReference } from '../src/lib/coaching-action-language.mjs';
+import { containsMisfocusedFriendDeclineQuestion, containsUnsupportedRentExplanationReply, containsChainedPreparationInstructions, containsChainedEditingInstructions, containsCircularSingleAction, containsChainedCommunicationInstructions, containsUnsupportedProcedureInterfacePremise, containsUnsupportedSituationPremise, containsUngroundedTaskAssumption, containsAmbiguousFutureActionDayReference, containsShorteningActionTimeMismatch } from '../src/lib/coaching-action-language.mjs';
 
 // Existing suite contract before the declared continuity scenarios were added.
 // Expected population comes from this fixed baseline and input specifications,
@@ -1399,6 +1399,8 @@ function evaluateConversations(conversations) {
       !containsUnsupportedSituationPremise(turn.message, turn.currentUserTexts));
     addCheck(checks, `${turn.label}: 明日の行動対象日を今日と曖昧にしない`,
       !containsAmbiguousFutureActionDayReference(turn.message, turn.user, turn.currentUserTexts));
+    addCheck(checks, `${turn.label}: 短縮だけの依頼でも元の実行日を変えない`,
+      !containsShorteningActionTimeMismatch(turn.message, turn.user, turn.currentUserTexts));
     addCheck(checks, `${turn.label}: 本人未申告の作業や資料内容・原因を前提にしない`,
       !containsUngroundedTaskAssumption(turn.message, turn.currentUserTexts));
     addCheck(checks, `${turn.label}: 本人未申告の迷い・不安・持続的な気掛かりや生活影響を前提にしない`,

@@ -5,6 +5,7 @@ import { deflateSync } from 'node:zlib';
 import { chromium } from 'playwright';
 import { createClient } from '@supabase/supabase-js';
 import { deleteTestAuthUser } from './lib/test-account-cleanup.mjs';
+import { containsShorteningActionTimeMismatch } from '../src/lib/coaching-action-language.mjs';
 
 const args = new Map(
   process.argv.slice(2).map((arg) => {
@@ -469,6 +470,16 @@ async function testSynchronousDoubleSendGuard(page) {
   const result = await waitForCompletedTurn(marker);
   await waitForChatIdle(page);
   recordGeneratedOutput('double-send', result.assistantContent);
+  const requestPayload = chatRequestPayloads.find(payload =>
+    payload.messages?.some(message => message.role === 'user' && message.content?.includes(marker)));
+  const users = requestPayload?.messages?.filter(message => message.role === 'user').map(message => message.content) || [];
+  const latest = users.at(-1) || '';
+  addCheck(
+    'PC: 短縮だけの依頼でも元の明日の行動指定を保持',
+    Boolean(requestPayload) && /明日/.test(result.assistantContent) &&
+      !containsShorteningActionTimeMismatch(result.assistantContent, latest, users),
+    JSON.stringify({ users, assistant: result.assistantContent })
+  );
   addCheck(
     'PC: 同期的な二重クリックでもユーザー行は1件',
     result.userRows === 1,

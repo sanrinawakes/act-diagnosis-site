@@ -2,7 +2,7 @@ import { stripJapaneseQuotationContent, containsUnbalancedJapaneseQuotation } fr
 import { createClient } from '@supabase/supabase-js';
 import { randomUUID } from 'node:crypto';
 import { currentTopicUserTexts } from '../src/lib/coaching-emotion-language.mjs';
-import { containsMisfocusedFriendDeclineQuestion, containsUnsupportedRentExplanationReply, containsChainedPreparationInstructions, containsChainedEditingInstructions, containsChainedCommunicationInstructions, containsUnsupportedProcedureInterfacePremise, containsUnsupportedSituationPremise, containsUngroundedTaskAssumption, containsConversationRestriction, containsAmbiguousFutureActionDayReference } from '../src/lib/coaching-action-language.mjs';
+import { containsMisfocusedFriendDeclineQuestion, containsUnsupportedRentExplanationReply, containsChainedPreparationInstructions, containsChainedEditingInstructions, containsChainedCommunicationInstructions, containsUnsupportedProcedureInterfacePremise, containsUnsupportedSituationPremise, containsUngroundedTaskAssumption, containsConversationRestriction, containsAmbiguousFutureActionDayReference, containsShorteningActionTimeMismatch } from '../src/lib/coaching-action-language.mjs';
 import { deleteTestAuthUser } from './lib/test-account-cleanup.mjs';
 
 const args = new Map(
@@ -838,6 +838,9 @@ function assertResults(results) {
     }
     if (containsAmbiguousFutureActionDayReference(result.message, result.lastUserText, result.currentUserTexts)) {
       throw new Error(`${result.label} used an ambiguous future action day: ${result.message}`);
+    }
+    if (containsShorteningActionTimeMismatch(result.message, result.lastUserText, result.currentUserTexts)) {
+      throw new Error(`${result.label} changed the action day during shortening: ${result.message}`);
     }
     if (
       /明日/.test(result.lastUserText) &&
