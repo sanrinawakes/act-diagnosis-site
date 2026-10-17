@@ -9,7 +9,7 @@ import { sendCoachingAlert } from '@/lib/coaching-alerts';
 import { COACHING_SCOPE_GUIDANCE } from '@/lib/coaching-scope';
 import { containsDeadlineOutcomeAssurance, stripAttributedDeadlineQuotes } from '@/lib/coaching-deadline-language.mjs';
 import { containsUnsupportedEmotionIntensity, removeUnsupportedEmotionIntensity, containsUnsupportedConcernPremise, removeUnsupportedConcernPremise, currentTopicUserTexts } from '@/lib/coaching-emotion-language.mjs';
-import { isThirdPartyPurposePlanReport, containsMisfocusedFriendDeclineQuestion, containsUnsupportedRentExplanationReply, containsChainedPreparationInstructions, containsChainedEditingInstructions, containsChainedCommunicationInstructions, containsCircularSingleAction, containsUnsupportedProcedureInterfacePremise, containsUnsupportedSituationPremise, containsUngroundedTaskAssumption, hasCurrentUserSituationEvidence, containsConversationRestriction, containsAmbiguousFutureActionDayReference, alignFutureActionDayReferences } from '@/lib/coaching-action-language.mjs';
+import { isThirdPartyPurposePlanReport, containsMisfocusedFriendDeclineQuestion, containsUnsupportedRentExplanationReply, containsChainedPreparationInstructions, containsChainedEditingInstructions, containsChainedCommunicationInstructions, containsCircularSingleAction, containsUnsupportedProcedureInterfacePremise, containsUnsupportedSituationPremise, containsUngroundedTaskAssumption, containsUnsupportedArtifactCauseAssertion, hasCurrentUserSituationEvidence, containsConversationRestriction, containsAmbiguousFutureActionDayReference, alignFutureActionDayReferences } from '@/lib/coaching-action-language.mjs';
 import {
   getCoachingOutputPipelineConfig,
   type CoachingOutputPipelineMode,
@@ -161,6 +161,7 @@ export const COACHING_RESPONSE_SPEED_INSTRUCTION = [
 ].join('\n');
 
 const COACHING_FACT_AND_LANGUAGE_INSTRUCTION = [
+  '資料を作成中、説明が長いという報告だけから、実際の本文、盛り込んだ特徴やメリット、一文に詰め込んだ構造を推測しないでください。本文や構造を本人が提示していても、それだけで長くなった原因とは断定しないでください。本人が同じ資料について明言した因果と、一般的な可能性・条件付きの例を区別してください。AI自身の推測、第三者の資料、引用した一般例を本人の資料の事実へ変えないでください。',
   '本人が友人への断り返事を先延ばしにし、断った後の関係を気にしている時は、本人の返事や予想している反応を扱ってください。本人が相手の行動変更を求めていないのに、相手にどの行動を変えてほしいかを尋ねないでください。相手の行動を変えてほしいという本人の明示的な希望とは区別してください。資料を作成する第三者の予定を報告しているだけの場合も、相手の行動変更を求めていると解釈しないでください。',
   '現在の曜日や今日・明日の日付は、利用者が示していない場合に推測しないでください。明示された締切をそのまま使い、現在の曜日を補わないでください。',
   '締切が分かっても、残作業量・所要時間・使える時間が未確認なら、期限に間に合うとも間に合わないとも断定しないでください。資料の構成案があることだけでも、完成の見込みは断定できません。条件文・誘導する質問・相手への返答例にも新しい保証を足さず、必要な作業と時間を確認してください。見積もりがある場合も確実な結果とは扱わず、その前提と不確実性を示してください。締切は現在の話題で利用者が最後に明言したものだけを使い、訂正・否定された期限やAI側の発言を根拠にしないでください。',
@@ -3350,6 +3351,12 @@ export function normalizeCoachingOutput(
   if (isObsoleteIntentionContinuation(text, lastUserText, historyMessages) ||
       containsUnprovidedPlannedPurposeDraftPremise(text, lastUserText, historyMessages)) {
     return buildIntendedActionAcknowledgement(lastUserText, historyMessages);
+  }
+
+  if (containsUnsupportedArtifactCauseAssertion(
+    text, getCurrentPlanningUserTexts(lastUserText, historyMessages)
+  )) {
+    return buildFinalVerifiedQualityFallback(lastUserText, historyMessages);
   }
 
   if (requestsShortRestResponse(lastUserText)) {
@@ -6772,7 +6779,7 @@ export function ensureVerifiedCoachingResolution(params: {
       provider: resolution.provider,
     });
   }
-  // Empty upstream flags cannot certify these three already assessed boundaries.
+  // Empty upstream flags cannot certify these already assessed boundaries.
   // Recheck only the bounded observed predicates, not the full quality policy.
   const boundaryUserTexts = getCurrentPlanningUserTexts(lastUserText, historyMessages);
   const deliveryBoundaryIssues: CoachingQualityIssue[] = [];
