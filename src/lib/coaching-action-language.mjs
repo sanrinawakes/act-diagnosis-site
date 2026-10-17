@@ -242,7 +242,8 @@ function containsUnstatedCurrentTaskTarget(text, currentUserTexts) {
 }
 
 export function containsUngroundedTaskAssumption(text, currentUserTexts) {
-  return containsUnstatedCurrentTaskTarget(text, currentUserTexts) ||
+  return containsUnsupportedArtifactCauseAssertion(text, currentUserTexts) ||
+    containsUnstatedCurrentTaskTarget(text, currentUserTexts) ||
     (TASK_ASSUMPTION.test(text) && !hasCurrentUserSituationEvidence(currentUserTexts, TASK_ASSUMPTION)) ||
     (containsExistingMemoReadInstruction(text, currentUserTexts) && !hasCurrentOwnReadyMemo(currentUserTexts));
 }
@@ -482,4 +483,135 @@ export function containsUnsupportedRentExplanationReply(text, currentUserTexts =
     }
   }
   return false;
+}
+
+// Bounded to the observed explanation-length diagnosis. Merely showing a
+// sentence or its structure does not establish the user's explanation of cause.
+const ARTIFACT_CAUSE_CONTEXT = /資料|説明文|目的の説明|利用目的|原稿|文章/u;
+const ARTIFACT_PACKING = /(?:特徴|メリット)[^。！？?\n]{0,32}(?:一つの文|ひとつの文|1つの文|一文|1文|同じ文)[^。！？?\n]{0,20}(?:詰め込|盛り込|詰め)|(?:一つの文|ひとつの文|1つの文|一文|1文|同じ文)[^。！？?\n]{0,32}(?:特徴|メリット)[^。！？?\n]{0,20}(?:詰め込|盛り込|詰め)/u;
+
+function artifactCauseQuotes(value) {
+  const spans = [];
+  const stack = [];
+  let start = -1;
+  for (let index = 0; index < value.length; index++) {
+    const character = value[index];
+    const close = character === '「' ? '」' : character === '『' ? '』' : null;
+    if (close) {
+      if (stack.length === 0) start = index;
+      stack.push(close);
+    } else if (stack.length > 0 && character === stack.at(-1)) {
+      stack.pop();
+      if (stack.length === 0) spans.push({ start, end: index + 1, content: value.slice(start + 1, index) });
+    } else if (stack.length === 0 && (character === '"' || character === "'")) {
+      const end = value.indexOf(character, index + 1);
+      if (end > index) { spans.push({ start: index, end: end + 1, content: value.slice(index + 1, end) }); index = end; }
+    }
+  }
+  return spans;
+}
+
+function artifactCauseOutside(value) {
+  return artifactCauseQuotes(value).reverse().reduce((outside, span) => {
+    // Quoted labels still name the claimed content. A quoted opinion or body
+    // is handled separately, never silently promoted to direct user causality.
+    if (/^(?:サービスの)?(?:特徴|細かいメリット|メリット)$/u.test(span.content)) return outside;
+    return `${outside.slice(0, span.start)}${' '.repeat(span.end - span.start)}${outside.slice(span.end)}`;
+  }, value);
+}
+
+function artifactCauseClaims(value) {
+  const statement = value.normalize('NFKC').replace(/[ \t]/gu, '');
+  const matches = [...statement.matchAll(new RegExp(ARTIFACT_PACKING.source, 'gu'))];
+  return matches.map((packing, index) => {
+    const stem = /詰め込|盛り込|詰め/u.exec(packing[0]);
+    const end = packing.index + stem.index + stem[0].length;
+    const previousEnd = index === 0 ? 0 : matches[index - 1].index + matches[index - 1][0].length;
+    const prefix = statement.slice(previousEnd, packing.index);
+    const tail = statement.slice(end, matches[index + 1]?.index ?? statement.length);
+    const causal = /(?:原因|理由)(?:は|が)|長く(?:なる|なった|なっている)のは|なぜ/u.test(prefix) ||
+      /^(?:みすぎている|んでいる|んだ|た|む)(?:こと|の)?(?:にある|にあります|が原因|が理由|ためです|からです)/u.test(tail) ||
+      /^(?:みすぎている|んでいる|んだ|た|む)ため[、,]?[^。！？?\n]{0,20}(?:説明|文章|文|資料)?(?:が|は)?長く(?:なって|なり|なる|なった)/u.test(tail);
+    const state = '(?:みすぎている|んでいる|んだ|た|む)';
+    const denied = /^(?:んで|みすぎて)(?:は|も)?(?:いません|いない)/u.test(tail) ||
+      new RegExp(`^${state}(?:こと|の)?(?:にある|が原因|が理由)?(?:では|じゃ|わけでは)(?:ありません|ない)`, 'u').test(tail) ||
+      new RegExp(`^${state}(?:こと|の)?(?:にある|が原因|が理由)?とは(?:限りません|限らない|断定できません|断定できない|言っていません|言っていない|述べていません|述べていない)`, 'u').test(tail) ||
+      new RegExp(`^${state}(?:こと|の)?(?:が|は)?(?:原因|理由)(?:では|じゃ)(?:ありません|ない)`, 'u').test(tail) ||
+      new RegExp(`^${state}(?:こと|の)?(?:にある|が原因|が理由)?(?:か|のか)[^。！？?\\n]{0,12}(?:分かりません|わかりません|分からない|わからない|不明)`, 'u').test(tail);
+    const conditional = /^(?:みすぎて(?:いる|いた)|んで(?:いる|いた)|た|む)(?:なら|場合|とき|時|のであれば)|^(?:みすぎて|んで)(?:いれば|いたら)/u.test(tail);
+    // A local uncertain cause is a hypothesis, not the categorical diagnosis
+    // observed here; it also cannot establish a user's own causal evidence.
+    const hypothetical = new RegExp(`^${state}(?:こと|の)?(?:にある|が原因|が理由)?(?:の)?かもしれ(?:ません|ない)`, 'u').test(tail);
+    const general = /^(?:一般に|一般論として|一般例として)/u.test(prefix) &&
+      !/(?:あなた|今の|この|現在の|一枚目)[^。！？?\n]{0,20}(?:資料|説明|文|原因|理由)/u.test(prefix);
+    const contents = (/特徴/u.test(packing[0]) ? 1 : 0) | (/メリット/u.test(packing[0]) ? 2 : 0);
+    return { causal, denied, conditional, hypothetical, general, contents };
+  });
+}
+
+function artifactCauseReportSource(prefix, suffix) {
+  const before = /([^\s、。！？?「『]{1,20}?)(?:から|は|が)[、,\s]*$/u.exec(prefix)?.[1];
+  const after = /^(?:と|って)([^\s、。！？?]{1,20}?)に(?:言われ|説明され|指摘され)/u.exec(suffix)?.[1];
+  return before || after || '';
+}
+
+function artifactCauseIsFaithfulReport(statement, quote, currentUserTexts) {
+  const suffix = statement.slice(quote.end);
+  if (!/^(?:と|って)(?:(?:[^\s、。！？?]{1,20})に)?(?:言われ|言った|言って|説明され|説明した|指摘され|指摘した)/u.test(suffix)) return false;
+  const source = artifactCauseReportSource(statement.slice(0, quote.start), suffix);
+  return currentUserTexts.some(value => artifactCauseQuotes(value).some(userQuote =>
+    userQuote.content === quote.content &&
+    artifactCauseReportSource(value.slice(0, userQuote.start), value.slice(userQuote.end)) === source &&
+    /^(?:と|って)(?:(?:[^\s、。！？?]{1,20})に)?(?:言われ|言った|言って|説明され|説明した|指摘され|指摘した)/u.test(value.slice(userQuote.end))
+  ));
+}
+
+function artifactCauseOwnCurrentSubject(statement) {
+  return !/(?:担当者|夫|妻|友人|同僚|上司|[^\s、。！？?]{1,12}さん)(?:は|が|の(?:資料|説明|文))|(?:以前|前|別|他)の(?:資料|説明|文)|以前|当時|過去|昔/u.test(statement);
+}
+
+function artifactCauseDirectUserEvidence(currentUserTexts) {
+  let supported = 0;
+  for (const value of currentUserTexts) {
+    if (/話題を変|別件|今度は/u.test(value)) supported = 0;
+    for (const raw of splitOutsideJapaneseQuotations(value)) {
+      const quotes = artifactCauseQuotes(raw);
+      if (quotes.some(quote => artifactCauseClaims(quote.content).some(claim => claim.causal) &&
+        /^(?:と|とは)(?:言って|述べて)(?:いません|いない)/u.test(raw.slice(quote.end)))) {
+        supported = 0;
+        continue;
+      }
+      const statement = artifactCauseOutside(raw);
+      const claims = artifactCauseClaims(statement);
+      if (claims.length === 0) continue;
+      // The speaker must affirm their current artifact's own causal account.
+      // Third-party reports, future plans and actual structure alone do not.
+      if (!artifactCauseOwnCurrentSubject(statement) || /予定|これから/u.test(statement)) continue;
+      if (/(?:と|って)(?:(?:AI|アシスタント|ChatGPT|担当者|同僚|上司)(?:に|から))?(?:言われ|言って|説明され|指摘され)|(?:^|[、,])(?:もし|仮に)/u.test(statement)) continue;
+      for (const claim of claims) {
+        // The later statement may deny the same current structure without
+        // repeating the word 原因. That still revokes the old causal account.
+        if (claim.denied) { supported = 0; continue; }
+        if (claim.hypothetical || /(?:と思|気が|可能性)/u.test(statement)) { supported = 0; continue; }
+        if (!claim.causal || claim.conditional || claim.general || /[？?]/u.test(statement)) continue;
+        supported = claim.contents;
+      }
+    }
+  }
+  return supported;
+}
+
+export function containsUnsupportedArtifactCauseAssertion(text, currentUserTexts = []) {
+  if (!ARTIFACT_CAUSE_CONTEXT.test(currentUserTexts.join('\n'))) return false;
+  const evidence = artifactCauseDirectUserEvidence(currentUserTexts);
+  const unsupported = (claim, statement) => claim.causal && !claim.denied && !claim.conditional && !claim.hypothetical && !claim.general &&
+    (!artifactCauseOwnCurrentSubject(statement) || (evidence & claim.contents) !== claim.contents);
+  return splitOutsideJapaneseQuotations(text).some(statement => {
+    if (artifactCauseClaims(artifactCauseOutside(statement)).some(claim => unsupported(claim, statement))) return true;
+    return artifactCauseQuotes(statement).some(quote => {
+      if (artifactCauseIsFaithfulReport(statement, quote, currentUserTexts)) return false;
+      return artifactCauseClaims(quote.content).some(claim => unsupported(claim, statement) ||
+        (claim.causal && !claim.denied && !claim.conditional && !claim.hypothetical && !claim.general && !artifactCauseOwnCurrentSubject(quote.content)));
+    });
+  });
 }

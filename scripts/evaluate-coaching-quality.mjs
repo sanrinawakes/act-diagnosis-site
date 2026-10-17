@@ -1399,7 +1399,7 @@ function evaluateConversations(conversations) {
       !containsUnsupportedSituationPremise(turn.message, turn.currentUserTexts));
     addCheck(checks, `${turn.label}: 明日の行動対象日を今日と曖昧にしない`,
       !containsAmbiguousFutureActionDayReference(turn.message, turn.user, turn.currentUserTexts));
-    addCheck(checks, `${turn.label}: 本人未申告の残作業を前提にしない`,
+    addCheck(checks, `${turn.label}: 本人未申告の作業や資料内容・原因を前提にしない`,
       !containsUngroundedTaskAssumption(turn.message, turn.currentUserTexts));
     addCheck(checks, `${turn.label}: 本人未申告の迷い・困り・不安を前提にしない`,
       !containsUnsupportedConcernPremise(turn.message, turn.currentUserTexts));
