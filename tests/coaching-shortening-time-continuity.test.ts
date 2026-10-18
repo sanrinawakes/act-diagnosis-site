@@ -129,6 +129,7 @@ describe('shortening a prior action preserves its requested tomorrow execution d
     expect(normalizeCoachingOutput(text, observed.latest, history())).toBe(text);
   });
   it('does not reuse an older different action as the requested shortening', () => {
+    vi.stubEnv('COACHING_OUTPUT_PIPELINE_MODE', 'legacy');
     const oldAction = '明日、深呼吸を一回だけしてください。';
     const messages: CoachingChatMessage[] = [
       { role: 'user', content: '明日の行動を一つ教えてください。' },

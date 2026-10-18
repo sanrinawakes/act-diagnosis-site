@@ -193,6 +193,9 @@ let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
 
 beforeEach(() => {
   consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+  // These scenarios exercise the legacy repair/fallback pipeline. The default
+  // mode is now safety-only, so pin legacy unless a test overrides it.
+  process.env.COACHING_OUTPUT_PIPELINE_MODE = 'legacy';
   state.mode = 'success';
   state.externalCalls = 0;
   state.externalMode = 'success';

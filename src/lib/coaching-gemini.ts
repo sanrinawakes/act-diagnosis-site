@@ -6909,7 +6909,7 @@ export function ensureVerifiedCoachingResolution(params: {
     };
   }
   if (!getCoachingOutputPipelineConfig().applyVerifiedResolution) {
-    return resolveObservedCoachingResponseQuality({
+    const observed = resolveObservedCoachingResponseQuality({
       rawText: resolution.text,
       historyMessages,
       lastUserText,
@@ -6917,6 +6917,17 @@ export function ensureVerifiedCoachingResolution(params: {
       modelName: resolution.modelName,
       provider: resolution.provider,
     });
+    // The upstream resolution may already be a non-chargeable safety
+    // replacement. Re-observing its clean text must not make the turn
+    // chargeable again or drop the original finding from telemetry.
+    return {
+      ...observed,
+      initialIssues: [
+        ...new Set([...resolution.initialIssues, ...observed.initialIssues]),
+      ],
+      chargeable:
+        observed.chargeable !== false && resolution.chargeable !== false,
+    };
   }
   // Empty upstream flags cannot certify these already assessed boundaries.
   // Recheck only the bounded observed predicates, not the full quality policy.
