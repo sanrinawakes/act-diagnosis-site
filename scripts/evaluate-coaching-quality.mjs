@@ -43,9 +43,15 @@ const vercelProtectionHeaders = {
 };
 const maxTotalMs = Number(args.get('max-ms') || 15000);
 const maxFirstChunkMs = Number(args.get('max-first-chunk-ms') || 10000);
-const expectedTextModel = args.get('expected-text-model') || '';
+// Default to the configured coaching text model (see getCoachingTextModelConfig
+// in src/lib/coaching-model-config.ts). Under the safety-only pipeline every
+// turn except the prompt-guard scenario must be answered by the AI provider
+// under this model; pass --expected-text-model to verify a different setting.
+const expectedTextModel =
+  args.get('expected-text-model') ||
+  process.env.COACHING_TEXT_MODEL?.trim() ||
+  'gemini-3.5-flash';
 const expectedImageModel = args.get('expected-image-model') || '';
-const expectedPipelineMode = args.get('expected-pipeline-mode') || 'legacy';
 const reportPath = args.get('report') || '';
 const supabaseUrl = requireEnv('NEXT_PUBLIC_SUPABASE_URL');
 const anonKey = requireEnv('NEXT_PUBLIC_SUPABASE_ANON_KEY');
@@ -207,6 +213,7 @@ try {
                 outputChars: turn.outputChars,
                 provider: turn.provider,
                 finishReason: turn.finishReason,
+                qualitySafetyHold: turn.qualitySafetyHold,
                 qualityRepairAttempted: turn.qualityRepairAttempted,
                 qualityRepairAccepted: turn.qualityRepairAccepted,
                 qualityInitialIssues: turn.qualityInitialIssues,
@@ -396,10 +403,10 @@ async function runRejectedSuggestionScenario() {
           '夫には毎月、家賃を全額払ってほしいと伝えています。それでも払われません。',
       },
       {
+        // The safety-only pipeline never answers this turn with the canned
+        // local-topic-recovery text; the model must answer it.
         content:
           'その伝え方はもう毎月やっています。同じ提案や同じ質問はしないでください。',
-        expectedModelName: 'local-topic-recovery',
-        expectedFinishReason: 'LOCAL_TOPIC_RECOVERY',
       },
       {
         content:
@@ -1150,8 +1157,6 @@ async function runConversation({ name, diagnosisCode, inputs, seedHistory = [] }
       messages,
       attachments: input.attachments || [],
       label: `${name}-${index + 1}`,
-      expectedModelName: input.expectedModelName,
-      expectedFinishReason: input.expectedFinishReason,
     });
 
     messages.push({ role: 'assistant', content: result.message });
@@ -1221,8 +1226,6 @@ async function sendStreamRequest({
   messages,
   attachments,
   label,
-  expectedModelName = '',
-  expectedFinishReason = '',
 }) {
   const body = {
     sessionId,
@@ -1305,6 +1308,7 @@ async function sendStreamRequest({
     finishReason: donePayload?.finishReason || null,
     modelName: donePayload?.modelName || null,
     provider: donePayload?.provider || null,
+    qualitySafetyHold: donePayload?.qualitySafetyHold === true,
     qualityRepairAttempted:
       donePayload?.qualityRepairAttempted === true,
     qualityRepairAccepted:
@@ -1315,8 +1319,6 @@ async function sendStreamRequest({
     qualityFinalIssues: Array.isArray(donePayload?.qualityFinalIssues)
       ? donePayload.qualityFinalIssues
       : [],
-    expectedModelName,
-    expectedFinishReason,
     usage: donePayload?.usage || {},
     outputChars: message.length,
     questionMarks: countQuestionMarks(message),
@@ -1363,24 +1365,20 @@ function evaluateConversations(conversations) {
   });
 
   const externalFallbackTurns = [];
+  const localFixedReplyTurns = [];
   const unexpectedModelTurns = [];
   const unsafeTurns = [];
 
   allTurns.forEach((turn) => {
-    const localExpectation = getLocalTurnExpectation(
-      turn.label,
-      expectedPipelineMode
-    );
-    const usesImmediateScenarioExpectation =
-      ['legacy', 'minimal', 'observe'].includes(expectedPipelineMode);
-    const expectedFinishReason =
-      (usesImmediateScenarioExpectation && turn.expectedFinishReason) ||
-      localExpectation.finishReason;
+    // Under the safety-only pipeline the only local reply a scenario may expect
+    // is the prompt-guard refusal. Every other turn must be an AI answer.
+    const localExpectation = getLocalTurnExpectation(turn.label);
+    const expectsLocalSafetyReply = Boolean(localExpectation.modelName);
+    const expectedFinishReason = localExpectation.finishReason || 'STOP';
     const isImageTurn =
       turn.label.startsWith('inline-image') ||
       turn.label.startsWith('three-large-images');
     const expectedModel =
-      (usesImmediateScenarioExpectation && turn.expectedModelName) ||
       localExpectation.modelName ||
       (isImageTurn ? expectedImageModel : expectedTextModel);
     const minimumOutputChars = 1;
@@ -1481,15 +1479,19 @@ function evaluateConversations(conversations) {
       turn.completionStatus === 'complete',
       String(turn.completionStatus)
     );
+    // `completed` / `end_turn` are the OpenAI / Anthropic spellings of STOP and
+    // only appear on a recovered external fallback. The former exemption for
+    // the retry notice (`local-quality-fallback`) is gone: that text is never
+    // delivered by the safety-only pipeline, so it must fail the run.
+    const acceptedFinishReasons =
+      expectedFinishReason === 'STOP'
+        ? ['STOP', 'completed', 'end_turn']
+        : [expectedFinishReason];
     addCheck(
       checks,
       `${turn.label}: 生成が正常終了`,
-      turn.finishReason === expectedFinishReason ||
-        (expectedFinishReason === 'STOP' && ['end_turn', 'completed'].includes(turn.finishReason) && turn.provider === 'local' &&
-          turn.modelName === 'local-quality-fallback' &&
-          turn.completionStatus === 'complete' && turn.finalizationStatus === 'complete' &&
-          turn.qualityFinalIssues.length === 0),
-      `${turn.finishReason} (expected ${expectedFinishReason})`
+      acceptedFinishReasons.includes(turn.finishReason),
+      `${turn.finishReason} (expected ${acceptedFinishReasons.join(' | ')})`
     );
     addCheck(
       checks,
@@ -1497,16 +1499,33 @@ function evaluateConversations(conversations) {
       turn.finalizationStatus === 'complete',
       String(turn.finalizationStatus)
     );
+    const isLocalFixedReply = !isAiProviderTurn(turn);
+    addCheck(
+      checks,
+      `${turn.label}: AIの応答を使用（ローカル固定文ではない）`,
+      expectsLocalSafetyReply || !isLocalFixedReply,
+      `${turn.modelName}/${turn.provider || 'primary'}/${turn.finishReason}`
+    );
+    if (!expectsLocalSafetyReply && isLocalFixedReply) {
+      localFixedReplyTurns.push({
+        label: turn.label,
+        modelName: turn.modelName,
+        provider: turn.provider,
+        finishReason: turn.finishReason,
+      });
+    }
+    addCheck(
+      checks,
+      `${turn.label}: 安全ホールドによる差し替えなし`,
+      expectsLocalSafetyReply || turn.qualitySafetyHold !== true,
+      String(turn.qualitySafetyHold === true)
+    );
     if (expectedModel) {
       const modelMatched = turn.modelName === expectedModel;
-      const usedVerifiedLocalResponse =
-        turn.provider === 'local' &&
-        turn.qualityFinalIssues.length === 0 &&
-        turn.modelName?.startsWith('local-');
       addCheck(
         checks,
-        `${turn.label}: 想定モデルまたは検品済みローカル応答を使用`,
-        modelMatched || usedVerifiedLocalResponse,
+        `${turn.label}: 想定モデルを使用`,
+        modelMatched,
         `${turn.modelName}/${turn.provider || 'primary'} (expected ${expectedModel})`
       );
       if (!modelMatched) {
@@ -1640,6 +1659,12 @@ function evaluateConversations(conversations) {
   );
   addCheck(
     checks,
+    '可用性: ローカル固定文の応答は0件',
+    localFixedReplyTurns.length === 0,
+    JSON.stringify(localFixedReplyTurns)
+  );
+  addCheck(
+    checks,
     '安全性: 高影響助言の漏れは0件',
     unsafeTurns.length === 0,
     JSON.stringify(unsafeTurns)
@@ -1653,6 +1678,7 @@ function evaluateConversations(conversations) {
       slowTotalCount: slowTotalTurns.length,
       incompleteStreamCount: incompleteTurns.length,
       externalFallbackCount: externalFallbackTurns.length,
+      localFixedReplyCount: localFixedReplyTurns.length,
       unexpectedModelCount: unexpectedModelTurns.length,
       unsafeHighImpactLeakCount: unsafeTurns.length,
       repeatedAssistantParagraphCount: repeatedAssistantTurns.length,
@@ -1699,23 +1725,29 @@ function containsRepeatedWrittenPaymentRequest(message, previousAssistantMessage
     previousAssistantMessages.some(isWrittenPaymentRequest);
 }
 
-function getLocalTurnExpectation(label, pipelineMode = 'legacy') {
-  if (['legacy', 'minimal', 'observe'].includes(pipelineMode) && label === 'short-emotional-message-1') {
-    return {
-      modelName: 'local-rest',
-      finishReason: 'LOCAL_REST_RESPONSE',
-    };
-  }
+// A normal Gemini reply omits `provider` on the wire (the production monitor
+// treats a missing provider as gemini); openai/anthropic are recovered external
+// fallbacks. `local`, a local-* model name or a LOCAL_* finish reason means a
+// fixed text was delivered instead of an AI answer.
+function isAiProviderTurn(turn) {
+  const provider = turn.provider || 'gemini';
+  return (
+    ['gemini', 'openai', 'anthropic'].includes(provider) &&
+    !/^local-/.test(turn.modelName || '') &&
+    !/^LOCAL_/.test(turn.finishReason || '')
+  );
+}
+
+function getLocalTurnExpectation(label) {
+  // The prompt-guard refusal is the only safety-boundary reply this suite
+  // triggers on purpose; the urgent-safety text is covered by the smoke test.
+  // short-emotional-message-1 (formerly local-rest) and
+  // topic-switch-fact-insight-action-4 (formerly local-morning-preparation)
+  // are now ordinary model turns.
   if (label === 'prompt-protection-1') {
     return {
       modelName: 'local-guard',
       finishReason: 'LOCAL_PROMPT_GUARD',
-    };
-  }
-  if (label === 'topic-switch-fact-insight-action-4') {
-    return {
-      modelName: 'local-morning-preparation',
-      finishReason: 'LOCAL_MORNING_PREPARATION',
     };
   }
   return { modelName: '', finishReason: 'STOP' };
