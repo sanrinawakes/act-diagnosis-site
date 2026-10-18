@@ -16,7 +16,14 @@ const baseUrl = args.get('base') || 'https://act-diagnosis-site.vercel.app';
 const mode = args.get('mode') || 'all';
 const maxTotalMs = Number(args.get('max-ms') || 15000);
 const maxFirstChunkMs = Number(args.get('max-first-chunk-ms') || 10000);
-const expectedTextModel = args.get('expected-text-model') || '';
+// Default to the configured coaching text model (see getCoachingTextModelConfig
+// in src/lib/coaching-model-config.ts). Under the safety-only pipeline every
+// turn except urgent-safety must be answered by the AI provider under this
+// model; pass --expected-text-model to verify a different deployment setting.
+const expectedTextModel =
+  args.get('expected-text-model') ||
+  process.env.COACHING_TEXT_MODEL?.trim() ||
+  'gemini-3.5-flash';
 const vercelProtectionHeaders = {
   ...(process.env.VERCEL_AUTOMATION_BYPASS_SECRET
     ? {
@@ -135,9 +142,9 @@ async function runLongHistoryConversation() {
     email,
     diagnosisCode: 'SMM-1',
     messages,
+    // The safety-only pipeline never answers with the canned
+    // local-long-history-action text; the model must answer from the history.
     label: 'long-history-99',
-    expectedModelName: 'local-long-history-action',
-    expectedFinishReason: 'LOCAL_LONG_HISTORY_ACTION',
   });
 }
 
@@ -174,9 +181,9 @@ async function runTopicDriftRecoveryConversation() {
       { role: 'assistant', content: repeated },
       { role: 'user', content: '本当に何の話？' },
     ],
+    // The safety-only pipeline never answers with the canned
+    // local-topic-recovery text; the model must recover the current topic.
     label: 'topic-drift-recovery',
-    expectedModelName: 'local-topic-recovery',
-    expectedFinishReason: 'LOCAL_TOPIC_RECOVERY',
   });
 }
 
@@ -220,10 +227,9 @@ async function runConcurrentConversations() {
             content: `同時接続テスト${index + 1}です。今日は少し疲れました。短く返してください。`,
           },
         ],
+        // The safety-only pipeline never answers with the canned local-rest
+        // text, so each concurrent turn must be a real provider reply.
         label: `concurrent-${index + 1}`,
-        expectedModelName: 'local-rest',
-        expectedFinishReason: 'LOCAL_REST_RESPONSE',
-        requiredResponseFragments: ['今日はゆっくり休んでください。'],
       });
     })
   );
@@ -333,6 +339,7 @@ async function sendStreamRequest({
     finishReason: donePayload?.finishReason ?? null,
     modelName: donePayload?.modelName ?? null,
     provider: donePayload?.provider ?? null,
+    qualitySafetyHold: donePayload?.qualitySafetyHold === true,
     qualityRepairAttempted:
       donePayload?.qualityRepairAttempted === true,
     qualityRepairAccepted:
@@ -522,6 +529,9 @@ function assertResults(results) {
   const topicDriftResult = results.find(
     (result) => result.label === 'topic-drift-recovery'
   );
+  // The reply is the model's own text, so only the stale rent-topic phrases the
+  // conversation must leave behind are checked here. The wording of the former
+  // canned local-topic-recovery text is no longer required.
   if (
     topicDriftResult &&
     (/支払い分担|口頭のお願い|合意や記録|合意した負担|不足額|支払日|追い詰め|未練/.test(
@@ -529,10 +539,7 @@ function assertResults(results) {
     ) ||
       /本人が話した事実|本人が述べた不安|古い別件|持ち込まずに考え直/.test(
         topicDriftResult.message
-      ) ||
-      !/講座/.test(topicDriftResult.message) ||
-      !/現在の収入源/.test(topicDriftResult.message) ||
-      !/今月必要な金額/.test(topicDriftResult.message))
+      ))
   ) {
     throw new Error(
       `${topicDriftResult.label} did not recover the current topic: ${topicDriftResult.message}`
@@ -540,8 +547,37 @@ function assertResults(results) {
   }
 
   for (const result of results) {
+    // Only the urgent-safety and prompt-guard replies may come from the local
+    // safety boundary. Any other local text (canned follow-ups, retry notices,
+    // provider-failure fallbacks) means the customer did not get an AI answer.
+    const expectsLocalSafetyReply = ['local-safety', 'local-guard'].includes(
+      result.expectedModelName
+    );
+    if (!expectsLocalSafetyReply && !isAiProviderReplyInSmoke(result)) {
+      throw new Error(
+        `${result.label} returned a local fixed reply instead of an AI response (${
+          result.modelName || 'unknown model'
+        }/${result.provider || 'missing provider'}/${
+          result.finishReason || 'missing finish reason'
+        }): ${result.message}`
+      );
+    }
+    if (!expectsLocalSafetyReply && result.qualitySafetyHold === true) {
+      throw new Error(
+        `${result.label} was replaced by the safety hold: ${result.message}`
+      );
+    }
+    // openai/anthropic are accepted only as a recovered fallback; their model
+    // names differ from the configured Gemini text model.
+    const usedRecoveredExternalProvider =
+      !result.expectedModelName &&
+      ['openai', 'anthropic'].includes(result.provider);
     const requiredModelName = result.expectedModelName || expectedTextModel;
-    if (requiredModelName && result.modelName !== requiredModelName) {
+    if (
+      requiredModelName &&
+      !usedRecoveredExternalProvider &&
+      result.modelName !== requiredModelName
+    ) {
       throw new Error(
         `${result.label} used ${result.modelName || 'unknown model'} instead of ${requiredModelName}`
       );
@@ -998,6 +1034,19 @@ function assertResults(results) {
       );
     }
   }
+}
+
+function isAiProviderReplyInSmoke(result) {
+  // A normal Gemini reply omits `provider` on the wire (the production monitor
+  // treats a missing provider as gemini); openai/anthropic are recovered
+  // external fallbacks. `local`, a local-* model name or a LOCAL_* finish
+  // reason means a fixed text was delivered instead of an AI answer.
+  const provider = result.provider || 'gemini';
+  return (
+    ['gemini', 'openai', 'anthropic'].includes(provider) &&
+    !/^local-/.test(result.modelName || '') &&
+    !/^LOCAL_/.test(result.finishReason || '')
+  );
 }
 
 function countCoachingActionClauses(text) {

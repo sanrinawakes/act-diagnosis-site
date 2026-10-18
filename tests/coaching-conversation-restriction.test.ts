@@ -99,16 +99,22 @@ const assertions = source.slice(source.indexOf('function assertResults('),source
 const assertResults = vm.runInNewContext(`${assertions}\nassertResults`, {
   ...actionLanguage, stripJapaneseQuotationContent, containsUnbalancedJapaneseQuotation, expectedTextModel:'', maxFirstChunkMs:10000, maxTotalMs:15000,
 });
+// The safety-only pipeline rejects any local fixed reply outright, so the body
+// is judged below as the model's own delivery; the raw record is covered too.
+const aiDelivered = { ...observed, modelName: 'gemini-3.5-flash', provider: null };
 const request = 'では、明日まず何をすればいいか一つだけ教えてください。';
 const history = [{role:'user' as const,content:observed.lastUserText}];
 const concrete = '明日の朝、上司との会話で避けたいことを一つだけメモに書いてください。';
 function check(message: string, latest = request) {
-  const result = {...observed,message,lastUserText:latest,outputChars:message.length};
+  const result = {...aiDelivered,message,lastUserText:latest,outputChars:message.length};
   return () => assertResults([result]);
 }
 describe('conversation restriction target remains distinct from a topic within a conversation', () => {
-  it('accepts the exact observed132-character neutral fear response in the real smoke assertions', () => {
-    expect(() => assertResults([observed])).not.toThrow();
+  it('accepts the exact observed 132-character neutral fear response as a model reply in the real smoke assertions', () => {
+    expect(() => assertResults([aiDelivered])).not.toThrow();
+  });
+  it('rejects the raw retry-notice delivery itself under the safety-only pipeline', () => {
+    expect(() => assertResults([observed])).toThrow(/local fixed reply instead of an AI response/);
   });
   it('accepts the same grammatical target in one concrete action in smoke', () => {
     expect(check(concrete)).not.toThrow();
