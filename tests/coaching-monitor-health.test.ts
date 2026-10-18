@@ -66,6 +66,33 @@ describe('assertHealthyCoachingMonitorResult', () => {
     ).toThrow('monitor first chunk too slow');
   });
 
+  it('rejects a completed local fallback that replaced the AI answer', () => {
+    // Exact shape of the production monitor runs that were counted as
+    // healthy while customers were receiving fixed local notices.
+    expect(() =>
+      assertHealthyCoachingMonitorResult(
+        {
+          ...healthyResult,
+          returnedFallback: true,
+          provider: 'local',
+          fallbackFrom: null,
+          completionStatus: 'complete',
+          outputChars: 134,
+        },
+        limits
+      )
+    ).toThrow('monitor received a local fallback instead of an AI response');
+  });
+
+  it('rejects a missing provider instead of assuming an AI answered', () => {
+    expect(() =>
+      assertHealthyCoachingMonitorResult(
+        { ...healthyResult, provider: '' },
+        limits
+      )
+    ).toThrow('provider=missing');
+  });
+
   it('still rejects an incomplete provider fallback', () => {
     expect(() =>
       assertHealthyCoachingMonitorResult(

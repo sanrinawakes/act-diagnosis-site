@@ -774,6 +774,7 @@ describe('observed future-purpose writing plan keeps artifact temporal grounding
   expect(quality.issues).not.toContain('context_mismatch');
   if(c.id==='faithful-future-ack')expectGroundedPurposePlan(c.candidate);
   if(c.id==='third-party-planned-writing') {
+   vi.stubEnv('COACHING_OUTPUT_PIPELINE_MODE','legacy');
    const normalizedQuality=assessPurpose(normalized,c.latest);
    const normalizedVerified=ensureVerifiedCoachingResolution({resolution:{text:normalized,usage:{},modelName:'same-third-party-normalized-fixture',provider:'local',repairAttempted:false,repairAccepted:false,initialIssues:normalizedQuality.issues,finalIssues:normalizedQuality.issues},lastUserText:c.latest,historyMessages:purposePlanObserved.history});
    const finalQuality=assessPurpose(normalizedVerified.text,c.latest);

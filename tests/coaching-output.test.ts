@@ -1,5 +1,5 @@
 import { writeFileSync } from 'node:fs';
-import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   COACHING_IMAGE_MODEL,
   COACHING_MAX_OUTPUT_TOKENS,
@@ -27,6 +27,16 @@ import {
   getCoachingSystemPrompt,
   getContextualizedPrompt,
 } from '../src/data/coaching-system-prompt';
+
+// This file specifies the legacy repair/fallback pipeline. The default mode is
+// now safety-only, so every test starts from an explicit legacy setting and
+// tests that need another mode set it themselves.
+beforeEach(() => {
+  process.env.COACHING_OUTPUT_PIPELINE_MODE = 'legacy';
+});
+afterEach(() => {
+  delete process.env.COACHING_OUTPUT_PIPELINE_MODE;
+});
 
 // Separate optional capture for the two unchanged existing future-intention inputs.
 const futureIntentExistingOutputActuals: unknown[] = [];

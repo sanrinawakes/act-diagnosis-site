@@ -1,10 +1,18 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   assessCoachingResponseQuality,
   buildFinalVerifiedQualityFallback,
   ensureVerifiedCoachingResolution,
 } from '../src/lib/coaching-gemini';
 import type { CoachingChatMessage } from '../src/lib/coaching-gemini';
+
+// Legacy fallback behaviour; the default pipeline mode is now safety-only.
+beforeEach(() => {
+  process.env.COACHING_OUTPUT_PIPELINE_MODE = 'legacy';
+});
+afterEach(() => {
+  delete process.env.COACHING_OUTPUT_PIPELINE_MODE;
+});
 
 const history: CoachingChatMessage[] = [
   { role: 'user', content: '貯金を増やしたいです。' },
