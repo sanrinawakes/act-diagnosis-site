@@ -72,6 +72,13 @@ const QUALITY_RETRY_NOTICES = [
   '申し訳ありません。今の返答では内容を十分に受け止められていません。話題を別のことに変えず、これまでに書いてくださったことを前提に整理し直します。お手数ですが、最後に送った内容をそのまま再送してください。',
 ] as const;
 
+// Once every retry notice has already been shown in the current conversation,
+// repeating the first one strands the customer in a loop. This is a service
+// recovery notice, not a coaching answer, and deliberately gives one concrete
+// escape route instead of asking for the same message again.
+const QUALITY_RECOVERY_PAUSE_NOTICE =
+  '申し訳ありません。この会話では、正しく返答を続けられない状態です。ここで同じ案内を繰り返さず、いったん新しいチャットを開いて、最初に知りたいことを一文で送ってください。現在の会話内容を原因と決めつけるものではありません。';
+
 export interface CoachingTelemetry {
   route: string;
   requestId: string;
@@ -2467,7 +2474,7 @@ export function assessCoachingResponseQuality(params: {
   const compactText = text.replace(/\s+/g, '');
   const lastUserText = params.lastUserText.replace(/\s+/g, ' ').trim();
   if (
-    QUALITY_RETRY_NOTICES.some((notice) => notice === text) &&
+    [...QUALITY_RETRY_NOTICES, QUALITY_RECOVERY_PAUSE_NOTICE].some((notice) => notice === text) &&
     !buildUrgentSafetyResponse(lastUserText) &&
     !requestsInternalPromptDisclosure(lastUserText)
   ) {
@@ -6971,8 +6978,7 @@ function buildQualityRetryFallback(
     .filter((message) => message.role === 'assistant')
     .map((message) => canonicalizeAssistantParagraph(message.content));
 
-  return (
-    QUALITY_RETRY_NOTICES.find((candidate) => {
+  const unusedNotice = QUALITY_RETRY_NOTICES.find((candidate) => {
       if (previousAssistantMessages.includes(canonicalizeAssistantParagraph(candidate))) {
         return false;
       }
@@ -6981,8 +6987,9 @@ function buildQualityRetryFallback(
         lastUserText,
         historyMessages,
       }).issues.length === 0;
-    }) || QUALITY_RETRY_NOTICES[0]
-  );
+    });
+
+  return unusedNotice || QUALITY_RECOVERY_PAUSE_NOTICE;
 }
 
 function isCustomerSafeDeliveryText(params: {

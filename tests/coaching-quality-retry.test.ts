@@ -67,7 +67,7 @@ describe('quality recovery service notices', () => {
     );
   });
 
-  it.each(['minimal', 'legacy'])('全候補を使った後も不合格の古い発言へ戻らない: %s', (mode) => {
+  it.each(['minimal', 'legacy'])('全候補を使い切った後は同じ再送案内を繰り返さず復旧導線を示す: %s', (mode) => {
     process.env.COACHING_OUTPUT_PIPELINE_MODE = mode;
     const repeated =
       '仕事のことで迷っている時は、仕事全体の結論を急がず、実際に困った場面と次に確認する点を分けると、具体的な対応を選びやすくなります。最後に困った仕事の場面で、誰が何を言ったかを一つだけ教えてください。';
@@ -94,14 +94,14 @@ describe('quality recovery service notices', () => {
     }
     for (const result of results) {
       expect(result.finalIssues).toEqual([]);
-      expect(result.qualitySafetyHold).toBe(/もう一度|再送/.test(result.text));
       expect(result.chargeable).toBe(false);
       expect(result.usage).toEqual({});
       expect(result.text).not.toBe(repeated);
       expect(result.text).not.toMatch(/^「[^」]+」という相談ですね。$/);
     }
-    expect(results.filter((result) => /もう一度|再送/.test(result.text)).length)
-      .toBeGreaterThanOrEqual(4);
+    const retryNotices = results.filter((result) => /もう一度|再送/.test(result.text));
+    expect(retryNotices).toHaveLength(3);
+    expect(results.some((result) => /新しいチャットを開いて/.test(result.text))).toBe(true);
   });
 
   it.each(['minimal', 'legacy', 'observe'])('一度目の再送案内から未完了の品質事故として記録する: %s', async (mode) => {
