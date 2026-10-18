@@ -57,6 +57,15 @@ const fixtures = [
     latest: repeatedAnswer,
     unsupported: /という相談ですね|まだ書かれていない原因を推測せず|(?:相談したい出来事|確認できる事実)[^。！？\n]{0,80}(?:一つ|書いて|教えて)/,
   },
+  {
+    name: 'question-with-full-stop-is-not-an-answer-to-the-previous-question',
+    history: [
+      { role: 'user', content: '同僚が共同作業の確認を後回しにしています。' },
+      { role: 'assistant', content: 'その人には、どんな言葉で返したのですか？' },
+    ] as CoachingChatMessage[],
+    latest: '必要な確認だと伝えました。次は、どんな言葉で返せますか。',
+    unsupported: /「[^」]*次は、どんな言葉で返せますか[。]?[^」]*」|その言葉を伝えた時|相手からは[^。！？\n]*返事|という相談ですね|まだ書かれていない原因を推測せず|確認できる事実[^。！？\n]{0,80}(?:一つ|書いて|教えて)/,
+  },
 ];
 const candidate = '今の相談について、まだ書かれていない事情を決めつけず、実際に起きたことと今話したいことを分けて考えます。最初に、相談したい出来事の中から、確認できる事実を一つだけこの画面に書いてください。相手の意図や自分の評価ではなく、実際に起きたことだけで大丈夫です。';
 const actuals: Array<Record<string, unknown>> = [];
@@ -69,7 +78,7 @@ afterEach(() => {
 afterAll(() => {
   const output = process.env.ACTI_ANSWER_CONTEXT_BOUNDARY_REPLAY_OUTPUT;
   if (output) writeFileSync(output, JSON.stringify({
-    scope: 'Three anonymous semantic boundaries discovered after the new answer helper was introduced; pure public functions only',
+    scope: 'Four anonymous answer-continuation boundaries plus one faithful quoted-report control; pure public functions only',
     candidateOrigin: 'LOCAL_SYNTHETIC_FIXTURE_NOT_PROVIDER_RAW',
     actuals, forbidden,
   }, null, 2) + '\n', { flag: 'wx', mode: 0o600 });
@@ -110,4 +119,28 @@ describe('answered-turn continuation preserves actor and event status', () => {
     expect(normalizedVerified.finalIssues).toEqual([]);
     expect(direct.finalIssues).toEqual([]);
   });
+  it('reported-third-party-wording-question-is-not-the-users-draft-request', () => {
+    process.env.COACHING_OUTPUT_PIPELINE_MODE = 'minimal';
+    const history: CoachingChatMessage[] = [
+      { role: 'user', content: '同僚との共同作業について話しています。' },
+      { role: 'assistant', content: '同僚からは、どんな返事がありましたか？' },
+    ];
+    const latest = '同僚から「次は、どんな言葉で返せますか」と聞かれました。';
+    const candidate = '次にどんな言葉で返せるかを、同僚から尋ねられたのですね。これは、同僚から受けた質問を共有してくださった発言として受け取ります。相手の質問を、あなた自身がこちらに新しい文案を求めているという意味へ置き換えず、誰が誰に尋ねた内容なのかを保って話を続けます。';
+    const quality = assessCoachingResponseQuality({ text: candidate, lastUserText: latest, historyMessages: history });
+    const verified = ensureVerifiedCoachingResolution({
+      resolution: {
+        text: candidate, usage: {}, provider: 'local', modelName: 'synthetic-reported-wording-question',
+        repairAttempted: false, repairAccepted: false,
+        initialIssues: quality.issues, finalIssues: quality.issues,
+      },
+      lastUserText: latest, historyMessages: history,
+    });
+    actuals.push({ name: 'reported-third-party-wording-question-is-not-the-users-draft-request', history, latest, candidate, quality, verified });
+    expect(candidate.length).toBeGreaterThanOrEqual(90);
+    expect(quality.issues).toEqual([]);
+    expect(verified.text).toBe(candidate);
+    expect(verified.finalIssues).toEqual([]);
+  });
+
 });

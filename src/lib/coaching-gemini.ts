@@ -2441,7 +2441,8 @@ function getAnsweredConversationTurn(text: string, history: CoachingChatMessage[
   const correction = /(?:質問|問い)[^。！？?\n]{0,16}(?:回答|答え|返事)[^。！？?\n]{0,16}(?:すでに|既に|もう)[^。！？?\n]{0,12}(?:書|答|伝)|(?:回答|答え)(?:した|た)(?:つもり|だけ)|質問に答えただけ/.test(latest);
   if (buildUrgentSafetyResponse(latest) || requestsInternalPromptDisclosure(latest) ||
       reportsResponseDissatisfaction(latest) || requestsListeningWithoutTasks(latest) ||
-      /[？?]|教えて|提案して|どうすれば|どうしたら|新しい話|別の話/.test(latest)) return null;
+      requestsDirectWording(latest) || /(?:です|ます|でしょう)か[。！!\s]*$/.test(latest) ||
+      /[？?]|教えて|提案して|知りたい|どうすれば|どうしたら|新しい話|別の話/.test(latest)) return null;
   const turns = history.filter((message) =>
     !(message.role === 'assistant' && isQualityServiceNotice(message.content)));
   let answer = latest;
@@ -3107,7 +3108,7 @@ export function assessCoachingResponseQuality(params: {
     requestsConcreteSuggestion(lastUserText) &&
     !hasFamilyLegalDraftWording &&
     !hasValidDirectWording &&
-    !hasConcreteAction(text, lastUserText) &&
+    (requestsDirectWording(lastUserText) || !hasConcreteAction(text, lastUserText)) &&
     !issues.includes('vague_action_target')
   ) {
     issues.push('vague_action_target');
@@ -6930,6 +6931,9 @@ export function ensureVerifiedCoachingResolution(params: {
   if (containsUngroundedTaskAssumption(resolution.text, boundaryUserTexts)) {
     deliveryBoundaryIssues.push('ungrounded_task_assumption');
   }
+  if (requestsDirectWording(lastUserText) && !/「[^」]{4,}」/.test(resolution.text)) {
+    deliveryBoundaryIssues.push('vague_action_target');
+  }
   if (containsShorteningActionTimeMismatch(resolution.text, lastUserText, boundaryUserTexts)) {
     deliveryBoundaryIssues.push('requested_time_mismatch');
   }
@@ -8353,6 +8357,7 @@ function requestsConcreteSuggestion(text: string) {
     .replace(/行動(?:傾向|の傾向|パターン|特性|の特徴)/g, '傾向')
     .replace(/行動を(?:取|と)りやす/g, '傾向が出やす');
   return (
+    requestsDirectWording(text) ||
     /提案(?:して|してください|してほしい|を(?:ください|お願い|求め))|方法|やり方|行動|できること|何をすれば|どうすれば|どうしたら|どう[^。！？?\n]{1,16}(?:すれば|したら)(?:いい|よい|良い)?|(?:次|最初|明日|具体的)の一歩|一歩(?:を|だけ|として|は)/.test(
       request
     ) ||
@@ -9364,7 +9369,10 @@ function requestsDirectWording(text: string) {
   ) {
     return false;
   }
-  return /最初の一言|断(?:る|りたい|り方)[^。！？\n]{0,24}(?:一言|言い方|文面|言葉|文章)|(?:一言|言い方|文面|返事|言葉|文章)[^。！？\n]{0,28}(?:教えて|提案して|考えて|作って|示して|どうすれば|どうしたら)|(?:教えて|提案して|考えて|作って|示して)[^。！？\n]{0,28}(?:一言|言い方|文面|返事|言葉|文章)|(?:どんな|どういう)(?:文章|反応|返し方|返事|言い方)[^。！？\n]{0,28}(?:にしたら|にすれば|が良い|がいい|がよい|なら良い|ならいい|ならよい)|(?:どう|何と|なんて)(?:言|伝え)(?:え|たら|れば|る|う)|どう返せば|(?:言わずに|かわす)方法/.test(
+  const potentialWordingRequest = /(?:どんな|どういう)(?:言葉|一言)で(?:返せ|伝えられ|言え)ますか[。？！!?\s]*$/.test(
+    stripJapaneseQuotationContent(text)
+  );
+  return potentialWordingRequest || /最初の一言|断(?:る|りたい|り方)[^。！？\n]{0,24}(?:一言|言い方|文面|言葉|文章)|(?:一言|言い方|文面|返事|言葉|文章)[^。！？\n]{0,28}(?:教えて|提案して|考えて|作って|示して|どうすれば|どうしたら)|(?:教えて|提案して|考えて|作って|示して)[^。！？\n]{0,28}(?:一言|言い方|文面|返事|言葉|文章)|(?:どんな|どういう)(?:文章|反応|返し方|返事|言い方)[^。！？\n]{0,28}(?:にしたら|にすれば|が良い|がいい|がよい|なら良い|ならいい|ならよい)|(?:どう|何と|なんて)(?:言|伝え)(?:え|たら|れば|る|う)|どう返せば|(?:言わずに|かわす)方法/.test(
     text
   );
 }
