@@ -79,6 +79,12 @@ const QUALITY_RETRY_NOTICES = [
 const QUALITY_RECOVERY_PAUSE_NOTICE =
   '申し訳ありません。この会話では、正しく返答を続けられない状態です。ここで同じ案内を繰り返さず、いったん新しいチャットを開いて、最初に知りたいことを一文で送ってください。現在の会話内容を原因と決めつけるものではありません。';
 
+function isQualityServiceNotice(text: string) {
+  return [...QUALITY_RETRY_NOTICES, QUALITY_RECOVERY_PAUSE_NOTICE].some(
+    (notice) => notice === text.trim()
+  );
+}
+
 export interface CoachingTelemetry {
   route: string;
   requestId: string;
@@ -230,9 +236,9 @@ export function prepareGeminiHistory(
       message !== savedMemory &&
       !(
         message.role === 'assistant' &&
-        message.content.startsWith(
+        (isQualityServiceNotice(message.content) || message.content.startsWith(
           '承知しました。保存済み要約を背景として踏まえ'
-        )
+        ))
       )
   );
   const cleaned = messages
@@ -1759,6 +1765,7 @@ function truncateForApiPrompt(content: string, limit: number) {
 
 function isGenericFailureMessage(message: CoachingChatMessage) {
   if (message.role !== 'assistant') return false;
+  if (isQualityServiceNotice(message.content)) return true;
 
   return [
     '応答に時間がかかりすぎたため中断しました',
@@ -2426,6 +2433,83 @@ function correctsConsultationFraming(text: string) {
   return /^(?:相談(?:ではない|ではありません|じゃない)[。！!\s]*|相談(?:では|じゃ)なくて[、,\s]*(?:聞かれたから|質問に)答えただけ(?:です)?[。！!\s]*)$/.test(text.trim());
 }
 
+// These are answers to a concrete question in the immediately preceding
+// exchange, not a new consultation. An explicit correction may point back one
+// user turn, but never borrow a subject from a distant question or summary.
+function getAnsweredConversationTurn(text: string, history: CoachingChatMessage[]) {
+  const latest = stripAttachmentMarkdown(text).trim();
+  const correction = /(?:質問|問い)[^。！？?\n]{0,16}(?:回答|答え|返事)[^。！？?\n]{0,16}(?:すでに|既に|もう)[^。！？?\n]{0,12}(?:書|答|伝)|(?:回答|答え)(?:した|た)(?:つもり|だけ)|質問に答えただけ/.test(latest);
+  if (buildUrgentSafetyResponse(latest) || requestsInternalPromptDisclosure(latest) ||
+      reportsResponseDissatisfaction(latest) || requestsListeningWithoutTasks(latest) ||
+      requestsDirectWording(latest) || /(?:です|ます|でしょう)か[。！!\s]*$/.test(latest) ||
+      /[？?]|教えて|提案して|知りたい|どうすれば|どうしたら|新しい話|別の話/.test(latest)) return null;
+  const turns = history.filter((message) =>
+    !(message.role === 'assistant' && isQualityServiceNotice(message.content)));
+  let answer = latest;
+  let questionIndex = turns.length - 1;
+  if (correction) {
+    const answerIndex = turns.findLastIndex((message) => message.role === 'user');
+    if (answerIndex < 1) return null;
+    answer = stripAttachmentMarkdown(turns[answerIndex].content).trim();
+    questionIndex = answerIndex - 1;
+  }
+  // The service itself may have requested identical resends. Look through
+  // only those exact repeated answers, never skip a different user fact.
+  while (questionIndex >= 0 && turns[questionIndex].role === 'user' &&
+      stripAttachmentMarkdown(turns[questionIndex].content).trim() === answer) {
+    questionIndex--;
+  }
+  const previous = turns[questionIndex];
+  if (previous?.role !== 'assistant' || containsProtectedInternalContent(previous.content) ||
+      containsInternalCoachingContextExposure(previous.content)) return null;
+  const question = previous.content.trim().split(/(?<=[。！？?])|\n/u)
+    .filter((part) => part.trim()).at(-1)?.trim() || '';
+  if (!/[？?]$/.test(question) || question.length > 160 ||
+      !/(?:どんな|どのよう[なに]|どう)[^。！？?\n]{0,24}(?:言葉|返事|対応|反応|気持ち|感じ)|何(?:と|て)(?:言|伝)|どう(?:感じ|伝え|返し)/.test(question) ||
+      answer.length < 6 || answer.length > 500 || /[？?]/.test(answer)) return null;
+  const precedingUser = turns.slice(0, questionIndex)
+    .findLast((message) => message.role === 'user')?.content || '';
+  return { answer, question, correction, precedingUser };
+}
+
+function restartsAnsweredFactCollection(text: string, latest: string, history: CoachingChatMessage[]) {
+  if (!getAnsweredConversationTurn(latest, history)) return false;
+  return /という相談ですね|まだ書かれていない原因を推測せず/.test(text) ||
+    /(?:相談したい出来事|最近のやり取り|確認できる事実|誰が何を言ったか)[^。！？?\n]{0,80}(?:一つ|書いて|教えて)/.test(text);
+}
+
+function isGroundedEmotionAnswer(text: string, latest: string, history: CoachingChatMessage[]) {
+  const turn = getAnsweredConversationTurn(latest, history);
+  if (!turn || !/気持ち|感じ/.test(turn.question) || text.replace(/\s/g, '').length < 25 ||
+      (text.match(/[？?]/g) || []).length !== 1) return false;
+  const emotionGroups = [/腹が立|怒り|怒っ/, /がっかり|落胆/, /悲し|悲しく/, /寂し|さびし/, /不安/, /嬉し|うれし/];
+  const mentioned = emotionGroups.filter((group) => group.test(text.replace(/[^。！？?\n]*[？?]/g, '')));
+  return mentioned.length > 0 && mentioned.every((group) => group.test(turn.answer));
+}
+
+function buildAnsweredConversationContinuation(text: string, history: CoachingChatMessage[]) {
+  const turn = getAnsweredConversationTurn(text, history);
+  if (!turn) return '';
+  const answer = turn.answer.replace(/[「」『』]/g, '').replace(/[。！!]+$/g, '');
+  const acknowledgement = turn.correction
+    ? `質問へのお答えを、こちらが受け取り損ねていました。すみません。「${answer}」というお答えを踏まえて続けます。`
+    : `「${answer}」と答えてくださったのですね。`;
+  // A feeling can concern a solo activity, and desired wording is not proof
+  // that anybody already said it. Do not invent a counterparty or event.
+  const interpersonalContext = /相手|その人|同僚|上司|部下|夫|妻|家族|友人|友達|彼(?:女)?(?:に|へ|が|は)/.test(
+    `${turn.precedingUser}\n${turn.answer}`
+  );
+  if (!interpersonalContext || /ほしかった|ほしい|欲しい|したい|するとしたら|だったら|なら/.test(
+    `${turn.question}\n${turn.answer}`
+  )) return acknowledgement;
+  // Ask for the next missing point, never the same event or wording again.
+  const next = /気持ち|感じ|反応|対応/.test(turn.question) || /様子|言われ|返事|反応/.test(turn.answer)
+    ? '相手には、どのように対応してほしかったですか？'
+    : 'その言葉を伝えた時、相手からはどのような返事がありましたか？';
+  if (wasAssistantMoveAlreadyUsed(next, history)) return acknowledgement;
+  return `${acknowledgement}\n\n${next}`;
+}
+
 function buildFactualReplyFallback(text: string, history: CoachingChatMessage[]) {
   if (correctsConsultationFraming(text) && history.some((message) => message.role === 'assistant')) {
     return '相談だと受け取ったのは、こちらの取り違えでした。すみません。書いてくださった内容から、困り事があるとも、助言や追加の質問を求めているとも決めつけません。';
@@ -2474,7 +2558,7 @@ export function assessCoachingResponseQuality(params: {
   const compactText = text.replace(/\s+/g, '');
   const lastUserText = params.lastUserText.replace(/\s+/g, ' ').trim();
   if (
-    [...QUALITY_RETRY_NOTICES, QUALITY_RECOVERY_PAUSE_NOTICE].some((notice) => notice === text) &&
+    isQualityServiceNotice(text) &&
     !buildUrgentSafetyResponse(lastUserText) &&
     !requestsInternalPromptDisclosure(lastUserText)
   ) {
@@ -2487,6 +2571,10 @@ export function assessCoachingResponseQuality(params: {
   const workAnswerContext = getClosedWorkAnswerContext(lastUserText, historyMessages);
   const newTopicFocus = getExplicitNewTopicFocus(lastUserText);
   const groundedShortFollowup = isGroundedShortFollowup(text, workAnswerContext, newTopicFocus);
+  const groundedEmotionAnswer = isGroundedEmotionAnswer(text, lastUserText, historyMessages);
+  if (restartsAnsweredFactCollection(text, lastUserText, historyMessages)) {
+    issues.push('context_mismatch');
+  }
   if (containsUnsupportedConcernPremise(text, getCurrentPlanningUserTexts(lastUserText, historyMessages))) {
     issues.push('context_mismatch');
   }
@@ -2538,6 +2626,9 @@ export function assessCoachingResponseQuality(params: {
     groundedIntendedActionAcknowledgement ||
     groundedRequestedFamilyDraft ||
     groundedShortFollowup ||
+    groundedEmotionAnswer ||
+    (Boolean(buildAnsweredConversationContinuation(lastUserText, historyMessages)) &&
+      text === buildAnsweredConversationContinuation(lastUserText, historyMessages)) ||
     (Boolean(groundedDeadlineBriefReply) && text === groundedDeadlineBriefReply) ||
     (Boolean(factualReplyFallback) && text === factualReplyFallback) ||
     groundedShortAnswer ||
@@ -3017,7 +3108,7 @@ export function assessCoachingResponseQuality(params: {
     requestsConcreteSuggestion(lastUserText) &&
     !hasFamilyLegalDraftWording &&
     !hasValidDirectWording &&
-    !hasConcreteAction(text, lastUserText) &&
+    (requestsDirectWording(lastUserText) || !hasConcreteAction(text, lastUserText)) &&
     !issues.includes('vague_action_target')
   ) {
     issues.push('vague_action_target');
@@ -3978,7 +4069,7 @@ function resolveObservedCoachingResponseQuality(params: {
     };
   }
 
-  const serviceRecovery = QUALITY_RETRY_NOTICES.some((notice) => notice === deliveryText);
+  const serviceRecovery = isQualityServiceNotice(deliveryText);
   return {
     text: deliveryText,
     usage: params.usage,
@@ -5034,6 +5125,16 @@ export function buildFinalVerifiedQualityFallback(
   if (cancellationContinuation && assessCoachingResponseQuality({
     text: cancellationContinuation, lastUserText, historyMessages,
   }).issues.length === 0) return cancellationContinuation;
+  // Existing safeguarding guidance takes priority over a conversational
+  // acknowledgement, including when the user is answering a question.
+  const childSafetyFallback = buildChildSafetyContinuationFallback(
+    lastUserText, historyMessages
+  );
+  if (childSafetyFallback && assessCoachingResponseQuality({
+    text: childSafetyFallback, lastUserText, historyMessages,
+  }).issues.length === 0) return childSafetyFallback;
+  const answeredContinuation = buildAnsweredConversationContinuation(lastUserText, historyMessages);
+  if (answeredContinuation) return answeredContinuation;
   const contextualRecovery = buildGoalOrShortActionFallback(lastUserText, historyMessages);
   if (contextualRecovery) return contextualRecovery;
   if (/友人|友達/.test(lastUserText) &&
@@ -5060,15 +5161,6 @@ export function buildFinalVerifiedQualityFallback(
   if (workplaceFallback && assessCoachingResponseQuality({
     text: workplaceFallback, lastUserText, historyMessages,
   }).issues.length === 0) return workplaceFallback;
-  const childSafetyFallback = buildChildSafetyContinuationFallback(
-    lastUserText, historyMessages
-  );
-  if (childSafetyFallback) {
-    const assessment = assessCoachingResponseQuality({
-      text: childSafetyFallback, lastUserText, historyMessages,
-    });
-    if (assessment.issues.length === 0) return childSafetyFallback;
-  }
   const directDiagnosisLookupFallback =
     buildDirectDiagnosisLookupFallback(lastUserText, historyMessages);
   if (directDiagnosisLookupFallback) {
@@ -6801,7 +6893,7 @@ export function ensureVerifiedCoachingResolution(params: {
   const { resolution, lastUserText, historyMessages, preserveUsage = false } =
     params;
   if (
-    QUALITY_RETRY_NOTICES.some((notice) => notice === resolution.text.trim()) &&
+    isQualityServiceNotice(resolution.text) &&
     !buildUrgentSafetyResponse(lastUserText) &&
     !requestsInternalPromptDisclosure(lastUserText)
   ) {
@@ -6832,11 +6924,15 @@ export function ensureVerifiedCoachingResolution(params: {
   const deliveryBoundaryIssues: CoachingQualityIssue[] = [];
   if (containsUnprovidedPlannedPurposeDraftPremise(resolution.text, lastUserText, historyMessages) ||
       containsMisfocusedFriendDeclineQuestion(resolution.text, boundaryUserTexts) ||
-      containsUnsupportedConcernPremise(resolution.text, boundaryUserTexts)) {
+      containsUnsupportedConcernPremise(resolution.text, boundaryUserTexts) ||
+      restartsAnsweredFactCollection(resolution.text, lastUserText, historyMessages)) {
     deliveryBoundaryIssues.push('context_mismatch');
   }
   if (containsUngroundedTaskAssumption(resolution.text, boundaryUserTexts)) {
     deliveryBoundaryIssues.push('ungrounded_task_assumption');
+  }
+  if (requestsDirectWording(lastUserText) && !/「[^」]{4,}」/.test(resolution.text)) {
+    deliveryBoundaryIssues.push('vague_action_target');
   }
   if (containsShorteningActionTimeMismatch(resolution.text, lastUserText, boundaryUserTexts)) {
     deliveryBoundaryIssues.push('requested_time_mismatch');
@@ -8022,11 +8118,18 @@ function reportsResponseDissatisfaction(text: string) {
     /(?:意味(?:が)?(?:不明|わから|分から)|違(?:う|って)|ずれ|浅い|機能的|納得(?:できない|いかない)|使いづら)[^。！？!?\n]{0,28}(?:返答|回答|答え|質問|文章|AI|bot|ボット|コーチ)/i.test(
       normalized
     );
+  // A request to explain a named subject is not a complaint about the AI.
+  // Standalone clarification and an explicit request to explain our reply
+  // still belong to the response-recovery path.
+  const responseClarification =
+    /^(?:それ(?:を|について)|その(?:点|返答|回答|説明)(?:を|について)|前の(?:返答|回答)(?:を|について))?説明して(?:ください|下さい)?[。！？!?]*$/.test(normalized) ||
+    /(?:返答|回答|AI|ボット|コーチ)[^。！？!?\n]{0,30}説明して|質問(?:で|を)[^。！？!?\n]{0,16}返さず/.test(normalized);
 
   return (
     standaloneComplaint ||
     responseDirectedComplaint ||
-    /^(?:[？?]+)$|わからないから聞いて|それを聞いている|質問ばかり|同じ質問|答えになっていない|納得(?:できない|いかない)|何を言いたいのかわから|ちゃんと答えて|何の話|^(?:(?:これ|それ)は)?どういう(?:こと|事|意味)[。！？!?]*$|いちいち確認しないで|言葉の通りに解釈して|^相手とは[。！？!?]*$|前の返答.{0,20}(?:わか(?:ら|り)|短|意味)|前(?:の|より).{0,20}(?:方が|ほうが).{0,20}(?:的確|良かった|よかった)|頭が悪くな|作成されてない|作成されていない|文章を出せていない|もっと(?:分か|わか)るように(?:言って|説明して)|(?:もう少し|もうちょっと)(?:分か|わか)るように(?:言って|説明して)|説明して|かみ砕いて|噛み砕いて|オウム返し|話が飛ん|急に話が飛び|全然違う回答|修正して(?:ください|下さい)/.test(
+    responseClarification ||
+    /^(?:[？?]+)$|わからないから聞いて|それを聞いている|質問ばかり|同じ質問|答えになって(?:いない|いません)|納得(?:できない|いかない)|何を言いたいのかわから|ちゃんと答えて|何の話|^(?:(?:これ|それ)は)?どういう(?:こと|事|意味)[。！？!?]*$|いちいち確認しないで|言葉の通りに解釈して|^相手とは[。！？!?]*$|前の返答.{0,20}(?:わか(?:ら|り)|短|意味)|前(?:の|より).{0,20}(?:方が|ほうが).{0,20}(?:的確|良かった|よかった)|頭が悪くな|作成されてない|作成されていない|文章を出せていない|もっと(?:分か|わか)るように(?:言って|説明して)|(?:もう少し|もうちょっと)(?:分か|わか)るように(?:言って|説明して)|かみ砕いて|噛み砕いて|オウム返し|話が飛ん|急に話が飛び|全然違う回答|修正して(?:ください|下さい)/.test(
       normalized
     )
   );
@@ -8247,12 +8350,19 @@ function wasAssistantMoveAlreadyUsed(
 }
 
 function requestsConcreteSuggestion(text: string) {
+  // Describing a behavioural tendency is an explanation request. The noun
+  // alone must not require an imperative action in the answer. Preserve any
+  // separate, explicit request for a next action in the same message.
+  const request = text
+    .replace(/行動(?:傾向|の傾向|パターン|特性|の特徴)/g, '傾向')
+    .replace(/行動を(?:取|と)りやす/g, '傾向が出やす');
   return (
+    requestsDirectWording(text) ||
     /提案(?:して|してください|してほしい|を(?:ください|お願い|求め))|方法|やり方|行動|できること|何をすれば|どうすれば|どうしたら|どう[^。！？?\n]{1,16}(?:すれば|したら)(?:いい|よい|良い)?|(?:次|最初|明日|具体的)の一歩|一歩(?:を|だけ|として|は)/.test(
-      text
+      request
     ) ||
     /着手(?:する|の)?(?:方法|仕方|ため|コツ)|着手したい|着手するには/.test(
-      text
+      request
     )
   );
 }
@@ -9259,7 +9369,10 @@ function requestsDirectWording(text: string) {
   ) {
     return false;
   }
-  return /最初の一言|断(?:る|りたい|り方)[^。！？\n]{0,24}(?:一言|言い方|文面|言葉|文章)|(?:一言|言い方|文面|返事|言葉|文章)[^。！？\n]{0,28}(?:教えて|提案して|考えて|作って|示して|どうすれば|どうしたら)|(?:教えて|提案して|考えて|作って|示して)[^。！？\n]{0,28}(?:一言|言い方|文面|返事|言葉|文章)|(?:どんな|どういう)(?:文章|反応|返し方|返事|言い方)[^。！？\n]{0,28}(?:にしたら|にすれば|が良い|がいい|がよい|なら良い|ならいい|ならよい)|(?:どう|何と|なんて)(?:言|伝え)(?:え|たら|れば|る|う)|どう返せば|(?:言わずに|かわす)方法/.test(
+  const potentialWordingRequest = /(?:どんな|どういう)(?:言葉|一言)で(?:返せ|伝えられ|言え)ますか[。？！!?\s]*$/.test(
+    stripJapaneseQuotationContent(text)
+  );
+  return potentialWordingRequest || /最初の一言|断(?:る|りたい|り方)[^。！？\n]{0,24}(?:一言|言い方|文面|言葉|文章)|(?:一言|言い方|文面|返事|言葉|文章)[^。！？\n]{0,28}(?:教えて|提案して|考えて|作って|示して|どうすれば|どうしたら)|(?:教えて|提案して|考えて|作って|示して)[^。！？\n]{0,28}(?:一言|言い方|文面|返事|言葉|文章)|(?:どんな|どういう)(?:文章|反応|返し方|返事|言い方)[^。！？\n]{0,28}(?:にしたら|にすれば|が良い|がいい|がよい|なら良い|ならいい|ならよい)|(?:どう|何と|なんて)(?:言|伝え)(?:え|たら|れば|る|う)|どう返せば|(?:言わずに|かわす)方法/.test(
     text
   );
 }
