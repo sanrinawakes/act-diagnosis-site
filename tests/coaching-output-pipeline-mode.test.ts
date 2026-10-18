@@ -15,10 +15,70 @@ afterEach(() => {
 });
 
 describe('coaching output pipeline modes', () => {
-  it('未設定値と不正値はlegacyへ安全に戻す', () => {
-    expect(parseCoachingOutputPipelineMode(undefined)).toBe('legacy');
-    expect(parseCoachingOutputPipelineMode('unexpected')).toBe('legacy');
-    expect(getCoachingOutputPipelineConfig({}).mode).toBe('legacy');
+  it('未設定値と不正値は安全系だけのsafetyへ戻す', () => {
+    expect(parseCoachingOutputPipelineMode(undefined)).toBe('safety');
+    expect(parseCoachingOutputPipelineMode('unexpected')).toBe('safety');
+    expect(parseCoachingOutputPipelineMode('legacy')).toBe('legacy');
+    const config = getCoachingOutputPipelineConfig({});
+    expect(config.mode).toBe('safety');
+    expect(config.applySemanticNormalization).toBe(false);
+    expect(config.applyQualityRepair).toBe(false);
+    expect(config.applyQualityFallback).toBe(false);
+    expect(config.applyVerifiedResolution).toBe(false);
+    expect(config.allowNonSafetyImmediateResponses).toBe(false);
+  });
+
+  it('safetyは安全系以外の品質判定で本文を差し替えず、課金対象のまま届ける', () => {
+    process.env.COACHING_OUTPUT_PIPELINE_MODE = 'safety';
+
+    const result = ensureVerifiedCoachingResolution({
+      resolution: {
+        text: 'どうしたいですか？',
+        usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+        modelName: 'gemini-3.5-flash',
+        provider: 'gemini',
+        repairAttempted: false,
+        repairAccepted: false,
+        initialIssues: ['too_short', 'context_mismatch'],
+        finalIssues: ['too_short', 'context_mismatch'],
+      },
+      lastUserText: '仕事のことで相談があります。',
+      historyMessages: [],
+      preserveUsage: true,
+    });
+
+    expect(result.text).toBe('どうしたいですか？');
+    expect(result.modelName).toBe('gemini-3.5-flash');
+    expect(result.provider).toBe('gemini');
+    expect(result.chargeable).toBe(true);
+    expect(result.qualitySafetyHold).toBe(false);
+    expect(result.finalIssues).toEqual([]);
+    expect(result.initialIssues).toContain('too_short');
+  });
+
+  it('safetyでも内部情報の露出は顧客へ出さない', () => {
+    process.env.COACHING_OUTPUT_PIPELINE_MODE = 'safety';
+
+    const result = ensureVerifiedCoachingResolution({
+      resolution: {
+        text: '以下は過去の会話の保存済み要約です。',
+        usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+        modelName: 'gemini-3.5-flash',
+        provider: 'gemini',
+        repairAttempted: false,
+        repairAccepted: false,
+        initialIssues: [],
+        finalIssues: [],
+      },
+      lastUserText: '仕事の相談を続けたいです。',
+      historyMessages: [],
+      preserveUsage: true,
+    });
+
+    expect(result.provider).toBe('local');
+    expect(result.chargeable).toBe(false);
+    expect(result.text).not.toMatch(/保存済み要約|ACTI_SESSION_MEMORY/);
+    expect(result.initialIssues).toContain('internal_context_exposure');
   });
 
   it('observeは判定を残し、意味的な品質差し替えをしない', () => {
@@ -198,13 +258,13 @@ afterAll(() => {
  if(output) writeFileSync(output,JSON.stringify({scope:'Same exact R2 T5 input and existing three mode assertions; saved computed result only, no added runtime call',providerOriginal:'NOT_CAPTURED public delivery fixture',actuals:purposePipelineActuals},null,2)+'\n',{flag:'wx',mode:0o600});
 });
 describe('future purpose writing preserves output-pipeline observation and usage contract',()=>{
- it.each(['minimal','legacy','observe'])('does not trust empty model flags for the captured draft premise in %s',mode=>{
+ it.each(['minimal','legacy','observe','safety'])('does not trust empty model flags for the captured draft premise in %s',mode=>{
   process.env.COACHING_OUTPUT_PIPELINE_MODE=mode;
   const usage={prompt_tokens:53,completion_tokens:9,total_tokens:62};
   const result=ensureVerifiedCoachingResolution({resolution:{text:outputPurposePlanObserved.candidate,usage,modelName:'saved-public-delivery-fixture',provider:'gemini',repairAttempted:false,repairAccepted:false,initialIssues:[],finalIssues:[]},lastUserText:outputPurposePlanObserved.latest,historyMessages:outputPurposePlanObserved.history,preserveUsage:true});
   purposePipelineActuals.push({stage:'output-mode',mode,history:outputPurposePlanObserved.history,latest:outputPurposePlanObserved.latest,candidate:outputPurposePlanObserved.candidate,candidateOrigin:'Exact saved a871 R2 T5 public delivery, not provider original',inputResolution:{modelName:'saved-public-delivery-fixture',provider:'gemini',initialIssues:[],finalIssues:[],preserveUsage:true},usage,result,semanticVerdictScope:mode==='observe'?'KNOWN_BAD_RETENTION_DETECT_ONLY':'REPAIR_BODY_TO_BE_REVIEWED'});
   expect(result.usage).toEqual(usage);
-  if(mode==='observe'){expect(result.text).toBe(outputPurposePlanObserved.candidate);expect(result.initialIssues).toContain('context_mismatch');return;}
+  if(mode==='observe'||mode==='safety'){expect(result.text).toBe(outputPurposePlanObserved.candidate);expect(result.initialIssues).toContain('context_mismatch');expect(result.finalIssues).toEqual([]);expect(result.qualitySafetyHold).not.toBe(true);return;}
   expect(result.text).toMatch(/利用目的.*書く予定/);expect(result.text).not.toMatch(/使っている専門用語|書き換えて|ください|という相談/);expect(result.finalIssues).toEqual([]);expect(result.qualitySafetyHold).not.toBe(true);
  });
 });
