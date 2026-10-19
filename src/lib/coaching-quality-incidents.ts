@@ -1,6 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
-  assessCoachingResponseQuality,
   containsInternalCoachingContextExposure,
   type CoachingQualityIssue,
 } from '@/lib/coaching-gemini';
@@ -13,11 +12,12 @@ const SESSION_QUERY_CHUNK_SIZE = 50;
 const MAX_CANDIDATE_RESPONSES = 5000;
 const MAX_HISTORY_MESSAGES = 25000;
 
+// Issues this code still produces. The database check constraint also allows
+// the retired values (repeated_response_after_dissatisfaction,
+// post_delivery_quality_failure) so older rows remain readable.
 export type CoachingQualityIncidentIssue =
   | 'internal_context_exposure'
-  | 'repeated_response_after_dissatisfaction'
   | 'repeated_response_three_times'
-  | 'post_delivery_quality_failure'
   | 'quality_safety_hold'
   | 'unresolved_quality_issue';
 
@@ -55,6 +55,10 @@ type QualityIncidentInsert = {
   updated_at: string;
 };
 
+// Scheduled audit of stored assistant replies. It looks only for outage
+// signals: internal context that reached the customer, and the same reply
+// delivered three or more times in one session. Judging the coaching itself is
+// done by reading real conversations, not by rules here.
 export function detectStoredCoachingQualityIncidents(params: {
   messages: StoredCoachingMessage[];
   candidateAssistantMessageIds?: Set<string>;
@@ -117,52 +121,11 @@ export function detectStoredCoachingQualityIncidents(params: {
       if (canonical.length < 16) return;
 
       const previousMessages = ordered.slice(0, index);
-      const previousUser = [...previousMessages]
-        .reverse()
-        .find((candidate) => candidate.role === 'user');
-      if (previousUser && !exposesInternalContext) {
-        const quality = assessCoachingResponseQuality({
-          text: message.content,
-          lastUserText: previousUser.content,
-          historyMessages: previousMessages.map((candidate) => ({
-            role: candidate.role,
-            content: candidate.content,
-          })),
-        });
-        const severeIssues = quality.issues.filter((issue) =>
-          [
-            'context_mismatch',
-            'dissatisfaction_unanswered',
-            'unsafe_high_impact_advice',
-            'latest_user_echo',
-          ].includes(issue)
-        );
-        if (severeIssues.length > 0) {
-          add('post_delivery_quality_failure', {
-            qualityIssues: severeIssues,
-            qualityScore: quality.score,
-            previousUserMessageId: previousUser.id,
-          });
-        }
-      }
       const matchingAssistants = previousMessages.filter(
         (candidate) =>
           candidate.role === 'assistant' &&
           canonicalizeResponse(candidate.content) === canonical
       );
-
-      if (
-        matchingAssistants.length > 0 &&
-        previousUser &&
-        reportsResponseDissatisfaction(previousUser.content)
-      ) {
-        add('repeated_response_after_dissatisfaction', {
-          repeatCount: matchingAssistants.length + 1,
-          previousAssistantMessageId:
-            matchingAssistants[matchingAssistants.length - 1]?.id || null,
-          previousUserMessageId: previousUser.id,
-        });
-      }
 
       if (matchingAssistants.length >= 2) {
         add('repeated_response_three_times', {
@@ -466,12 +429,6 @@ function canonicalizeResponse(text: string) {
     .replace(/[「」『』（）()\[\]【】]/g, '')
     .replace(/[。！？!?、,.:：;；]+$/g, '')
     .trim();
-}
-
-function reportsResponseDissatisfaction(text: string) {
-  return /何の話|話が(?:違|ずれ)|意味(?:が)?(?:不明|わから)|同じ(?:返事|回答|こと)|答えになっていない|納得(?:できない|いかない)|ちゃんと答えて|前の返答.{0,20}(?:わか(?:ら|り)|短|意味)/.test(
-    text.replace(/\s+/g, '')
-  );
 }
 
 function isExpectedRepeatableResponse(text: string) {
