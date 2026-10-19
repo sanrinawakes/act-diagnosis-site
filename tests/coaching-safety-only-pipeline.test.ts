@@ -61,7 +61,6 @@ import {
   type CoachingChatMessage,
   type CoachingCompletionDetails,
 } from '../src/lib/coaching-gemini';
-import { getCoachingOutputPipelineConfig } from '../src/lib/coaching-output-pipeline-mode';
 
 const RETRY_NOTICE_PATTERN =
   /もう一度(?:だけ)?送ってください|そのまま再送してください|新しいチャットを開いて/;
@@ -144,7 +143,6 @@ beforeEach(() => {
     vi.spyOn(console, 'warn').mockImplementation(() => {}),
     vi.spyOn(console, 'error').mockImplementation(() => {}),
   ];
-  delete process.env.COACHING_OUTPUT_PIPELINE_MODE;
   delete process.env.OPENAI_API_KEY;
   delete process.env.ANTHROPIC_API_KEY;
 });
@@ -152,20 +150,9 @@ beforeEach(() => {
 afterEach(() => {
   for (const spy of consoleSpies) spy.mockRestore();
   vi.unstubAllEnvs();
-  delete process.env.COACHING_OUTPUT_PIPELINE_MODE;
 });
 
-describe('safety-only output pipeline (default)', () => {
-  it('環境変数が未設定ならsafetyモードで動く', () => {
-    const config = getCoachingOutputPipelineConfig();
-    expect(config.mode).toBe('safety');
-    expect(config.applySemanticNormalization).toBe(false);
-    expect(config.applyQualityRepair).toBe(false);
-    expect(config.applyQualityFallback).toBe(false);
-    expect(config.applyVerifiedResolution).toBe(false);
-    expect(config.allowNonSafetyImmediateResponses).toBe(false);
-  });
-
+describe('safety-only output pipeline', () => {
   it('短すぎる返答でも本文を差し替えず、課金対象のAI返答として届ける', async () => {
     const { done, chunks, completion } = await streamOnce({
       lastUserText: '仕事のことで相談があります。',
@@ -179,8 +166,8 @@ describe('safety-only output pipeline (default)', () => {
     expect(completion.qualitySafetyHold).not.toBe(true);
     expect(done.qualitySafetyHold).not.toBe(true);
     expect(done.qualityFinalIssues).toEqual([]);
-    // The finding is still observed for telemetry, just not acted on.
-    expect(done.qualityInitialIssues).toContain('too_short');
+    // Length is not a safety boundary, so nothing is recorded against it.
+    expect(done.qualityInitialIssues).toEqual([]);
     expect(String(done.message)).not.toMatch(RETRY_NOTICE_PATTERN);
   });
 
@@ -226,17 +213,6 @@ describe('safety-only output pipeline (default)', () => {
     expect(done.provider ?? 'gemini').toBe('gemini');
     expect(done.modelName).toBe('gemini-3.5-flash');
     expect(done.message).toBe(state.reply);
-  });
-
-  it('legacyを明示した場合だけ、従来の定型テーマ返答を返す', async () => {
-    vi.stubEnv('COACHING_OUTPUT_PIPELINE_MODE', 'legacy');
-    const { done } = await streamOnce({
-      lastUserText: '自己理解 - あなたのタイプの強みと課題',
-      historyMessages: THEME_MENU_HISTORY,
-    });
-
-    expect(state.modelCalls).toBe(0);
-    expect(done.modelName).toBe('local-theme-selection');
   });
 
   it('内部要約の露出は安全系として従来どおり顧客へ出さない', async () => {

@@ -31,7 +31,7 @@ describe('detectStoredCoachingQualityIncidents', () => {
     ]);
   });
 
-  it('利用者が話題ずれを指摘した後も同じ回答を返した場合を検知する', () => {
+  it('同じ回答を3回以上返した場合を検知し、2回目までは数えない', () => {
     const repeated =
       '現在の支払い分担について、口頭のお願い以外に確認できる合意や記録はありますか？';
     const incidents = detectStoredCoachingQualityIncidents({
@@ -46,18 +46,13 @@ describe('detectStoredCoachingQualityIncidents', () => {
       candidateAssistantMessageIds: new Set(['a2', 'a3']),
     });
 
-    expect(incidents).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          assistantMessageId: 'a2',
-          issue: 'repeated_response_after_dissatisfaction',
-        }),
-        expect.objectContaining({
-          assistantMessageId: 'a3',
-          issue: 'repeated_response_three_times',
-        }),
-      ])
-    );
+    expect(incidents).toEqual([
+      expect.objectContaining({
+        assistantMessageId: 'a3',
+        issue: 'repeated_response_three_times',
+        details: expect.objectContaining({ repeatCount: 3 }),
+      }),
+    ]);
   });
 
   it('利用範囲外の同じ固定案内は品質事故として数えない', () => {
@@ -76,7 +71,7 @@ describe('detectStoredCoachingQualityIncidents', () => {
     expect(incidents).toEqual([]);
   });
 
-  it('同文反復でなくても直前の相談と噛み合わない回答を検知する', () => {
+  it('会話の内容そのものは監査の対象にしない', () => {
     const incidents = detectStoredCoachingQualityIncidents({
       messages: [
         message(
@@ -95,15 +90,7 @@ describe('detectStoredCoachingQualityIncidents', () => {
       candidateAssistantMessageIds: new Set(['a1']),
     });
 
-    expect(incidents).toEqual([
-      expect.objectContaining({
-        assistantMessageId: 'a1',
-        issue: 'post_delivery_quality_failure',
-        details: expect.objectContaining({
-          qualityIssues: expect.arrayContaining(['context_mismatch']),
-        }),
-      }),
-    ]);
+    expect(incidents).toEqual([]);
   });
 
   it('複数利用者の履歴を混ぜずセッションごとに判定する', () => {
@@ -150,7 +137,7 @@ describe('detectStoredCoachingQualityIncidents', () => {
       message(
         'a1',
         'assistant',
-        '職場で評価を上げるには、上司へ進捗を共有し、会議で担当業務の成果を説明してください。まず企画書の冒頭を書いてください。',
+        '以下は過去の会話の保存済み要約です。前回までの保存済み要約: 家計の相談。',
         2
       ),
     ];
@@ -221,7 +208,7 @@ describe('detectStoredCoachingQualityIncidents', () => {
       assistant_message_id: 'a1',
       session_id: SESSION_ID,
       user_id: userId,
-      issue: 'post_delivery_quality_failure',
+      issue: 'internal_context_exposure',
       source: 'scheduled_audit',
     });
     expect(JSON.stringify(upserts[0].rows[0])).not.toContain(
