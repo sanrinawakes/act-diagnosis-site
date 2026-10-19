@@ -7,7 +7,7 @@ import {
   COACHING_MAX_OUTPUT_TOKENS,
   COACHING_RESPONSE_SPEED_INSTRUCTION,
   getCoachingGeminiModel,
-  normalizeCoachingOutput,
+  minimallySanitizeCoachingOutput,
   prepareGeminiHistory,
   type CoachingChatMessage,
   type CoachingUsage,
@@ -448,8 +448,6 @@ async function runCandidate(
 ): Promise<ProviderResult> {
   const startedAt = Date.now();
   const systemPrompt = getContextualizedPrompt(scenario.diagnosisCode);
-  const historyMessages = scenario.messages.slice(0, -1);
-  const lastUserText = scenario.messages[scenario.messages.length - 1].content;
 
   try {
     const generated = BENCHMARK_DEPLOYMENT
@@ -459,11 +457,7 @@ async function runCandidate(
         : candidate.provider === 'openai'
           ? await runOpenAI(candidate.model, systemPrompt, scenario.messages)
           : await runAnthropic(candidate.model, systemPrompt, scenario.messages);
-    const text = normalizeCoachingOutput(
-      generated.rawText,
-      lastUserText,
-      historyMessages
-    );
+    const text = minimallySanitizeCoachingOutput(generated.rawText);
     const checks = evaluateQuality(scenario.id, generated, text);
 
     return {

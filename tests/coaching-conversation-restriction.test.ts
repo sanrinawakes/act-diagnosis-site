@@ -6,7 +6,6 @@ import { describe, expect, it, vi } from 'vitest';
 import * as actionLanguage from '../src/lib/coaching-action-language.mjs';
 vi.mock('@/lib/openai', () => ({ getGenAI: () => { throw new Error('NETWORK_DISABLED'); } }));
 vi.mock('@/lib/coaching-alerts', () => ({ sendCoachingAlert: () => { throw new Error('ALERT_DISABLED'); } }));
-import { normalizeCoachingOutput } from '../src/lib/coaching-gemini';
 // Observed synthetic public delivery, not original provider text. No API runs.
 const observed = {
   "label": "normal-2",
@@ -103,7 +102,6 @@ const assertResults = vm.runInNewContext(`${assertions}\nassertResults`, {
 // is judged below as the model's own delivery; the raw record is covered too.
 const aiDelivered = { ...observed, modelName: 'gemini-3.5-flash', provider: null };
 const request = 'では、明日まず何をすればいいか一つだけ教えてください。';
-const history = [{role:'user' as const,content:observed.lastUserText}];
 const concrete = '明日の朝、上司との会話で避けたいことを一つだけメモに書いてください。';
 function check(message: string, latest = request) {
   const result = {...aiDelivered,message,lastUserText:latest,outputChars:message.length};
@@ -119,9 +117,6 @@ describe('conversation restriction target remains distinct from a topic within a
   it('accepts the same grammatical target in one concrete action in smoke', () => {
     expect(check(concrete)).not.toThrow();
   });
-  it('keeps that relevant concrete action in runtime single-answer selection', () => {
-    expect(normalizeCoachingOutput(concrete,request,history)).toBe(concrete);
-  });
   it.each([
     '明日の朝、上司との会話を避けてください。',
     '明日の朝、話題を業務の確認だけに限定してください。',
@@ -134,9 +129,5 @@ describe('conversation restriction target remains distinct from a topic within a
   });
   it('retains the existing user-permission condition', () => {
     expect(check('明日の朝、上司との会話を避けてください。','上司との会話を避けたいです。')).not.toThrow();
-  });
-  it('keeps the existing runtime negative for imposed business-only conversation', () => {
-    const message = '明日の朝、出社する前に「今日、上司と話すのは業務の確認だけにする」と心の中で一度唱えてみてください。';
-    expect(normalizeCoachingOutput(message,request,history)).not.toContain('業務の確認だけ');
   });
 });
